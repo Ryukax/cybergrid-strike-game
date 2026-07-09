@@ -1,0 +1,1190 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>CyberGrid Strike</title>
+  <script src="https://cdn.jsdelivr.net/npm/@remix-gg/sdk@latest/dist/index.min.js"></script>
+  <style>
+    :root {
+      --bg1: #06111f;
+      --bg2: #0d203a;
+      --grid: #38bdf8;
+      --grid-dim: rgba(56, 189, 248, 0.18);
+      --player: #60a5fa;
+      --enemy: #fb7185;
+      --bullet: #fde047;
+      --text: #dbeafe;
+      --good: #86efac;
+      --warn: #fca5a5;
+      --card: #c084fc;
+      --card2: #8b5cf6;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at top, #163457 0%, var(--bg1) 55%, #02060d 100%);
+      font-family: Arial, sans-serif;
+      color: var(--text);
+    }
+    body { touch-action: none; }
+    #game {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+    }
+    canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .hud {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      pointer-events: none;
+      font-weight: 700;
+      text-shadow: 0 0 10px rgba(0,0,0,0.6);
+    }
+    .panel {
+      background: rgba(8, 20, 40, 0.55);
+      border: 1px solid rgba(125, 211, 252, 0.35);
+      border-radius: 12px;
+      padding: 8px 12px;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 0 20px rgba(14, 165, 233, 0.12) inset;
+    }
+    #message {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 14px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(2, 6, 23, 0.7);
+      border: 1px solid rgba(125, 211, 252, 0.28);
+      font-size: 14px;
+      pointer-events: none;
+      opacity: 0.95;
+      transition: opacity 0.5s ease;
+    }
+    #message.fade-out { opacity: 0; }
+    #controls {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 14px;
+      pointer-events: none;
+    }
+    #cardUi {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      top: 0;
+      width: min(92vw, 420px);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    #cardCharge {
+      background: rgba(8, 20, 40, 0.76);
+      border: 1px solid rgba(192, 132, 252, 0.45);
+      border-radius: 14px;
+      padding: 10px 12px;
+      box-shadow: 0 0 20px rgba(139, 92, 246, 0.14) inset;
+    }
+    #cardChargeLabel {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #ede9fe;
+    }
+    #cardBarTrack {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+    #cardBarFill {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--card), var(--card2));
+      box-shadow: 0 0 14px rgba(192, 132, 252, 0.6);
+    }
+    #cardChoices {
+      display: none;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      pointer-events: auto;
+    }
+    .card-btn {
+      background: linear-gradient(180deg, rgba(76, 29, 149, 0.92), rgba(30, 27, 75, 0.95));
+      border: 2px solid rgba(196, 181, 253, 0.55);
+      border-radius: 14px;
+      color: #f5f3ff;
+      padding: 10px 8px;
+      min-height: 76px;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: center;
+      pointer-events: auto;
+      touch-action: manipulation;
+      box-shadow: 0 0 18px rgba(139, 92, 246, 0.25);
+    }
+    .card-btn:active { transform: scale(0.96); }
+    .control-btn {
+      background: rgba(8, 20, 40, 0.7);
+      border: 2px solid rgba(125, 211, 252, 0.5);
+      border-radius: 12px;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 14px;
+      padding: 10px 16px;
+      pointer-events: auto;
+      touch-action: manipulation;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s;
+    }
+    .control-btn:active {
+      transform: scale(0.95);
+      background: rgba(59, 130, 246, 0.3);
+    }
+    #busterBtn {
+      background: rgba(251, 113, 133, 0.25);
+      border-color: var(--enemy);
+      border-radius: 50%;
+      width: 80px; height: 80px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #busterBtn:active { background: rgba(251, 113, 133, 0.5); }
+    #autoToggle.on {
+      background: rgba(34, 197, 94, 0.25);
+      border-color: var(--good);
+    }
+    #autoToggle.off {
+      background: rgba(252, 165, 165, 0.25);
+      border-color: var(--warn);
+    }
+    #dpad {
+      display: block;
+      position: absolute;
+      bottom: 80px; left: 50%;
+      transform: translateX(-50%);
+      width: 150px; height: 150px;
+      pointer-events: auto;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 20px;
+    }
+    .dpad-btn {
+      position: absolute;
+      width: 50px; height: 50px;
+      background: rgba(59, 130, 246, 0.3);
+      border: 2px solid rgba(125, 211, 252, 0.5);
+      border-radius: 12px;
+      pointer-events: auto;
+      touch-action: manipulation;
+    }
+    .dpad-btn:active { background: rgba(59, 130, 246, 0.6); }
+    #dpadUp { top: 0; left: 50px; }
+    #dpadDown { bottom: 0; left: 50px; }
+    #dpadLeft { top: 50px; left: 0; }
+    #dpadRight { top: 50px; right: 0; }
+    #dpadCenter { top: 50px; left: 50px; width: 50px; height: 50px; background: rgba(125,211,252,0.15); border-color: rgba(125,211,252,0.3); border-radius: 50%; }
+    #gamepadLabel {
+      position: absolute;
+      bottom: 14px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: rgba(196,181,253,0.7);
+      pointer-events: none;
+      display: none;
+    }
+    #orientationToggle {
+      position: absolute;
+      bottom: 200px; left: 14px;
+      transform: none;
+      background: rgba(8, 20, 40, 0.8);
+      border: 2px solid rgba(125, 211, 252, 0.5);
+      border-radius: 12px;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 12px;
+      padding: 8px 14px;
+      pointer-events: auto;
+      touch-action: manipulation;
+      cursor: pointer;
+      user-select: none;
+      z-index: 100;
+    }
+    #orientationToggle:active {
+      transform: translateX(-50%) scale(0.95);
+      background: rgba(59, 130, 246, 0.3);
+    }
+    #orientationToggle.landscape {
+      background: rgba(34, 197, 94, 0.3);
+      border-color: var(--good);
+    }
+  </style>
+</head>
+<body>
+  <div id="game">
+    <canvas id="canvas"></canvas>
+    <div class="hud" id="hud">
+      <div class="panel" id="hp">HP 5</div>
+      <div class="panel" id="score">Score 0</div>
+      <div class="panel" id="wave">Wave 1</div>
+    </div>
+    <div id="cardUi">
+      <div id="cardCharge">
+        <div id="cardChargeLabel">Ability Cards ready in 60s</div>
+        <div id="cardBarTrack"><div id="cardBarFill"></div></div>
+      </div>
+      <div id="cardChoices"></div>
+    </div>
+    <div id="dpad">
+      <div class="dpad-btn" id="dpadUp"></div>
+      <div class="dpad-btn" id="dpadDown"></div>
+      <div class="dpad-btn" id="dpadLeft"></div>
+      <div class="dpad-btn" id="dpadRight"></div>
+      <div class="dpad-btn" id="dpadCenter"></div>
+    </div>
+    <div id="controls">
+      <button id="autoToggle" class="control-btn">Auto: ON</button>
+      <button id="busterBtn" class="control-btn buster">BUSTER</button>
+    </div>
+    <div id="gamepadLabel">Gamepad connected — D-pad/stick to move, A to fire</div>
+    <button id="orientationToggle">Portrait</button>
+    <div id="message">Tap blue panels to move. Use BUSTER button to fire manually.</div>
+  </div>
+
+  <script>
+    (() => {
+      const sdk = window. RemixSDK;
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const hpEl = document.getElementById('hp');
+      const scoreEl = document.getElementById('score');
+      const waveEl = document.getElementById('wave');
+      const hudEl = document.getElementById('hud');
+      const msgEl = document.getElementById('message');
+      const autoToggleEl = document.getElementById('autoToggle');
+      const busterBtnEl = document.getElementById('busterBtn');
+      const cardChargeLabelEl = document.getElementById('cardChargeLabel');
+      const cardBarFillEl = document.getElementById('cardBarFill');
+      const cardChoicesEl = document.getElementById('cardChoices');
+
+      const ABILITY_POOL = [
+        { id: 'shotgun', name: 'SHOTGUN', desc: 'Wide 3-panel blast', cooldown: 8 },
+        { id: 'heal', name: 'RECOVER', desc: 'Heal 2 HP instantly', cooldown: 10 },
+        { id: 'time', name: 'TIME SLOW', desc: 'Slow viruses briefly', cooldown: 12 },
+        { id: 'pierce', name: 'PIERCE', desc: 'Next shot punches through', cooldown: 9 },
+        { id: 'bomb', name: 'GRID BOMB', desc: 'Blast the whole target row', cooldown: 11 },
+        { id: 'shield', name: 'SHIELD', desc: 'Block the next hit', cooldown: 14 },
+        { id: 'overclock', name: 'OVERCLOCK', desc: 'Boost fire rate briefly', cooldown: 13 },
+        { id: 'mirror', name: 'MIRROR', desc: 'Fire on all rows once', cooldown: 10 },
+        { id: 'scramble', name: 'SCRAMBLE', desc: 'Jolt every virus backward', cooldown: 9 }
+      ];
+      const ABILITY_LOOKUP = Object.fromEntries(ABILITY_POOL.map((a) => [a.id, a]));
+
+      let viewInfo = { viewContext: 'feed', contentSafeAreaInset: { top: 0, right: 0, bottom: 0, left: 0 } };
+      let muted = false;
+      let audioCtx = null;
+      let lastTime = 0;
+      let animationId = 0;
+      let isLandscape = false;
+      let deviceOrientationActive = false;
+      let manualOrientation = false;
+      const orientationToggleEl = document.getElementById('orientationToggle');
+      const gamepadState = { connected: false, moveX: 0, moveY: 0, fire: false, prevFire: false };
+      const touchDpadState = { up: false, down: false, left: false, right: false };
+      let gamepadLabelTimeout = 0;
+      let controllerStepCooldown = 0;
+      let fireHeld = false;
+      let lastInputSource = 'touch';
+      let gamepadDebugFrames = 0;
+      let keyboardState = { up: false, down: false, left: false, right: false, fire: false };
+      let lastGamepadSignature = '';
+      let gamepadTapHintShown = false;
+      let messageFadeTimeout = null;
+
+      const CARD_CHARGE_TIME = 20;
+      const state = {
+        running: true,
+        score: 0,
+        wave: 1,
+        hp: 5,
+        timer: 0,
+        enemySpawnTimer: 0,
+        moveFlash: 0,
+        slowTimer: 0,
+        cardTimer: 0,
+        cardsReady: false,
+        cardSelectionOpen: false,
+        player: { col: 1, row: 1, fireCooldown: 0 },
+        bullets: [],
+        enemies: [],
+        particles: [],
+        autoBuster: true,
+        shieldCharges: 0,
+        overclockTimer: 0,
+        pierceShots: 0,
+        abilityCooldowns: Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0])),
+        currentCardOptions: randomAbilityOptions()
+      };
+
+      function ensureAudio() {
+        if (muted) return null;
+        if (!audioCtx) {
+          const AC = window. AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          audioCtx = new AC();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      }
+
+      function showMessage(text, duration) {
+        if (messageFadeTimeout) { clearTimeout(messageFadeTimeout); messageFadeTimeout = null; }
+        msgEl.classList.remove('fade-out');
+        msgEl.textContent = text;
+        if (duration !== false) {
+          const fadeDelay = duration || 2000;
+          messageFadeTimeout = setTimeout(() => { msgEl.classList.add('fade-out'); messageFadeTimeout = null; }, fadeDelay);
+        }
+      }
+
+      function tone(freq, duration, type, volume) {
+        const ac = ensureAudio();
+        if (!ac) return;
+        const now = ac.currentTime;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = type || 'square';
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(volume || 0.04, now + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      }
+
+      function playShot() { tone(640, 0.07, 'square', 0.03); }
+      function playHit() { tone(180, 0.16, 'sawtooth', 0.05); }
+      function playScore() { tone(880, 0.08, 'triangle', 0.04); }
+      function playGameOver() { tone(120, 0.4, 'sawtooth', 0.06); }
+      function playMusicPulse() {
+        if (muted || !state.running) return;
+        tone(220, 0.18, 'triangle', 0.015);
+        setTimeout(() => { if (!muted && state.running) tone(330, 0.18, 'triangle', 0.012); }, 180);
+      }
+
+      let musicInterval = null;
+      function startMusic() {
+        if (musicInterval) clearInterval(musicInterval);
+        musicInterval = setInterval(playMusicPulse, 720);
+      }
+      function stopMusic() {
+        if (musicInterval) clearInterval(musicInterval);
+        musicInterval = null;
+      }
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(window.innerWidth * dpr);
+        canvas.height = Math.floor(window.innerHeight * dpr);
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        checkOrientation();
+        applySafeArea();
+      }
+
+      function applySafeArea() {
+        const inset = viewInfo.viewContext === 'full_screen' ? viewInfo.contentSafeAreaInset : { top: 0, right: 0, bottom: 0, left: 0 };
+        hudEl.style.paddingTop = (14 + inset.top) + 'px';
+        hudEl.style.paddingLeft = (14 + inset.left) + 'px';
+        hudEl.style.paddingRight = (14 + inset.right) + 'px';
+        msgEl.style.bottom = (14 + inset.bottom) + 'px';
+        positionCardUi();
+      }
+
+      function positionCardUi() {
+        const m = boardMetrics();
+        const cardUiEl = document.getElementById('cardUi');
+        if (cardUiEl) cardUiEl.style.top = (m.y + m.boardH + 10) + 'px';
+      }
+
+      function boardMetrics() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const inset = viewInfo.viewContext === 'full_screen' ? viewInfo.contentSafeAreaInset : { top: 0, right: 0, bottom: 0, left: 0 };
+        const usableW = w - inset.left - inset.right;
+        const usableH = h - inset.top - inset.bottom;
+        const cell = Math.min(usableW / 6.8, usableH / 8.2);
+        const boardW = cell * 6;
+        const boardH = cell * 3;
+        const x = inset.left + (usableW - boardW) * 0.5;
+        const y = inset.top + Math.max(usableH * 0.24, 90);
+        return { cell, boardW, boardH, x, y };
+      }
+
+      function resetGame(saved) {
+        state.running = true;
+        state.score = saved?.score || 0;
+        state.wave = saved?.wave || 1;
+        state.hp = saved?.hp || 5;
+        state.timer = 0;
+        state.enemySpawnTimer = 0.4;
+        state.moveFlash = 0;
+        state.slowTimer = 0;
+        state.cardTimer = Math.max(0, Math.min(CARD_CHARGE_TIME, saved?.cardTimer || 0));
+        state.cardsReady = !!saved?.cardsReady;
+        state.cardSelectionOpen = !!saved?.cardsReady;
+        state.player = saved?.player || { col: 1, row: 1, fireCooldown: 0 };
+        state.player.fireCooldown = 0;
+        state.bullets = [];
+        state.enemies = [];
+        state.particles = [];
+        if (typeof saved?.autoBuster === 'boolean') state.autoBuster = saved.autoBuster;
+        else state.autoBuster = true;
+        state.shieldCharges = saved?.shieldCharges || 0;
+        state.overclockTimer = saved?.overclockTimer || 0;
+        state.pierceShots = saved?.pierceShots || 0;
+        state.abilityCooldowns = saved?.abilityCooldowns
+          ? { ...saved.abilityCooldowns }
+          : Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0]));
+        state.currentCardOptions = saved?.currentCardOptions || randomAbilityOptions();
+        updateHud();
+        updateAutoToggleUI();
+        updateCardUI();
+        showMessage(state.cardsReady ? 'Ability Cards loaded! Pick one now.' : 'Tap blue panels to move. Use BUSTER button to fire manually.', state.cardsReady ? false : 2000);
+        startMusic();
+      }
+
+      function saveState() {
+        sdk.singlePlayer.actions.saveGameState({
+          gameState: {
+            score: state.score,
+            wave: state.wave,
+            hp: state.hp,
+            player: { col: state.player.col, row: state.player.row },
+            autoBuster: state.autoBuster,
+            cardTimer: state.cardTimer,
+            cardsReady: state.cardsReady,
+            shieldCharges: state.shieldCharges,
+            overclockTimer: state.overclockTimer,
+            pierceShots: state.pierceShots,
+            abilityCooldowns: state.abilityCooldowns,
+            currentCardOptions: state.currentCardOptions
+          }
+        });
+      }
+
+      function updateLandscape(val) {
+        if (isLandscape !== val) { isLandscape = val; updateOrientationUI(); }
+      }
+      function updateOrientationUI() {
+        orientationToggleEl.textContent = isLandscape ? 'Landscape' : 'Portrait';
+        orientationToggleEl.className = isLandscape ? 'landscape' : '';
+      }
+      function toggleOrientation() {
+        manualOrientation = true;
+        isLandscape = !isLandscape;
+        updateOrientationUI();
+        sdk.hapticFeedback('light');
+        orientationToggleEl.textContent = (isLandscape ? 'Landscape' : 'Portrait') + ' (Manual)';
+      }
+      function checkOrientation() {
+        if (manualOrientation) return;
+        let detected = false;
+        try {
+          if (window.screen && window.screen.orientation) {
+            const angle = window.screen.orientation.angle;
+            if (angle === 90 || angle === -90 || angle === 270) detected = true;
+          }
+        } catch(e) {}
+        if (!detected) {
+          try { if (window.matchMedia && window.matchMedia('(orientation: landscape)').matches) detected = true; } catch(e) {}
+        }
+        if (!detected) detected = window.innerWidth > window.innerHeight;
+        updateLandscape(detected);
+      }
+
+      let orientationListenersSetup = false;
+      function setupOrientationListeners() {
+        if (orientationListenersSetup) return;
+        orientationListenersSetup = true;
+        const onDeviceOrientation = (e) => {
+          if (e.gamma === null) return;
+          deviceOrientationActive = true;
+          updateLandscape(Math.abs(e.gamma) > 25);
+        };
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          document.body.addEventListener('pointerdown', () => {
+            DeviceOrientationEvent.requestPermission().then(s => {
+              if (s === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true });
+            }).catch(() => {});
+          }, { once: true, passive: true });
+        } else {
+          window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true });
+        }
+        window.addEventListener('orientationchange', () => {
+          setTimeout(checkOrientation, 50);
+          setTimeout(checkOrientation, 200);
+          setTimeout(checkOrientation, 500);
+        });
+      }
+
+      function showGamepadLabel(text) {
+        const label = document.getElementById('gamepadLabel');
+        label.textContent = text;
+        label.style.display = 'block';
+        if (gamepadLabelTimeout) clearTimeout(gamepadLabelTimeout);
+        gamepadLabelTimeout = setTimeout(() => { if (!gamepadState.connected) label.style.display = 'none'; }, 1600);
+      }
+
+      function handleGamepad() {
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let gp = null;
+        for (let i = 0; i < pads.length; i++) { if (pads[i] && pads[i].connected) { gp = pads[i]; break; } }
+        if (!gp) {
+          if (gamepadState.connected) {
+            gamepadState.connected = false;
+            gamepadState.moveX = 0; gamepadState.moveY = 0; gamepadState.fire = false; gamepadState.prevFire = false;
+            lastGamepadSignature = '';
+            document.getElementById('gamepadLabel').style.display = 'none';
+          }
+          return false;
+        }
+        const buttonPressed = (index) => { const b = gp.buttons && gp.buttons[index]; return !!(b && (b.pressed || b.value > 0.2)); };
+        const deadzone = 0.18;
+        const axes = Array.isArray(gp.axes) ? gp.axes : [];
+        let moveX = 0, moveY = 0;
+        const axisPairs = [[axes[0]||0,axes[1]||0],[axes[2]||0,axes[3]||0],[axes[4]||0,axes[5]||0],[axes[6]||0,axes[7]||0],[axes[9]||0,axes[10]||0]];
+        for (const pair of axisPairs) { if (Math.abs(pair[0]) > Math.abs(moveX)) moveX = pair[0]; if (Math.abs(pair[1]) > Math.abs(moveY)) moveY = pair[1]; }
+        if (buttonPressed(14) || buttonPressed(4)) moveX = -1; else if (buttonPressed(15) || buttonPressed(5)) moveX = 1;
+        if (buttonPressed(12) || buttonPressed(6)) moveY = -1; else if (buttonPressed(13) || buttonPressed(7)) moveY = 1;
+        if (Math.abs(moveX) < deadzone) moveX = 0;
+        if (Math.abs(moveY) < deadzone) moveY = 0;
+        const fire = buttonPressed(0) || buttonPressed(1) || buttonPressed(2) || buttonPressed(3) || buttonPressed(8) || buttonPressed(9) || buttonPressed(10) || buttonPressed(11);
+        gamepadState.prevFire = gamepadState.fire;
+        gamepadState.fire = fire;
+        gamepadState.moveX = moveX;
+        gamepadState.moveY = moveY;
+        const signature = JSON.stringify({ id: gp.id, axes: axes.slice(0,8).map(v=>Math.round((v||0)*10)/10), pressed: (gp.buttons||[]).map((b,idx)=>(b&&(b.pressed||b.value>0.2))?idx:null).filter(v=>v!==null).slice(0,12) });
+        const active = moveX !== 0 || moveY !== 0 || fire;
+        if (!gamepadState.connected) { gamepadState.connected = true; showGamepadLabel(active ? 'Gamepad detected' : 'Press any gamepad button'); sdk.hapticFeedback('light'); }
+        if (signature !== lastGamepadSignature) { lastGamepadSignature = signature; if (!gamepadTapHintShown) { showGamepadLabel(active ? 'Gamepad input detected' : 'Press any gamepad button'); gamepadTapHintShown = true; } }
+        if (active) { lastInputSource = 'gamepad'; gamepadDebugFrames = 12; } else { gamepadDebugFrames = Math.max(0, gamepadDebugFrames - 1); }
+        return active;
+      }
+
+      function getMoveIntent() {
+        checkOrientation();
+        const landscape = isLandscape;
+        let dx = 0, dy = 0;
+        if (keyboardState.left) dx = -1; else if (keyboardState.right) dx = 1;
+        if (keyboardState.up) dy = -1; else if (keyboardState.down) dy = 1;
+        let gpDx = 0, gpDy = 0;
+        if (Math.abs(gamepadState.moveX) > 0.15) gpDx = gamepadState.moveX > 0 ? 1 : -1;
+        if (Math.abs(gamepadState.moveY) > 0.15) gpDy = gamepadState.moveY > 0 ? 1 : -1;
+        let touchDx = 0, touchDy = 0;
+        if (touchDpadState.left) touchDx = -1; else if (touchDpadState.right) touchDx = 1;
+        if (touchDpadState.up) touchDy = -1; else if (touchDpadState.down) touchDy = 1;
+        if (landscape) {
+          const rKeyX = -dy, rKeyY = dx; dx = rKeyX; dy = rKeyY;
+          const rGpX = -gpDy, rGpY = gpDx; gpDx = rGpX; gpDy = rGpY;
+          const rTouchX = -touchDy, rTouchY = touchDx; touchDx = rTouchX; touchDy = rTouchY;
+        }
+        if (gpDx !== 0) dx = gpDx;
+        if (gpDy !== 0) dy = gpDy;
+        if (touchDx !== 0) dx = touchDx;
+        if (touchDy !== 0) dy = touchDy;
+        return { dx, dy };
+      }
+
+      function processControllerMovement(dt) {
+        if (!state.running) return;
+        controllerStepCooldown = Math.max(0, controllerStepCooldown - dt);
+        const { dx, dy } = getMoveIntent();
+        if ((dx !== 0 || dy !== 0) && controllerStepCooldown <= 0) {
+          const newCol = Math.max(0, Math.min(2, state.player.col + dx));
+          const newRow = Math.max(0, Math.min(2, state.player.row + dy));
+          if (newCol !== state.player.col || newRow !== state.player.row) { tryMoveTo(newCol, newRow); controllerStepCooldown = 0.16; }
+        }
+        if (gamepadState.fire && !fireHeld) manualBuster();
+        fireHeld = gamepadState.fire;
+      }
+
+      function updateHud() {
+        hpEl.textContent = 'HP ' + state.hp;
+        scoreEl.textContent = 'Score ' + state.score;
+        waveEl.textContent = 'Wave ' + state.wave;
+      }
+
+      function updateAutoToggleUI() {
+        autoToggleEl.textContent = state.autoBuster ? 'Auto: ON' : 'Auto: OFF';
+        autoToggleEl.className = 'control-btn ' + (state.autoBuster ? 'on' : 'off');
+      }
+
+      function randomAbilityOptions() {
+        const pool = [...ABILITY_POOL];
+        for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+        return pool.slice(0, 3).map((a) => a.id);
+      }
+
+      function renderCardChoices() {
+        cardChoicesEl.innerHTML = '';
+        for (const abilityId of state.currentCardOptions) {
+          const ability = ABILITY_LOOKUP[abilityId];
+          if (!ability) continue;
+          const cooldown = state.abilityCooldowns[abilityId] || 0;
+          const button = document.createElement('button');
+          button.className = 'card-btn';
+          button.dataset.ability = abilityId;
+          if (cooldown > 0) {
+            button.disabled = true;
+            button.innerHTML = ability.name + '
+<span>Cooldown ' + Math.ceil(cooldown) + 's</span>';
+          } else {
+            button.innerHTML = ability.name + '
+<span>' + ability.desc + '</span>';
+          }
+          cardChoicesEl.appendChild(button);
+        }
+      }
+
+      function updateCardUI() {
+        const progress = Math.max(0, Math.min(1, state.cardTimer / CARD_CHARGE_TIME));
+        cardBarFillEl.style.width = (progress * 100).toFixed(1) + '%';
+        if (state.cardsReady) {
+          renderCardChoices();
+          const allOnCooldown = state.currentCardOptions.length > 0 && state.currentCardOptions.every((id) => (state.abilityCooldowns[id] || 0) > 0);
+          cardChargeLabelEl.textContent = allOnCooldown ? 'All abilities on cooldown — cards will reroll when ready' : (state.cardSelectionOpen ? 'Choose an Ability Card' : 'Ability Cards ready! Tap a card');
+          cardChoicesEl.style.display = 'grid';
+        } else {
+          const remaining = Math.max(0, Math.ceil(CARD_CHARGE_TIME - state.cardTimer));
+          cardChargeLabelEl.textContent = 'Ability Cards ready in ' + remaining + 's';
+          cardChoicesEl.style.display = 'none';
+        }
+      }
+
+      function openCards() {
+        if (state.cardsReady) return;
+        rerollCardOptions();
+        state.cardsReady = true;
+        state.cardSelectionOpen = true;
+        updateCardUI();
+        showMessage('Ability Cards loaded! Pick one now.', false);
+        sdk.hapticFeedback('success');
+        tone(740, 0.12, 'triangle', 0.04);
+        setTimeout(() => tone(980, 0.18, 'triangle', 0.04), 120);
+      }
+
+      function rerollCardOptions() {
+        let nextOptions = randomAbilityOptions();
+        if (ABILITY_POOL.length > 3) {
+          let guard = 0;
+          while (guard < 8 && nextOptions.join('|') === state.currentCardOptions.join('|')) { nextOptions = randomAbilityOptions(); guard += 1; }
+        }
+        state.currentCardOptions = nextOptions;
+      }
+
+      function consumeCards() {
+        rerollCardOptions();
+        state.cardTimer = 0;
+        state.cardsReady = false;
+        state.cardSelectionOpen = false;
+        updateCardUI();
+      }
+
+      function useCard(type) {
+        if (!state.running || !state.cardsReady) return;
+        const ability = ABILITY_LOOKUP[type];
+        if (!ability) return;
+        if ((state.abilityCooldowns[type] || 0) > 0) return;
+        const m = boardMetrics();
+        if (type === 'shotgun') {
+          for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+            const targetRow = state.player.row + rowOffset;
+            if (targetRow >= 0 && targetRow < 3) fireBullet(targetRow, { power: 2, big: true });
+          }
+          showMessage('Shotgun card fired!', 1500);
+          tone(420, 0.08, 'square', 0.05);
+          setTimeout(() => tone(320, 0.08, 'square', 0.04), 60);
+        } else if (type === 'heal') {
+          state.hp = Math.min(5, state.hp + 2);
+          updateHud();
+          addParticles(m.x + (state.player.col + 0.5) * m.cell, m.y + (state.player.row + 0.5) * m.cell, '#86efac');
+          showMessage('Recover card restored 2 HP!', 1500);
+          tone(660, 0.12, 'triangle', 0.04);
+          setTimeout(() => tone(880, 0.18, 'triangle', 0.04), 100);
+        } else if (type === 'time') {
+          state.slowTimer = 6;
+          showMessage('Time Slow card activated!', 1500);
+          tone(300, 0.1, 'sine', 0.04);
+          setTimeout(() => tone(240, 0.18, 'sine', 0.035), 90);
+        } else if (type === 'pierce') {
+          state.pierceShots = Math.max(state.pierceShots, 1);
+          showMessage('Pierce loaded for your next shot!', 1500);
+          tone(540, 0.08, 'square', 0.045);
+        } else if (type === 'bomb') {
+          const targetRow = state.player.row;
+          let hits = 0;
+          for (const enemy of state.enemies) {
+            if (enemy.row === targetRow) {
+              enemy.hp -= 2;
+              enemy.flash = 0.12;
+              if (enemy.hp <= 0) {
+                addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fde047');
+                enemy.colPos = -9;
+                state.score += 100;
+                hits += 1;
+              }
+            }
+          }
+          if (hits > 0) { if (state.score % 500 === 0) state.wave += 1; updateHud(); playScore(); }
+          showMessage('Grid Bomb blasted the row!', 1500);
+          tone(220, 0.12, 'sawtooth', 0.05);
+        } else if (type === 'shield') {
+          state.shieldCharges = Math.min(3, state.shieldCharges + 1);
+          showMessage('Shield charged!', 1500);
+          tone(760, 0.12, 'triangle', 0.04);
+        } else if (type === 'overclock') {
+          state.overclockTimer = 6;
+          showMessage('Overclock boosted fire rate!', 1500);
+          tone(900, 0.08, 'square', 0.04);
+          setTimeout(() => tone(1080, 0.12, 'square', 0.035), 70);
+        } else if (type === 'mirror') {
+          for (let row = 0; row < 3; row++) fireBullet(row, { power: 1, big: true });
+          showMessage('Mirror volley launched!', 1500);
+          tone(500, 0.09, 'triangle', 0.04);
+        } else if (type === 'scramble') {
+          for (const enemy of state.enemies) { enemy.colPos = Math.min(5.8, enemy.colPos + 0.8); enemy.flash = 0.1; }
+          showMessage('Viruses scrambled backward!', 1500);
+          tone(260, 0.1, 'sine', 0.045);
+        }
+        state.abilityCooldowns[type] = ability.cooldown;
+        sdk.hapticFeedback('medium');
+        saveState();
+        consumeCards();
+      }
+
+      function manualBuster() {
+        if (!state.running) return;
+        if (state.player.fireCooldown <= 0) {
+          fireBullet();
+          state.player.fireCooldown = 0.25;
+          sdk.hapticFeedback('light');
+        }
+      }
+
+      function spawnEnemy() {
+        const row = Math.floor(Math.random() * 3);
+        const speed = 1.15 + Math.min(0.55, (state.wave - 1) * 0.08);
+        const hp = Math.random() < 0.2 + Math.min(0.25, state.wave * 0.03) ? 2 : 1;
+        state.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0 });
+      }
+
+      function addParticles(x, y, color) {
+        for (let i = 0; i < 10; i++) {
+          const a = Math.random() * Math. PI * 2;
+          const sp = 30 + Math.random() * 90;
+          state.particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + Math.random() * 0.25, maxLife: 0.6, color });
+        }
+      }
+
+      function endGame() {
+        if (!state.running) return;
+        state.running = false;
+        stopMusic();
+        playGameOver();
+        sdk.hapticFeedback('error');
+        msgEl.textContent = 'Connection lost! Tap Play Again to restart.';
+        saveState();
+        sdk.singlePlayer.actions.gameOver({ score: state.score });
+      }
+
+      function tryMoveTo(col, row) {
+        if (!state.running) return;
+        if (col < 0 || col > 2 || row < 0 || row > 2) return;
+        state.player.col = col;
+        state.player.row = row;
+        state.moveFlash = 0.15;
+        sdk.hapticFeedback('light');
+        tone(420, 0.05, 'triangle', 0.025);
+        saveState();
+      }
+
+      function onPointer(ev) {
+        ensureAudio();
+        const rect = canvas.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        const m = boardMetrics();
+        if (x < m.x || x > m.x + m.boardW || y < m.y || y > m.y + m.boardH) return;
+        const col = Math.floor((x - m.x) / m.cell);
+        const row = Math.floor((y - m.y) / m.cell);
+        if (col <= 2) tryMoveTo(col, row);
+      }
+
+      function fireBullet(rowOverride, options) {
+        const p = state.player;
+        const opts = options || {};
+        const row = typeof rowOverride === 'number' ? rowOverride : p.row;
+        const power = opts.power || 1;
+        const big = !!opts.big;
+        let pierce = !!opts.pierce;
+        if (!pierce && state.pierceShots > 0) {
+          pierce = true;
+          state.pierceShots = Math.max(0, state.pierceShots - 1);
+        }
+        state.bullets.push({ colPos: p.col + 0.55, row, speed: 8.5, power, big, pierce });
+        playShot();
+      }
+
+      function update(dt) {
+        if (!state.running) return;
+        checkOrientation();
+        handleGamepad();
+        processControllerMovement(dt);
+        state.timer += dt;
+        state.moveFlash = Math.max(0, state.moveFlash - dt);
+        state.slowTimer = Math.max(0, state.slowTimer - dt);
+        state.overclockTimer = Math.max(0, state.overclockTimer - dt);
+        for (const ability of ABILITY_POOL) {
+          if (state.abilityCooldowns[ability.id] > 0) {
+            state.abilityCooldowns[ability.id] = Math.max(0, state.abilityCooldowns[ability.id] - dt);
+          }
+        }
+        if (!state.cardsReady) {
+          state.cardTimer = Math.min(CARD_CHARGE_TIME, state.cardTimer + dt);
+          if (state.cardTimer >= CARD_CHARGE_TIME) openCards();
+        }
+        updateCardUI();
+        state.player.fireCooldown -= dt;
+        if (state.autoBuster && state.player.fireCooldown <= 0 && !state.cardSelectionOpen) {
+          state.player.fireCooldown = state.overclockTimer > 0 ? 0.16 : 0.34;
+          fireBullet();
+        }
+
+        state.enemySpawnTimer -= dt;
+        const spawnDelay = Math.max(0.6, 1.25 - state.wave * 0.05);
+        if (state.enemySpawnTimer <= 0) { state.enemySpawnTimer = spawnDelay; spawnEnemy(); }
+
+        for (const b of state.bullets) b.colPos += b.speed * dt;
+        state.bullets = state.bullets.filter(b => b.colPos < 6.4);
+
+        for (const e of state.enemies) {
+          const enemySpeedScale = state.slowTimer > 0 ? 0.45 : 1;
+          e.colPos -= e.speed * enemySpeedScale * dt;
+          e.flash = Math.max(0, e.flash - dt);
+          if (Math.round(e.colPos) === state.player.col && e.row === state.player.row && e.colPos < state.player.col + 0.45) {
+            if (state.shieldCharges > 0) {
+              state.shieldCharges -= 1;
+              e.colPos = -9;
+              showMessage('Shield absorbed a hit!', 1200);
+              sdk.hapticFeedback('medium');
+            } else {
+              state.hp -= 1;
+              e.colPos = -9;
+              playHit();
+              sdk.hapticFeedback('medium');
+              msgEl.textContent = 'Watch incoming viruses on your row!';
+              saveState();
+              if (state.hp <= 0) { updateHud(); endGame(); return; }
+            }
+          }
+        }
+
+        for (const b of state.bullets) {
+          for (const e of state.enemies) {
+            if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
+              if (!b.pierce) b.colPos = 99;
+              e.hp -= b.power || 1;
+              e.flash = 0.08;
+              if (e.hp <= 0) {
+                addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
+                e.colPos = -9;
+                state.score += 100;
+                if (state.score % 500 === 0) state.wave += 1;
+                playScore();
+                sdk.hapticFeedback('success');
+                updateHud();
+                saveState();
+              } else {
+                playHit();
+              }
+            }
+          }
+        }
+
+        state.enemies = state.enemies.filter(e => e.colPos > -1);
+
+        for (const p of state.particles) {
+          p.life -= dt;
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vx *= 0.96;
+          p.vy *= 0.96;
+        }
+        state.particles = state.particles.filter(p => p.life > 0);
+      }
+
+      function draw() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        ctx.clearRect(0, 0, w, h);
+
+        const m = boardMetrics();
+        const splitX = m.x + m.cell * 3;
+
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, 'rgba(8, 20, 40, 0.16)');
+        bg.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        for (let i = 0; i < 28; i++) {
+          const yy = (i * 47 + (performance.now() * 0.03)) % (h + 60) - 30;
+          ctx.fillStyle = 'rgba(56,189,248,0.05)';
+          ctx.fillRect(0, yy, w, 1);
+        }
+
+        for (let r = 0; r < 3; r++) {
+          for (let c = 0; c < 6; c++) {
+            const x = m.x + c * m.cell;
+            const y = m.y + r * m.cell;
+            const playerSide = c < 3;
+            ctx.fillStyle = playerSide ? 'rgba(59,130,246,0.12)' : 'rgba(244,63,94,0.10)';
+            if (playerSide && c === state.player.col && r === state.player.row && state.moveFlash > 0) {
+              ctx.fillStyle = 'rgba(96,165,250,0.28)';
+            }
+            ctx.fillRect(x + 2, y + 2, m.cell - 4, m.cell - 4);
+            ctx.strokeStyle = playerSide ? 'rgba(125,211,252,0.55)' : 'rgba(251,113,133,0.45)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 2, y + 2, m.cell - 4, m.cell - 4);
+          }
+        }
+
+        ctx.strokeStyle = 'rgba(253,224,71,0.85)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(splitX, m.y + 4);
+        ctx.lineTo(splitX, m.y + m.boardH - 4);
+        ctx.stroke();
+
+        if (state.shieldCharges > 0) {
+          const playerX = m.x + (state.player.col + 0.5) * m.cell;
+          const playerY = m.y + (state.player.row + 0.5) * m.cell;
+          ctx.strokeStyle = 'rgba(134,239,172,0.7)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(playerX, playerY, m.cell * 0.38, 0, Math. PI * 2);
+          ctx.stroke();
+        }
+
+        const playerX = m.x + (state.player.col + 0.5) * m.cell;
+        const playerY = m.y + (state.player.row + 0.5) * m.cell;
+        ctx.fillStyle = '#60a5fa';
+        ctx.beginPath();
+        ctx.roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
+        ctx.fill();
+        ctx.fillStyle = '#dbeafe';
+        ctx.fillRect(playerX + m.cell * 0.05, playerY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12);
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillRect(playerX - m.cell * 0.12, playerY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+
+        for (const b of state.bullets) {
+          const x = m.x + b.colPos * m.cell;
+          const y = m.y + (b.row + 0.5) * m.cell;
+          const bulletRadius = b.big ? m.cell * 0.12 : m.cell * 0.08;
+          ctx.fillStyle = b.pierce ? '#c084fc' : '#fde047';
+          ctx.beginPath();
+          ctx.arc(x, y, bulletRadius, 0, Math. PI * 2);
+          ctx.fill();
+          ctx.fillStyle = b.pierce ? 'rgba(192,132,252,0.25)' : 'rgba(253,224,71,0.25)';
+          ctx.beginPath();
+          ctx.arc(x - m.cell * 0.09, y, bulletRadius * 1.5, 0, Math. PI * 2);
+          ctx.fill();
+        }
+
+        for (const e of state.enemies) {
+          const x = m.x + (e.colPos + 0.5) * m.cell;
+          const y = m.y + (e.row + 0.5) * m.cell;
+          ctx.fillStyle = e.flash > 0 ? '#fff1f2' : '#fb7185';
+          ctx.beginPath();
+          ctx.roundRect(x - m.cell * 0.2, y - m.cell * 0.2, m.cell * 0.4, m.cell * 0.4, 12);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+          ctx.strokeRect(x - m.cell * 0.12, y - m.cell * 0.12, m.cell * 0.24, m.cell * 0.24);
+          if (e.hp > 1) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 5, y - m.cell * 0.3, 10, 3); }
+        }
+
+        for (const p of state.particles) {
+          ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+          ctx.fillStyle = p.color;
+          ctx.fillRect(p.x, p.y, 3, 3);
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.strokeStyle = 'rgba(125,211,252,0.18)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(m.x, m.y, m.boardW, m.boardH);
+      }
+
+      function frame(ts) {
+        if (!lastTime) lastTime = ts;
+        const dt = Math.min(0.1, (ts - lastTime) / 1000);
+        lastTime = ts;
+        update(dt);
+        draw();
+        animationId = requestAnimationFrame(frame);
+      }
+
+      async function init() {
+        const info = await sdk.ready();
+        viewInfo = { viewContext: info.viewContext, contentSafeAreaInset: info.contentSafeAreaInset || { top: 0, right: 0, bottom: 0, left: 0 } };
+
+        sdk.onGameInfo((data) => {
+          viewInfo = { viewContext: data.viewContext, contentSafeAreaInset: data.contentSafeAreaInset || { top: 0, right: 0, bottom: 0, left: 0 } };
+          applySafeArea();
+        });
+
+        sdk.onGameStateUpdated((data) => {
+          if (!data || !data.gameState || !state.running) return;
+          const gs = data.gameState;
+          if (typeof gs.hp === 'number') state.hp = gs.hp;
+          if (typeof gs.score === 'number') state.score = gs.score;
+          if (typeof gs.wave === 'number') state.wave = gs.wave;
+          if (typeof gs.autoBuster === 'boolean') state.autoBuster = gs.autoBuster;
+          if (typeof gs.cardTimer === 'number') state.cardTimer = Math.max(0, Math.min(CARD_CHARGE_TIME, gs.cardTimer));
+          if (typeof gs.cardsReady === 'boolean') { state.cardsReady = gs.cardsReady; state.cardSelectionOpen = gs.cardsReady; }
+          if (typeof gs.shieldCharges === 'number') state.shieldCharges = gs.shieldCharges;
+          if (typeof gs.overclockTimer === 'number') state.overclockTimer = gs.overclockTimer;
+          if (typeof gs.pierceShots === 'number') state.pierceShots = gs.pierceShots;
+          if (gs.abilityCooldowns && typeof gs.abilityCooldowns === 'object') {
+            for (const ability of ABILITY_POOL) state.abilityCooldowns[ability.id] = Math.max(0, gs.abilityCooldowns[ability.id] || 0);
+          }
+          if (Array.isArray(gs.currentCardOptions)) state.currentCardOptions = gs.currentCardOptions.filter((id) => ABILITY_LOOKUP[id]).slice(0, 3);
+          if (gs.player && typeof gs.player.col === 'number' && typeof gs.player.row === 'number') {
+            state.player.col = gs.player.col;
+            state.player.row = gs.player.row;
+          }
+          updateHud();
+          updateAutoToggleUI();
+          updateCardUI();
+        });
+
+        sdk.onToggleMute((data) => {
+          muted = !!data.isMuted;
+          if (muted && audioCtx) audioCtx.suspend();
+          else if (!muted) ensureAudio();
+        });
+
+        sdk.onPlayAgain(() => { resetGame(); });
+
+        canvas.addEventListener('pointerdown', onPointer, { passive: false });
+        window.addEventListener('resize', resize);
+        document.body.addEventListener('pointerdown', () => { ensureAudio(); }, { passive: true, once: true });
+        setupOrientationListeners();
+
+        window.addEventListener('keydown', (ev) => {
+          ensureAudio();
+          if (!state.running) return;
+          const key = ev.key;
+          if (key === 'ArrowUp' || key === 'w') keyboardState.up = true;
+          else if (key === 'ArrowDown' || key === 's') keyboardState.down = true;
+          else if (key === 'ArrowLeft' || key === 'a') keyboardState.left = true;
+          else if (key === 'ArrowRight' || key === 'd') keyboardState.right = true;
+          else if (key === ' ' || key === 'z' || key === 'x') manualBuster();
+        });
+        window.addEventListener('keyup', (ev) => {
+          const key = ev.key;
+          if (key === 'ArrowUp' || key === 'w') keyboardState.up = false;
+          else if (key === 'ArrowDown' || key === 's') keyboardState.down = false;
+          else if (key === 'ArrowLeft' || key === 'a') keyboardState.left = false;
+          else if (key === 'ArrowRight' || key === 'd') keyboardState.right = false;
+        });
+
+        const dpadMap = { dpadUp: 'up', dpadDown: 'down', dpadLeft: 'left', dpadRight: 'right' };
+        for (const [id, dir] of Object.entries(dpadMap)) {
+          const el = document.getElementById(id);
+          if (!el) continue;
+          const setPressed = (pressed) => { touchDpadState[dir] = pressed; };
+          el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); ensureAudio(); el.setPointerCapture(ev.pointerId); setPressed(true); });
+          el.addEventListener('pointerup', () => setPressed(false));
+          el.addEventListener('pointercancel', () => setPressed(false));
+          el.addEventListener('lostpointercapture', () => setPressed(false));
+        }
+        const dpadCenterEl = document.getElementById('dpadCenter');
+        if (dpadCenterEl) {
+          dpadCenterEl.addEventListener('pointerdown', (ev) => { ev.preventDefault(); ensureAudio(); dpadCenterEl.setPointerCapture(ev.pointerId); manualBuster(); });
+        }
+
+        window.addEventListener('gamepadconnected', () => { sdk.hapticFeedback('light'); document.getElementById('gamepadLabel').style.display = 'block'; });
+        window.addEventListener('gamepaddisconnected', () => { gamepadState.connected = false; document.getElementById('gamepadLabel').style.display = 'none'; });
+
+        autoToggleEl.addEventListener('pointerdown', (ev) => {
+          ev.stopPropagation();
+          ensureAudio();
+          state.autoBuster = !state.autoBuster;
+          updateAutoToggleUI();
+          saveState();
+          sdk.hapticFeedback('light');
+          tone(520, 0.06, 'triangle', 0.03);
+        });
+
+        busterBtnEl.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); });
+
+        cardChoicesEl.addEventListener('pointerdown', (ev) => {
+          const button = ev.target.closest('[data-ability]');
+          if (!button) return;
+          ev.stopPropagation();
+          ensureAudio();
+          useCard(button.dataset.ability);
+        });
+
+        orientationToggleEl.addEventListener('pointerdown', (ev) => { ev.stopPropagation(); ensureAudio(); toggleOrientation(); });
+
+        resize();
+        resetGame(sdk.gameState || undefined);
+        animationId = requestAnimationFrame(frame);
+      }
+
+      window.addEventListener('error', (event) => {
+        sdk.reportError({ message: event.message, source: event.filename, lineno: event.lineno, colno: event.colno, error: event.error });
+      });
+
+      init();
+    })();
+  </script>
+</body>
+</html>
+```

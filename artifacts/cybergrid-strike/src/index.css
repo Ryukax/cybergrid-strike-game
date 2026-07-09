@@ -1,0 +1,333 @@
+:root {
+  --bg1: #06111f;
+  --bg2: #0d203a;
+  --grid: #38bdf8;
+  --player: #60a5fa;
+  --enemy: #fb7185;
+  --bullet: #fde047;
+  --text: #dbeafe;
+  --good: #86efac;
+  --warn: #fca5a5;
+  --card: #c084fc;
+  --card2: #8b5cf6;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at top, #163457 0%, var(--bg1) 55%, #02060d 100%);
+  font-family: Arial, sans-serif;
+  color: var(--text);
+}
+
+body {
+  touch-action: none;
+}
+
+#game {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+canvas#canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* HUD */
+.hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  pointer-events: none;
+  font-weight: 700;
+  text-shadow: 0 0 10px rgba(0,0,0,0.6);
+}
+
+.panel {
+  background: rgba(8, 20, 40, 0.55);
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  border-radius: 12px;
+  padding: 8px 12px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 20px rgba(14, 165, 233, 0.12) inset;
+}
+
+/* Message bar */
+#message {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 14px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.7);
+  border: 1px solid rgba(125, 211, 252, 0.28);
+  font-size: 14px;
+  pointer-events: none;
+  opacity: 0.95;
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 20;
+}
+
+/* Controls row */
+#controls {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 14px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.control-btn {
+  background: rgba(8, 20, 40, 0.7);
+  border: 2px solid rgba(125, 211, 252, 0.5);
+  border-radius: 12px;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px 16px;
+  pointer-events: auto;
+  touch-action: manipulation;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.control-btn:active {
+  transform: scale(0.95);
+  background: rgba(59, 130, 246, 0.3);
+}
+
+#busterBtn {
+  background: rgba(251, 113, 133, 0.25);
+  border-color: var(--enemy);
+  border-radius: 50%;
+  width: 80px;
+  height: 80px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#busterBtn:active {
+  background: rgba(251, 113, 133, 0.5);
+}
+
+#autoToggle.on {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: var(--good);
+}
+
+#autoToggle.off {
+  background: rgba(252, 165, 165, 0.25);
+  border-color: var(--warn);
+}
+
+/* D-pad */
+#dpad {
+  display: block;
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 150px;
+  pointer-events: auto;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 20px;
+}
+
+.dpad-btn {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  background: rgba(59, 130, 246, 0.3);
+  border: 2px solid rgba(125, 211, 252, 0.5);
+  border-radius: 12px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.dpad-btn:active {
+  background: rgba(59, 130, 246, 0.6);
+}
+
+#dpadUp    { top: 0; left: 50px; }
+#dpadDown  { bottom: 0; left: 50px; }
+#dpadLeft  { top: 50px; left: 0; }
+#dpadRight { top: 50px; right: 0; }
+#dpadCenter {
+  top: 50px; left: 50px;
+  width: 50px; height: 50px;
+  background: rgba(125,211,252,0.15);
+  border-color: rgba(125,211,252,0.3);
+  border-radius: 50%;
+}
+
+/* Card UI */
+#cardUi {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 60px;
+  width: min(92vw, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#cardCharge {
+  background: rgba(8, 20, 40, 0.76);
+  border: 1px solid rgba(192, 132, 252, 0.45);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.14) inset;
+}
+
+#cardChargeLabel {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #ede9fe;
+}
+
+#cardBarTrack {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+
+#cardBarFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--card), var(--card2));
+  box-shadow: 0 0 14px rgba(192, 132, 252, 0.6);
+  transition: width 0.3s linear;
+}
+
+#cardChoices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.card-btn {
+  background: linear-gradient(180deg, rgba(76, 29, 149, 0.92), rgba(30, 27, 75, 0.95));
+  border: 2px solid rgba(196, 181, 253, 0.55);
+  border-radius: 14px;
+  color: #f5f3ff;
+  padding: 10px 8px;
+  min-height: 76px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  pointer-events: auto;
+  touch-action: manipulation;
+  box-shadow: 0 0 18px rgba(139, 92, 246, 0.25);
+  cursor: pointer;
+}
+
+.card-btn:active {
+  transform: scale(0.96);
+}
+
+.card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Game Over Overlay */
+#gameOverOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.8);
+  backdrop-filter: blur(6px);
+  z-index: 50;
+}
+
+#gameOverCard {
+  background: rgba(8, 20, 40, 0.92);
+  border: 2px solid rgba(125, 211, 252, 0.5);
+  border-radius: 20px;
+  padding: 36px 48px;
+  text-align: center;
+  box-shadow: 0 0 60px rgba(14, 165, 233, 0.2), 0 0 120px rgba(14, 165, 233, 0.08);
+}
+
+#gameOverTitle {
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: var(--enemy);
+  text-shadow: 0 0 20px rgba(251, 113, 133, 0.6);
+  margin-bottom: 16px;
+}
+
+#gameOverScore {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+#gameOverWave {
+  font-size: 16px;
+  color: rgba(219, 234, 254, 0.6);
+  margin-bottom: 28px;
+}
+
+#playAgainBtn {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.9));
+  border: 2px solid rgba(125, 211, 252, 0.6);
+  border-radius: 14px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 14px 36px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 0 24px rgba(59, 130, 246, 0.4);
+  transition: all 0.15s;
+}
+
+#playAgainBtn:active {
+  transform: scale(0.96);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 1));
+}
