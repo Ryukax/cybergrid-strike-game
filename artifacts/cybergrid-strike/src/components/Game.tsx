@@ -84,6 +84,8 @@ export default function Game() {
   // Throttle HUD updates: only push cooldown state once per second
   const hudTickRef = useRef<number>(0);
 
+  const [boardBottom, setBoardBottom] = useState(0);
+
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
     cardsReady: false, cardSelectionOpen: false, cardTimer: 0,
@@ -450,6 +452,8 @@ export default function Game() {
     canvas.style.height = window.innerHeight + 'px';
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const m = getBoardMetrics(window.innerWidth, window.innerHeight);
+    setBoardBottom(m.y + m.boardH);
   }, []);
 
   const restart = useCallback(() => {
@@ -581,8 +585,8 @@ export default function Game() {
         <div className="panel">Wave {hud.wave}</div>
       </div>
 
-      {/* Card UI */}
-      <div id="cardUi">
+      {/* Card UI — positioned just below the grid */}
+      <div id="cardUi" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
         <div id="cardCharge">
           <div id="cardChargeLabel">
             {hud.cardsReady

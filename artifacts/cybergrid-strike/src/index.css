@@ -196,7 +196,6 @@ canvas#canvas {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  top: 60px;
   width: min(92vw, 420px);
   display: flex;
   flex-direction: column;
