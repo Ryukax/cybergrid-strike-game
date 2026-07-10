@@ -1180,14 +1180,6 @@ export default function Game() {
           Auto: {hud.autoBuster ? 'ON' : 'OFF'}
         </button>
 
-        <button
-          id="busterBtn"
-          className="control-btn"
-          onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); }}
-        >
-          BUSTER
-        </button>
-
         {phase === 'playing' && hud.running && (
           <button
             id="pauseBtn"
@@ -1197,6 +1189,14 @@ export default function Game() {
             {paused ? '▶ RESUME' : '⏸ PAUSE'}
           </button>
         )}
+
+        <button
+          id="busterBtn"
+          className="control-btn"
+          onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); }}
+        >
+          BUSTER
+        </button>
       </div>
 
       {/* Main Menu overlay */}
