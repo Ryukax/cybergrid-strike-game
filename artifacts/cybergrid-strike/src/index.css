@@ -149,12 +149,22 @@ canvas#canvas {
   border-color: var(--warn);
 }
 
-/* Rotate-input toggle — sits below the bar inside the wrapper */
-#layoutToggleBtn {
+/* Rotate hand button — sits below the card bar */
+#rotateHandBtn {
   align-self: flex-start;
   font-size: 12px;
-  padding: 6px 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 6px 14px;
   pointer-events: auto;
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(196, 181, 253, 0.5);
+  color: #ede9fe;
+}
+
+#rotateHandBtn:active {
+  background: rgba(139, 92, 246, 0.45);
+  border-color: rgba(196, 181, 253, 0.85);
 }
 
 /* D-pad */
@@ -278,8 +288,22 @@ canvas#canvas {
 }
 
 .card-btn:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Card used this hand — stays visible but clearly spent */
+.card-btn.used {
+  opacity: 0.42;
+  background: linear-gradient(180deg, rgba(30, 20, 60, 0.85), rgba(15, 12, 40, 0.9));
+  border-color: rgba(139, 92, 246, 0.22);
+  box-shadow: none;
+}
+
+/* Card on cooldown from a prior hand (not yet used this hand is impossible — cooldown check) */
+.card-btn:disabled:not(.used) {
+  opacity: 0.5;
+  background: linear-gradient(180deg, rgba(40, 20, 80, 0.7), rgba(20, 15, 50, 0.8));
+  border-color: rgba(139, 92, 246, 0.3);
 }
 
 /* Main Menu */

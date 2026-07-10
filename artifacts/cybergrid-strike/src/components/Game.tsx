@@ -53,6 +53,7 @@ function makeInitialState(enabledIds?: Set<string>): GameState {
     cardTimer: 0,
     cardsReady: false,
     cardSelectionOpen: false,
+    usedInHand: [],
     player: { col: 1, row: 1, fireCooldown: 0 },
     bullets: [],
     enemies: [],
@@ -75,6 +76,7 @@ interface HudData {
   cardSelectionOpen: boolean;
   cardTimer: number;
   cardOptions: string[];
+  usedInHand: string[];
   abilityCooldowns: Record<string, number>;
   running: boolean;
   message: string;
@@ -116,13 +118,12 @@ export default function Game() {
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
 
   const [boardBottom, setBoardBottom] = useState(0);
-  const [dpadRotation, setDpadRotation] = useState<'portrait' | 'landscape'>('portrait');
-  const dpadRotationRef = useRef<'portrait' | 'landscape'>('portrait');
 
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
     cardsReady: false, cardSelectionOpen: false, cardTimer: 0,
-    cardOptions: [], abilityCooldowns: {}, running: true, message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
+    cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
+    message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
   });
 
   const updateHud = useCallback(() => {
@@ -138,6 +139,7 @@ export default function Game() {
       cardSelectionOpen: s.cardSelectionOpen,
       cardTimer: s.cardTimer,
       cardOptions: [...s.currentCardOptions],
+      usedInHand: [...s.usedInHand],
       abilityCooldowns: { ...s.abilityCooldowns },
       running: s.running,
     }));
@@ -214,6 +216,8 @@ export default function Game() {
     if (!s.running || !s.cardsReady) return;
     const ability = ABILITY_LOOKUP[type];
     if (!ability) return;
+    // Already used this hand or on cooldown — do nothing
+    if (s.usedInHand.includes(type)) return;
     if ((s.abilityCooldowns[type] ?? 0) > 0) return;
 
     const canvas = canvasRef.current;
@@ -322,7 +326,21 @@ export default function Game() {
       if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
       showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed, double score!`, 1800);
     } else if (type === 'cardflood') {
-      showMessage('Card Flood — ability cards recharged instantly!', 1500);
+      // Give a brand-new hand immediately — reroll until at least one card is usable
+      let nextOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
+      for (let g = 0; g < 12 && nextOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
+        nextOptions = randomAbilityOptions(nextOptions, enabledAbilitiesRef.current);
+      }
+      s.currentCardOptions = nextOptions;
+      s.usedInHand = [];
+      s.cardsReady = true;
+      s.cardSelectionOpen = true;
+      s.cardTimer = CARD_CHARGE_TIME;
+      playAbility(type);
+      s.abilityCooldowns[type] = ability.cooldown;
+      updateHud();
+      showMessage('Card Flood — new hand dealt instantly!', 1500);
+      return; // skip standard mark-used below
 
     // ── Timer-based ─────────────────────────────────────────────────────────
     } else if (type === 'freeze') {
@@ -352,16 +370,31 @@ export default function Game() {
     playAbility(type);
     s.abilityCooldowns[type] = ability.cooldown;
 
-    // Consume cards (Card Flood immediately re-readies the next draw)
-    const nextOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
-    s.currentCardOptions = nextOptions;
-    const instantRefill = type === 'cardflood';
-    s.cardTimer = instantRefill ? CARD_CHARGE_TIME : 0;
-    s.cardsReady = instantRefill;
-    s.cardSelectionOpen = instantRefill;
+    // Mark this card as used in the current hand (cards stay visible, dimmed)
+    s.usedInHand = [...s.usedInHand, type];
 
     updateHud();
   }, [fireBullet, addParticles, showMessage, updateHud]);
+
+  // Rotate hand: discard current hand, deal 3 new cards immediately
+  const rotateHand = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.running) return;
+    ensureAudio();
+    // Reroll until at least one card is off cooldown (max 12 attempts)
+    let newOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
+    for (let g = 0; g < 12 && newOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
+      newOptions = randomAbilityOptions(newOptions, enabledAbilitiesRef.current);
+    }
+    s.currentCardOptions = newOptions;
+    s.usedInHand = [];
+    s.cardsReady = true;
+    s.cardSelectionOpen = true;
+    s.cardTimer = CARD_CHARGE_TIME;
+    playCardReady();
+    updateHud();
+    showMessage('Hand rotated — new cards ready!', 1500);
+  }, [showMessage, updateHud]);
 
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -402,14 +435,11 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
-    let rdx = 0, rdy = 0;
-    if (kb.left || td.left) rdx = -1; else if (kb.right || td.right) rdx = 1;
-    if (kb.up || td.up) rdy = -1; else if (kb.down || td.down) rdy = 1;
-    if (Math.abs(gp.moveX) > 0.15) rdx = gp.moveX > 0 ? 1 : -1;
-    if (Math.abs(gp.moveY) > 0.15) rdy = gp.moveY > 0 ? 1 : -1;
-    // Remap raw input through clockwise rotation
-    let dx = rdx, dy = rdy;
-    if (dpadRotationRef.current === 'landscape') { dx = -rdy; dy = rdx; }
+    let dx = 0, dy = 0;
+    if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
+    if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
+    if (Math.abs(gp.moveX) > 0.15) dx = gp.moveX > 0 ? 1 : -1;
+    if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
       const nc = Math.max(0, Math.min(2, s.player.col + dx));
@@ -462,50 +492,56 @@ export default function Game() {
       }
     }
 
+    // ── Card system ──────────────────────────────────────────────────────────
     if (!s.cardsReady) {
+      // Bar is filling — tick toward next hand
       s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt);
-      // Smooth bar + label: write directly to DOM every frame
       const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
       if (cardBarFillRef.current) cardBarFillRef.current.style.width = `${pct.toFixed(2)}%`;
       if (cardLabelRef.current) {
         const secs = Math.max(0, Math.ceil(CARD_CHARGE_TIME - s.cardTimer));
-        cardLabelRef.current.textContent = `Ability Cards ready in ${secs}s`;
+        cardLabelRef.current.textContent = `New hand in ${secs}s`;
       }
       if (s.cardTimer >= CARD_CHARGE_TIME) {
         s.cardsReady = true;
         s.cardSelectionOpen = true;
+        s.usedInHand = [];
         playCardReady();
-        showMessage('Ability Cards loaded! Pick one now.', false);
+        showMessage('Ability Cards loaded! Use them, then hand resets.', false);
         updateHud();
       }
     } else {
-      // If all shown card options are still on cooldown, reroll once they clear
-      const allOnCd = s.currentCardOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0);
-      if (allOnCd) {
-        // Check if any option just cleared (any cooldown ticked to 0 this frame)
-        const anyJustCleared = s.currentCardOptions.some(
-          (id) => (s.abilityCooldowns[id] ?? 0) === 0
-        );
-        if (anyJustCleared) {
-          // Still blocked — wait until at least one is actually available
+      // Hand is active — bar stays full
+      if (cardBarFillRef.current) cardBarFillRef.current.style.width = '100%';
+
+      const allUsed = s.currentCardOptions.every((id) => s.usedInHand.includes(id));
+      const allCooldownsDone = s.currentCardOptions.every((id) => (s.abilityCooldowns[id] ?? 0) === 0);
+
+      if (cardLabelRef.current) {
+        if (allUsed) {
+          const maxCd = Math.max(0, ...s.currentCardOptions.map((id) => s.abilityCooldowns[id] ?? 0));
+          cardLabelRef.current.textContent = maxCd > 0
+            ? `All used — cooling down ${Math.ceil(maxCd)}s`
+            : '';
+        } else {
+          const remaining = s.currentCardOptions.filter((id) => !s.usedInHand.includes(id)).length;
+          cardLabelRef.current.textContent = `${remaining} card${remaining !== 1 ? 's' : ''} remaining — ROTATE for new hand`;
         }
-        // Continuously reroll until we find options not all on cooldown
-        let guard = 0;
-        let next = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
-        while (guard < 12 && next.every((id) => (s.abilityCooldowns[id] ?? 0) > 0)) {
-          next = randomAbilityOptions(next, enabledAbilitiesRef.current);
-          guard++;
-        }
-        // If we found at least one usable option, swap in the new set
-        if (!next.every((id) => (s.abilityCooldowns[id] ?? 0) > 0)) {
-          s.currentCardOptions = next;
-          updateHud();
-        }
+      }
+
+      // Once all used AND all cooldowns expired → reset for next hand
+      if (allUsed && allCooldownsDone) {
+        s.cardsReady = false;
+        s.cardSelectionOpen = false;
+        s.cardTimer = 0;
+        s.usedInHand = [];
+        s.currentCardOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
+        updateHud();
       }
     }
 
     s.player.fireCooldown -= dt;
-    if (s.autoBuster && s.player.fireCooldown <= 0 && !s.cardSelectionOpen) {
+    if (s.autoBuster && s.player.fireCooldown <= 0) {
       s.player.fireCooldown = s.overclockTimer > 0 ? 0.16 : 0.34;
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
@@ -692,6 +728,7 @@ export default function Game() {
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
       else if (ev.key === ' ' || ev.key === 'z' || ev.key === 'x') manualBuster();
+      else if (ev.key === 'r' || ev.key === 'R') rotateHand();
     };
     const onKeyUp = (ev: KeyboardEvent) => {
       const k = keyboardRef.current;
@@ -732,7 +769,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame]);
+  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame, rotateHand]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -742,8 +779,6 @@ export default function Game() {
   };
 
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
-  const allOnCooldown = hud.cardOptions.length > 0 &&
-    hud.cardOptions.every((id) => (hud.abilityCooldowns[id] ?? 0) > 0);
 
   return (
     <div id="game">
@@ -765,14 +800,10 @@ export default function Game() {
         <div id="cardUi">
           <div id="cardCharge">
             <div id="cardChargeLabel" ref={cardLabelRef}>
-              {hud.cardsReady
-                ? allOnCooldown
-                  ? 'All abilities on cooldown — cards will reroll when ready'
-                  : 'Choose an Ability Card'
-                : ''}
+              {hud.cardsReady ? 'Choose ability cards — ROTATE for new hand' : ''}
             </div>
             <div id="cardBarTrack">
-              <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : '0%' }} />
+              <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : `${cardProgress * 100}%` }} />
             </div>
           </div>
 
@@ -782,11 +813,13 @@ export default function Game() {
                 const ability = ABILITY_LOOKUP[id];
                 if (!ability) return null;
                 const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
+                const used = hud.usedInHand.includes(id);
+                const disabled = used || cd > 0;
                 return (
                   <button
                     key={id}
-                    className="card-btn"
-                    disabled={cd > 0}
+                    className={`card-btn${used ? ' used' : ''}`}
+                    disabled={disabled}
                     onPointerDown={(ev) => {
                       ev.stopPropagation();
                       ensureAudio();
@@ -794,7 +827,9 @@ export default function Game() {
                     }}
                   >
                     {ability.name}<br />
-                    <span>{cd > 0 ? `Cooldown ${cd}s` : ability.desc}</span>
+                    <span>
+                      {cd > 0 ? `Cooldown ${cd}s` : used ? 'Used' : ability.desc}
+                    </span>
                   </button>
                 );
               })}
@@ -802,30 +837,23 @@ export default function Game() {
           )}
         </div>
 
-        {/* Rotate-input button — sits below the bar, left-aligned */}
+        {/* Rotate button — deals a fresh hand instantly */}
         {phase === 'playing' && (
           <button
-            id="layoutToggleBtn"
+            id="rotateHandBtn"
             className="control-btn"
             onPointerDown={(ev) => {
               ev.stopPropagation();
-              setDpadRotation((r) => {
-                const next = r === 'portrait' ? 'landscape' : 'portrait';
-                dpadRotationRef.current = next;
-                return next;
-              });
+              rotateHand();
             }}
           >
-            {dpadRotation === 'portrait' ? '⬜ Portrait' : '▭ Landscape'}
+            ↻ ROTATE
           </button>
         )}
       </div>
 
-      {/* D-Pad — visually rotated to match input remapping */}
-      <div
-        id="dpad"
-        style={{ transform: `translateX(-50%) rotate(${dpadRotation === 'landscape' ? 90 : 0}deg)` }}
-      >
+      {/* D-Pad */}
+      <div id="dpad">
         <div className="dpad-btn" id="dpadUp" />
         <div className="dpad-btn" id="dpadDown" />
         <div className="dpad-btn" id="dpadLeft" />
@@ -874,7 +902,8 @@ export default function Game() {
               <div id="menuControls">
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
-                <div className="menu-control-row"><span>Abilities</span><span>Card bar fills every 20s</span></div>
+                <div className="menu-control-row"><span>Abilities</span><span>Use all 3 cards, then hand resets</span></div>
+                <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — new hand</span></div>
               </div>
             </div>
           ) : (
