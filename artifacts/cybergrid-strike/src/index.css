@@ -149,6 +149,16 @@ canvas#canvas {
   border-color: var(--warn);
 }
 
+/* Portrait / Landscape toggle */
+#layoutToggleBtn {
+  position: absolute;
+  left: 14px;
+  font-size: 12px;
+  padding: 6px 10px;
+  z-index: 15;
+  pointer-events: auto;
+}
+
 /* D-pad */
 #dpad {
   display: block;

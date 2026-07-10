@@ -91,6 +91,7 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
 
   const [boardBottom, setBoardBottom] = useState(0);
+  const [dpadLayout, setDpadLayout] = useState<'portrait' | 'landscape'>('portrait');
 
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
@@ -657,8 +658,30 @@ export default function Game() {
         )}
       </div>
 
+      {/* Portrait / Landscape toggle — below ability bar, left side */}
+      {phase === 'playing' && boardBottom > 0 && (
+        <button
+          id="layoutToggleBtn"
+          className="control-btn"
+          style={{ top: boardBottom + 12 }}
+          onPointerDown={(ev) => {
+            ev.stopPropagation();
+            setDpadLayout((l) => l === 'portrait' ? 'landscape' : 'portrait');
+          }}
+        >
+          {dpadLayout === 'portrait' ? '⬜ Portrait' : '▭ Landscape'}
+        </button>
+      )}
+
       {/* D-Pad */}
-      <div id="dpad">
+      <div
+        id="dpad"
+        style={
+          dpadLayout === 'landscape'
+            ? { left: '14px', top: '50%', bottom: 'auto', transform: 'translateY(-50%)' }
+            : undefined
+        }
+      >
         <div className="dpad-btn" id="dpadUp" />
         <div className="dpad-btn" id="dpadDown" />
         <div className="dpad-btn" id="dpadLeft" />
