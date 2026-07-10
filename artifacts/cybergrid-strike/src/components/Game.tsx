@@ -96,6 +96,7 @@ export default function Game() {
 
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
   const phaseRef = useRef<'menu' | 'playing'>('menu');
+  const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
 
   const [boardBottom, setBoardBottom] = useState(0);
   const [dpadRotation, setDpadRotation] = useState<'portrait' | 'landscape'>('portrait');
@@ -733,21 +734,39 @@ export default function Game() {
       {/* Main Menu overlay */}
       {phase === 'menu' && (
         <div id="mainMenu">
-          <div id="menuCard">
-            <div id="menuTitle">CYBERGRID<br />STRIKE</div>
-            <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
-            <button
-              id="menuPlayBtn"
-              onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame(); }}
-            >
-              ▶ PLAY
-            </button>
-            <div id="menuControls">
-              <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
-              <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
-              <div className="menu-control-row"><span>Abilities</span><span>Card bar fills every 20s</span></div>
+          {menuScreen === 'main' ? (
+            <div id="menuCard">
+              <div id="menuTitle">CYBERGRID<br />STRIKE</div>
+              <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
+              <button
+                id="menuPlayBtn"
+                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame(); }}
+              >
+                ▶ PLAY
+              </button>
+              <button
+                id="menuCustomBtn"
+                onPointerDown={(ev) => { ev.stopPropagation(); setMenuScreen('customization'); }}
+              >
+                ⚙ Customization
+              </button>
+              <div id="menuControls">
+                <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
+                <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
+                <div className="menu-control-row"><span>Abilities</span><span>Card bar fills every 20s</span></div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div id="menuCard">
+              <div id="menuTitle" style={{ fontSize: 'clamp(22px, 5vw, 32px)' }}>⚙ Customization</div>
+              <button
+                id="menuBackBtn"
+                onPointerDown={(ev) => { ev.stopPropagation(); setMenuScreen('main'); }}
+              >
+                ← Back
+              </button>
+            </div>
+          )}
         </div>
       )}
 
