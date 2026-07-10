@@ -91,8 +91,8 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
 
   const [boardBottom, setBoardBottom] = useState(0);
-  const [dpadRotation, setDpadRotation] = useState<0 | 90 | 180 | 270>(0);
-  const dpadRotationRef = useRef<0 | 90 | 180 | 270>(0);
+  const [dpadRotation, setDpadRotation] = useState<'portrait' | 'landscape'>('portrait');
+  const dpadRotationRef = useRef<'portrait' | 'landscape'>('portrait');
 
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
@@ -294,10 +294,7 @@ export default function Game() {
     if (Math.abs(gp.moveY) > 0.15) rdy = gp.moveY > 0 ? 1 : -1;
     // Remap raw input through clockwise rotation
     let dx = rdx, dy = rdy;
-    const rot = dpadRotationRef.current;
-    if      (rot === 90)  { dx = -rdy; dy =  rdx; }
-    else if (rot === 180) { dx = -rdx; dy = -rdy; }
-    else if (rot === 270) { dx =  rdy; dy = -rdx; }
+    if (dpadRotationRef.current === 'landscape') { dx = -rdy; dy = rdx; }
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
       const nc = Math.max(0, Math.min(2, s.player.col + dx));
@@ -674,13 +671,13 @@ export default function Game() {
             onPointerDown={(ev) => {
               ev.stopPropagation();
               setDpadRotation((r) => {
-                const next = ((r + 90) % 360) as 0 | 90 | 180 | 270;
+                const next = r === 'portrait' ? 'landscape' : 'portrait';
                 dpadRotationRef.current = next;
                 return next;
               });
             }}
           >
-            ↻ {dpadRotation}°
+            {dpadRotation === 'portrait' ? '⬜ Portrait' : '▭ Landscape'}
           </button>
         )}
       </div>
@@ -688,7 +685,7 @@ export default function Game() {
       {/* D-Pad — visually rotated to match input remapping */}
       <div
         id="dpad"
-        style={{ transform: `translateX(-50%) rotate(${dpadRotation}deg)` }}
+        style={{ transform: `translateX(-50%) rotate(${dpadRotation === 'landscape' ? 90 : 0}deg)` }}
       >
         <div className="dpad-btn" id="dpadUp" />
         <div className="dpad-btn" id="dpadDown" />
