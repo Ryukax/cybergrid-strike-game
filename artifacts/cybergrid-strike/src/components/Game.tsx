@@ -87,6 +87,9 @@ export default function Game() {
   const cardBarFillRef = useRef<HTMLDivElement>(null);
   const cardLabelRef = useRef<HTMLDivElement>(null);
 
+  const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
+  const phaseRef = useRef<'menu' | 'playing'>('menu');
+
   const [boardBottom, setBoardBottom] = useState(0);
 
   const [hud, setHud] = useState<HudData>({
@@ -440,7 +443,8 @@ export default function Game() {
     const dt = Math.min(0.1, (ts - lastTimeRef.current) / 1000);
     lastTimeRef.current = ts;
 
-    update(dt);
+    // Only advance game state when playing; always draw so canvas looks alive behind menu
+    if (phaseRef.current === 'playing') update(dt);
 
     const canvas = canvasRef.current;
     if (canvas) {
@@ -466,13 +470,26 @@ export default function Game() {
     setBoardBottom(m.y + m.boardH);
   }, []);
 
-  const restart = useCallback(() => {
+  const startGame = useCallback(() => {
     stateRef.current = makeInitialState();
     lastTimeRef.current = 0;
+    hudTickRef.current = 0;
+    phaseRef.current = 'playing';
+    setPhase('playing');
     updateHud();
-    showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2000);
+    showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
     startMusic(() => stateRef.current.running);
   }, [updateHud, showMessage]);
+
+  const restart = useCallback(() => {
+    stopMusic();
+    stateRef.current = makeInitialState();
+    lastTimeRef.current = 0;
+    hudTickRef.current = 0;
+    phaseRef.current = 'menu';
+    setPhase('menu');
+    updateHud();
+  }, [updateHud]);
 
   // Pointer tap on board to move player
   const handleCanvasPointer = useCallback((ev: React.PointerEvent<HTMLCanvasElement>) => {
@@ -518,6 +535,11 @@ export default function Game() {
     // Keyboard
     const onKeyDown = (ev: KeyboardEvent) => {
       ensureAudio();
+      // Start game from menu on Enter/Space
+      if (phaseRef.current === 'menu') {
+        if (ev.key === 'Enter' || ev.key === ' ') startGame();
+        return;
+      }
       const s = stateRef.current;
       if (!s.running) return;
       const k = keyboardRef.current;
@@ -555,8 +577,7 @@ export default function Game() {
       cleanups.push(() => center.removeEventListener('pointerdown', onDown));
     }
 
-    // Start game loop
-    startMusic(() => stateRef.current.running);
+    // Start canvas render loop immediately (draws idle state behind menu)
     animRef.current = requestAnimationFrame(loop);
 
     return () => {
@@ -567,7 +588,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, setupDpad]);
+  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -664,8 +685,29 @@ export default function Game() {
         </button>
       </div>
 
+      {/* Main Menu overlay */}
+      {phase === 'menu' && (
+        <div id="mainMenu">
+          <div id="menuCard">
+            <div id="menuTitle">CYBERGRID<br />STRIKE</div>
+            <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
+            <button
+              id="menuPlayBtn"
+              onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame(); }}
+            >
+              ▶ PLAY
+            </button>
+            <div id="menuControls">
+              <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
+              <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
+              <div className="menu-control-row"><span>Abilities</span><span>Card bar fills every 20s</span></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Game Over overlay */}
-      {!hud.running && (
+      {!hud.running && phase === 'playing' && (
         <div id="gameOverOverlay">
           <div id="gameOverCard">
             <div id="gameOverTitle">CONNECTION LOST</div>

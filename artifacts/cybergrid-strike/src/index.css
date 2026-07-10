@@ -268,6 +268,102 @@ canvas#canvas {
   cursor: not-allowed;
 }
 
+/* Main Menu */
+#mainMenu {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(8px);
+  z-index: 50;
+}
+
+#menuCard {
+  background: rgba(8, 20, 40, 0.94);
+  border: 2px solid rgba(125, 211, 252, 0.45);
+  border-radius: 24px;
+  padding: 48px 52px 40px;
+  text-align: center;
+  box-shadow:
+    0 0 80px rgba(14, 165, 233, 0.18),
+    0 0 160px rgba(14, 165, 233, 0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  max-width: min(92vw, 420px);
+}
+
+#menuTitle {
+  font-size: clamp(32px, 8vw, 48px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  color: var(--grid);
+  text-shadow:
+    0 0 24px rgba(56, 189, 248, 0.7),
+    0 0 60px rgba(56, 189, 248, 0.3);
+}
+
+#menuTagline {
+  font-size: 14px;
+  color: rgba(219, 234, 254, 0.55);
+  letter-spacing: 0.04em;
+  margin-top: -8px;
+}
+
+#menuPlayBtn {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.85), rgba(37, 99, 235, 0.95));
+  border: 2px solid rgba(125, 211, 252, 0.7);
+  border-radius: 16px;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  padding: 16px 56px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 0 32px rgba(14, 165, 233, 0.45);
+  transition: transform 0.12s, box-shadow 0.12s;
+  margin: 4px 0;
+}
+
+#menuPlayBtn:active {
+  transform: scale(0.96);
+  box-shadow: 0 0 48px rgba(14, 165, 233, 0.65);
+}
+
+#menuControls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  border-top: 1px solid rgba(125, 211, 252, 0.15);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+
+.menu-control-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  gap: 16px;
+}
+
+.menu-control-row span:first-child {
+  color: var(--grid);
+  font-weight: 700;
+  min-width: 60px;
+  text-align: left;
+}
+
+.menu-control-row span:last-child {
+  color: rgba(219, 234, 254, 0.6);
+  text-align: right;
+}
+
 /* Game Over Overlay */
 #gameOverOverlay {
   position: absolute;
