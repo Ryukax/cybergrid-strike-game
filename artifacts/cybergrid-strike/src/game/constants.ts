@@ -2,6 +2,11 @@ import type { Ability } from './types';
 
 export const CARD_CHARGE_TIME = 20;
 
+// VS mode NPC tuning
+export const NPC_HP = 8;
+export const NPC_FIRE_INTERVAL = 0.45;   // seconds between NPC shots
+export const NPC_MOVE_INTERVAL = 0.75;   // seconds between NPC row changes
+
 export const ABILITY_POOL: Ability[] = [
   // ── Existing ────────────────────────────────────────────────────────────────
   { id: 'shotgun',   name: 'SHOTGUN',    desc: 'Big power-2 blast across 3 adjacent rows',     cooldown: 8  },

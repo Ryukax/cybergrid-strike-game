@@ -605,3 +605,55 @@ canvas#canvas {
   transform: scale(0.96);
   background: linear-gradient(135deg, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 1));
 }
+
+/* Victory overlay (VS win) */
+#gameOverOverlay.victory {
+  background: rgba(2, 20, 12, 0.82);
+}
+
+#gameOverCard.victory {
+  border-color: rgba(52, 211, 153, 0.6);
+  box-shadow: 0 0 60px rgba(52, 211, 153, 0.2), 0 0 120px rgba(52, 211, 153, 0.08);
+}
+
+#gameOverCard.victory #gameOverTitle {
+  color: #34d399;
+  text-shadow: 0 0 20px rgba(52, 211, 153, 0.7);
+}
+
+/* VS NPC menu button */
+#menuVsBtn {
+  background: linear-gradient(135deg, rgba(16, 100, 60, 0.85), rgba(5, 45, 30, 0.95));
+  border: 2px solid rgba(52, 211, 153, 0.7);
+  border-radius: 16px;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  padding: 14px 48px;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 0 28px rgba(52, 211, 153, 0.35);
+  transition: transform 0.12s, box-shadow 0.12s;
+  width: 100%;
+}
+
+#menuVsBtn:active {
+  transform: scale(0.96);
+  box-shadow: 0 0 44px rgba(52, 211, 153, 0.6);
+}
+
+/* NPC HP HUD panel */
+#npcHpPanel {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.45);
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+}
+
+#npcShieldDisplay {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  line-height: 1;
+}

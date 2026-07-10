@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { GameState } from '../game/types';
-import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME } from '../game/constants';
+import type { GameState, GameMode } from '../game/types';
+import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
   ensureAudio, startMusic, stopMusic,
@@ -31,7 +31,7 @@ function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): str
   return opts;
 }
 
-function makeInitialState(enabledIds?: Set<string>): GameState {
+function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'): GameState {
   return {
     running: true,
     score: 0,
@@ -63,6 +63,12 @@ function makeInitialState(enabledIds?: Set<string>): GameState {
     pierceShots: 0,
     abilityCooldowns: Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0])),
     currentCardOptions: randomAbilityOptions(undefined, enabledIds),
+    // VS mode
+    gameMode: mode,
+    npc: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0, hp: NPC_HP, shieldCharges: 0 },
+    npcBullets: [],
+    npcEnemies: [],
+    playerWon: false,
   };
 }
 
@@ -80,6 +86,11 @@ interface HudData {
   abilityCooldowns: Record<string, number>;
   running: boolean;
   message: string;
+  // VS mode
+  gameMode: GameMode;
+  npcHp: number;
+  npcShieldCharges: number;
+  playerWon: boolean;
 }
 
 export default function Game() {
@@ -124,6 +135,7 @@ export default function Game() {
     cardsReady: false, cardSelectionOpen: false, cardTimer: 0,
     cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
+    gameMode: 'classic', npcHp: NPC_HP, npcShieldCharges: 0, playerWon: false,
   });
 
   const updateHud = useCallback(() => {
@@ -142,6 +154,10 @@ export default function Game() {
       usedInHand: [...s.usedInHand],
       abilityCooldowns: { ...s.abilityCooldowns },
       running: s.running,
+      gameMode: s.gameMode,
+      npcHp: s.npc.hp,
+      npcShieldCharges: s.npc.shieldCharges,
+      playerWon: s.playerWon,
     }));
   }, []);
 
@@ -201,13 +217,18 @@ export default function Game() {
     }
   }, [fireBullet]);
 
-  const endGame = useCallback(() => {
+  const endGame = useCallback((won = false) => {
     const s = stateRef.current;
     if (!s.running) return;
     s.running = false;
+    s.playerWon = won;
     stopMusic();
-    playGameOver();
-    showMessage('CONNECTION LOST — tap Play Again to restart.', false);
+    if (won) {
+      showMessage('SYSTEM OVERRIDE — NPC neutralised!', false);
+    } else {
+      playGameOver();
+      showMessage('CONNECTION LOST — tap Play Again to restart.', false);
+    }
     updateHud();
   }, [showMessage, updateHud]);
 
@@ -595,6 +616,16 @@ export default function Game() {
             s.score += 100;
             if (s.score % 500 === 0) s.wave++;
             if (s.drainTimer > 0) { s.hp++; }
+            // VS mode: killing a red enemy sends a green attack at the NPC
+            if (s.gameMode === 'vs') {
+              s.npcEnemies.push({
+                colPos: 2.6,
+                row: Math.floor(Math.random() * 3),
+                speed: 1.15 + Math.random() * 0.5,
+                hp: 1,
+                flash: 0,
+              });
+            }
             playScore();
             updateHud();
           } else {
@@ -614,6 +645,88 @@ export default function Game() {
       p.vy *= 0.96;
     }
     s.particles = s.particles.filter((p) => p.life > 0);
+
+    // ── VS mode: NPC AI ───────────────────────────────────────────────────────
+    if (s.gameMode === 'vs') {
+      const npc = s.npc;
+
+      // Move toward the most-advanced (rightmost) incoming green attack
+      npc.moveCooldown -= dt;
+      if (npc.moveCooldown <= 0) {
+        npc.moveCooldown = NPC_MOVE_INTERVAL;
+        const active = s.npcEnemies.filter((e) => e.colPos > 2.4 && e.colPos < 5.5);
+        if (active.length > 0 && Math.random() < 0.75) {
+          const target = active.reduce((a, b) => a.colPos > b.colPos ? a : b);
+          if (npc.row < target.row) npc.row++;
+          else if (npc.row > target.row) npc.row--;
+        } else if (Math.random() < 0.2) {
+          npc.row = Math.max(0, Math.min(2, npc.row + (Math.random() < 0.5 ? 1 : -1)));
+        }
+      }
+
+      // Fire a left-moving bullet only when a green attack is in the NPC's row
+      npc.fireCooldown -= dt;
+      if (npc.fireCooldown <= 0) {
+        const hasTarget = s.npcEnemies.some(
+          (e) => e.row === npc.row && e.colPos > 2.4 && e.colPos < 5.5,
+        );
+        if (hasTarget) {
+          s.npcBullets.push({
+            colPos: 3 + npc.col - 0.55,
+            row: npc.row,
+            speed: -8.5,
+            power: 1,
+            big: false,
+            pierce: false,
+          });
+        }
+        npc.fireCooldown = NPC_FIRE_INTERVAL;
+      }
+
+      // Move NPC bullets left; remove when they exit the active zone
+      for (const b of s.npcBullets) b.colPos += b.speed * dt;
+      s.npcBullets = s.npcBullets.filter((b) => b.colPos > 2.4);
+
+      // Move green attacks right; score against NPC when they reach the right wall
+      for (const e of s.npcEnemies) {
+        e.colPos += e.speed * dt;
+        e.flash = Math.max(0, e.flash - dt);
+        if (e.colPos >= 5.55) {
+          e.colPos = -9; // remove
+          if (npc.shieldCharges > 0) {
+            npc.shieldCharges--;
+            showMessage('NPC shield blocked an attack!', 1000);
+            updateHud();
+          } else {
+            npc.hp--;
+            if (npc.hp <= 0) { updateHud(); endGame(true); return; }
+            updateHud();
+          }
+        }
+      }
+      s.npcEnemies = s.npcEnemies.filter((e) => e.colPos > -1);
+
+      // NPC bullet vs green attack collision
+      for (const b of s.npcBullets) {
+        for (const e of s.npcEnemies) {
+          if (e.colPos < 0) continue;
+          if (Math.abs(b.colPos - e.colPos) < 0.42 && b.row === e.row) {
+            b.colPos = 2.0; // kill bullet (filtered < 2.4 next frame)
+            e.hp -= b.power;
+            e.flash = 0.08;
+            if (e.hp <= 0) {
+              if (m) addParticles(
+                m.x + (e.colPos + 0.5) * m.cell,
+                m.y + (e.row + 0.5) * m.cell,
+                '#4ade80',
+              );
+              e.colPos = -9;
+            }
+            break;
+          }
+        }
+      }
+    }
   }, [handleGamepad, tryMoveTo, manualBuster, fireBullet, addParticles, showMessage, updateHud, endGame]);
 
   const loop = useCallback((ts: number) => {
@@ -648,14 +761,18 @@ export default function Game() {
     setBoardBottom(m.y + m.boardH);
   }, []);
 
-  const startGame = useCallback(() => {
-    stateRef.current = makeInitialState(enabledAbilitiesRef.current);
+  const startGame = useCallback((mode: GameMode = 'classic') => {
+    stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'playing';
     setPhase('playing');
     updateHud();
-    showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
+    if (mode === 'vs') {
+      showMessage('VS NPC — kill viruses to send green attacks at the NPC!', 3000);
+    } else {
+      showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
+    }
     startMusic(() => stateRef.current.running);
   }, [updateHud, showMessage]);
 
@@ -798,7 +915,16 @@ export default function Game() {
           )}
         </div>
         <div className="panel">Score {hud.score}</div>
-        <div className="panel">Wave {hud.wave}</div>
+        {hud.gameMode === 'vs' ? (
+          <div className="panel" id="npcHpPanel">
+            NPC {hud.npcHp} HP
+            {hud.npcShieldCharges > 0 && (
+              <span id="npcShieldDisplay">{'🛡'.repeat(Math.min(hud.npcShieldCharges, 9))}</span>
+            )}
+          </div>
+        ) : (
+          <div className="panel">Wave {hud.wave}</div>
+        )}
       </div>
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
@@ -896,9 +1022,15 @@ export default function Game() {
               <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
               <button
                 id="menuPlayBtn"
-                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame(); }}
+                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('classic'); }}
               >
                 ▶ PLAY
+              </button>
+              <button
+                id="menuVsBtn"
+                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('vs'); }}
+              >
+                ⚔ VS NPC
               </button>
               <button
                 id="menuCustomBtn"
@@ -957,13 +1089,18 @@ export default function Game() {
         </div>
       )}
 
-      {/* Game Over overlay */}
+      {/* Game Over / Victory overlay */}
       {!hud.running && phase === 'playing' && (
-        <div id="gameOverOverlay">
-          <div id="gameOverCard">
-            <div id="gameOverTitle">CONNECTION LOST</div>
-            <div id="gameOverScore">Score: {hud.score}</div>
-            <div id="gameOverWave">Wave: {hud.wave}</div>
+        <div id="gameOverOverlay" className={hud.playerWon ? 'victory' : ''}>
+          <div id="gameOverCard" className={hud.playerWon ? 'victory' : ''}>
+            <div id="gameOverTitle">{hud.playerWon ? 'SYSTEM OVERRIDE' : 'CONNECTION LOST'}</div>
+            {hud.playerWon
+              ? <div id="gameOverScore">NPC neutralised — Score: {hud.score}</div>
+              : <>
+                  <div id="gameOverScore">Score: {hud.score}</div>
+                  {hud.gameMode === 'classic' && <div id="gameOverWave">Wave: {hud.wave}</div>}
+                </>
+            }
             <button
               id="playAgainBtn"
               onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); restart(); }}
