@@ -72,6 +72,16 @@ canvas#canvas {
   box-shadow: 0 0 20px rgba(14, 165, 233, 0.12) inset;
 }
 
+/* Shield charges inline under HP */
+#shieldChargesDisplay {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: rgba(147, 197, 253, 0.9);
+  line-height: 1;
+}
+
 /* Message bar */
 #message {
   position: absolute;

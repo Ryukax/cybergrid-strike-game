@@ -788,7 +788,15 @@ export default function Game() {
 
       {/* HUD */}
       <div className="hud" id="hud">
-        <div className="panel">HP {hud.hp}</div>
+        <div className="panel">
+          HP {hud.hp}
+          {hud.shieldCharges > 0 && (
+            <span id="shieldChargesDisplay">
+              {'🛡'.repeat(Math.min(hud.shieldCharges, 9))}
+              {hud.shieldCharges > 9 ? ` ×${hud.shieldCharges}` : ''}
+            </span>
+          )}
+        </div>
         <div className="panel">Score {hud.score}</div>
         <div className="panel">Wave {hud.wave}</div>
       </div>
