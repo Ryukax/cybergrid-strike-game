@@ -118,6 +118,7 @@ export default function Game() {
     cardX: false, prevCardX: false,   // button 2 → card slot 0
     cardY: false, prevCardY: false,   // button 3 → card slot 1
     cardB: false, prevCardB: false,   // button 1 → card slot 2
+    start: false, prevStart: false,   // button 9 → pause
     connected: false,
   });
   const controllerCooldownRef = useRef(0);
@@ -133,6 +134,8 @@ export default function Game() {
 
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
   const phaseRef = useRef<'menu' | 'playing'>('menu');
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
   const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
@@ -532,7 +535,15 @@ export default function Game() {
     }
     const g = gamepadRef.current;
     if (!gp) {
-      if (g.connected) { g.connected = false; g.moveX = 0; g.moveY = 0; g.fire = false; g.prevFire = false; }
+      if (g.connected) {
+        g.connected = false;
+        g.moveX = 0; g.moveY = 0;
+        g.fire = false; g.prevFire = false;
+        g.cardX = false; g.prevCardX = false;
+        g.cardY = false; g.prevCardY = false;
+        g.cardB = false; g.prevCardB = false;
+        g.start = false; g.prevStart = false;
+      }
       return;
     }
     const buttonPressed = (idx: number) => { const b = gp!.buttons[idx]; return !!(b && (b.pressed || b.value > 0.2)); };
@@ -547,6 +558,7 @@ export default function Game() {
     g.prevCardX = g.cardX; g.cardX = buttonPressed(2);  // X → slot 0
     g.prevCardY = g.cardY; g.cardY = buttonPressed(3);  // Y → slot 1
     g.prevCardB = g.cardB; g.cardB = buttonPressed(1);  // B → slot 2
+    g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
     g.moveX = moveX;
     g.moveY = moveY;
     g.connected = true;
@@ -557,6 +569,10 @@ export default function Game() {
     if (!s.running) return;
 
     handleGamepad();
+
+    // Gamepad Start button → pause (rising edge)
+    const gpForPause = gamepadRef.current;
+    if (gpForPause.start && !gpForPause.prevStart) { togglePause(); return; }
 
     // Controller movement
     controllerCooldownRef.current = Math.max(0, controllerCooldownRef.current - dt);
@@ -874,8 +890,15 @@ export default function Game() {
     const dt = Math.min(0.1, (ts - lastTimeRef.current) / 1000);
     lastTimeRef.current = ts;
 
-    // Only advance game state when playing; always draw so canvas looks alive behind menu
-    if (phaseRef.current === 'playing') update(dt);
+    // Only advance game state when playing and not paused; always draw so canvas looks alive behind menu
+    if (phaseRef.current === 'playing' && !pausedRef.current) {
+      update(dt);
+    } else if (phaseRef.current === 'playing' && pausedRef.current) {
+      // Still poll gamepad so Start button can unpause
+      handleGamepad();
+      const gp = gamepadRef.current;
+      if (gp.start && !gp.prevStart) togglePause();
+    }
 
     const canvas = canvasRef.current;
     if (canvas) {
@@ -916,12 +939,23 @@ export default function Game() {
     startMusic(() => stateRef.current.running);
   }, [updateHud, showMessage]);
 
+  const togglePause = useCallback(() => {
+    if (phaseRef.current !== 'playing') return;
+    const s = stateRef.current;
+    if (!s.running) return;
+    pausedRef.current = !pausedRef.current;
+    lastTimeRef.current = 0; // reset so dt doesn't spike on resume
+    setPaused(pausedRef.current);
+  }, []);
+
   const restart = useCallback(() => {
     stopMusic();
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
+    pausedRef.current = false;
+    setPaused(false);
     setPhase('menu');
     updateHud();
   }, [updateHud]);
@@ -975,8 +1009,10 @@ export default function Game() {
         if (ev.key === 'Enter' || ev.key === ' ') startGame();
         return;
       }
+      if (ev.repeat) return;
+      if (ev.key === 'Escape' || ev.key === 'p' || ev.key === 'P') { togglePause(); return; }
       const s = stateRef.current;
-      if (!s.running) return;
+      if (!s.running || pausedRef.current) return;
       const k = keyboardRef.current;
       if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = true;
@@ -1151,6 +1187,16 @@ export default function Game() {
         >
           BUSTER
         </button>
+
+        {phase === 'playing' && hud.running && (
+          <button
+            id="pauseBtn"
+            className="control-btn"
+            onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
+          >
+            {paused ? '▶ RESUME' : '⏸ PAUSE'}
+          </button>
+        )}
       </div>
 
       {/* Main Menu overlay */}
@@ -1226,6 +1272,21 @@ export default function Game() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Pause overlay */}
+      {paused && phase === 'playing' && (
+        <div id="pauseOverlay">
+          <div id="pauseCard">
+            <div id="pauseTitle">PAUSED</div>
+            <button
+              id="pauseResumeBtn"
+              onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
+            >
+              ▶ RESUME
+            </button>
+          </div>
         </div>
       )}
 
