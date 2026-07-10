@@ -1,0 +1,112 @@
+```js
+const ABILITY_POOL = [
+  { id: 'shotgun', name: 'SHOTGUN', desc: 'Wide 3-panel blast', cooldown: 8 },
+  { id: 'heal', name: 'RECOVER', desc: 'Heal 2 HP instantly', cooldown: 10 },
+  { id: 'time', name: 'TIME SLOW', desc: 'Slow viruses briefly', cooldown: 12 },
+  { id: 'pierce', name: 'PIERCE', desc: 'Next shot punches through', cooldown: 9 },
+  { id: 'bomb', name: 'GRID BOMB', desc: 'Blast the whole target row', cooldown: 11 },
+  { id: 'shield', name: 'SHIELD', desc: 'Block the next hit', cooldown: 14 },
+  { id: 'overclock', name: 'OVERCLOCK', desc: 'Boost fire rate briefly', cooldown: 13 },
+  { id: 'mirror', name: 'MIRROR', desc: 'Fire on all rows once', cooldown: 10 },
+  { id: 'scramble', name: 'SCRAMBLE', desc: 'Jolt every virus backward', cooldown: 9 }
+];
+```
+
+```js
+function useCard(type) {
+  if (!state.running || !state.cardsReady) return;
+  const ability = ABILITY_LOOKUP[type];
+  if (!ability) return;
+  if ((state.abilityCooldowns[type] || 0) > 0) return;
+  const m = boardMetrics();
+
+  if (type === 'shotgun') {
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      const targetRow = state.player.row + rowOffset;
+      if (targetRow >= 0 && targetRow < 3) fireBullet(targetRow, { power: 2, big: true });
+    }
+    showMessage('Shotgun card fired!', 1500);
+    tone(420, 0.08, 'square', 0.05);
+    setTimeout(() => tone(320, 0.08, 'square', 0.04), 60);
+
+  } else if (type === 'heal') {
+    state.hp = Math.min(5, state.hp + 2);
+    updateHud();
+    addParticles(
+      m.x + (state.player.col + 0.5) * m.cell,
+      m.y + (state.player.row + 0.5) * m.cell,
+      '#86efac'
+    );
+    showMessage('Recover card restored 2 HP!', 1500);
+    tone(660, 0.12, 'triangle', 0.04);
+    setTimeout(() => tone(880, 0.18, 'triangle', 0.04), 100);
+
+  } else if (type === 'time') {
+    state.slowTimer = 6;
+    showMessage('Time Slow card activated!', 1500);
+    tone(300, 0.1, 'sine', 0.04);
+    setTimeout(() => tone(240, 0.18, 'sine', 0.035), 90);
+
+  } else if (type === 'pierce') {
+    state.pierceShots = Math.max(state.pierceShots, 1);
+    showMessage('Pierce loaded for your next shot!', 1500);
+    tone(540, 0.08, 'square', 0.045);
+
+  } else if (type === 'bomb') {
+    const targetRow = state.player.row;
+    let hits = 0;
+    for (const enemy of state.enemies) {
+      if (enemy.row === targetRow) {
+        enemy.hp -= 2;
+        enemy.flash = 0.12;
+        if (enemy.hp <= 0) {
+          addParticles(
+            m.x + (enemy.colPos + 0.5) * m.cell,
+            m.y + (enemy.row + 0.5) * m.cell,
+            '#fde047'
+          );
+          enemy.colPos = -9;
+          state.score += 100;
+          hits += 1;
+        }
+      }
+    }
+    if (hits > 0) {
+      if (state.score % 500 === 0) state.wave += 1;
+      updateHud();
+      playScore();
+    }
+    showMessage('Grid Bomb blasted the row!', 1500);
+    tone(220, 0.12, 'sawtooth', 0.05);
+
+  } else if (type === 'shield') {
+    state.shieldCharges = Math.min(3, state.shieldCharges + 1);
+    showMessage('Shield charged!', 1500);
+    tone(760, 0.12, 'triangle', 0.04);
+
+  } else if (type === 'overclock') {
+    state.overclockTimer = 6;
+    showMessage('Overclock boosted fire rate!', 1500);
+    tone(900, 0.08, 'square', 0.04);
+    setTimeout(() => tone(1080, 0.12, 'square', 0.035), 70);
+
+  } else if (type === 'mirror') {
+    for (let row = 0; row < 3; row++) fireBullet(row, { power: 1, big: true });
+    showMessage('Mirror volley launched!', 1500);
+    tone(500, 0.09, 'triangle', 0.04);
+
+  } else if (type === 'scramble') {
+    for (const enemy of state.enemies) {
+      enemy.colPos = Math.min(5.8, enemy.colPos + 0.8);
+      enemy.flash = 0.1;
+    }
+    showMessage('Viruses scrambled backward!', 1500);
+    tone(260, 0.1, 'sine', 0.045);
+  }
+
+  state.abilityCooldowns[type] = ability.cooldown;
+  sdk.hapticFeedback('medium');
+  saveState();
+  consumeCards();
+}
+```
