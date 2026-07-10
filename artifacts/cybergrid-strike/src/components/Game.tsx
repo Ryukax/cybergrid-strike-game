@@ -83,6 +83,9 @@ export default function Game() {
   const msgFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Throttle HUD updates: only push cooldown state once per second
   const hudTickRef = useRef<number>(0);
+  // Direct DOM refs for smooth per-frame bar + label updates (no React setState)
+  const cardBarFillRef = useRef<HTMLDivElement>(null);
+  const cardLabelRef = useRef<HTMLDivElement>(null);
 
   const [boardBottom, setBoardBottom] = useState(0);
 
@@ -316,6 +319,13 @@ export default function Game() {
 
     if (!s.cardsReady) {
       s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt);
+      // Smooth bar + label: write directly to DOM every frame
+      const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
+      if (cardBarFillRef.current) cardBarFillRef.current.style.width = `${pct.toFixed(2)}%`;
+      if (cardLabelRef.current) {
+        const secs = Math.max(0, Math.ceil(CARD_CHARGE_TIME - s.cardTimer));
+        cardLabelRef.current.textContent = `Ability Cards ready in ${secs}s`;
+      }
       if (s.cardTimer >= CARD_CHARGE_TIME) {
         s.cardsReady = true;
         s.cardSelectionOpen = true;
@@ -588,15 +598,15 @@ export default function Game() {
       {/* Card UI — positioned just below the grid */}
       <div id="cardUi" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
         <div id="cardCharge">
-          <div id="cardChargeLabel">
+          <div id="cardChargeLabel" ref={cardLabelRef}>
             {hud.cardsReady
               ? allOnCooldown
                 ? 'All abilities on cooldown — cards will reroll when ready'
                 : 'Choose an Ability Card'
-              : `Ability Cards ready in ${Math.max(0, Math.ceil(CARD_CHARGE_TIME - hud.cardTimer))}s`}
+              : ''}
           </div>
           <div id="cardBarTrack">
-            <div id="cardBarFill" style={{ width: `${(cardProgress * 100).toFixed(1)}%` }} />
+            <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : '0%' }} />
           </div>
         </div>
 
