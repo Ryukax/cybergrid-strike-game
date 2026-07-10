@@ -371,6 +371,78 @@ canvas#canvas {
   color: #fff;
 }
 
+/* Customization panel */
+.customization-card {
+  max-width: min(92vw, 480px) !important;
+}
+
+#customSubtitle {
+  font-size: 13px;
+  color: rgba(219, 234, 254, 0.45);
+  margin-top: -12px;
+}
+
+#abilityToggleGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.ability-toggle-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 10px 10px 8px;
+  border-radius: 12px;
+  border: 2px solid;
+  cursor: pointer;
+  touch-action: manipulation;
+  text-align: left;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.ability-toggle-btn.enabled {
+  background: linear-gradient(180deg, rgba(76, 29, 149, 0.75), rgba(30, 27, 75, 0.85));
+  border-color: rgba(196, 181, 253, 0.6);
+  box-shadow: 0 0 14px rgba(139, 92, 246, 0.2);
+}
+
+.ability-toggle-btn.disabled {
+  background: rgba(8, 20, 40, 0.5);
+  border-color: rgba(125, 211, 252, 0.15);
+  opacity: 0.5;
+}
+
+.ability-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+.ability-toggle-name {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #f5f3ff;
+}
+
+.ability-toggle-desc {
+  font-size: 10px;
+  color: rgba(219, 234, 254, 0.5);
+  line-height: 1.2;
+}
+
+.ability-toggle-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+.ability-toggle-btn.enabled .ability-toggle-badge { color: #a78bfa; }
+.ability-toggle-btn.disabled .ability-toggle-badge { color: rgba(219, 234, 254, 0.3); }
+
 #menuBackBtn {
   background: rgba(8, 20, 40, 0.6);
   border: 2px solid rgba(125, 211, 252, 0.35);

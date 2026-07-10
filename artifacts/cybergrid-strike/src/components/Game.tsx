@@ -8,24 +8,30 @@ import {
   playMove, playAutoToggle, playCardReady, playAbility,
 } from '../game/audio';
 
-function randomAbilityOptions(exclude?: string[]): string[] {
-  const pool = [...ABILITY_POOL];
+const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
+
+function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): string[] {
+  const source = enabledIds
+    ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
+    : ABILITY_POOL;
+  // Need at least 1 enabled ability; fall back to full pool if somehow all disabled
+  const pool = [...(source.length > 0 ? source : ABILITY_POOL)];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   let opts = pool.slice(0, 3).map((a) => a.id);
-  if (exclude && ABILITY_POOL.length > 3) {
+  if (exclude && pool.length > 3) {
     let guard = 0;
     while (guard < 8 && opts.join('|') === exclude.join('|')) {
-      opts = randomAbilityOptions();
+      opts = randomAbilityOptions(undefined, enabledIds);
       guard++;
     }
   }
   return opts;
 }
 
-function makeInitialState(): GameState {
+function makeInitialState(enabledIds?: Set<string>): GameState {
   return {
     running: true,
     score: 0,
@@ -47,7 +53,7 @@ function makeInitialState(): GameState {
     shieldCharges: 0,
     pierceShots: 0,
     abilityCooldowns: Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0])),
-    currentCardOptions: randomAbilityOptions(),
+    currentCardOptions: randomAbilityOptions(undefined, enabledIds),
   };
 }
 
@@ -97,6 +103,9 @@ export default function Game() {
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
   const phaseRef = useRef<'menu' | 'playing'>('menu');
   const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
+
+  const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
+  const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
 
   const [boardBottom, setBoardBottom] = useState(0);
   const [dpadRotation, setDpadRotation] = useState<'portrait' | 'landscape'>('portrait');
@@ -250,7 +259,7 @@ export default function Game() {
     s.abilityCooldowns[type] = ability.cooldown;
 
     // Consume cards
-    const nextOptions = randomAbilityOptions(s.currentCardOptions);
+    const nextOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
     s.currentCardOptions = nextOptions;
     s.cardTimer = 0;
     s.cardsReady = false;
@@ -372,9 +381,9 @@ export default function Game() {
         }
         // Continuously reroll until we find options not all on cooldown
         let guard = 0;
-        let next = randomAbilityOptions(s.currentCardOptions);
+        let next = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
         while (guard < 12 && next.every((id) => (s.abilityCooldowns[id] ?? 0) > 0)) {
-          next = randomAbilityOptions(next);
+          next = randomAbilityOptions(next, enabledAbilitiesRef.current);
           guard++;
         }
         // If we found at least one usable option, swap in the new set
@@ -494,7 +503,7 @@ export default function Game() {
   }, []);
 
   const startGame = useCallback(() => {
-    stateRef.current = makeInitialState();
+    stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'playing';
@@ -506,7 +515,7 @@ export default function Game() {
 
   const restart = useCallback(() => {
     stopMusic();
-    stateRef.current = makeInitialState();
+    stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
@@ -757,8 +766,38 @@ export default function Game() {
               </div>
             </div>
           ) : (
-            <div id="menuCard">
-              <div id="menuTitle" style={{ fontSize: 'clamp(22px, 5vw, 32px)' }}>⚙ Customization</div>
+            <div id="menuCard" className="customization-card">
+              <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
+              <div id="customSubtitle">Toggle which abilities appear in card draws</div>
+              <div id="abilityToggleGrid">
+                {ABILITY_POOL.map((ability) => {
+                  const on = enabledAbilities.has(ability.id);
+                  return (
+                    <button
+                      key={ability.id}
+                      className={`ability-toggle-btn ${on ? 'enabled' : 'disabled'}`}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        setEnabledAbilities((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(ability.id)) {
+                            // Keep at least one enabled
+                            if (next.size > 1) next.delete(ability.id);
+                          } else {
+                            next.add(ability.id);
+                          }
+                          enabledAbilitiesRef.current = next;
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="ability-toggle-name">{ability.name}</span>
+                      <span className="ability-toggle-desc">{ability.desc}</span>
+                      <span className="ability-toggle-badge">{on ? 'ON' : 'OFF'}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 id="menuBackBtn"
                 onPointerDown={(ev) => { ev.stopPropagation(); setMenuScreen('main'); }}
