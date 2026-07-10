@@ -270,7 +270,7 @@ export default function Game() {
       }
       showMessage('Shotgun blasted 3 rows!', 1500);
     } else if (type === 'heal') {
-      s.hp = Math.min(5, s.hp + 2);
+      s.hp = s.hp + 2;
       if (m) addParticles(m.x + (s.player.col + 0.5) * m.cell, m.y + (s.player.row + 0.5) * m.cell, '#86efac');
       showMessage('Recover restored 2 HP!', 1500);
     } else if (type === 'time') {
