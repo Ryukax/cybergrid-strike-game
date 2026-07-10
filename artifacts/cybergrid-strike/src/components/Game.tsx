@@ -75,7 +75,14 @@ export default function Game() {
   // Input state (refs — no re-render needed)
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
   const touchDpadRef = useRef({ up: false, down: false, left: false, right: false });
-  const gamepadRef = useRef({ moveX: 0, moveY: 0, fire: false, prevFire: false, connected: false });
+  const gamepadRef = useRef({
+    moveX: 0, moveY: 0,
+    fire: false, prevFire: false,
+    cardX: false, prevCardX: false,   // button 2 → card slot 0
+    cardY: false, prevCardY: false,   // button 3 → card slot 1
+    cardB: false, prevCardB: false,   // button 1 → card slot 2
+    connected: false,
+  });
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
 
@@ -270,7 +277,10 @@ export default function Game() {
     if (Math.abs(moveX) < deadzone) moveX = 0;
     if (Math.abs(moveY) < deadzone) moveY = 0;
     g.prevFire = g.fire;
-    g.fire = buttonPressed(0) || buttonPressed(1) || buttonPressed(2) || buttonPressed(3);
+    g.fire = buttonPressed(0);            // A only
+    g.prevCardX = g.cardX; g.cardX = buttonPressed(2);  // X → slot 0
+    g.prevCardY = g.cardY; g.cardY = buttonPressed(3);  // Y → slot 1
+    g.prevCardB = g.cardB; g.cardB = buttonPressed(1);  // B → slot 2
     g.moveX = moveX;
     g.moveY = moveY;
     g.connected = true;
@@ -306,6 +316,13 @@ export default function Game() {
     }
     if (gp.fire && !fireHeldRef.current) manualBuster();
     fireHeldRef.current = gp.fire;
+
+    // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
+    if (s.cardsReady && s.cardSelectionOpen) {
+      if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
+      if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
+      if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
+    }
 
     s.timer += dt;
     s.moveFlash = Math.max(0, s.moveFlash - dt);
