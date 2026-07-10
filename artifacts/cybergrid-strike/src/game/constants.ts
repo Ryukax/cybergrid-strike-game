@@ -38,6 +38,25 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'regen',     name: 'REGEN',      desc: 'Regenerate 1 HP every 3 seconds for 12s',               cooldown: 20 },
   { id: 'drain',     name: 'LEECH',      desc: 'Each virus kill restores 1 HP for 8s',                  cooldown: 18 },
   { id: 'voltage',   name: 'VOLTAGE',    desc: 'Every bullet becomes big and piercing for 5s',          cooldown: 15 },
+
+  // ── New instant abilities ─────────────────────────────────────────────────
+  { id: 'emp',       name: 'EMP BURST',  desc: 'Instantly reduce every virus to 1 HP',                 cooldown: 12 },
+  { id: 'snipe',     name: 'SNIPER',     desc: 'Fire a power-5 piercing mega-shot at max velocity',    cooldown: 8  },
+  { id: 'gravity',   name: 'GRAVITY',    desc: 'Yank every virus into your current row',               cooldown: 11 },
+  { id: 'chain',     name: 'CHAIN KILL', desc: 'Destroy the most-advanced virus and all at equal HP',  cooldown: 9  },
+  { id: 'cluster',   name: 'CLUSTER',    desc: 'Eliminate the 3 most-advanced viruses instantly',      cooldown: 11 },
+  { id: 'rowshuffle',name: 'ROW CHAOS',  desc: 'Randomly scramble every virus to a new row',           cooldown: 7  },
+
+  // ── New timer-based abilities ─────────────────────────────────────────────
+  { id: 'ghost',     name: 'GHOST MODE', desc: 'Become invincible to virus collisions for 4s',         cooldown: 16 },
+  { id: 'turret',    name: 'TURRET',     desc: 'Auto-fire covers all 3 rows simultaneously for 5s',   cooldown: 14 },
+  { id: 'echo',      name: 'ECHO SHOT',  desc: 'Each bullet spawns a clone on the adjacent row for 5s', cooldown: 11 },
+  { id: 'overdrive', name: 'OVERDRIVE',  desc: 'Viruses move 2.5× faster but you earn 3× score for 4s', cooldown: 12 },
+  { id: 'pulse',     name: 'PULSE WAVE', desc: 'Shockwave repulses all viruses 0.5 cells every 1.5s for 7s', cooldown: 13 },
+  { id: 'overload',  name: 'OVERLOAD',   desc: 'Each kill instantly fires a bullet in that row for 6s', cooldown: 10 },
+  { id: 'magnet',    name: 'MAGNET',     desc: 'Magnetic field pulls viruses back 0.4 cells/s for 6s', cooldown: 10 },
+  { id: 'berserk',   name: 'BERSERK',    desc: 'Extreme fire rate — 4× speed for 4s',                  cooldown: 9  },
+  { id: 'crit',      name: 'CRIT BOOST', desc: '40% chance per bullet to deal triple damage for 5s',   cooldown: 11 },
 ];
 
 export const ABILITY_LOOKUP: Record<string, Ability> = Object.fromEntries(

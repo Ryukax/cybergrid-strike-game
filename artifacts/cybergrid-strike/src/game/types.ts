@@ -55,7 +55,7 @@ export interface GameState {
   timer: number;
   enemySpawnTimer: number;
   moveFlash: number;
-  // Status timers
+  // Status timers — original
   slowTimer: number;
   overclockTimer: number;
   freezeTimer: number;
@@ -66,6 +66,17 @@ export interface GameState {
   regenTick: number;
   drainTimer: number;
   voltageTimer: number;
+  // Status timers — new abilities
+  ghostTimer: number;      // invincible to hits
+  turretTimer: number;     // auto-fires all 3 rows
+  echoTimer: number;       // each bullet clones to adjacent row
+  overdriveTimer: number;  // enemies faster but 3× score
+  pulseTimer: number;      // periodic repulse wave
+  pulseTick: number;       // time until next pulse
+  overloadTimer: number;   // kills fire a bullet in same row
+  magnetTimer: number;     // pushes enemies toward right edge
+  berserkTimer: number;    // very fast fire rate
+  critTimer: number;       // 40% chance of 3× damage per bullet
   // Card system
   cardTimer: number;
   cardsReady: boolean;

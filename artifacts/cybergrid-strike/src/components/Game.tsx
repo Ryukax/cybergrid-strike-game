@@ -50,6 +50,16 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     regenTick: 0,
     drainTimer: 0,
     voltageTimer: 0,
+    ghostTimer: 0,
+    turretTimer: 0,
+    echoTimer: 0,
+    overdriveTimer: 0,
+    pulseTimer: 0,
+    pulseTick: 1.5,
+    overloadTimer: 0,
+    magnetTimer: 0,
+    berserkTimer: 0,
+    critTimer: 0,
     cardTimer: 0,
     cardsReady: false,
     cardSelectionOpen: false,
@@ -192,7 +202,12 @@ export default function Game() {
       pierce = true;
       s.pierceShots = Math.max(0, s.pierceShots - 1);
     }
+    if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
     s.bullets.push({ colPos: s.player.col + 0.55, row, speed: 8.5, power, big, pierce });
+    if (s.echoTimer > 0) {
+      const echoRow = (row + 1) % 3;
+      s.bullets.push({ colPos: s.player.col + 0.55, row: echoRow, speed: 8.5, power: Math.max(1, power - 1), big: false, pierce: false });
+    }
     playShot();
   }, []);
 
@@ -213,7 +228,10 @@ export default function Game() {
     if (s.player.fireCooldown <= 0) {
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
-      s.player.fireCooldown = 0.25;
+      if (s.turretTimer > 0) {
+        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+      }
+      s.player.fireCooldown = s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25;
     }
   }, [fireBullet]);
 
@@ -386,6 +404,97 @@ export default function Game() {
     } else if (type === 'voltage') {
       s.voltageTimer = 5;
       showMessage('Voltage — big piercing bullets for 5s!', 1500);
+
+    // ── New instant abilities ──────────────────────────────────────────────
+    } else if (type === 'emp') {
+      let hit = 0;
+      for (const e of s.enemies) { if (e.hp > 1) { e.hp = 1; e.flash = 0.12; hit++; } }
+      showMessage(`EMP — ${hit} virus${hit !== 1 ? 'es' : ''} weakened to 1 HP!`, 1500);
+
+    } else if (type === 'snipe') {
+      s.bullets.push({ colPos: s.player.col + 0.55, row: s.player.row, speed: 16, power: 5, big: true, pierce: true });
+      playShot();
+      showMessage('Sniper — power-5 mega-shot fired!', 1200);
+
+    } else if (type === 'gravity') {
+      for (const e of s.enemies) { e.row = s.player.row; e.flash = 0.12; }
+      showMessage('Gravity — all viruses pulled to your row!', 1500);
+
+    } else if (type === 'chain') {
+      const sorted = [...s.enemies].filter(e => e.colPos > -1).sort((a, b) => a.colPos - b.colPos);
+      if (sorted.length > 0) {
+        const chainHp = sorted[0].hp;
+        let kills = 0;
+        for (const e of s.enemies) {
+          if (e.hp === chainHp && e.colPos > -1) {
+            if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#fde047');
+            e.colPos = -9;
+            s.score += 100;
+            if (s.drainTimer > 0) s.hp++;
+            kills++;
+          }
+        }
+        if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+        showMessage(`Chain Kill — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed!`, 1500);
+      } else {
+        showMessage('No viruses to chain!', 1000);
+      }
+
+    } else if (type === 'cluster') {
+      const targets = [...s.enemies].filter(e => e.colPos > -1).sort((a, b) => a.colPos - b.colPos).slice(0, 3);
+      let kills = 0;
+      for (const e of targets) {
+        if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#fb923c');
+        e.colPos = -9;
+        s.score += 100;
+        if (s.drainTimer > 0) s.hp++;
+        kills++;
+      }
+      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      showMessage(`Cluster — ${kills} most-advanced virus${kills !== 1 ? 'es' : ''} eliminated!`, 1500);
+
+    } else if (type === 'rowshuffle') {
+      for (const e of s.enemies) { e.row = Math.floor(Math.random() * 3); e.flash = 0.1; }
+      showMessage('Row Chaos — viruses scrambled to random rows!', 1500);
+
+    // ── New timer-based abilities ──────────────────────────────────────────
+    } else if (type === 'ghost') {
+      s.ghostTimer = 4;
+      if (m) addParticles(m.x + (s.player.col + 0.5) * m.cell, m.y + (s.player.row + 0.5) * m.cell, '#e0f2fe');
+      showMessage('Ghost Mode — invincible for 4s!', 1500);
+
+    } else if (type === 'turret') {
+      s.turretTimer = 5;
+      showMessage('Turret — auto-firing all 3 rows for 5s!', 1500);
+
+    } else if (type === 'echo') {
+      s.echoTimer = 5;
+      showMessage('Echo Shot — each bullet clones to adjacent row for 5s!', 1500);
+
+    } else if (type === 'overdrive') {
+      s.overdriveTimer = 4;
+      showMessage('Overdrive — 2.5× virus speed, 3× score for 4s!', 1500);
+
+    } else if (type === 'pulse') {
+      s.pulseTimer = 7;
+      s.pulseTick = 0.1; // fire first pulse almost immediately
+      showMessage('Pulse Wave — repulse shockwaves every 1.5s for 7s!', 1500);
+
+    } else if (type === 'overload') {
+      s.overloadTimer = 6;
+      showMessage('Overload — each kill fires a bullet in that row for 6s!', 1500);
+
+    } else if (type === 'magnet') {
+      s.magnetTimer = 6;
+      showMessage('Magnet — pulling viruses away for 6s!', 1500);
+
+    } else if (type === 'berserk') {
+      s.berserkTimer = 4;
+      showMessage('Berserk — extreme fire rate for 4s!', 1500);
+
+    } else if (type === 'crit') {
+      s.critTimer = 5;
+      showMessage('Crit Boost — 40% chance of triple damage for 5s!', 1500);
     }
 
     playAbility(type);
@@ -488,6 +597,25 @@ export default function Game() {
     s.multishotTimer = Math.max(0, s.multishotTimer - dt);
     s.drainTimer     = Math.max(0, s.drainTimer - dt);
     s.voltageTimer   = Math.max(0, s.voltageTimer - dt);
+    s.ghostTimer     = Math.max(0, s.ghostTimer - dt);
+    s.turretTimer    = Math.max(0, s.turretTimer - dt);
+    s.echoTimer      = Math.max(0, s.echoTimer - dt);
+    s.overdriveTimer = Math.max(0, s.overdriveTimer - dt);
+    s.overloadTimer  = Math.max(0, s.overloadTimer - dt);
+    s.magnetTimer    = Math.max(0, s.magnetTimer - dt);
+    s.berserkTimer   = Math.max(0, s.berserkTimer - dt);
+    s.critTimer      = Math.max(0, s.critTimer - dt);
+    if (s.pulseTimer > 0) {
+      s.pulseTimer = Math.max(0, s.pulseTimer - dt);
+      s.pulseTick  = Math.max(0, s.pulseTick  - dt);
+      if (s.pulseTick <= 0) {
+        for (const e of s.enemies) { e.colPos = Math.min(5.8, e.colPos + 0.5); e.flash = 0.06; }
+        s.pulseTick = 1.5;
+      }
+    }
+    if (s.magnetTimer > 0) {
+      for (const e of s.enemies) e.colPos = Math.min(5.8, e.colPos + 0.4 * dt);
+    }
     if (s.regenTimer > 0) {
       s.regenTimer = Math.max(0, s.regenTimer - dt);
       s.regenTick  = Math.max(0, s.regenTick  - dt);
@@ -561,9 +689,12 @@ export default function Game() {
 
     s.player.fireCooldown -= dt;
     if (s.autoBuster && s.player.fireCooldown <= 0) {
-      s.player.fireCooldown = s.overclockTimer > 0 ? 0.16 : 0.34;
+      s.player.fireCooldown = s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34;
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
+      if (s.turretTimer > 0) {
+        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+      }
     }
 
     // Spawn enemies
@@ -585,7 +716,7 @@ export default function Game() {
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     for (const e of s.enemies) {
-      const speedScale = s.freezeTimer > 0 ? 0 : s.blizzardTimer > 0 ? 0.15 : s.slowTimer > 0 ? 0.45 : 1;
+      const speedScale = s.freezeTimer > 0 ? 0 : s.blizzardTimer > 0 ? 0.15 : s.slowTimer > 0 ? 0.45 : s.overdriveTimer > 0 ? 2.5 : 1;
       e.colPos -= e.speed * speedScale * dt;
       e.flash = Math.max(0, e.flash - dt);
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
@@ -593,6 +724,8 @@ export default function Game() {
           s.shieldCharges--;
           e.colPos = -9;
           showMessage('Shield absorbed a hit!', 1200);
+        } else if (s.ghostTimer > 0) {
+          e.colPos = -9; // pass through — invincible
         } else {
           s.hp--;
           e.colPos = -9;
@@ -613,9 +746,12 @@ export default function Game() {
           if (e.hp <= 0) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
             e.colPos = -9;
-            s.score += 100;
+            s.score += s.overdriveTimer > 0 ? 300 : 100;
             if (s.score % 500 === 0) s.wave++;
             if (s.drainTimer > 0) { s.hp++; }
+            if (s.overloadTimer > 0) {
+              s.bullets.push({ colPos: s.player.col + 0.55, row: e.row, speed: 8.5, power: 1, big: false, pierce: false });
+            }
             // VS mode: killing a red enemy sends a green attack at the NPC
             if (s.gameMode === 'vs') {
               s.npcEnemies.push({
