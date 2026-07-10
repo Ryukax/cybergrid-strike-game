@@ -648,6 +648,14 @@ canvas#canvas {
   color: #34d399;
   border-color: rgba(52, 211, 153, 0.45);
   text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
+  transition: color 0.3s, text-shadow 0.3s, border-color 0.3s;
+}
+
+/* Over-heal — NPC HP exceeded base; glow amber to signal danger */
+#npcHpPanel[data-overheal="true"] {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.6);
+  text-shadow: 0 0 12px rgba(251, 191, 36, 0.7);
 }
 
 #npcShieldDisplay {

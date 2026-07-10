@@ -857,6 +857,10 @@ export default function Game() {
                 '#4ade80',
               );
               e.colPos = -9;
+              // NPC heals on every intercept — no cap, can exceed base HP
+              npc.hp++;
+              showMessage('NPC intercepted an attack and healed!', 900);
+              updateHud();
             }
             break;
           }
@@ -1052,8 +1056,8 @@ export default function Game() {
         </div>
         <div className="panel">Score {hud.score}</div>
         {hud.gameMode === 'vs' ? (
-          <div className="panel" id="npcHpPanel">
-            NPC {hud.npcHp} HP
+          <div className="panel" id="npcHpPanel" data-overheal={hud.npcHp > NPC_HP ? 'true' : 'false'}>
+            NPC {hud.npcHp} HP{hud.npcHp > NPC_HP ? ' ▲' : ''}
             {hud.npcShieldCharges > 0 && (
               <span id="npcShieldDisplay">{'🛡'.repeat(Math.min(hud.npcShieldCharges, 9))}</span>
             )}
