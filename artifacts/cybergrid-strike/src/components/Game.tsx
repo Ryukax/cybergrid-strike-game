@@ -42,6 +42,14 @@ function makeInitialState(enabledIds?: Set<string>): GameState {
     moveFlash: 0,
     slowTimer: 0,
     overclockTimer: 0,
+    freezeTimer: 0,
+    blizzardTimer: 0,
+    doubleTimer: 0,
+    multishotTimer: 0,
+    regenTimer: 0,
+    regenTick: 0,
+    drainTimer: 0,
+    voltageTimer: 0,
     cardTimer: 0,
     cardsReady: false,
     cardSelectionOpen: false,
@@ -157,9 +165,11 @@ export default function Game() {
   const fireBullet = useCallback((rowOverride?: number, opts?: { power?: number; big?: boolean; pierce?: boolean }) => {
     const s = stateRef.current;
     const row = rowOverride !== undefined ? rowOverride : s.player.row;
-    const power = opts?.power ?? 1;
-    const big = opts?.big ?? false;
+    let power = opts?.power ?? 1;
+    let big = opts?.big ?? false;
     let pierce = opts?.pierce ?? false;
+    if (s.voltageTimer > 0) { big = true; pierce = true; }
+    if (s.doubleTimer > 0) power *= 2;
     if (!pierce && s.pierceShots > 0) {
       pierce = true;
       s.pierceShots = Math.max(0, s.pierceShots - 1);
@@ -184,6 +194,7 @@ export default function Game() {
     if (!s.running) return;
     if (s.player.fireCooldown <= 0) {
       fireBullet();
+      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
       s.player.fireCooldown = 0.25;
     }
   }, [fireBullet]);
@@ -208,22 +219,23 @@ export default function Game() {
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
 
+    // ── Existing ────────────────────────────────────────────────────────────
     if (type === 'shotgun') {
       for (let ro = -1; ro <= 1; ro++) {
         const tr = s.player.row + ro;
         if (tr >= 0 && tr < 3) fireBullet(tr, { power: 2, big: true });
       }
-      showMessage('Shotgun card fired!', 1500);
+      showMessage('Shotgun blasted 3 rows!', 1500);
     } else if (type === 'heal') {
       s.hp = s.hp + 2;
       if (m) addParticles(m.x + (s.player.col + 0.5) * m.cell, m.y + (s.player.row + 0.5) * m.cell, '#86efac');
-      showMessage('Recover card restored 2 HP!', 1500);
+      showMessage('Recover restored 2 HP!', 1500);
     } else if (type === 'time') {
       s.slowTimer = 6;
-      showMessage('Time Slow card activated!', 1500);
+      showMessage('Time Slow — viruses at 45% speed!', 1500);
     } else if (type === 'pierce') {
       s.pierceShots = Math.max(s.pierceShots, 1);
-      showMessage('Pierce loaded for your next shot!', 1500);
+      showMessage('Pierce loaded — next shot punches through!', 1500);
     } else if (type === 'bomb') {
       const targetRow = s.player.row;
       let hits = 0;
@@ -235,35 +247,118 @@ export default function Game() {
             addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fde047');
             enemy.colPos = -9;
             s.score += 100;
+            if (s.drainTimer > 0) s.hp++;
             hits++;
           }
         }
       }
       if (hits > 0) { if (s.score % 500 === 0) s.wave++; playScore(); }
-      showMessage('Grid Bomb blasted the row!', 1500);
+      showMessage('Grid Bomb detonated your row!', 1500);
     } else if (type === 'shield') {
       s.shieldCharges = Math.min(3, s.shieldCharges + 1);
-      showMessage('Shield charged!', 1500);
+      showMessage('Shield charged — next hit blocked!', 1500);
     } else if (type === 'overclock') {
       s.overclockTimer = 6;
-      showMessage('Overclock boosted fire rate!', 1500);
+      showMessage('Overclock — double fire rate for 6s!', 1500);
     } else if (type === 'mirror') {
       for (let row = 0; row < 3; row++) fireBullet(row, { power: 1, big: true });
-      showMessage('Mirror volley launched!', 1500);
+      showMessage('Mirror — one big shot on every lane!', 1500);
     } else if (type === 'scramble') {
       for (const enemy of s.enemies) { enemy.colPos = Math.min(5.8, enemy.colPos + 0.8); enemy.flash = 0.1; }
-      showMessage('Viruses scrambled backward!', 1500);
+      showMessage('Scramble knocked viruses back!', 1500);
+
+    // ── Instant / no new state ──────────────────────────────────────────────
+    } else if (type === 'nuke') {
+      let kills = 0;
+      for (const enemy of s.enemies) {
+        if (m) addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#f87171');
+        enemy.colPos = -9;
+        s.score += 100;
+        if (s.drainTimer > 0) s.hp++;
+        kills++;
+      }
+      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      showMessage('NUKE — all viruses wiped!', 1500);
+    } else if (type === 'barrage') {
+      for (let i = 0; i < 3; i++) fireBullet(undefined, { power: 2, big: true, pierce: true });
+      showMessage('Barrage — 3 piercing shots on your row!', 1500);
+    } else if (type === 'warpback') {
+      for (const enemy of s.enemies) { enemy.colPos = 5.6; enemy.flash = 0.15; }
+      showMessage('Warp Back — all viruses sent to the edge!', 1500);
+    } else if (type === 'purge') {
+      let kills = 0;
+      for (const enemy of s.enemies) {
+        if (enemy.hp <= 1) {
+          if (m) addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#c4b5fd');
+          enemy.colPos = -9;
+          s.score += 100;
+          if (s.drainTimer > 0) s.hp++;
+          kills++;
+        }
+      }
+      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      showMessage(`Purge erased ${kills} weakened virus${kills !== 1 ? 'es' : ''}!`, 1500);
+    } else if (type === 'armor') {
+      s.shieldCharges = Math.min(s.shieldCharges + 3, 9);
+      showMessage('Armor — 3 shield charges granted!', 1500);
+    } else if (type === 'surge') {
+      for (let row = 0; row < 3; row++) fireBullet(row, { power: 2, pierce: true });
+      showMessage('Surge — piercing shot on all 3 lanes!', 1500);
+    } else if (type === 'backdash') {
+      for (const enemy of s.enemies) { enemy.colPos = Math.min(5.8, enemy.colPos + 2.0); enemy.flash = 0.1; }
+      showMessage('Backdash pushed viruses back 2 cells!', 1500);
+    } else if (type === 'megabomb') {
+      let kills = 0;
+      for (const enemy of s.enemies) {
+        if (m) {
+          addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fde047');
+          addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fb923c');
+        }
+        enemy.colPos = -9;
+        s.score += 200;
+        if (s.drainTimer > 0) s.hp++;
+        kills++;
+      }
+      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed, double score!`, 1800);
+    } else if (type === 'cardflood') {
+      showMessage('Card Flood — ability cards recharged instantly!', 1500);
+
+    // ── Timer-based ─────────────────────────────────────────────────────────
+    } else if (type === 'freeze') {
+      s.freezeTimer = 4;
+      showMessage('Freeze — all viruses halted for 4s!', 1500);
+    } else if (type === 'blizzard') {
+      s.blizzardTimer = 10;
+      showMessage('Blizzard — extreme slowdown for 10s!', 1500);
+    } else if (type === 'double') {
+      s.doubleTimer = 6;
+      showMessage('Doubletap — double damage for 6s!', 1500);
+    } else if (type === 'multishot') {
+      s.multishotTimer = 5;
+      showMessage('Multishot — extra bullet per trigger for 5s!', 1500);
+    } else if (type === 'regen') {
+      s.regenTimer = 12;
+      s.regenTick = 3;
+      showMessage('Regen — restoring 1 HP every 3s for 12s!', 1500);
+    } else if (type === 'drain') {
+      s.drainTimer = 8;
+      showMessage('Leech — kills restore HP for 8s!', 1500);
+    } else if (type === 'voltage') {
+      s.voltageTimer = 5;
+      showMessage('Voltage — big piercing bullets for 5s!', 1500);
     }
 
     playAbility(type);
     s.abilityCooldowns[type] = ability.cooldown;
 
-    // Consume cards
+    // Consume cards (Card Flood immediately re-readies the next draw)
     const nextOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
     s.currentCardOptions = nextOptions;
-    s.cardTimer = 0;
-    s.cardsReady = false;
-    s.cardSelectionOpen = false;
+    const instantRefill = type === 'cardflood';
+    s.cardTimer = instantRefill ? CARD_CHARGE_TIME : 0;
+    s.cardsReady = instantRefill;
+    s.cardSelectionOpen = instantRefill;
 
     updateHud();
   }, [fireBullet, addParticles, showMessage, updateHud]);
@@ -335,9 +430,24 @@ export default function Game() {
     }
 
     s.timer += dt;
-    s.moveFlash = Math.max(0, s.moveFlash - dt);
-    s.slowTimer = Math.max(0, s.slowTimer - dt);
+    s.moveFlash      = Math.max(0, s.moveFlash - dt);
+    s.slowTimer      = Math.max(0, s.slowTimer - dt);
     s.overclockTimer = Math.max(0, s.overclockTimer - dt);
+    s.freezeTimer    = Math.max(0, s.freezeTimer - dt);
+    s.blizzardTimer  = Math.max(0, s.blizzardTimer - dt);
+    s.doubleTimer    = Math.max(0, s.doubleTimer - dt);
+    s.multishotTimer = Math.max(0, s.multishotTimer - dt);
+    s.drainTimer     = Math.max(0, s.drainTimer - dt);
+    s.voltageTimer   = Math.max(0, s.voltageTimer - dt);
+    if (s.regenTimer > 0) {
+      s.regenTimer = Math.max(0, s.regenTimer - dt);
+      s.regenTick  = Math.max(0, s.regenTick  - dt);
+      if (s.regenTick <= 0) {
+        s.hp++;
+        s.regenTick = 3;
+        updateHud();
+      }
+    }
 
     // Throttled HUD tick: refresh cooldown display at most once per second
     hudTickRef.current += dt;
@@ -398,6 +508,7 @@ export default function Game() {
     if (s.autoBuster && s.player.fireCooldown <= 0 && !s.cardSelectionOpen) {
       s.player.fireCooldown = s.overclockTimer > 0 ? 0.16 : 0.34;
       fireBullet();
+      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
     }
 
     // Spawn enemies
@@ -419,7 +530,7 @@ export default function Game() {
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     for (const e of s.enemies) {
-      const speedScale = s.slowTimer > 0 ? 0.45 : 1;
+      const speedScale = s.freezeTimer > 0 ? 0 : s.blizzardTimer > 0 ? 0.15 : s.slowTimer > 0 ? 0.45 : 1;
       e.colPos -= e.speed * speedScale * dt;
       e.flash = Math.max(0, e.flash - dt);
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
@@ -449,6 +560,7 @@ export default function Game() {
             e.colPos = -9;
             s.score += 100;
             if (s.score % 500 === 0) s.wave++;
+            if (s.drainTimer > 0) { s.hp++; }
             playScore();
             updateHud();
           } else {

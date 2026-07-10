@@ -43,15 +43,27 @@ export interface GameState {
   timer: number;
   enemySpawnTimer: number;
   moveFlash: number;
+  // Status timers
   slowTimer: number;
   overclockTimer: number;
+  freezeTimer: number;
+  blizzardTimer: number;
+  doubleTimer: number;
+  multishotTimer: number;
+  regenTimer: number;
+  regenTick: number;
+  drainTimer: number;
+  voltageTimer: number;
+  // Card system
   cardTimer: number;
   cardsReady: boolean;
   cardSelectionOpen: boolean;
+  // Entities
   player: Player;
   bullets: Bullet[];
   enemies: Enemy[];
   particles: Particle[];
+  // Misc
   autoBuster: boolean;
   shieldCharges: number;
   pierceShots: number;
