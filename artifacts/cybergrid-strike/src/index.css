@@ -167,6 +167,13 @@ canvas#canvas {
   border-color: rgba(196, 181, 253, 0.85);
 }
 
+#rotateHandBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(196, 181, 253, 0.2);
+}
+
 /* D-pad */
 #dpad {
   display: block;

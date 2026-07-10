@@ -376,24 +376,22 @@ export default function Game() {
     updateHud();
   }, [fireBullet, addParticles, showMessage, updateHud]);
 
-  // Rotate hand: discard current hand, deal 3 new cards immediately
+  // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
     const s = stateRef.current;
     if (!s.running) return;
+    // Guard: disabled once all cards in the current hand have been used
+    const allUsed = s.cardsReady && s.currentCardOptions.length > 0 &&
+      s.currentCardOptions.every((id) => s.usedInHand.includes(id));
+    if (allUsed) return;
     ensureAudio();
-    // Reroll until at least one card is off cooldown (max 12 attempts)
-    let newOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
-    for (let g = 0; g < 12 && newOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
-      newOptions = randomAbilityOptions(newOptions, enabledAbilitiesRef.current);
-    }
-    s.currentCardOptions = newOptions;
+    s.cardsReady = false;
+    s.cardSelectionOpen = false;
+    s.cardTimer = 0;
     s.usedInHand = [];
-    s.cardsReady = true;
-    s.cardSelectionOpen = true;
-    s.cardTimer = CARD_CHARGE_TIME;
-    playCardReady();
+    if (cardBarFillRef.current) cardBarFillRef.current.style.width = '0%';
     updateHud();
-    showMessage('Hand rotated — new cards ready!', 1500);
+    showMessage('Timer reset — new hand incoming!', 1500);
   }, [showMessage, updateHud]);
 
   const handleGamepad = useCallback(() => {
@@ -525,7 +523,7 @@ export default function Game() {
             : '';
         } else {
           const remaining = s.currentCardOptions.filter((id) => !s.usedInHand.includes(id)).length;
-          cardLabelRef.current.textContent = `${remaining} card${remaining !== 1 ? 's' : ''} remaining — ROTATE for new hand`;
+          cardLabelRef.current.textContent = `${remaining} card${remaining !== 1 ? 's' : ''} remaining — ROTATE to reset timer`;
         }
       }
 
@@ -800,7 +798,7 @@ export default function Game() {
         <div id="cardUi">
           <div id="cardCharge">
             <div id="cardChargeLabel" ref={cardLabelRef}>
-              {hud.cardsReady ? 'Choose ability cards — ROTATE for new hand' : ''}
+              {hud.cardsReady ? 'Choose ability cards — ROTATE to reset timer' : ''}
             </div>
             <div id="cardBarTrack">
               <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : `${cardProgress * 100}%` }} />
@@ -837,11 +835,12 @@ export default function Game() {
           )}
         </div>
 
-        {/* Rotate button — deals a fresh hand instantly */}
+        {/* Rotate button — resets the bar timer; disabled once all cards are spent */}
         {phase === 'playing' && (
           <button
             id="rotateHandBtn"
             className="control-btn"
+            disabled={hud.cardsReady && hud.cardOptions.length > 0 && hud.cardOptions.every((id) => hud.usedInHand.includes(id))}
             onPointerDown={(ev) => {
               ev.stopPropagation();
               rotateHand();
@@ -903,7 +902,7 @@ export default function Game() {
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
                 <div className="menu-control-row"><span>Abilities</span><span>Use all 3 cards, then hand resets</span></div>
-                <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — new hand</span></div>
+                <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — reset timer (disabled once all 3 used)</span></div>
               </div>
             </div>
           ) : (
