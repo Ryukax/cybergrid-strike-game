@@ -149,13 +149,11 @@ canvas#canvas {
   border-color: var(--warn);
 }
 
-/* Portrait / Landscape toggle */
+/* Rotate-input toggle — sits below the bar inside the wrapper */
 #layoutToggleBtn {
-  position: absolute;
-  left: 14px;
+  align-self: flex-start;
   font-size: 12px;
   padding: 6px 10px;
-  z-index: 15;
   pointer-events: auto;
 }
 
@@ -201,8 +199,8 @@ canvas#canvas {
   border-radius: 50%;
 }
 
-/* Card UI */
-#cardUi {
+/* Card UI wrapper — column container positioned below the grid */
+#cardUiWrapper {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -210,8 +208,14 @@ canvas#canvas {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  pointer-events: none;
   z-index: 10;
+}
+
+#cardUi {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
 }
 
 #cardCharge {

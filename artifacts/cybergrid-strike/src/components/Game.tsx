@@ -91,7 +91,8 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
 
   const [boardBottom, setBoardBottom] = useState(0);
-  const [dpadLayout, setDpadLayout] = useState<'portrait' | 'landscape'>('portrait');
+  const [dpadRotation, setDpadRotation] = useState<0 | 90 | 180 | 270>(0);
+  const dpadRotationRef = useRef<0 | 90 | 180 | 270>(0);
 
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
@@ -286,11 +287,17 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
-    let dx = 0, dy = 0;
-    if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
-    if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
-    if (Math.abs(gp.moveX) > 0.15) dx = gp.moveX > 0 ? 1 : -1;
-    if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
+    let rdx = 0, rdy = 0;
+    if (kb.left || td.left) rdx = -1; else if (kb.right || td.right) rdx = 1;
+    if (kb.up || td.up) rdy = -1; else if (kb.down || td.down) rdy = 1;
+    if (Math.abs(gp.moveX) > 0.15) rdx = gp.moveX > 0 ? 1 : -1;
+    if (Math.abs(gp.moveY) > 0.15) rdy = gp.moveY > 0 ? 1 : -1;
+    // Remap raw input through clockwise rotation
+    let dx = rdx, dy = rdy;
+    const rot = dpadRotationRef.current;
+    if      (rot === 90)  { dx = -rdy; dy =  rdx; }
+    else if (rot === 180) { dx = -rdx; dy = -rdy; }
+    else if (rot === 270) { dx =  rdy; dy = -rdx; }
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
       const nc = Math.max(0, Math.min(2, s.player.col + dx));
@@ -617,70 +624,71 @@ export default function Game() {
         <div className="panel">Wave {hud.wave}</div>
       </div>
 
-      {/* Card UI — positioned just below the grid */}
-      <div id="cardUi" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
-        <div id="cardCharge">
-          <div id="cardChargeLabel" ref={cardLabelRef}>
-            {hud.cardsReady
-              ? allOnCooldown
-                ? 'All abilities on cooldown — cards will reroll when ready'
-                : 'Choose an Ability Card'
-              : ''}
+      {/* Card UI + rotate button — column, positioned just below the grid */}
+      <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
+        <div id="cardUi">
+          <div id="cardCharge">
+            <div id="cardChargeLabel" ref={cardLabelRef}>
+              {hud.cardsReady
+                ? allOnCooldown
+                  ? 'All abilities on cooldown — cards will reroll when ready'
+                  : 'Choose an Ability Card'
+                : ''}
+            </div>
+            <div id="cardBarTrack">
+              <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : '0%' }} />
+            </div>
           </div>
-          <div id="cardBarTrack">
-            <div id="cardBarFill" ref={cardBarFillRef} style={{ width: hud.cardsReady ? '100%' : '0%' }} />
-          </div>
+
+          {hud.cardsReady && (
+            <div id="cardChoices">
+              {hud.cardOptions.map((id) => {
+                const ability = ABILITY_LOOKUP[id];
+                if (!ability) return null;
+                const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
+                return (
+                  <button
+                    key={id}
+                    className="card-btn"
+                    disabled={cd > 0}
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      ensureAudio();
+                      useCard(id);
+                    }}
+                  >
+                    {ability.name}<br />
+                    <span>{cd > 0 ? `Cooldown ${cd}s` : ability.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {hud.cardsReady && (
-          <div id="cardChoices">
-            {hud.cardOptions.map((id) => {
-              const ability = ABILITY_LOOKUP[id];
-              if (!ability) return null;
-              const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
-              return (
-                <button
-                  key={id}
-                  className="card-btn"
-                  disabled={cd > 0}
-                  onPointerDown={(ev) => {
-                    ev.stopPropagation();
-                    ensureAudio();
-                    useCard(id);
-                  }}
-                >
-                  {ability.name}<br />
-                  <span>{cd > 0 ? `Cooldown ${cd}s` : ability.desc}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* Rotate-input button — sits below the bar, left-aligned */}
+        {phase === 'playing' && (
+          <button
+            id="layoutToggleBtn"
+            className="control-btn"
+            onPointerDown={(ev) => {
+              ev.stopPropagation();
+              setDpadRotation((r) => {
+                const next = ((r + 90) % 360) as 0 | 90 | 180 | 270;
+                dpadRotationRef.current = next;
+                return next;
+              });
+            }}
+          >
+            ↻ {dpadRotation}°
+          </button>
         )}
       </div>
 
-      {/* Portrait / Landscape toggle — below ability bar, left side */}
-      {phase === 'playing' && boardBottom > 0 && (
-        <button
-          id="layoutToggleBtn"
-          className="control-btn"
-          style={{ top: boardBottom + 12 }}
-          onPointerDown={(ev) => {
-            ev.stopPropagation();
-            setDpadLayout((l) => l === 'portrait' ? 'landscape' : 'portrait');
-          }}
-        >
-          {dpadLayout === 'portrait' ? '⬜ Portrait' : '▭ Landscape'}
-        </button>
-      )}
-
-      {/* D-Pad */}
+      {/* D-Pad — visually rotated to match input remapping */}
       <div
         id="dpad"
-        style={
-          dpadLayout === 'landscape'
-            ? { left: '14px', top: '50%', bottom: 'auto', transform: 'translateY(-50%)' }
-            : undefined
-        }
+        style={{ transform: `translateX(-50%) rotate(${dpadRotation}deg)` }}
       >
         <div className="dpad-btn" id="dpadUp" />
         <div className="dpad-btn" id="dpadDown" />
