@@ -19,9 +19,11 @@ export function draw(
   w: number,
   h: number,
   state: GameState,
-  playerImage?: HTMLImageElement | null,
+  hasOverlay?: boolean,
 ) {
-  ctx.clearRect(0, 0, w, h);
+  // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
+  ctx.fillStyle = '#06101e';
+  ctx.fillRect(0, 0, w, h);
 
   const m = getBoardMetrics(w, h);
   const splitX = m.x + m.cell * 3;
@@ -98,10 +100,10 @@ export function draw(
     ctx.stroke();
   }
 
-  // Player body — skipped when a DOM sprite overlay is active (playerImage flag)
+  // Player body — skipped when a DOM sprite overlay is active
   const playerX = m.x + (state.player.col + 0.5) * m.cell;
   const playerY = m.y + (state.player.row + 0.5) * m.cell;
-  if (!playerImage) {
+  if (!hasOverlay) {
     ctx.fillStyle = '#60a5fa';
     ctx.beginPath();
     (ctx as Ctx2D).roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);

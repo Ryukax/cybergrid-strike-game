@@ -954,8 +954,8 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      // Pass null — rocket skin is rendered via DOM overlay, not on the game canvas
-      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, null);
+      // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
+      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, playerSkinRef.current === 'rocket');
 
       // Update DOM sprite overlay position and redraw with background removal
       if (playerSkinRef.current === 'rocket') {
