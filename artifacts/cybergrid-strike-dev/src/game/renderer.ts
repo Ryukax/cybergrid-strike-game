@@ -18,6 +18,7 @@ export function draw(
   w: number,
   h: number,
   state: GameState,
+  playerImage?: HTMLImageElement | null,
 ) {
   ctx.clearRect(0, 0, w, h);
 
@@ -99,14 +100,24 @@ export function draw(
   // Player (faces right)
   const playerX = m.x + (state.player.col + 0.5) * m.cell;
   const playerY = m.y + (state.player.row + 0.5) * m.cell;
-  ctx.fillStyle = '#60a5fa';
-  ctx.beginPath();
-  (ctx as Ctx2D).roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
-  ctx.fill();
-  ctx.fillStyle = '#dbeafe';
-  ctx.fillRect(playerX + m.cell * 0.05, playerY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12);
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.fillRect(playerX - m.cell * 0.12, playerY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+  if (playerImage) {
+    // Sprite skin: rotate 90° CW so the upward-facing sprite points right
+    const imgSize = m.cell * 0.72;
+    ctx.save();
+    ctx.translate(playerX, playerY);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(playerImage, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = '#60a5fa';
+    ctx.beginPath();
+    (ctx as Ctx2D).roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
+    ctx.fill();
+    ctx.fillStyle = '#dbeafe';
+    ctx.fillRect(playerX + m.cell * 0.05, playerY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillRect(playerX - m.cell * 0.12, playerY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+  }
 
   // NPC (VS mode only — faces left, green, at col 3+npc.col)
   if (vs) {

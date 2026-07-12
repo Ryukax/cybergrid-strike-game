@@ -138,6 +138,12 @@ export default function Game() {
   const pausedRef = useRef(false);
   const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
 
+  // Player skin
+  type PlayerSkin = 'default' | 'rocket';
+  const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
+  const playerSkinRef = useRef<PlayerSkin>('default');
+  const playerImageRef = useRef<HTMLImageElement | null>(null);
+
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
 
@@ -903,7 +909,13 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current);
+      if (ctx) draw(
+        ctx,
+        canvas.offsetWidth,
+        canvas.offsetHeight,
+        stateRef.current,
+        playerSkinRef.current === 'rocket' ? playerImageRef.current : null,
+      );
     }
 
     animRef.current = requestAnimationFrame(loop);
@@ -995,6 +1007,13 @@ export default function Game() {
       el.removeEventListener('pointercancel', setFalse);
       el.removeEventListener('lostpointercapture', setFalse);
     };
+  }, []);
+
+  // Preload skin images
+  useEffect(() => {
+    const img = new Image();
+    img.src = `${import.meta.env.BASE_URL}skins/rocket.gif`;
+    img.onload = () => { playerImageRef.current = img; };
   }, []);
 
   useEffect(() => {
@@ -1234,7 +1253,32 @@ export default function Game() {
           ) : (
             <div id="menuCard" className="customization-card">
               <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
-              <div id="customSubtitle">Toggle which abilities appear in card draws</div>
+
+              {/* Skin selector */}
+              <div id="customSubtitle">Player skin</div>
+              <div id="skinPickerRow">
+                {([
+                  { id: 'default', label: 'Default', preview: null },
+                  { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
+                ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
+                  <button
+                    key={skin.id}
+                    className={`skin-btn ${playerSkin === skin.id ? 'selected' : ''}`}
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      playerSkinRef.current = skin.id;
+                      setPlayerSkin(skin.id);
+                    }}
+                  >
+                    {skin.preview
+                      ? <img src={skin.preview} alt={skin.label} className="skin-preview" />
+                      : <span className="skin-default-icon">🤖</span>}
+                    <span className="skin-label">{skin.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div id="customSubtitle" style={{ marginTop: '16px' }}>Abilities in card draws</div>
               <div id="abilityToggleGrid">
                 {ABILITY_POOL.map((ability) => {
                   const on = enabledAbilities.has(ability.id);
