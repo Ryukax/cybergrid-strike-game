@@ -171,11 +171,89 @@ export default function Game() {
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
   const playerSkinRef = useRef<PlayerSkin>('default');
   // DOM sprite overlay refs (rocket skin in-game)
-  const spriteWrapRef    = useRef<HTMLDivElement | null>(null);
-  const spriteCanvasRef  = useRef<HTMLCanvasElement | null>(null);
-  // Keeper img: lives at 1×1px in a fixed corner so Chrome never throttles GIF animation.
-  // The game loop samples it each frame via drawImage to capture the current GIF frame.
-  const spriteKeeperRef  = useRef<HTMLImageElement | null>(null);
+  const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
+  const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Manual GIF frame store (ImageDecoder path — Chrome/Edge)
+  type GifFrame = { bitmap: ImageBitmap; delayMs: number };
+  const gifFramesRef  = useRef<GifFrame[]>([]);
+  const gifFrameIdx   = useRef(0);
+  const gifTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keeper img (Safari path — Safari doesn't paint-occlude-throttle like Chrome)
+  const spriteKeeperRef = useRef<HTMLImageElement | null>(null);
+
+  // Which path is active: 'decoder' | 'keeper' | null
+  const gifPathRef = useRef<'decoder' | 'keeper' | null>(null);
+
+  useEffect(() => {
+    const url = `${import.meta.env.BASE_URL}skins/rocket.gif`;
+    let cancelled = false;
+
+    if ('ImageDecoder' in window) {
+      // ── Chrome / Edge path ──────────────────────────────────────────────
+      gifPathRef.current = 'decoder';
+
+      (async () => {
+        try {
+          const resp = await fetch(url);
+          if (cancelled) return;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const decoder = new (window as any).ImageDecoder({
+            data: resp.body,
+            type: 'image/gif',
+          });
+          await decoder.tracks.ready;
+          if (cancelled) { decoder.close(); return; }
+          const track = decoder.tracks.selectedTrack;
+          const frames: GifFrame[] = [];
+          for (let i = 0; i < track.frameCount; i++) {
+            if (cancelled) { decoder.close(); return; }
+            const result = await decoder.decode({ frameIndex: i });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const vf = result.image as any; // VideoFrame
+            const bitmap = await createImageBitmap(vf);
+            const delayMs =
+              vf.duration != null ? Math.max(vf.duration / 1000, 20) : 100;
+            vf.close();
+            frames.push({ bitmap, delayMs });
+          }
+          decoder.close();
+          if (cancelled) { frames.forEach(f => f.bitmap.close()); return; }
+
+          gifFramesRef.current = frames;
+          gifFrameIdx.current  = 0;
+
+          // Advance frame index on GIF's own timing
+          const advance = () => {
+            if (cancelled) return;
+            gifFrameIdx.current =
+              (gifFrameIdx.current + 1) % gifFramesRef.current.length;
+            const next = gifFramesRef.current[gifFrameIdx.current];
+            gifTimerRef.current = setTimeout(advance, next?.delayMs ?? 100);
+          };
+          if (frames.length > 1) {
+            gifTimerRef.current = setTimeout(advance, frames[0].delayMs);
+          }
+        } catch (e) {
+          console.warn('ImageDecoder failed, falling back to keeper img', e);
+          if (!cancelled) gifPathRef.current = 'keeper';
+        }
+      })();
+    } else {
+      // ── Safari / fallback path ──────────────────────────────────────────
+      gifPathRef.current = 'keeper';
+    }
+
+    return () => {
+      cancelled = true;
+      if (gifTimerRef.current) clearTimeout(gifTimerRef.current);
+      gifFramesRef.current.forEach(f => f.bitmap.close());
+      gifFramesRef.current = [];
+      gifFrameIdx.current  = 0;
+      gifPathRef.current   = null;
+    };
+  }, []);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
@@ -949,19 +1027,29 @@ export default function Game() {
       if (playerSkinRef.current === 'rocket') {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
-        const keeper  = spriteKeeperRef.current;
         if (wrap && sCanvas) {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
           const sz = Math.round(m.cell * 0.72);
-          // Always update position so the overlay tracks the player
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
           wrap.style.width  = `${sz}px`;
           wrap.style.height = `${sz}px`;
-          // Draw the current animated frame once the keeper img has loaded
-          if (keeper && keeper.naturalWidth > 0) {
+
+          // Resolve the current frame source — decoder bitmaps take priority
+          const path   = gifPathRef.current;
+          const frames = gifFramesRef.current;
+          const source: ImageBitmap | HTMLImageElement | null =
+            path === 'decoder' && frames.length > 0
+              ? frames[gifFrameIdx.current % frames.length].bitmap
+              : path === 'keeper'
+                ? (spriteKeeperRef.current?.naturalWidth ?? 0) > 0
+                  ? spriteKeeperRef.current
+                  : null
+                : null;
+
+          if (source) {
             if (sCanvas.width !== sz || sCanvas.height !== sz) {
               sCanvas.width  = sz;
               sCanvas.height = sz;
@@ -969,7 +1057,7 @@ export default function Game() {
             const sctx = sCanvas.getContext('2d');
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
-              sctx.drawImage(keeper, 0, 0, sz, sz);
+              sctx.drawImage(source as CanvasImageSource, 0, 0, sz, sz);
               const id = sctx.getImageData(0, 0, sz, sz);
               const d  = id.data;
               for (let i = 0; i < d.length; i += 4) {
@@ -1156,16 +1244,17 @@ export default function Game() {
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Keeper img: fixed at 1×1px so Chrome always animates the GIF (never throttled
-          because it remains paint-visible). The game loop reads its current frame
-          via drawImage each tick. opacity ~0 but not exactly 0 to avoid throttling. */}
+      {/* Keeper img — only rendered on the Safari/fallback path where ImageDecoder
+          is unavailable. Safari doesn't throttle GIFs based on paint occlusion,
+          so a small but genuinely visible element (opacity > 0, not clipped to 0)
+          is enough. It sits in the bottom-right corner at low but real opacity. */}
       {playerSkin === 'rocket' && (
         <img
           ref={spriteKeeperRef}
           src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
           alt=""
-          style={{ position: 'fixed', bottom: 0, right: 0, width: 1, height: 1,
-                   opacity: 0.004, pointerEvents: 'none', imageRendering: 'pixelated' }}
+          style={{ position: 'fixed', bottom: 2, right: 2, width: 12, height: 12,
+                   opacity: 0.08, pointerEvents: 'none', imageRendering: 'pixelated' }}
         />
       )}
 
