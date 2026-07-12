@@ -128,7 +128,7 @@ export function draw(
 
     ctx.save();
     ctx.translate(playerX, playerY);
-    ctx.rotate(-Math.PI / 2); // 90° CCW
+    ctx.rotate(Math.PI / 4); // 45° CW
     ctx.drawImage(oc.canvas, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
     ctx.restore();
   } else {

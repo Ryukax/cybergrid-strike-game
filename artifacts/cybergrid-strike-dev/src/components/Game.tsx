@@ -1014,10 +1014,14 @@ export default function Game() {
     const img = new Image();
     img.src = `${import.meta.env.BASE_URL}skins/rocket.gif`;
     img.onload = () => { playerImageRef.current = img; };
-    // Hidden but present in DOM so the browser animates the GIF
-    img.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.appendChild(img);
-    return () => { document.body.removeChild(img); };
+    // Must be in a visible (but clipped to 0×0) container — browsers pause GIF
+    // animation on elements that are off-screen, opacity:0, or visibility:hidden.
+    const clip = document.createElement('div');
+    clip.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;overflow:hidden;pointer-events:none;';
+    img.style.cssText = 'width:64px;height:64px;';
+    clip.appendChild(img);
+    document.body.appendChild(clip);
+    return () => { document.body.removeChild(clip); };
   }, []);
 
   useEffect(() => {
@@ -1275,7 +1279,7 @@ export default function Game() {
                     }}
                   >
                     {skin.preview
-                      ? <img src={skin.preview} alt={skin.label} className="skin-preview" />
+                      ? <div className="skin-preview-wrap"><img src={skin.preview} alt={skin.label} className="skin-preview" /></div>
                       : <span className="skin-default-icon">🤖</span>}
                     <span className="skin-label">{skin.label}</span>
                   </button>
