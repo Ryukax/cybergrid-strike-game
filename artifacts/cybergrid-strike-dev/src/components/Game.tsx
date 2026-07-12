@@ -174,132 +174,51 @@ export default function Game() {
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Pre-processed GIF frames (captured from visible keeper img)
+  // Rocket skin animation frames (loaded from static pre-transparified PNGs)
   type GifFrame = { bitmap: ImageBitmap; delayMs: number };
   const gifFramesRef = useRef<GifFrame[]>([]);
   const gifFrameIdx  = useRef(0);
   const gifTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keeper img — always in the DOM when skin=rocket so the ref is valid immediately.
-  // Visibility is toggled via imperative style mutations (no state, no render cycle).
-  const spriteKeeperRef = useRef<HTMLImageElement | null>(null);
-
-  const showKeeper = (img: HTMLImageElement) => {
-    img.style.width   = '48px';
-    img.style.height  = '48px';
-    img.style.opacity = '1';
-  };
-  const hideKeeper = (img: HTMLImageElement) => {
-    img.style.width   = '1px';
-    img.style.height  = '1px';
-    img.style.opacity = '0';
-  };
-
-  // Decode GIF frames whenever the rocket skin is selected.
-  // Uses ImageDecoder API (Chrome/Edge 94+) to extract frames directly from
-  // the fetched binary — no <img> animation timing required, no throttling risk.
-  // Falls back to the keeper-img approach for browsers without ImageDecoder.
+  // Load the two pre-extracted, pre-transparified PNG frames whenever the
+  // rocket skin is selected. Static files = no GIF decoding, no timing gambles.
   useEffect(() => {
     if (playerSkin !== 'rocket') return;
 
-    const DELAY_MS = 450; // GIF frame delay: 45 × 10 ms
+    const DELAY_MS = 450;
     let cancelled = false;
 
-    const applyWhiteRemoval = async (source: CanvasImageSource, w: number, h: number): Promise<ImageBitmap> => {
-      const tmp = document.createElement('canvas');
-      tmp.width  = w;
-      tmp.height = h;
-      const ctx = tmp.getContext('2d')!;
-      ctx.drawImage(source, 0, 0, w, h);
-      const id = ctx.getImageData(0, 0, w, h);
-      const d  = id.data;
-      for (let i = 0; i < d.length; i += 4) {
-        if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
-      }
-      ctx.putImageData(id, 0, 0);
-      return createImageBitmap(tmp);
-    };
+    const loadBitmap = (url: string): Promise<ImageBitmap> =>
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload  = () => createImageBitmap(img).then(resolve).catch(reject);
+        img.onerror = () => reject(new Error(`Failed to load ${url}`));
+        img.src = url;
+      });
 
     (async () => {
       try {
-        const gifUrl = `${import.meta.env.BASE_URL}skins/rocket.gif`;
+        const base = import.meta.env.BASE_URL;
+        const [bitmap0, bitmap1] = await Promise.all([
+          loadBitmap(`${base}skins/rocket_frame_0.png`),
+          loadBitmap(`${base}skins/rocket_frame_1.png`),
+        ]);
+        if (cancelled) { bitmap0.close(); bitmap1.close(); return; }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ('ImageDecoder' in (window as any)) {
-          // ── Primary path: decode frames from raw bytes (no throttling) ──────
-          const response = await fetch(gifUrl);
-          const buffer   = await response.arrayBuffer();
-          if (cancelled) return;
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const decoder = new (window as any).ImageDecoder({ data: buffer, type: 'image/gif' });
-
-          const r0 = await decoder.decode({ frameIndex: 0 });
-          if (cancelled) { r0.image.close(); decoder.close(); return; }
-          const vf0 = r0.image;
-          const w   = vf0.displayWidth  || 256;
-          const h   = vf0.displayHeight || 256;
-          const bitmap0 = await applyWhiteRemoval(vf0, w, h);
-          vf0.close();
-          if (cancelled) { bitmap0.close(); decoder.close(); return; }
-
-          const r1 = await decoder.decode({ frameIndex: 1 });
-          if (cancelled) { r1.image.close(); bitmap0.close(); decoder.close(); return; }
-          const vf1 = r1.image;
-          const bitmap1 = await applyWhiteRemoval(vf1, w, h);
-          vf1.close();
-          decoder.close();
-          if (cancelled) { bitmap0.close(); bitmap1.close(); return; }
-
-          gifFramesRef.current = [
-            { bitmap: bitmap0, delayMs: DELAY_MS },
-            { bitmap: bitmap1, delayMs: DELAY_MS },
-          ];
-        } else {
-          // ── Fallback: keeper-img approach for non-ImageDecoder browsers ─────
-          const keeper = spriteKeeperRef.current;
-          if (!keeper) return;
-          showKeeper(keeper);
-
-          if (keeper.naturalWidth === 0) {
-            await new Promise<void>((resolve) => {
-              keeper.addEventListener('load', () => resolve(), { once: true });
-            });
-          }
-          if (cancelled) { hideKeeper(keeper); return; }
-
-          const fw = keeper.naturalWidth  || 256;
-          const fh = keeper.naturalHeight || 256;
-          const bitmap0 = await applyWhiteRemoval(keeper, fw, fh);
-          if (cancelled) { bitmap0.close(); hideKeeper(keeper); return; }
-
-          await new Promise<void>((resolve) => setTimeout(resolve, DELAY_MS + 100));
-          if (cancelled) { bitmap0.close(); hideKeeper(keeper); return; }
-
-          const bitmap1 = await applyWhiteRemoval(keeper, fw, fh);
-          hideKeeper(keeper);
-          if (cancelled) { bitmap0.close(); bitmap1.close(); return; }
-
-          gifFramesRef.current = [
-            { bitmap: bitmap0, delayMs: DELAY_MS },
-            { bitmap: bitmap1, delayMs: DELAY_MS },
-          ];
-        }
-
+        gifFramesRef.current = [
+          { bitmap: bitmap0, delayMs: DELAY_MS },
+          { bitmap: bitmap1, delayMs: DELAY_MS },
+        ];
         gifFrameIdx.current = 0;
 
-        // Cycle frames on the GIF's own timing
         const advance = () => {
           if (cancelled) return;
           gifFrameIdx.current = (gifFrameIdx.current + 1) % gifFramesRef.current.length;
-          gifTimerRef.current = setTimeout(
-            advance,
-            gifFramesRef.current[gifFrameIdx.current]?.delayMs ?? DELAY_MS,
-          );
+          gifTimerRef.current = setTimeout(advance, DELAY_MS);
         };
         gifTimerRef.current = setTimeout(advance, DELAY_MS);
       } catch (err) {
-        console.error('[rocket skin] GIF decode error:', err);
+        console.error('[rocket skin] frame load error:', err);
       }
     })();
 
@@ -309,7 +228,6 @@ export default function Game() {
       gifFramesRef.current.forEach(f => f.bitmap.close());
       gifFramesRef.current = [];
       gifFrameIdx.current  = 0;
-      if (spriteKeeperRef.current) hideKeeper(spriteKeeperRef.current);
     };
   }, [playerSkin]);
 
@@ -1286,21 +1204,6 @@ export default function Game() {
         id="canvas"
         onPointerDown={handleCanvasPointer}
       />
-
-      {/* Keeper img — always in DOM when skin=rocket so spriteKeeperRef is valid
-          the moment the effect runs. Starts at 1×1/opacity-0; the effect makes
-          it 48×48/opacity-1 during the ~500ms capture phase, then hides it again.
-          All show/hide is imperative (style mutations) to avoid render-cycle delay. */}
-      {playerSkin === 'rocket' && (
-        <img
-          ref={spriteKeeperRef}
-          src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
-          alt=""
-          style={{ position: 'fixed', bottom: 8, right: 8, width: 1, height: 1,
-                   opacity: 0, pointerEvents: 'none', imageRendering: 'pixelated',
-                   zIndex: 9999 }}
-        />
-      )}
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
