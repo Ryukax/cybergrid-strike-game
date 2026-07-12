@@ -180,18 +180,29 @@ export default function Game() {
   const gifFrameIdx  = useRef(0);
   const gifTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keeper img — shown visibly while capturing frames, then hidden
-  const spriteKeeperRef    = useRef<HTMLImageElement | null>(null);
-  const [keeperVisible, setKeeperVisible] = useState(false);
+  // Keeper img — always in the DOM when skin=rocket so the ref is valid immediately.
+  // Visibility is toggled via imperative style mutations (no state, no render cycle).
+  const spriteKeeperRef = useRef<HTMLImageElement | null>(null);
+
+  const showKeeper = (img: HTMLImageElement) => {
+    img.style.width   = '48px';
+    img.style.height  = '48px';
+    img.style.opacity = '1';
+  };
+  const hideKeeper = (img: HTMLImageElement) => {
+    img.style.width   = '1px';
+    img.style.height  = '1px';
+    img.style.opacity = '0';
+  };
 
   // Capture GIF frames whenever the rocket skin is selected.
-  // Strategy: show keeper img at full opacity so the browser definitely animates it,
-  // drawImage it into an offscreen canvas (with white removal) once per frame,
-  // store the resulting ImageBitmaps, then hide the keeper.
+  // The keeper img is always rendered (ref non-null) when playerSkin==='rocket'.
+  // We make it visibly large so the browser animates the GIF, capture both
+  // frames into pre-processed ImageBitmaps (white removed), then hide it.
   useEffect(() => {
     if (playerSkin !== 'rocket') return;
 
-    const DELAY_MS = 450; // matches the GIF's 45/100s per-frame delay
+    const DELAY_MS = 450; // GIF delay: 45 × 10 ms = 450 ms
     let cancelled = false;
     let waitTimer: ReturnType<typeof setTimeout>;
 
@@ -212,14 +223,11 @@ export default function Game() {
       return createImageBitmap(tmp);
     };
 
-    // Show keeper so browser animates the GIF
-    setKeeperVisible(true);
+    const keeper = spriteKeeperRef.current!;
+    showKeeper(keeper); // make visible so browser animates the GIF
 
     (async () => {
-      const keeper = spriteKeeperRef.current;
-      if (!keeper) return;
-
-      // Wait for img to load
+      // Wait for img to finish loading
       if (keeper.naturalWidth === 0) {
         await new Promise<void>((resolve) => {
           keeper.addEventListener('load', () => resolve(), { once: true });
@@ -227,32 +235,35 @@ export default function Game() {
       }
       if (cancelled) return;
 
-      // Capture frame 0 (img just loaded → first frame)
+      // Frame 0: captured immediately after load (first frame of GIF)
       const frame0 = await captureProcessed(keeper);
       if (cancelled) { frame0.close(); return; }
 
-      // Wait one frame duration — browser advances visible img to frame 1
-      await new Promise<void>((resolve) => { waitTimer = setTimeout(resolve, DELAY_MS + 50); });
+      // Wait one frame duration — browser advances the visible img to frame 1
+      await new Promise<void>((resolve) => {
+        waitTimer = setTimeout(resolve, DELAY_MS + 50);
+      });
       if (cancelled) { frame0.close(); return; }
 
-      // Capture frame 1
+      // Frame 1: GIF has advanced
       const frame1 = await captureProcessed(keeper);
       if (cancelled) { frame0.close(); frame1.close(); return; }
 
-      // Store pre-processed frames and hide the keeper
       gifFramesRef.current = [
         { bitmap: frame0, delayMs: DELAY_MS },
         { bitmap: frame1, delayMs: DELAY_MS },
       ];
       gifFrameIdx.current = 0;
-      setKeeperVisible(false);
+      hideKeeper(keeper); // captured — no longer need it visible
 
-      // Start cycling frames on the GIF's own timing
+      // Cycle frames on the GIF's own timing
       const advance = () => {
         if (cancelled) return;
         gifFrameIdx.current = (gifFrameIdx.current + 1) % gifFramesRef.current.length;
-        gifTimerRef.current = setTimeout(advance,
-          gifFramesRef.current[gifFrameIdx.current]?.delayMs ?? DELAY_MS);
+        gifTimerRef.current = setTimeout(
+          advance,
+          gifFramesRef.current[gifFrameIdx.current]?.delayMs ?? DELAY_MS,
+        );
       };
       gifTimerRef.current = setTimeout(advance, DELAY_MS);
     })();
@@ -264,7 +275,7 @@ export default function Game() {
       gifFramesRef.current.forEach(f => f.bitmap.close());
       gifFramesRef.current = [];
       gifFrameIdx.current  = 0;
-      setKeeperVisible(false);
+      if (spriteKeeperRef.current) hideKeeper(spriteKeeperRef.current);
     };
   }, [playerSkin]);
 
@@ -1242,16 +1253,17 @@ export default function Game() {
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Keeper img — shown at full opacity during the ~500ms capture phase so the
-          browser definitely animates the GIF. Hidden (removed from DOM) once both
-          frames are captured and stored as pre-processed ImageBitmaps. */}
-      {playerSkin === 'rocket' && keeperVisible && (
+      {/* Keeper img — always in DOM when skin=rocket so spriteKeeperRef is valid
+          the moment the effect runs. Starts at 1×1/opacity-0; the effect makes
+          it 48×48/opacity-1 during the ~500ms capture phase, then hides it again.
+          All show/hide is imperative (style mutations) to avoid render-cycle delay. */}
+      {playerSkin === 'rocket' && (
         <img
           ref={spriteKeeperRef}
           src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
           alt=""
-          style={{ position: 'fixed', bottom: 8, right: 8, width: 48, height: 48,
-                   opacity: 1, pointerEvents: 'none', imageRendering: 'pixelated',
+          style={{ position: 'fixed', bottom: 8, right: 8, width: 1, height: 1,
+                   opacity: 0, pointerEvents: 'none', imageRendering: 'pixelated',
                    zIndex: 9999 }}
         />
       )}
