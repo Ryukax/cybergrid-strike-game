@@ -174,86 +174,99 @@ export default function Game() {
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Manual GIF frame store (ImageDecoder path — Chrome/Edge)
+  // Pre-processed GIF frames (captured from visible keeper img)
   type GifFrame = { bitmap: ImageBitmap; delayMs: number };
-  const gifFramesRef  = useRef<GifFrame[]>([]);
-  const gifFrameIdx   = useRef(0);
-  const gifTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gifFramesRef = useRef<GifFrame[]>([]);
+  const gifFrameIdx  = useRef(0);
+  const gifTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keeper img (Safari path — Safari doesn't paint-occlude-throttle like Chrome)
-  const spriteKeeperRef = useRef<HTMLImageElement | null>(null);
+  // Keeper img — shown visibly while capturing frames, then hidden
+  const spriteKeeperRef    = useRef<HTMLImageElement | null>(null);
+  const [keeperVisible, setKeeperVisible] = useState(false);
 
-  // Which path is active: 'decoder' | 'keeper' | null
-  const gifPathRef = useRef<'decoder' | 'keeper' | null>(null);
-
+  // Capture GIF frames whenever the rocket skin is selected.
+  // Strategy: show keeper img at full opacity so the browser definitely animates it,
+  // drawImage it into an offscreen canvas (with white removal) once per frame,
+  // store the resulting ImageBitmaps, then hide the keeper.
   useEffect(() => {
-    const url = `${import.meta.env.BASE_URL}skins/rocket.gif`;
+    if (playerSkin !== 'rocket') return;
+
+    const DELAY_MS = 450; // matches the GIF's 45/100s per-frame delay
     let cancelled = false;
+    let waitTimer: ReturnType<typeof setTimeout>;
 
-    if ('ImageDecoder' in window) {
-      // ── Chrome / Edge path ──────────────────────────────────────────────
-      gifPathRef.current = 'decoder';
+    const captureProcessed = async (img: HTMLImageElement): Promise<ImageBitmap> => {
+      const w = img.naturalWidth  || 256;
+      const h = img.naturalHeight || 256;
+      const tmp = document.createElement('canvas');
+      tmp.width  = w;
+      tmp.height = h;
+      const ctx = tmp.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, w, h);
+      const id = ctx.getImageData(0, 0, w, h);
+      const d  = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+      }
+      ctx.putImageData(id, 0, 0);
+      return createImageBitmap(tmp);
+    };
 
-      (async () => {
-        try {
-          const resp = await fetch(url);
-          if (cancelled) return;
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const decoder = new (window as any).ImageDecoder({
-            data: resp.body,
-            type: 'image/gif',
-          });
-          await decoder.tracks.ready;
-          if (cancelled) { decoder.close(); return; }
-          const track = decoder.tracks.selectedTrack;
-          const frames: GifFrame[] = [];
-          for (let i = 0; i < track.frameCount; i++) {
-            if (cancelled) { decoder.close(); return; }
-            const result = await decoder.decode({ frameIndex: i });
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vf = result.image as any; // VideoFrame
-            const bitmap = await createImageBitmap(vf);
-            const delayMs =
-              vf.duration != null ? Math.max(vf.duration / 1000, 20) : 100;
-            vf.close();
-            frames.push({ bitmap, delayMs });
-          }
-          decoder.close();
-          if (cancelled) { frames.forEach(f => f.bitmap.close()); return; }
+    // Show keeper so browser animates the GIF
+    setKeeperVisible(true);
 
-          gifFramesRef.current = frames;
-          gifFrameIdx.current  = 0;
+    (async () => {
+      const keeper = spriteKeeperRef.current;
+      if (!keeper) return;
 
-          // Advance frame index on GIF's own timing
-          const advance = () => {
-            if (cancelled) return;
-            gifFrameIdx.current =
-              (gifFrameIdx.current + 1) % gifFramesRef.current.length;
-            const next = gifFramesRef.current[gifFrameIdx.current];
-            gifTimerRef.current = setTimeout(advance, next?.delayMs ?? 100);
-          };
-          if (frames.length > 1) {
-            gifTimerRef.current = setTimeout(advance, frames[0].delayMs);
-          }
-        } catch (e) {
-          console.warn('ImageDecoder failed, falling back to keeper img', e);
-          if (!cancelled) gifPathRef.current = 'keeper';
-        }
-      })();
-    } else {
-      // ── Safari / fallback path ──────────────────────────────────────────
-      gifPathRef.current = 'keeper';
-    }
+      // Wait for img to load
+      if (keeper.naturalWidth === 0) {
+        await new Promise<void>((resolve) => {
+          keeper.addEventListener('load', () => resolve(), { once: true });
+        });
+      }
+      if (cancelled) return;
+
+      // Capture frame 0 (img just loaded → first frame)
+      const frame0 = await captureProcessed(keeper);
+      if (cancelled) { frame0.close(); return; }
+
+      // Wait one frame duration — browser advances visible img to frame 1
+      await new Promise<void>((resolve) => { waitTimer = setTimeout(resolve, DELAY_MS + 50); });
+      if (cancelled) { frame0.close(); return; }
+
+      // Capture frame 1
+      const frame1 = await captureProcessed(keeper);
+      if (cancelled) { frame0.close(); frame1.close(); return; }
+
+      // Store pre-processed frames and hide the keeper
+      gifFramesRef.current = [
+        { bitmap: frame0, delayMs: DELAY_MS },
+        { bitmap: frame1, delayMs: DELAY_MS },
+      ];
+      gifFrameIdx.current = 0;
+      setKeeperVisible(false);
+
+      // Start cycling frames on the GIF's own timing
+      const advance = () => {
+        if (cancelled) return;
+        gifFrameIdx.current = (gifFrameIdx.current + 1) % gifFramesRef.current.length;
+        gifTimerRef.current = setTimeout(advance,
+          gifFramesRef.current[gifFrameIdx.current]?.delayMs ?? DELAY_MS);
+      };
+      gifTimerRef.current = setTimeout(advance, DELAY_MS);
+    })();
 
     return () => {
       cancelled = true;
+      clearTimeout(waitTimer);
       if (gifTimerRef.current) clearTimeout(gifTimerRef.current);
       gifFramesRef.current.forEach(f => f.bitmap.close());
       gifFramesRef.current = [];
       gifFrameIdx.current  = 0;
-      gifPathRef.current   = null;
+      setKeeperVisible(false);
     };
-  }, []);
+  }, [playerSkin]);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
@@ -1023,7 +1036,7 @@ export default function Game() {
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, playerSkinRef.current === 'rocket');
 
-      // Update DOM sprite overlay — position wrap, then draw current GIF frame with BG removal
+      // Update DOM sprite overlay — position wrap, then blit pre-processed frame
       if (playerSkinRef.current === 'rocket') {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
@@ -1037,19 +1050,10 @@ export default function Game() {
           wrap.style.width  = `${sz}px`;
           wrap.style.height = `${sz}px`;
 
-          // Resolve the current frame source — decoder bitmaps take priority
-          const path   = gifPathRef.current;
+          // Frames are pre-processed (white removed); just blit the current one
           const frames = gifFramesRef.current;
-          const source: ImageBitmap | HTMLImageElement | null =
-            path === 'decoder' && frames.length > 0
-              ? frames[gifFrameIdx.current % frames.length].bitmap
-              : path === 'keeper'
-                ? (spriteKeeperRef.current?.naturalWidth ?? 0) > 0
-                  ? spriteKeeperRef.current
-                  : null
-                : null;
-
-          if (source) {
+          if (frames.length > 0) {
+            const bitmap = frames[gifFrameIdx.current % frames.length].bitmap;
             if (sCanvas.width !== sz || sCanvas.height !== sz) {
               sCanvas.width  = sz;
               sCanvas.height = sz;
@@ -1057,13 +1061,7 @@ export default function Game() {
             const sctx = sCanvas.getContext('2d');
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
-              sctx.drawImage(source as CanvasImageSource, 0, 0, sz, sz);
-              const id = sctx.getImageData(0, 0, sz, sz);
-              const d  = id.data;
-              for (let i = 0; i < d.length; i += 4) {
-                if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
-              }
-              sctx.putImageData(id, 0, 0);
+              sctx.drawImage(bitmap, 0, 0, sz, sz);
             }
           }
         }
@@ -1244,17 +1242,17 @@ export default function Game() {
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Keeper img — only rendered on the Safari/fallback path where ImageDecoder
-          is unavailable. Safari doesn't throttle GIFs based on paint occlusion,
-          so a small but genuinely visible element (opacity > 0, not clipped to 0)
-          is enough. It sits in the bottom-right corner at low but real opacity. */}
-      {playerSkin === 'rocket' && (
+      {/* Keeper img — shown at full opacity during the ~500ms capture phase so the
+          browser definitely animates the GIF. Hidden (removed from DOM) once both
+          frames are captured and stored as pre-processed ImageBitmaps. */}
+      {playerSkin === 'rocket' && keeperVisible && (
         <img
           ref={spriteKeeperRef}
           src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
           alt=""
-          style={{ position: 'fixed', bottom: 2, right: 2, width: 12, height: 12,
-                   opacity: 0.08, pointerEvents: 'none', imageRendering: 'pixelated' }}
+          style={{ position: 'fixed', bottom: 8, right: 8, width: 48, height: 48,
+                   opacity: 1, pointerEvents: 'none', imageRendering: 'pixelated',
+                   zIndex: 9999 }}
         />
       )}
 
