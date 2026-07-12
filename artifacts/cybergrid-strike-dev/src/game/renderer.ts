@@ -13,6 +13,18 @@ type Ctx2D = CanvasRenderingContext2D & {
   roundRect: (x: number, y: number, w: number, h: number, r: number) => void;
 };
 
+// Module-level offscreen canvas for per-frame sprite background removal
+let _offscreen: OffscreenCanvas | null = null;
+let _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+
+function getOffscreen(size: number): OffscreenCanvasRenderingContext2D {
+  if (!_offscreen || _offscreen.width !== size) {
+    _offscreen = new OffscreenCanvas(size, size);
+    _offscreenCtx = _offscreen.getContext('2d')!;
+  }
+  return _offscreenCtx!;
+}
+
 export function draw(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -101,12 +113,23 @@ export function draw(
   const playerX = m.x + (state.player.col + 0.5) * m.cell;
   const playerY = m.y + (state.player.row + 0.5) * m.cell;
   if (playerImage) {
-    // Sprite skin: rotate 90° CW so the upward-facing sprite points right
-    const imgSize = m.cell * 0.72;
+    // Sprite skin: rotate 90° CCW so the upward-facing sprite points right,
+    // and strip near-white background pixels via an offscreen canvas.
+    const imgSize = Math.round(m.cell * 0.72);
+    const oc = getOffscreen(imgSize);
+    oc.clearRect(0, 0, imgSize, imgSize);
+    oc.drawImage(playerImage, 0, 0, imgSize, imgSize);
+    const id = oc.getImageData(0, 0, imgSize, imgSize);
+    const d = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+    }
+    oc.putImageData(id, 0, 0);
+
     ctx.save();
     ctx.translate(playerX, playerY);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(playerImage, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
+    ctx.rotate(-Math.PI / 2); // 90° CCW
+    ctx.drawImage(oc.canvas, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
     ctx.restore();
   } else {
     ctx.fillStyle = '#60a5fa';

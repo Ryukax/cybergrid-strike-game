@@ -1009,11 +1009,15 @@ export default function Game() {
     };
   }, []);
 
-  // Preload skin images
+  // Preload skin images — img must be in the DOM so the browser advances GIF frames
   useEffect(() => {
     const img = new Image();
     img.src = `${import.meta.env.BASE_URL}skins/rocket.gif`;
     img.onload = () => { playerImageRef.current = img; };
+    // Hidden but present in DOM so the browser animates the GIF
+    img.style.cssText = 'position:fixed;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(img);
+    return () => { document.body.removeChild(img); };
   }, []);
 
   useEffect(() => {
