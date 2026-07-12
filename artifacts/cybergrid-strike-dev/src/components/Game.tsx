@@ -34,9 +34,10 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       {/* img is rendered visibly so the browser animates the GIF */}
       <img ref={imgRef} src={src} alt=""
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }} />
-      {/* canvas covers img and redraws with background stripped */}
+      {/* canvas covers img and redraws with background stripped;
+          opaque background means transparent pixels show the button colour, not the img */}
       <canvas ref={canvasRef} width={48} height={48}
-        style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
+        style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', width: 48, height: 48, background: 'rgb(8,20,40)' }} />
     </div>
   );
 }
@@ -185,7 +186,7 @@ export default function Game() {
   const playerSkinRef = useRef<PlayerSkin>('default');
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
-  const spriteImgRef    = useRef<HTMLImageElement | null>(null);
+  const keeperImgRef    = useRef<HTMLImageElement | null>(null); // behind game canvas — keeps GIF animating
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
@@ -960,7 +961,7 @@ export default function Game() {
       if (playerSkinRef.current === 'rocket') {
         const wrap   = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
-        const sImg   = spriteImgRef.current;
+        const sImg   = keeperImgRef.current;
         if (wrap && sCanvas && sImg && sImg.naturalWidth > 0) {
           const m      = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px     = m.x + (stateRef.current.player.col + 0.5) * m.cell;
@@ -1157,25 +1158,31 @@ export default function Game() {
 
   return (
     <div id="game">
+      {/* Keeper img — sits BEFORE (behind) the game canvas in DOM order.
+          The game canvas paints over it so it is never seen, but it IS rendered
+          by the browser, which is what keeps the GIF animation advancing.
+          Transparent overlay-canvas pixels expose the game canvas, not this img. */}
+      {playerSkin === 'rocket' && (
+        <img
+          ref={keeperImgRef}
+          src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
+          alt=""
+          style={{ position: 'absolute', top: 0, left: 0, width: 64, height: 64, pointerEvents: 'none' }}
+        />
+      )}
+
       <canvas
         ref={canvasRef}
         id="canvas"
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Rocket skin in-game overlay — img is genuinely rendered so browser
-          advances GIF frames; canvas covers it and strips the white background */}
+      {/* Sprite overlay — canvas only; transparent pixels reveal the game canvas behind it */}
       {phase === 'playing' && playerSkin === 'rocket' && (
         <div
           ref={spriteWrapRef}
           style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
         >
-          <img
-            ref={spriteImgRef}
-            src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
-            alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
-          />
           <canvas
             ref={spriteCanvasRef}
             style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
