@@ -1328,16 +1328,6 @@ export default function Game() {
           Auto: {hud.autoBuster ? 'ON' : 'OFF'}
         </button>
 
-        {phase === 'playing' && hud.running && (
-          <button
-            id="pauseBtn"
-            className="control-btn"
-            onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
-          >
-            {paused ? '▶ RESUME' : '⏸ PAUSE'}
-          </button>
-        )}
-
         <button
           id="busterBtn"
           className="control-btn"
@@ -1346,6 +1336,17 @@ export default function Game() {
           BUSTER
         </button>
       </div>
+
+      {/* Pause button — centered below the d-pad, separate from the controls row */}
+      {phase === 'playing' && hud.running && (
+        <button
+          id="pauseBtn"
+          className="control-btn"
+          onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
+        >
+          {paused ? '▶ RESUME' : '⏸ PAUSE'}
+        </button>
+      )}
 
       {/* Main Menu overlay */}
       {phase === 'menu' && (

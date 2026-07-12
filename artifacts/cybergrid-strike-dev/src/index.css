@@ -639,12 +639,16 @@ canvas#canvas {
 #pauseResumeBtn:active { opacity: 0.7; }
 
 #pauseBtn {
-  margin-top: 6px;
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
   padding-top: 0;
   padding-bottom: 0;
   font-size: 11px;
   line-height: 1;
   height: 22px;
+  z-index: 10;
 }
 
 #gameOverOverlay {
