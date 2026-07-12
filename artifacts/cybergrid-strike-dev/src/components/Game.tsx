@@ -1,44 +1,30 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 
-// Previews an animated GIF with white-background removal.
-// The <img> is rendered visibly so the browser advances its GIF frames;
-// the <canvas> on top redraws it each frame with near-white pixels zeroed out.
+// Static one-time render of a GIF's first frame with white-background removed.
+// The img is never added to the DOM — no element shows through transparent pixels —
+// so the canvas background is genuinely transparent over the button.
 function SkinPreviewCanvas({ src }: { src: string }) {
-  const imgRef  = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    let rafId: number;
-    const loop = () => {
+    const img = new Image();
+    img.onload = () => {
       const canvas = canvasRef.current;
-      const img   = imgRef.current;
-      if (canvas && img && img.naturalWidth > 0) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, 48, 48);
-          ctx.drawImage(img, 0, 0, 48, 48);
-          const id = ctx.getImageData(0, 0, 48, 48);
-          const d  = id.data;
-          for (let i = 0; i < d.length; i += 4) {
-            if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
-          }
-          ctx.putImageData(id, 0, 0);
-        }
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, 48, 48);
+      const id = ctx.getImageData(0, 0, 48, 48);
+      const d  = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
       }
-      rafId = requestAnimationFrame(loop);
+      ctx.putImageData(id, 0, 0);
     };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+    img.src = src;
+  }, [src]);
   return (
-    <div style={{ position: 'relative', width: 48, height: 48 }}>
-      {/* img is rendered visibly so the browser animates the GIF */}
-      <img ref={imgRef} src={src} alt=""
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }} />
-      {/* canvas covers img and redraws with background stripped;
-          opaque background means transparent pixels show the button colour, not the img */}
-      <canvas ref={canvasRef} width={48} height={48}
-        style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', width: 48, height: 48, background: 'rgb(8,20,40)' }} />
-    </div>
+    <canvas ref={canvasRef} width={48} height={48}
+      style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
 import type { GameState, GameMode } from '../game/types';
@@ -1167,7 +1153,7 @@ export default function Game() {
           ref={keeperImgRef}
           src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
           alt=""
-          style={{ position: 'absolute', top: 0, left: 0, width: 64, height: 64, pointerEvents: 'none' }}
+          style={{ position: 'absolute', top: 0, left: 0, width: 64, height: 64, pointerEvents: 'none', transform: 'translateZ(0)' }}
         />
       )}
 
