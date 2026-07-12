@@ -13,13 +13,17 @@ type Ctx2D = CanvasRenderingContext2D & {
   roundRect: (x: number, y: number, w: number, h: number, r: number) => void;
 };
 
-// Module-level offscreen canvas for per-frame sprite background removal
-let _offscreen: OffscreenCanvas | null = null;
-let _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+// Module-level off-DOM regular canvas for per-frame sprite background removal.
+// Must be HTMLCanvasElement (not OffscreenCanvas) so the browser shares the
+// animated GIF frame state from the main-thread img element.
+let _offscreen: HTMLCanvasElement | null = null;
+let _offscreenCtx: CanvasRenderingContext2D | null = null;
 
-function getOffscreen(size: number): OffscreenCanvasRenderingContext2D {
+function getOffscreen(size: number): CanvasRenderingContext2D {
   if (!_offscreen || _offscreen.width !== size) {
-    _offscreen = new OffscreenCanvas(size, size);
+    _offscreen = document.createElement('canvas');
+    _offscreen.width = size;
+    _offscreen.height = size;
     _offscreenCtx = _offscreen.getContext('2d')!;
   }
   return _offscreenCtx!;
