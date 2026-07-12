@@ -842,7 +842,7 @@ export default function Game() {
           e.colPos = -9;
           showMessage('Shield absorbed a hit!', 1200);
         } else if (s.ghostTimer > 0) {
-          e.colPos = -9; // pass through — invincible
+          // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
           s.hp--;
           e.colPos = -9;

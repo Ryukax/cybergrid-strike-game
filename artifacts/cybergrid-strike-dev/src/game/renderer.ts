@@ -89,21 +89,33 @@ export function draw(
   ctx.lineTo(splitX, m.y + m.boardH - 4);
   ctx.stroke();
 
-  // Player shield ring
+  // Player ghost aura + shield ring
+  const playerX = m.x + (state.player.col + 0.5) * m.cell;
+  const playerY = m.y + (state.player.row + 0.5) * m.cell;
+
+  if (state.ghostTimer > 0) {
+    // Pulsing cyan ghost aura
+    const pulse = 0.45 + 0.2 * Math.sin(performance.now() * 0.008);
+    ctx.strokeStyle = `rgba(125,211,252,${pulse})`;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.arc(playerX, playerY, m.cell * 0.42, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   if (state.shieldCharges > 0) {
-    const px = m.x + (state.player.col + 0.5) * m.cell;
-    const py = m.y + (state.player.row + 0.5) * m.cell;
     ctx.strokeStyle = 'rgba(134,239,172,0.7)';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(px, py, m.cell * 0.38, 0, Math.PI * 2);
+    ctx.arc(playerX, playerY, m.cell * 0.38, 0, Math.PI * 2);
     ctx.stroke();
   }
 
   // Player body — skipped when a DOM sprite overlay is active
-  const playerX = m.x + (state.player.col + 0.5) * m.cell;
-  const playerY = m.y + (state.player.row + 0.5) * m.cell;
   if (!hasOverlay) {
+    ctx.globalAlpha = state.ghostTimer > 0 ? 0.4 : 1.0;
     ctx.fillStyle = '#60a5fa';
     ctx.beginPath();
     (ctx as Ctx2D).roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
@@ -112,6 +124,7 @@ export function draw(
     ctx.fillRect(playerX + m.cell * 0.05, playerY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12);
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.fillRect(playerX - m.cell * 0.12, playerY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+    ctx.globalAlpha = 1.0;
   }
 
   // NPC (VS mode only — faces left, green, at col 3+npc.col)
