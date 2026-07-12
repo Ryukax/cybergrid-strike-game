@@ -172,70 +172,8 @@ export default function Game() {
   const playerSkinRef = useRef<PlayerSkin>('default');
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
+  const spriteImgRef    = useRef<HTMLImageElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-  // GIF frames decoded via ImageDecoder — no live <img> element needed
-  type GifFrame = { bitmap: ImageBitmap; delayMs: number };
-  const gifFramesRef   = useRef<GifFrame[]>([]);
-  const gifFrameIdx    = useRef(0);
-  const gifTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Decode rocket GIF frames once on mount via ImageDecoder API (Chrome 94+).
-  // Fallback: static first-frame capture if API unavailable.
-  useEffect(() => {
-    const url = `${import.meta.env.BASE_URL}skins/rocket.gif`;
-    let cancelled = false;
-
-    function startPlayback(frames: GifFrame[]) {
-      if (frames.length < 2) return; // single frame — nothing to advance
-      function advance() {
-        gifFrameIdx.current = (gifFrameIdx.current + 1) % frames.length;
-        gifTimerRef.current = setTimeout(advance, frames[gifFrameIdx.current].delayMs);
-      }
-      gifTimerRef.current = setTimeout(advance, frames[0].delayMs);
-    }
-
-    async function load() {
-      try {
-        if (!('ImageDecoder' in window)) throw new Error('no ImageDecoder');
-        const resp = await fetch(url);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const decoder = new (window as any).ImageDecoder({ data: resp.body, type: 'image/gif' });
-        await decoder.tracks.ready;
-        const track = decoder.tracks.selectedTrack;
-        const frames: GifFrame[] = [];
-        for (let i = 0; i < track.frameCount; i++) {
-          if (cancelled) { decoder.close(); return; }
-          const result = await decoder.decode({ frameIndex: i });
-          const vf = result.image as VideoFrame;
-          const bitmap = await createImageBitmap(vf);
-          const delayMs = vf.duration != null ? Math.max(vf.duration / 1000, 20) : 100;
-          vf.close();
-          frames.push({ bitmap, delayMs });
-        }
-        decoder.close();
-        if (!cancelled) { gifFramesRef.current = frames; startPlayback(frames); }
-      } catch {
-        // Fallback — static first frame
-        const img = new Image();
-        img.onload = async () => {
-          if (cancelled) return;
-          const bitmap = await createImageBitmap(img);
-          gifFramesRef.current = [{ bitmap, delayMs: 100 }];
-        };
-        img.src = url;
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-      if (gifTimerRef.current) clearTimeout(gifTimerRef.current);
-      gifFramesRef.current.forEach(f => f.bitmap.close());
-      gifFramesRef.current = [];
-      gifFrameIdx.current  = 0;
-    };
-  }, []);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
@@ -1005,12 +943,12 @@ export default function Game() {
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, playerSkinRef.current === 'rocket');
 
-      // Update DOM sprite overlay — draw current decoded GIF frame with BG removal
+      // Update DOM sprite overlay — draw current GIF frame with BG removal
       if (playerSkinRef.current === 'rocket') {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
-        const frames  = gifFramesRef.current;
-        if (wrap && sCanvas && frames.length > 0) {
+        const sImg    = spriteImgRef.current;
+        if (wrap && sCanvas && sImg && sImg.naturalWidth > 0) {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
@@ -1025,9 +963,8 @@ export default function Game() {
           }
           const sctx = sCanvas.getContext('2d');
           if (sctx) {
-            const frame = frames[gifFrameIdx.current % frames.length];
             sctx.clearRect(0, 0, sz, sz);
-            sctx.drawImage(frame.bitmap, 0, 0, sz, sz);
+            sctx.drawImage(sImg, 0, 0, sz, sz);
             const id = sctx.getImageData(0, 0, sz, sz);
             const d  = id.data;
             for (let i = 0; i < d.length; i += 4) {
@@ -1213,15 +1150,24 @@ export default function Game() {
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Sprite overlay — canvas only; transparent pixels reveal the game canvas behind it */}
+      {/* Sprite overlay — the <img> lives here (above the game canvas in its own
+          compositing layer) so browsers animate it; the canvas on top redraws
+          each frame with pixel-removal; its dark background covers the img's
+          white areas so they show the game base colour instead. */}
       {phase === 'playing' && playerSkin === 'rocket' && (
         <div
           ref={spriteWrapRef}
           style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
         >
+          <img
+            ref={spriteImgRef}
+            src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
+            alt=""
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
+          />
           <canvas
             ref={spriteCanvasRef}
-            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
+            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', background: '#06101e' }}
           />
         </div>
       )}
