@@ -174,22 +174,31 @@ export default function Game() {
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Rocket skin animation frames (loaded from static pre-transparified PNGs)
-  // Frame 0 = idle, Frame 1 = shoot pose (flashed briefly on every bullet fired)
+  // Rocket skin frames (static pre-transparified PNGs):
+  //   0 = idle  |  1 = shoot pose  |  2 = post-shoot A  |  3 = post-shoot B
   const gifFramesRef     = useRef<ImageBitmap[]>([]);
-  const rocketFrameRef   = useRef(0);                                      // 0=idle, 1=shoot
-  const rocketShootTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rocketFrameRef   = useRef(0);
+  const rocketAnimTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Trigger shoot-pose flash — called by fireBullet for rocket skin
+  // State machine driven entirely by timeouts — no React state, no re-renders.
+  // shoot → 120 ms → post-shoot A → 200 ms → post-shoot B → 200 ms → idle
+  // Any new shot while in post-shoot immediately jumps back to shoot pose.
   const rocketShootFlash = useCallback(() => {
-    if (gifFramesRef.current.length < 2) return;
-    rocketFrameRef.current = 1;
-    if (rocketShootTimer.current) clearTimeout(rocketShootTimer.current);
-    rocketShootTimer.current = setTimeout(() => { rocketFrameRef.current = 0; }, 120);
+    if (gifFramesRef.current.length < 4) return;
+    rocketFrameRef.current = 1;                          // shoot pose
+    if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
+    rocketAnimTimer.current = setTimeout(() => {
+      rocketFrameRef.current = 2;                        // post-shoot A
+      rocketAnimTimer.current = setTimeout(() => {
+        rocketFrameRef.current = 3;                      // post-shoot B
+        rocketAnimTimer.current = setTimeout(() => {
+          rocketFrameRef.current = 0;                    // idle
+        }, 200);
+      }, 200);
+    }, 120);
   }, []);
 
-  // Load the two pre-extracted, pre-transparified PNG frames whenever the
-  // rocket skin is selected. Static files — no GIF decoding, no timing gambles.
+  // Load all four pre-transparified PNG frames when rocket skin is selected.
   useEffect(() => {
     if (playerSkin !== 'rocket') return;
 
@@ -206,12 +215,14 @@ export default function Game() {
     (async () => {
       try {
         const base = import.meta.env.BASE_URL;
-        const [bitmap0, bitmap1] = await Promise.all([
+        const bitmaps = await Promise.all([
           loadBitmap(`${base}skins/rocket_frame_0.png`),
           loadBitmap(`${base}skins/rocket_frame_1.png`),
+          loadBitmap(`${base}skins/rocket_frame_2.png`),
+          loadBitmap(`${base}skins/rocket_frame_3.png`),
         ]);
-        if (cancelled) { bitmap0.close(); bitmap1.close(); return; }
-        gifFramesRef.current = [bitmap0, bitmap1];
+        if (cancelled) { bitmaps.forEach(b => b.close()); return; }
+        gifFramesRef.current = bitmaps;
         rocketFrameRef.current = 0;
       } catch (err) {
         console.error('[rocket skin] frame load error:', err);
@@ -220,7 +231,7 @@ export default function Game() {
 
     return () => {
       cancelled = true;
-      if (rocketShootTimer.current) clearTimeout(rocketShootTimer.current);
+      if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
       gifFramesRef.current.forEach(b => b.close());
       gifFramesRef.current = [];
       rocketFrameRef.current = 0;
