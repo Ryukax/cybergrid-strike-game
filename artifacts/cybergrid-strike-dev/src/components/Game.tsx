@@ -1,4 +1,41 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, type RefObject } from 'react';
+
+// Draws an animated GIF (from a shared img ref) to a canvas each frame,
+// stripping near-white pixels so the background is transparent.
+function SkinPreviewCanvas({ imgRef }: { imgRef: RefObject<HTMLImageElement | null> }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    let rafId: number;
+    const loop = () => {
+      const canvas = canvasRef.current;
+      const img = imgRef.current;
+      if (canvas && img && img.naturalWidth > 0) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, 48, 48);
+          ctx.drawImage(img, 0, 0, 48, 48);
+          const id = ctx.getImageData(0, 0, 48, 48);
+          const d = id.data;
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+          }
+          ctx.putImageData(id, 0, 0);
+        }
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [imgRef]);
+  return (
+    <canvas
+      ref={canvasRef}
+      width={48}
+      height={48}
+      style={{ imageRendering: 'pixelated', width: 48, height: 48, display: 'block' }}
+    />
+  );
+}
 import type { GameState, GameMode } from '../game/types';
 import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
@@ -1014,14 +1051,12 @@ export default function Game() {
     const img = new Image();
     img.src = `${import.meta.env.BASE_URL}skins/rocket.gif`;
     img.onload = () => { playerImageRef.current = img; };
-    // Must be in a visible (but clipped to 0×0) container — browsers pause GIF
-    // animation on elements that are off-screen, opacity:0, or visibility:hidden.
-    const clip = document.createElement('div');
-    clip.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;overflow:hidden;pointer-events:none;';
-    img.style.cssText = 'width:64px;height:64px;';
-    clip.appendChild(img);
-    document.body.appendChild(clip);
-    return () => { document.body.removeChild(clip); };
+    // Must be genuinely painted — browsers pause GIF animation on elements
+    // with opacity:0, visibility:hidden, or clipped to zero area.
+    // Tiny (4×4), near-invisible (opacity 0.01), in-viewport, behind everything.
+    img.style.cssText = 'position:fixed;bottom:0;right:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1;';
+    document.body.appendChild(img);
+    return () => { document.body.removeChild(img); };
   }, []);
 
   useEffect(() => {
@@ -1279,7 +1314,7 @@ export default function Game() {
                     }}
                   >
                     {skin.preview
-                      ? <div className="skin-preview-wrap"><img src={skin.preview} alt={skin.label} className="skin-preview" /></div>
+                      ? <SkinPreviewCanvas imgRef={playerImageRef} />
                       : <span className="skin-default-icon">🤖</span>}
                     <span className="skin-label">{skin.label}</span>
                   </button>

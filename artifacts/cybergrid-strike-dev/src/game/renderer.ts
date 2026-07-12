@@ -128,7 +128,7 @@ export function draw(
 
     ctx.save();
     ctx.translate(playerX, playerY);
-    ctx.rotate(Math.PI / 4); // 45° CW
+    // 0 rotation — sprite drawn upright as-is
     ctx.drawImage(oc.canvas, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
     ctx.restore();
   } else {
