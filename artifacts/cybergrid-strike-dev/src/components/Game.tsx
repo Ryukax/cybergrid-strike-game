@@ -175,17 +175,24 @@ export default function Game() {
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Rocket skin animation frames (loaded from static pre-transparified PNGs)
-  type GifFrame = { bitmap: ImageBitmap; delayMs: number };
-  const gifFramesRef = useRef<GifFrame[]>([]);
-  const gifFrameIdx  = useRef(0);
-  const gifTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Frame 0 = idle, Frame 1 = shoot pose (flashed briefly on every bullet fired)
+  const gifFramesRef     = useRef<ImageBitmap[]>([]);
+  const rocketFrameRef   = useRef(0);                                      // 0=idle, 1=shoot
+  const rocketShootTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Trigger shoot-pose flash — called by fireBullet for rocket skin
+  const rocketShootFlash = useCallback(() => {
+    if (gifFramesRef.current.length < 2) return;
+    rocketFrameRef.current = 1;
+    if (rocketShootTimer.current) clearTimeout(rocketShootTimer.current);
+    rocketShootTimer.current = setTimeout(() => { rocketFrameRef.current = 0; }, 120);
+  }, []);
 
   // Load the two pre-extracted, pre-transparified PNG frames whenever the
-  // rocket skin is selected. Static files = no GIF decoding, no timing gambles.
+  // rocket skin is selected. Static files — no GIF decoding, no timing gambles.
   useEffect(() => {
     if (playerSkin !== 'rocket') return;
 
-    const DELAY_MS = 450;
     let cancelled = false;
 
     const loadBitmap = (url: string): Promise<ImageBitmap> =>
@@ -204,19 +211,8 @@ export default function Game() {
           loadBitmap(`${base}skins/rocket_frame_1.png`),
         ]);
         if (cancelled) { bitmap0.close(); bitmap1.close(); return; }
-
-        gifFramesRef.current = [
-          { bitmap: bitmap0, delayMs: DELAY_MS },
-          { bitmap: bitmap1, delayMs: DELAY_MS },
-        ];
-        gifFrameIdx.current = 0;
-
-        const advance = () => {
-          if (cancelled) return;
-          gifFrameIdx.current = (gifFrameIdx.current + 1) % gifFramesRef.current.length;
-          gifTimerRef.current = setTimeout(advance, DELAY_MS);
-        };
-        gifTimerRef.current = setTimeout(advance, DELAY_MS);
+        gifFramesRef.current = [bitmap0, bitmap1];
+        rocketFrameRef.current = 0;
       } catch (err) {
         console.error('[rocket skin] frame load error:', err);
       }
@@ -224,10 +220,10 @@ export default function Game() {
 
     return () => {
       cancelled = true;
-      if (gifTimerRef.current) clearTimeout(gifTimerRef.current);
-      gifFramesRef.current.forEach(f => f.bitmap.close());
+      if (rocketShootTimer.current) clearTimeout(rocketShootTimer.current);
+      gifFramesRef.current.forEach(b => b.close());
       gifFramesRef.current = [];
-      gifFrameIdx.current  = 0;
+      rocketFrameRef.current = 0;
     };
   }, [playerSkin]);
 
@@ -305,7 +301,8 @@ export default function Game() {
       s.bullets.push({ colPos: s.player.col + 0.55, row: echoRow, speed: 8.5, power: Math.max(1, power - 1), big: false, pierce: false });
     }
     playShot();
-  }, []);
+    if (playerSkinRef.current === 'rocket') rocketShootFlash();
+  }, [rocketShootFlash]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
@@ -1013,10 +1010,10 @@ export default function Game() {
           wrap.style.width  = `${sz}px`;
           wrap.style.height = `${sz}px`;
 
-          // Frames are pre-processed (white removed); just blit the current one
+          // Blit idle or shoot-pose frame depending on rocketFrameRef
           const frames = gifFramesRef.current;
           if (frames.length > 0) {
-            const bitmap = frames[gifFrameIdx.current % frames.length].bitmap;
+            const bitmap = frames[rocketFrameRef.current % frames.length];
             if (sCanvas.width !== sz || sCanvas.height !== sz) {
               sCanvas.width  = sz;
               sCanvas.height = sz;
