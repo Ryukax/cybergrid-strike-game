@@ -13,21 +13,6 @@ type Ctx2D = CanvasRenderingContext2D & {
   roundRect: (x: number, y: number, w: number, h: number, r: number) => void;
 };
 
-// Module-level off-DOM regular canvas for per-frame sprite background removal.
-// Must be HTMLCanvasElement (not OffscreenCanvas) so the browser shares the
-// animated GIF frame state from the main-thread img element.
-let _offscreen: HTMLCanvasElement | null = null;
-let _offscreenCtx: CanvasRenderingContext2D | null = null;
-
-function getOffscreen(size: number): CanvasRenderingContext2D {
-  if (!_offscreen || _offscreen.width !== size) {
-    _offscreen = document.createElement('canvas');
-    _offscreen.width = size;
-    _offscreen.height = size;
-    _offscreenCtx = _offscreen.getContext('2d')!;
-  }
-  return _offscreenCtx!;
-}
 
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -113,29 +98,10 @@ export function draw(
     ctx.stroke();
   }
 
-  // Player (faces right)
+  // Player body — skipped when a DOM sprite overlay is active (playerImage flag)
   const playerX = m.x + (state.player.col + 0.5) * m.cell;
   const playerY = m.y + (state.player.row + 0.5) * m.cell;
-  if (playerImage) {
-    // Sprite skin: rotate 90° CCW so the upward-facing sprite points right,
-    // and strip near-white background pixels via an offscreen canvas.
-    const imgSize = Math.round(m.cell * 0.72);
-    const oc = getOffscreen(imgSize);
-    oc.clearRect(0, 0, imgSize, imgSize);
-    oc.drawImage(playerImage, 0, 0, imgSize, imgSize);
-    const id = oc.getImageData(0, 0, imgSize, imgSize);
-    const d = id.data;
-    for (let i = 0; i < d.length; i += 4) {
-      if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
-    }
-    oc.putImageData(id, 0, 0);
-
-    ctx.save();
-    ctx.translate(playerX, playerY);
-    // 0 rotation — sprite drawn upright as-is
-    ctx.drawImage(oc.canvas, -imgSize / 2, -imgSize / 2, imgSize, imgSize);
-    ctx.restore();
-  } else {
+  if (!playerImage) {
     ctx.fillStyle = '#60a5fa';
     ctx.beginPath();
     (ctx as Ctx2D).roundRect(playerX - m.cell * 0.22, playerY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);

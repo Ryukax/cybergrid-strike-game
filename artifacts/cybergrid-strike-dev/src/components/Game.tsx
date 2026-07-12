@@ -1,21 +1,23 @@
-import { useRef, useEffect, useState, useCallback, type RefObject } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 
-// Draws an animated GIF (from a shared img ref) to a canvas each frame,
-// stripping near-white pixels so the background is transparent.
-function SkinPreviewCanvas({ imgRef }: { imgRef: RefObject<HTMLImageElement | null> }) {
+// Previews an animated GIF with white-background removal.
+// The <img> is rendered visibly so the browser advances its GIF frames;
+// the <canvas> on top redraws it each frame with near-white pixels zeroed out.
+function SkinPreviewCanvas({ src }: { src: string }) {
+  const imgRef  = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     let rafId: number;
     const loop = () => {
       const canvas = canvasRef.current;
-      const img = imgRef.current;
+      const img   = imgRef.current;
       if (canvas && img && img.naturalWidth > 0) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.clearRect(0, 0, 48, 48);
           ctx.drawImage(img, 0, 0, 48, 48);
           const id = ctx.getImageData(0, 0, 48, 48);
-          const d = id.data;
+          const d  = id.data;
           for (let i = 0; i < d.length; i += 4) {
             if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
           }
@@ -26,14 +28,16 @@ function SkinPreviewCanvas({ imgRef }: { imgRef: RefObject<HTMLImageElement | nu
     };
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [imgRef]);
+  }, []);
   return (
-    <canvas
-      ref={canvasRef}
-      width={48}
-      height={48}
-      style={{ imageRendering: 'pixelated', width: 48, height: 48, display: 'block' }}
-    />
+    <div style={{ position: 'relative', width: 48, height: 48 }}>
+      {/* img is rendered visibly so the browser animates the GIF */}
+      <img ref={imgRef} src={src} alt=""
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }} />
+      {/* canvas covers img and redraws with background stripped */}
+      <canvas ref={canvasRef} width={48} height={48}
+        style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
+    </div>
   );
 }
 import type { GameState, GameMode } from '../game/types';
@@ -179,7 +183,10 @@ export default function Game() {
   type PlayerSkin = 'default' | 'rocket';
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
   const playerSkinRef = useRef<PlayerSkin>('default');
-  const playerImageRef = useRef<HTMLImageElement | null>(null);
+  // DOM sprite overlay refs (rocket skin in-game)
+  const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
+  const spriteImgRef    = useRef<HTMLImageElement | null>(null);
+  const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
@@ -946,13 +953,40 @@ export default function Game() {
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext('2d');
-      if (ctx) draw(
-        ctx,
-        canvas.offsetWidth,
-        canvas.offsetHeight,
-        stateRef.current,
-        playerSkinRef.current === 'rocket' ? playerImageRef.current : null,
-      );
+      // Pass null — rocket skin is rendered via DOM overlay, not on the game canvas
+      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, null);
+
+      // Update DOM sprite overlay position and redraw with background removal
+      if (playerSkinRef.current === 'rocket') {
+        const wrap   = spriteWrapRef.current;
+        const sCanvas = spriteCanvasRef.current;
+        const sImg   = spriteImgRef.current;
+        if (wrap && sCanvas && sImg && sImg.naturalWidth > 0) {
+          const m      = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          const px     = m.x + (stateRef.current.player.col + 0.5) * m.cell;
+          const py     = m.y + (stateRef.current.player.row + 0.5) * m.cell;
+          const sz     = Math.round(m.cell * 0.72);
+          wrap.style.left   = `${px}px`;
+          wrap.style.top    = `${py}px`;
+          wrap.style.width  = `${sz}px`;
+          wrap.style.height = `${sz}px`;
+          if (sCanvas.width !== sz || sCanvas.height !== sz) {
+            sCanvas.width  = sz;
+            sCanvas.height = sz;
+          }
+          const sctx = sCanvas.getContext('2d');
+          if (sctx) {
+            sctx.clearRect(0, 0, sz, sz);
+            sctx.drawImage(sImg, 0, 0, sz, sz);
+            const id = sctx.getImageData(0, 0, sz, sz);
+            const d  = id.data;
+            for (let i = 0; i < d.length; i += 4) {
+              if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+            }
+            sctx.putImageData(id, 0, 0);
+          }
+        }
+      }
     }
 
     animRef.current = requestAnimationFrame(loop);
@@ -1046,18 +1080,6 @@ export default function Game() {
     };
   }, []);
 
-  // Preload skin images — img must be in the DOM so the browser advances GIF frames
-  useEffect(() => {
-    const img = new Image();
-    img.src = `${import.meta.env.BASE_URL}skins/rocket.gif`;
-    img.onload = () => { playerImageRef.current = img; };
-    // Must be genuinely painted — browsers pause GIF animation on elements
-    // with opacity:0, visibility:hidden, or clipped to zero area.
-    // Tiny (4×4), near-invisible (opacity 0.01), in-viewport, behind everything.
-    img.style.cssText = 'position:fixed;bottom:0;right:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1;';
-    document.body.appendChild(img);
-    return () => { document.body.removeChild(img); };
-  }, []);
 
   useEffect(() => {
     resizeCanvas();
@@ -1140,6 +1162,26 @@ export default function Game() {
         id="canvas"
         onPointerDown={handleCanvasPointer}
       />
+
+      {/* Rocket skin in-game overlay — img is genuinely rendered so browser
+          advances GIF frames; canvas covers it and strips the white background */}
+      {phase === 'playing' && playerSkin === 'rocket' && (
+        <div
+          ref={spriteWrapRef}
+          style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
+        >
+          <img
+            ref={spriteImgRef}
+            src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
+            alt=""
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
+          />
+          <canvas
+            ref={spriteCanvasRef}
+            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
+          />
+        </div>
+      )}
 
       {/* HUD */}
       <div className="hud" id="hud">
@@ -1314,7 +1356,7 @@ export default function Game() {
                     }}
                   >
                     {skin.preview
-                      ? <SkinPreviewCanvas imgRef={playerImageRef} />
+                      ? <SkinPreviewCanvas src={skin.preview} />
                       : <span className="skin-default-icon">🤖</span>}
                     <span className="skin-label">{skin.label}</span>
                   </button>
