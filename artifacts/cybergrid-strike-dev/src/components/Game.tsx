@@ -171,9 +171,11 @@ export default function Game() {
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
   const playerSkinRef = useRef<PlayerSkin>('default');
   // DOM sprite overlay refs (rocket skin in-game)
-  const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
-  const spriteImgRef    = useRef<HTMLImageElement | null>(null);
-  const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const spriteWrapRef    = useRef<HTMLDivElement | null>(null);
+  const spriteCanvasRef  = useRef<HTMLCanvasElement | null>(null);
+  // Keeper img: lives at 1×1px in a fixed corner so Chrome never throttles GIF animation.
+  // The game loop samples it each frame via drawImage to capture the current GIF frame.
+  const spriteKeeperRef  = useRef<HTMLImageElement | null>(null);
 
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
@@ -943,34 +945,38 @@ export default function Game() {
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, playerSkinRef.current === 'rocket');
 
-      // Update DOM sprite overlay — draw current GIF frame with BG removal
+      // Update DOM sprite overlay — position wrap, then draw current GIF frame with BG removal
       if (playerSkinRef.current === 'rocket') {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
-        const sImg    = spriteImgRef.current;
-        if (wrap && sCanvas && sImg && sImg.naturalWidth > 0) {
+        const keeper  = spriteKeeperRef.current;
+        if (wrap && sCanvas) {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
           const sz = Math.round(m.cell * 0.72);
+          // Always update position so the overlay tracks the player
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
           wrap.style.width  = `${sz}px`;
           wrap.style.height = `${sz}px`;
-          if (sCanvas.width !== sz || sCanvas.height !== sz) {
-            sCanvas.width  = sz;
-            sCanvas.height = sz;
-          }
-          const sctx = sCanvas.getContext('2d');
-          if (sctx) {
-            sctx.clearRect(0, 0, sz, sz);
-            sctx.drawImage(sImg, 0, 0, sz, sz);
-            const id = sctx.getImageData(0, 0, sz, sz);
-            const d  = id.data;
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+          // Draw the current animated frame once the keeper img has loaded
+          if (keeper && keeper.naturalWidth > 0) {
+            if (sCanvas.width !== sz || sCanvas.height !== sz) {
+              sCanvas.width  = sz;
+              sCanvas.height = sz;
             }
-            sctx.putImageData(id, 0, 0);
+            const sctx = sCanvas.getContext('2d');
+            if (sctx) {
+              sctx.clearRect(0, 0, sz, sz);
+              sctx.drawImage(keeper, 0, 0, sz, sz);
+              const id = sctx.getImageData(0, 0, sz, sz);
+              const d  = id.data;
+              for (let i = 0; i < d.length; i += 4) {
+                if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
+              }
+              sctx.putImageData(id, 0, 0);
+            }
           }
         }
       }
@@ -1150,24 +1156,29 @@ export default function Game() {
         onPointerDown={handleCanvasPointer}
       />
 
-      {/* Sprite overlay — the <img> lives here (above the game canvas in its own
-          compositing layer) so browsers animate it; the canvas on top redraws
-          each frame with pixel-removal; its dark background covers the img's
-          white areas so they show the game base colour instead. */}
+      {/* Keeper img: fixed at 1×1px so Chrome always animates the GIF (never throttled
+          because it remains paint-visible). The game loop reads its current frame
+          via drawImage each tick. opacity ~0 but not exactly 0 to avoid throttling. */}
+      {playerSkin === 'rocket' && (
+        <img
+          ref={spriteKeeperRef}
+          src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
+          alt=""
+          style={{ position: 'fixed', bottom: 0, right: 0, width: 1, height: 1,
+                   opacity: 0.004, pointerEvents: 'none', imageRendering: 'pixelated' }}
+        />
+      )}
+
+      {/* Sprite overlay — canvas only; no background so pixel-removed areas are
+          transparent and reveal the game canvas beneath */}
       {phase === 'playing' && playerSkin === 'rocket' && (
         <div
           ref={spriteWrapRef}
           style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
         >
-          <img
-            ref={spriteImgRef}
-            src={`${import.meta.env.BASE_URL}skins/rocket.gif`}
-            alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', imageRendering: 'pixelated' }}
-          />
           <canvas
             ref={spriteCanvasRef}
-            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated', background: '#06101e' }}
+            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
           />
         </div>
       )}
