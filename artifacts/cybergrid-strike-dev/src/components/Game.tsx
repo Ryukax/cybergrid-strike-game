@@ -1025,7 +1025,7 @@ export default function Game() {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
-          const sz = Math.round(m.cell * 0.72);
+          const sz = Math.round(m.cell * (playerSkinRef.current === 'dots' ? 1.0 : 0.72));
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
           wrap.style.width  = `${sz}px`;
