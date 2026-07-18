@@ -167,7 +167,7 @@ export default function Game() {
   const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
 
   // Player skin
-  type PlayerSkin = 'default' | 'rocket' | 'dots';
+  type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
   const playerSkinRef = useRef<PlayerSkin>('default');
   // DOM sprite overlay refs (rocket skin in-game)
@@ -200,7 +200,7 @@ export default function Game() {
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
-    if (playerSkin !== 'rocket' && playerSkin !== 'dots') return;
+    if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem') return;
 
     let cancelled = false;
 
@@ -222,13 +222,15 @@ export default function Game() {
               `${base}skins/rocket_frame_2.png`,
               `${base}skins/rocket_frame_3.png`,
             ]
-          : [
+          : playerSkin === 'dots'
+          ? [
               `${base}skins/dots_frame_0.png`,
               `${base}skins/dots_frame_1.png`,
               `${base}skins/dots_frame_2.png`,
               `${base}skins/dots_frame_3.png`,
               `${base}skins/dots_frame_4.png`,
-            ];
+            ]
+          : /* gem */ Array.from({ length: 12 }, (_, i) => `${base}skins/gem_frame_${i}.png`);
         const bitmaps = await Promise.all(urls.map(loadBitmap));
         if (cancelled) { bitmaps.forEach(b => b.close()); return; }
         gifFramesRef.current = bitmaps;
@@ -1014,7 +1016,7 @@ export default function Game() {
     if (canvas) {
       const ctx = canvas.getContext('2d');
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
-      const skinHasOverlay = playerSkinRef.current === 'rocket' || playerSkinRef.current === 'dots';
+      const skinHasOverlay = playerSkinRef.current === 'rocket' || playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem';
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay);
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
@@ -1025,7 +1027,8 @@ export default function Game() {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
-          const sz = Math.round(m.cell * (playerSkinRef.current === 'dots' ? 1.0 : 0.72));
+          const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 2.3 : 0.72;
+          const sz = Math.round(m.cell * szScale);
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
           wrap.style.width  = `${sz}px`;
@@ -1034,8 +1037,8 @@ export default function Game() {
           const frames = gifFramesRef.current;
           if (frames.length > 0) {
             // Rocket: shoot-pose state machine via rocketFrameRef
-            // Dots: auto-cycle walk animation at ~8 fps using performance.now()
-            const frameIdx = playerSkinRef.current === 'dots'
+            // Dots/Gem: auto-cycle animation at ~8 fps using performance.now()
+            const frameIdx = (playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem')
               ? Math.floor(performance.now() / 120) % frames.length
               : rocketFrameRef.current % frames.length;
             const bitmap = frames[frameIdx];
@@ -1229,7 +1232,7 @@ export default function Game() {
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
-      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots') && (
+      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem') && (
         <div
           ref={spriteWrapRef}
           style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
@@ -1405,6 +1408,7 @@ export default function Game() {
                   { id: 'default', label: 'Default', preview: null },
                   { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
+                  { id: 'gem',     label: 'Gem',     preview: `${import.meta.env.BASE_URL}skins/gem.gif` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
