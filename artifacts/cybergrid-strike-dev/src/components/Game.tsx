@@ -190,6 +190,8 @@ export default function Game() {
   const gemMoveStartRef    = useRef(-1);
   const gemMoveTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const GEM_MOVE_FRAME_MS  = 75;  // ms per move frame
+  // true = mirror sprite horizontally (left move, parallel to gun axis)
+  const gemMoveMirrorRef   = useRef(false);
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
   // shoot → 120 ms → post-shoot A → 200 ms → post-shoot B → 200 ms → idle
@@ -394,6 +396,10 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
+    // Mirror when moving left (parallel to gun axis)
+    if (playerSkinRef.current === 'gem') {
+      gemMoveMirrorRef.current = col < s.player.col;
+    }
     s.player.col = col;
     s.player.row = row;
     s.moveFlash = 0.15;
@@ -1128,7 +1134,18 @@ export default function Game() {
             const sctx = sCanvas.getContext('2d');
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
-              sctx.drawImage(bitmap, 0, 0, sz, sz);
+              const mirror = playerSkinRef.current === 'gem'
+                && gemMoveStartRef.current >= 0
+                && gemMoveMirrorRef.current;
+              if (mirror) {
+                sctx.save();
+                sctx.translate(sz, 0);
+                sctx.scale(-1, 1);
+                sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.restore();
+              } else {
+                sctx.drawImage(bitmap, 0, 0, sz, sz);
+              }
             }
           }
         }
