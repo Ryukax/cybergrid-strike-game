@@ -1229,7 +1229,7 @@ export default function Game() {
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
-      {phase === 'playing' && playerSkin === 'rocket' && (
+      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots') && (
         <div
           ref={spriteWrapRef}
           style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
