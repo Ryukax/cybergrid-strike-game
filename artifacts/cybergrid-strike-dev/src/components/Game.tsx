@@ -396,8 +396,8 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
-    // Mirror when moving left (parallel to gun axis)
-    if (playerSkinRef.current === 'gem') {
+    // Mirror state: only update on horizontal moves; vertical moves inherit the last h-direction
+    if (playerSkinRef.current === 'gem' && col !== s.player.col) {
       gemMoveMirrorRef.current = col > s.player.col;
     }
     s.player.col = col;
