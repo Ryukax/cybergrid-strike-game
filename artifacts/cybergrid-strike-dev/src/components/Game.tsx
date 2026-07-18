@@ -398,7 +398,7 @@ export default function Game() {
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
     // Mirror when moving left (parallel to gun axis)
     if (playerSkinRef.current === 'gem') {
-      gemMoveMirrorRef.current = col < s.player.col;
+      gemMoveMirrorRef.current = col > s.player.col;
     }
     s.player.col = col;
     s.player.row = row;
