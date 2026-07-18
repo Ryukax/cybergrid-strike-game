@@ -185,6 +185,12 @@ export default function Game() {
   const gemAttackFrameRef  = useRef(-1);
   const gemAttackTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Gem skin — move frames; gemMoveStartRef = performance.now() timestamp when move began, -1 = idle
+  const gifMoveFramesRef   = useRef<ImageBitmap[]>([]);
+  const gemMoveStartRef    = useRef(-1);
+  const gemMoveTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const GEM_MOVE_FRAME_MS  = 75;  // ms per move frame
+
   // State machine driven entirely by timeouts — no React state, no re-renders.
   // shoot → 120 ms → post-shoot A → 200 ms → post-shoot B → 200 ms → idle
   // Any new shot while in post-shoot immediately jumps back to shoot pose.
@@ -201,6 +207,17 @@ export default function Game() {
         }, 200);
       }, 200);
     }, 120);
+  }, []);
+
+  // Gem move: plays all move frames once then returns to idle. Any new move restarts.
+  const gemMoveFlash = useCallback(() => {
+    if (gifMoveFramesRef.current.length < 1) return;
+    gemMoveStartRef.current = performance.now();
+    if (gemMoveTimer.current) clearTimeout(gemMoveTimer.current);
+    const total = gifMoveFramesRef.current.length * GEM_MOVE_FRAME_MS;
+    gemMoveTimer.current = setTimeout(() => {
+      gemMoveStartRef.current = -1;
+    }, total);
   }, []);
 
   // Gem attack: frame 0 → 1 → 2 → back to idle (-1). Any new shot restarts.
@@ -222,7 +239,7 @@ export default function Game() {
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
     if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem') return;
-    // Also load gem attack frames whenever gem is selected
+    // Also load gem attack + move frames whenever gem is selected
     if (playerSkin === 'gem') {
       const base = import.meta.env.BASE_URL;
       const loadBmp = (url: string): Promise<ImageBitmap> =>
@@ -235,6 +252,9 @@ export default function Game() {
       Promise.all([0,1,2].map(i => loadBmp(`${base}skins/gem_attack_frame_${i}.png`)))
         .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
         .catch(err => console.error('[gem attack] frame load error:', err));
+      Promise.all(Array.from({ length: 18 }, (_, i) => loadBmp(`${base}skins/gem_move_frame_${i}.png`)))
+        .then(bitmaps => { gifMoveFramesRef.current = bitmaps; })
+        .catch(err => console.error('[gem move] frame load error:', err));
     }
 
     let cancelled = false;
@@ -279,12 +299,16 @@ export default function Game() {
       cancelled = true;
       if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
       if (gemAttackTimer.current) clearTimeout(gemAttackTimer.current);
+      if (gemMoveTimer.current) clearTimeout(gemMoveTimer.current);
       gifFramesRef.current.forEach(b => b.close());
       gifFramesRef.current = [];
       gifAttackFramesRef.current.forEach(b => b.close());
       gifAttackFramesRef.current = [];
+      gifMoveFramesRef.current.forEach(b => b.close());
+      gifMoveFramesRef.current = [];
       rocketFrameRef.current = 0;
       gemAttackFrameRef.current = -1;
+      gemMoveStartRef.current = -1;
     };
   }, [playerSkin]);
 
@@ -375,7 +399,8 @@ export default function Game() {
     s.moveFlash = 0.15;
     playMove();
     updateHud();
-  }, [updateHud]);
+    if (playerSkinRef.current === 'gem') gemMoveFlash();
+  }, [updateHud, gemMoveFlash]);
 
   const manualBuster = useCallback(() => {
     const s = stateRef.current;
@@ -1081,9 +1106,17 @@ export default function Game() {
             // Gem idle: auto-cycle; Gem attack: use gifAttackFramesRef + gemAttackFrameRef
             let bitmap: ImageBitmap;
             if (playerSkinRef.current === 'gem' && gemAttackFrameRef.current >= 0) {
+              // Attack takes highest priority
               const aFrames = gifAttackFramesRef.current;
               bitmap = aFrames[gemAttackFrameRef.current % Math.max(1, aFrames.length)];
+            } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
+              // Movement second priority
+              const mFrames = gifMoveFramesRef.current;
+              const elapsed = performance.now() - gemMoveStartRef.current;
+              const mIdx = Math.min(Math.floor(elapsed / GEM_MOVE_FRAME_MS), mFrames.length - 1);
+              bitmap = mFrames[mIdx % Math.max(1, mFrames.length)];
             } else if (playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem') {
+              // Idle auto-cycle
               bitmap = frames[Math.floor(performance.now() / 120) % frames.length];
             } else {
               bitmap = frames[rocketFrameRef.current % frames.length];
