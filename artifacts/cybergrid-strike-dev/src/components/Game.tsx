@@ -1134,9 +1134,7 @@ export default function Game() {
             const sctx = sCanvas.getContext('2d');
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
-              const mirror = playerSkinRef.current === 'gem'
-                && gemMoveStartRef.current >= 0
-                && gemMoveMirrorRef.current;
+              const mirror = playerSkinRef.current === 'gem' && gemMoveMirrorRef.current;
               if (mirror) {
                 sctx.save();
                 sctx.translate(sz, 0);
