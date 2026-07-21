@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/cybergrid-strike-fitted/"
+title = "CyberGrid Strike (Fitted)"
+version = "1.0.0"
+id = "artifacts/cybergrid-strike-fitted"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/cybergrid-strike-fitted/" ]
+localPort = 23734
+
+[services.development]
+run = "pnpm --filter @workspace/cybergrid-strike-fitted run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cybergrid-strike-fitted", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cybergrid-strike-fitted/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23734"
+BASE_PATH = "/cybergrid-strike-fitted/"
