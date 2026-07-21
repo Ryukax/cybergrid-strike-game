@@ -423,6 +423,13 @@ canvas#canvas {
 /* Customization panel */
 .customization-card {
   max-width: min(92vw, 480px) !important;
+  padding-left: 20px !important;
+  padding-right: 20px !important;
+}
+
+.customization-card #skinPickerRow .skin-btn {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 #customSubtitle {
