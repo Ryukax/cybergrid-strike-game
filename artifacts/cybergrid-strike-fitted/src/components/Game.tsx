@@ -168,8 +168,10 @@ export default function Game() {
 
   // Player skin
   type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
-  const [playerSkin, setPlayerSkin] = useState<PlayerSkin>('default');
-  const playerSkinRef = useRef<PlayerSkin>('default');
+  const SKIN_KEY = 'cgs_player_skin';
+  const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
+  const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
+  const playerSkinRef = useRef<PlayerSkin>(savedSkin);
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1511,6 +1513,7 @@ export default function Game() {
                       ev.stopPropagation();
                       playerSkinRef.current = skin.id;
                       setPlayerSkin(skin.id);
+                      localStorage.setItem(SKIN_KEY, skin.id);
                     }}
                   >
                     {skin.preview
