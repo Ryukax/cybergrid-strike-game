@@ -1,0 +1,374 @@
+Y
+ 
+Universal Pragmatic Morphology Standard
+The renderer must stop generating arbitrary silhouettes.
+Every entity should be constructed from a functional body plan determined by its actual behavior, movement, offense, defense, and role.
+The rendering pipeline should become:
+Gameplay Traits
+    ↓
+Functional Role
+    ↓
+Locomotion Model
+    ↓
+Attack Delivery Model
+    ↓
+Defense / Armor Model
+    ↓
+Mass Distribution
+    ↓
+Primary Chassis
+    ↓
+Functional Structures
+    ↓
+Secondary Adaptations
+    ↓
+Surface Details
+Not:
+Traits
+    ↓
+Random body architecture
+    ↓
+Decorative appendages
+1. Every visible structure must have a reason to exist
+Do not add spikes, lobes, fins, tentacles, wings, or protrusions merely for visual variety.
+A structure should correspond to an actual function.
+Examples:
+fast lateral movement
+→ narrow streamlined body
+→ rear propulsion structure
+→ stabilizing fins
+
+heavy armor
+→ broad compact chassis
+→ layered exterior plating
+→ protected central core
+
+long-range projectile attack
+→ forward-facing barrel / emitter / proboscis
+→ recoil-supporting body mass
+→ directional silhouette
+
+radial projectile attack
+→ central core
+→ multiple clearly oriented emitter nodes
+
+ramming behavior
+→ reinforced frontal wedge / horn
+→ mass concentrated toward front
+
+high maneuverability
+→ multiple articulated propulsion or control surfaces
+→ compact center of mass
+
+shielding
+→ visible external shell, field projector nodes, or barrier frame
+
+carrier/spawner
+→ enlarged central body cavity
+→ brood chambers, ports, or detachable pods
+
+stationary turret
+→ anchored base
+→ rotating or directional weapon structure
+
+sniper
+→ elongated axis
+→ obvious forward weapon
+→ minimal lateral mass
+
+swarm unit
+→ small compact chassis
+→ simplified anatomy optimized for replication
+The player should be able to infer an enemy’s approximate role from its silhouette before seeing it attack.
+ 
+⸻
+ 
+2. Replace “body architecture” with “chassis architecture”
+The current system appears to select shapes like:
+rounded
+lobed
+forwardWeighted
+rearWeighted
+radial
+etc.
+Those still produce arbitrary organisms.
+Instead define chassis families such as:
+type ChassisType =
+  | "interceptor"
+  | "striker"
+  | "artillery"
+  | "tank"
+  | "rammer"
+  | "turret"
+  | "carrier"
+  | "swarm"
+  | "controller"
+  | "adaptive";
+These are not cosmetic classes.
+They determine geometry.
+For example:
+Interceptor
+small central mass
+elongated movement axis
+rear propulsion
+lateral stabilizers
+low frontal area
+Tank
+large compact mass
+thick perimeter
+layered armor
+small protected core
+short weapon mounts
+Artillery
+large rear/support mass
+clear forward firing axis
+long emitter/barrel
+limited maneuvering structures
+Rammer
+front-heavy mass
+reinforced nose
+tapered rear
+minimal fragile protrusions
+Carrier
+large central volume
+multiple deployment apertures
+symmetrical support structures
+visible payload compartments
+Now the overall silhouette has practical meaning.
+ 
+⸻
+ 
+3. Establish a dominant axis
+Most of the current enemies have no obvious “front.”
+That is why they resemble amoebas.
+Every non-radial entity should have:
+forwardVector
+rearVector
+leftVector
+rightVector
+The renderer should orient anatomy around these axes.
+For example:
+                 weapon
+                    ↓
+
+              ┌────────┐
+ propulsion → │  CORE  │ → forward
+              └────────┘
+
+             stabilizers
+Even biological-looking entities should obey this.
+A flying predator, submarine, missile, animal, aircraft, and spaceship all become visually understandable because their anatomy has directional organization.
+ 
+⸻
+ 
+4. Separate primary anatomy from secondary morphology
+The primary silhouette should come from perhaps 3–7 large components, not a continuous irregular blob.
+For example:
+Central Chassis
+├── Head / Forward Section
+├── Left Mobility Structure
+├── Right Mobility Structure
+├── Rear Propulsion
+└── Weapon System
+Then secondary mutations can alter them.
+Example:
+base interceptor
+
+        ▲
+      weapon
+        │
+   ╱────●────╲
+ fin   core   fin
+        │
+      engine
+Mutation might produce:
+larger left fin
+dual engines
+armored core
+split weapon emitter
+The organism still remains recognizably an interceptor.
+Your current system appears to mutate the entire silhouette, destroying structural readability.
+ 
+⸻
+ 
+5. Use connected geometric components
+Visually, the screenshot enemies currently look like overlapping petals.
+Avoid drawing the complete body as one Bézier blob.
+Construct entities from recognizable primitives:
+capsule
+wedge
+ellipse
+plate
+segment
+ring
+strut
+pod
+fin
+barrel
+joint
+shell
+For example:
+interface MorphologyComponent {
+  type:
+    | "core"
+    | "armor"
+    | "weapon"
+    | "propulsion"
+    | "sensor"
+    | "limb"
+    | "stabilizer"
+    | "shield"
+    | "payload";
+
+  anchor: AnchorPoint;
+  orientation: number;
+  length: number;
+  width: number;
+  function: FunctionalTrait;
+}
+This produces structured anatomy instead of decorative noise.
+ 
+⸻
+ 
+6. Mutation should alter engineering variables
+Do not mutate:
+number of random lobes
+random radial distortion
+random protrusion amplitude
+Prefer:
+engine count
+engine placement
+weapon length
+weapon count
+armor thickness
+armor coverage
+chassis width
+chassis length
+center-of-mass position
+limb count
+limb reach
+sensor placement
+shield-node count
+payload volume
+symmetry
+Then morphology evolves meaningfully.
+For example:
+speed ↑
+→ propulsion area ↑
+→ armor mass ↓
+→ body narrows
+
+health ↑
+→ chassis thickens
+→ armor coverage ↑
+→ exposed core shrinks
+
+damage ↑
+→ weapon structure enlarges
+
+fire rate ↑
+→ multiple smaller emitters
+
+range ↑
+→ longer directional emitter
+
+movement agility ↑
+→ stabilizer span ↑
+→ central mass decreases
+This is the missing connection.
+ 
+⸻
+ 
+7. Use silhouette hierarchy
+At the tiny scale shown in your game, detail is almost irrelevant.
+The priority should be:
+1. Overall silhouette
+2. Direction of travel
+3. Major weapon
+4. Major defensive structure
+5. Propulsion
+6. Secondary anatomy
+7. Surface decoration
+Your screenshot currently emphasizes approximately:
+1. decorative outline
+2. decorative protrusions
+3. glow
+4. color
+That is why the entities remain visually indistinct despite the more sophisticated morphology code.
+ 
+⸻
+ 
+8. Establish minimum visual readability rules
+At gameplay scale, require:
+Primary chassis:
+≥ 45% of visual mass
+
+Largest functional appendage:
+15–35%
+
+Minor appendages combined:
+≤ 25%
+
+Random silhouette perturbation:
+≤ 5–8%
+
+Number of major components:
+3–7
+
+Minimum component thickness:
+3–4 screen pixels
+
+Minimum recognizable weapon length:
+~20% of entity diameter
+Do not allow dozens of small radial protrusions.
+They collapse into the flower/star appearance visible in your screenshots.
+ 
+⸻
+ 
+9. Example output families
+Instead of these:
+✿
+☄-shaped blob
+three-lobed blob
+star blob
+you should visually get things closer to:
+INTERCEPTOR
+
+      ╱▲╲
+    ──●──
+      ╲▼╱
+       ║
+TANK
+
+    ╔══════╗
+  ◀═║  ●   ║═▶
+    ╚══════╝
+SNIPER
+
+    [core]══════════>
+RAMMER
+
+          ▲
+         ╱ ╲
+        ╱   ╲
+      [██████]
+         ║║
+CARRIER
+
+       ○   ○
+     ╔═══════╗
+  ○──║   ●   ║──○
+     ╚═══════╝
+       ○   ○
+These can still be biological, cybernetic, alien, mechanical, crystalline, or viral.
+The style changes.
+The functional architecture does not.
+ 
+⸻
+ 
+Most important change for your current code
+I would specifically say:
+Remove the assumption that silhouette diversity is achieved through continuous perimeter deformation. The screenshots demonstrate that this produces flower-like, amoeboid, and randomly lobed entities regardless of architecture. Rebuild morphology as an assembly of discrete functional anatomical components attached to a coherent chassis with a defined forward axis. Gameplay traits must determine component presence, size, position, orientation, and mass allocation. Randomness may modify proportions but must never determine the fundamental anatomy. At gameplay scale, each entity must visibly communicate movement system, attack system, defensive system, and directional orientation. Delete or heavily restrict arbitrary radial lobes and freeform Bézier protrusions.
+And I would add one very explicit acceptance test:
+Before accepting the implementation, render every morphology in monochrome with glow, color, texture, animation, and internal details disabled. If the role and facing direction cannot still be distinguished from silhouette alone, the morphology has failed.
+That is the pragmatic step the current version is missing. The screenshots indicate the architecture system is technically more varied, but perceptually it is still one generator: irregular central blob + lobes. The next rewrite needs to change the underlying representation, not tune the Bézier curves again.

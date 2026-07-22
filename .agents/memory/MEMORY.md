@@ -1,2 +1,3 @@
 - [Blockchain architecture](blockchain-arch.md) — CGRD token + leaderboard on Base Sepolia; deploy script pattern; secrets needed before going live.
 - [Visual Refinement Evolution](visual-refinement-evolution.md) — per-n refinement system replacing the genetic algorithm; three rendering tiers; spawn bias mechanics.
+- [Chassis Architecture v5](chassis-arch-v5.md) — v5 paradigm: 10 functional chassis replace body architectures; each chassis renders ALL anatomy (weapon+propulsion+armor) in one function; no §7 structural grammar.
