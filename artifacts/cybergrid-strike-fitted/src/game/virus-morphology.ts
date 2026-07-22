@@ -1,22 +1,32 @@
 /**
- * Virus Morphology Encoding Standard v2 — Procedural Body-Plan Grammar
+ * Virus Morphology v3 — Symmetry-First Body Plan Grammar
  *
- * Every virus integer n deterministically decodes into a VirusPhenotype:
- * a structured description of the organism's functional traits.
- * The renderer then assembles the visible body from that phenotype.
- * Every major visible structure answers: "why does this virus look this way?"
+ * Design hierarchy (per spec):
+ *   Functional Traits → Body Plan → Structural Layout → Symmetry → Anatomy → Surface Detail
  *
- * Rendering pipeline:
- *   n → VirusPhenotype (speed, armor, attack style, locomotion type…)
- *     → Polar base body  (lobe + spike/notch encoding — authoritative silhouette)
- *     → Class decorations (inner rings, spokes)
- *     → Phenotype structural layers:
- *         locomotion (rear) → armor (perimeter) → weapons (front)
- *         → sensors (top) → defensive (front arc) → regen nodes → inner core
- *     → Refinement tiers  (progressive elaboration as lineage matures)
+ * Symmetry is chosen ONCE from the phenotype and drives ALL structural placement.
+ * No structure is placed without a phenotypic justification.
+ * The renderer receives a phenotype and renders it deterministically — it does not
+ * invent geometry.
  *
- * In-game orientation:
- *   Viruses move LEFT, so FRONT = angle π (left), REAR = angle 0 (right).
+ * Three exclusive rendering paths:
+ *   BILATERAL  — primes. Paired structures mirrored above/below the FRONT-REAR axis.
+ *   RADIAL     — powers-of-two, perfect squares. N-fold rotational structures.
+ *   ASYMMETRIC — some composites. Deliberate single-side dominance with mass balance.
+ *
+ * Structural layer order (same for all paths):
+ *   1. Primary mass   (polar base body — authoritative silhouette, never overwritten)
+ *   2. Locomotion     (rear structures)
+ *   3. Weapons        (front structures)
+ *   4. Armor          (perimeter structures)
+ *   5. Sensors        (forward-top structures)
+ *   6. Refinement     (maturity rings + apex crown — on top, purely additive)
+ *
+ * In-game orientation: viruses move LEFT.
+ *   FRONT = Math.PI  (left  — leading edge / attack direction)
+ *   REAR  = 0        (right — trailing edge)
+ *   UP    = -π/2     (top of canvas body)
+ *   DOWN  = +π/2     (bottom)
  */
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -37,22 +47,22 @@ export interface VirusPhenotype {
   lobes:          number;
   spikes:         boolean[];
   spikeCount:     number;
-  // Derived trait scores, all in [0, 1]
-  speed:          number;   // locomotion velocity tendency
-  armor:          number;   // defensive plating density
-  mass:           number;   // body mass / inertia
-  attackRange:    number;   // 0 = melee, 1 = ranged
-  sensorRadius:   number;   // detection / tracking capability
-  aggression:     number;   // combat orientation
-  regen:          number;   // regeneration capacity
-  evasion:        number;   // avoidance / shield capacity
-  // Structural role assignments (derived from trait combinations)
-  symmetry:       'radial' | 'bilateral' | 'asymmetric';
+  // Trait scores — all [0, 1]
+  speed:          number;
+  armor:          number;
+  mass:           number;
+  attackRange:    number;
+  sensorRadius:   number;
+  aggression:     number;
+  regen:          number;
+  evasion:        number;
+  // Structural roles
+  symmetry:       'bilateral' | 'radial' | 'asymmetric';
   attackStyle:    'melee' | 'pulse' | 'ranged';
-  locomotionType: 'fins' | 'jets' | 'struts' | 'passive';
+  locomotionType: 'fins' | 'jets' | 'passive';
 }
 
-// ─── Legacy types preserved for compatibility ──────────────────────────────────
+// ─── Legacy types retained for compatibility ───────────────────────────────────
 
 export type VirusArchetype =
   | 'biological' | 'humanoid' | 'animal' | 'insectoid' | 'mechanical'
@@ -61,17 +71,17 @@ export type VirusArchetype =
   | 'skeletal' | 'fluid';
 
 export interface VirusModelProfile {
-  primaryArchetype:   VirusArchetype;
-  secondaryArchetype: VirusArchetype;
-  primaryWeight:   number;
-  secondaryWeight: number;
-  structureLevel:  number;
-  symmetryLevel:   number;
-  armorLevel:      number;
-  organicLevel:    number;
-  mechanicalLevel: number;
-  crystallineLevel:number;
-  energyLevel:     number;
+  primaryArchetype:    VirusArchetype;
+  secondaryArchetype:  VirusArchetype;
+  primaryWeight:       number;
+  secondaryWeight:     number;
+  structureLevel:      number;
+  symmetryLevel:       number;
+  armorLevel:          number;
+  organicLevel:        number;
+  mechanicalLevel:     number;
+  crystallineLevel:    number;
+  energyLevel:         number;
 }
 
 export interface VirusVisualModel {
@@ -89,10 +99,7 @@ export interface VirusVisualModel {
 // § 2  Utilities
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Deterministic hash: (value, salt) → [0, 1).
- * Same inputs always produce the same output. No RNG at render time.
- */
+/** Deterministic hash: same inputs always produce the same output. No Math.random(). */
 function normalizedHash(value: number, salt: number): number {
   const x = Math.sin(value * 12.9898 + salt * 78.233) * 43758.5453;
   return x - Math.floor(x);
@@ -134,15 +141,10 @@ export function getVirusClass(n: number): VirusClass {
   return 'odd-composite';
 }
 
-/** L = 3 + (n mod 6) → 3–8 outer lobes */
 export function getVirusLobes(n: number): number { return 3 + (n % 6); }
-
-/** R = R₀ + k·log₂(n+1) */
 export function getVirusRadius(n: number, R0: number, k: number): number {
   return R0 + k * Math.log2(n + 1);
 }
-
-/** 8-bit binary shell: bit_i=1 → spike, bit_i=0 → notch */
 export function getVirusSpikes(n: number): boolean[] {
   return Array.from({ length: 8 }, (_, i) => Boolean((n >> i) & 1));
 }
@@ -182,68 +184,57 @@ export function getVirusColors(n: number, flash: boolean): { fill: string; glow:
 // § 5  Phenotype derivation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Decode a virus integer into its full functional phenotype.
- * Every call with the same n returns the same result (deterministic).
- */
 export function getVirusPhenotype(n: number): VirusPhenotype {
-  const h = (salt: number) => normalizedHash(n, salt);
+  const h   = (salt: number) => normalizedHash(n, salt);
   const cls = getVirusClass(n);
-  const lobes = getVirusLobes(n);
-  const spikes = getVirusSpikes(n);
+  const lobes    = getVirusLobes(n);
+  const spikes   = getVirusSpikes(n);
   const spikeCount = spikes.filter(Boolean).length;
   const divCount = getDivisorCount(n);
 
-  // ── Speed
-  // High spike density → agile/fast. Primes are quick; perfect squares ponderous.
+  // Speed: high spike density → agile. Primes quick; squares ponderous.
   const rawSpeed = (spikeCount / 8) * 0.55 + h(11) * 0.45;
   const speed =
-    cls === 'prime'          ? Math.min(1, rawSpeed * 1.22)
-    : cls === 'perfect-square' ? rawSpeed * 0.65
+    cls === 'prime'           ? Math.min(1, rawSpeed * 1.22)
+    : cls === 'perfect-square'? rawSpeed * 0.65
     : rawSpeed;
 
-  // ── Armor
-  // Smooth bodies (few spikes) → more surface area for plating.
+  // Armor: smooth bodies plate more.
   const rawArmor = ((8 - spikeCount) / 8) * 0.40 + h(12) * 0.60;
   const armor =
-    cls === 'perfect-square' ? 0.45 + rawArmor * 0.45
+    cls === 'perfect-square'  ? 0.45 + rawArmor * 0.45
     : cls === 'power-of-two'  ? 0.30 + h(12) * 0.50
     : cls === 'even-composite'? 0.20 + rawArmor * 0.70
     : rawArmor * 0.72;
 
-  // ── Mass
-  // Logarithmic: larger integers feel heavier (more divisors = denser).
+  // Mass: larger integers feel heavier.
   const mass = Math.min(1, 0.15 + (Math.log2(n + 1) / 8) * 0.55 + h(13) * 0.30);
 
-  // ── Attack range (0 = melee … 1 = ranged)
-  // Primes favor close-quarters; power-of-two prefer mid-range.
+  // Attack range: 0 = melee … 1 = ranged.
   const rawRange = h(14);
   const attackRange =
-    cls === 'prime'         ? rawRange * 0.42
+    cls === 'prime'          ? rawRange * 0.42
     : cls === 'power-of-two' ? 0.32 + rawRange * 0.48
     : rawRange;
 
-  // ── Sensor radius
-  // Divisor-rich numbers (highly composite) have richer sensory geometry.
+  // Sensor: divisor-rich numbers detect better.
   const sensorRadius = Math.min(1, (divCount / 14) * 0.55 + h(15) * 0.45);
 
-  // ── Aggression
-  // Primes: aggressive hunters. Perfect squares: passive heavyweights.
+  // Aggression: primes hunt; squares sit defensively.
   const rawAgg = h(16);
   const aggression =
-    cls === 'prime'          ? 0.55 + rawAgg * 0.45
-    : cls === 'perfect-square' ? rawAgg * 0.42
-    : cls === 'odd-composite'  ? 0.18 + rawAgg * 0.66
+    cls === 'prime'           ? 0.55 + rawAgg * 0.45
+    : cls === 'perfect-square'? rawAgg * 0.42
+    : cls === 'odd-composite' ? 0.18 + rawAgg * 0.66
     : rawAgg;
 
-  // ── Regeneration
-  // Highly composite numbers (many divisors) have redundant structures → regen.
+  // Regen: highly composite → redundant structures → regen.
   const regen = Math.min(1, (divCount / 12) * 0.62 + h(17) * 0.38);
 
-  // ── Evasion (trade-off with armor; agile OR armored)
+  // Evasion: trade-off with armor (agile OR armored).
   const evasion = Math.min(1, Math.max(0, (1 - armor) * 0.72 + h(18) * 0.44 - 0.12));
 
-  // ── Symmetry type
+  // Symmetry — determined once; drives all structural placement.
   const symVal = h(19);
   const symmetry: VirusPhenotype['symmetry'] =
     cls === 'perfect-square' || cls === 'power-of-two' ? 'radial'
@@ -252,17 +243,16 @@ export function getVirusPhenotype(n: number): VirusPhenotype {
     : symVal < 0.68 ? 'radial'
     : 'bilateral';
 
-  // ── Attack style
+  // Attack style — one role per virus.
   const attackStyle: VirusPhenotype['attackStyle'] =
     attackRange < 0.33 ? 'melee'
     : attackRange > 0.66 ? 'ranged'
     : 'pulse';
 
-  // ── Locomotion type (trait interaction: speed × mass)
+  // Locomotion type — simplified (no struts; passive for slow/heavy).
   const locomotionType: VirusPhenotype['locomotionType'] =
-    speed > 0.62 && mass > 0.60 ? 'jets'    // heavy+fast → thrust jets
-    : speed > 0.55               ? 'fins'    // light+fast → swept fins
-    : mass > 0.72                ? 'struts'  // very heavy → stabilizer struts
+    speed > 0.62 && mass > 0.60 ? 'jets'
+    : speed > 0.50               ? 'fins'
     : 'passive';
 
   return {
@@ -274,7 +264,7 @@ export function getVirusPhenotype(n: number): VirusPhenotype {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// § 6  Polar base body  (authoritative silhouette — never changed by grammar)
+// § 6  Polar base body  (primary mass — authoritative silhouette)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function virusRadius(theta: number, n: number, R: number): number {
@@ -297,7 +287,7 @@ function buildBodyPath(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number,
   n: number, R: number,
-  steps = 192,
+  steps = 160,
 ): void {
   ctx.beginPath();
   for (let i = 0; i <= steps; i++) {
@@ -311,52 +301,60 @@ function buildBodyPath(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// § 7  Structural grammar — individual shape primitives
+// § 7  Structural grammar — symmetry-aware rendering primitives
 //
-//  In-game orientation:
-//    FRONT = Math.PI    (viruses move LEFT — leading edge)
-//    REAR  = 0          (trailing edge, right in canvas)
-//    UP    = -Math.PI/2 (top of body in canvas)
+//  Angular constants:
+//    FRONT = π   (left  — leading edge, attack direction)
+//    REAR  = 0   (right — trailing edge)
+//    UP    = -π/2 (top of body)
+//    DOWN  = +π/2 (bottom)
 //
-//  Each function:
-//    - saves/restores ctx state
-//    - draws at positions relative to (cx, cy) with radius R
-//    - accepts an `alpha` opacity scalar [0, 1]
-//    - is pure/deterministic (no Math.random, only normalizedHash)
+//  Rules:
+//   • Each function draws ONLY its one structural role.
+//   • No function calls another.
+//   • All geometry is relative to (cx, cy) and scaled by R.
+//   • lineWidth minimum: 1.5 (for visibility at gameplay scale).
+//   • Every structure saves/restores ctx state.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const FRONT = Math.PI;
 const REAR  = 0;
 const UP    = -Math.PI / 2;
+const DOWN  =  Math.PI / 2;
 
-// ── A. Locomotion structures (rear of body) ───────────────────────────────────
+// ─── A. BILATERAL structures (paired, mirrored about FRONT-REAR axis) ─────────
 
-/** Swept-back fins for fast, light viruses. */
-function grammarFins(
+/**
+ * Two swept-back triangular fins, one above and one below the REAR axis.
+ * Communicates: speed / directional locomotion.
+ */
+function bilateralFins(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  speed: number, mass: number, alpha: number,
+  speed: number, alpha: number,
 ): void {
-  const count = speed > 0.78 ? 3 : 2;
-  const height = R * (0.38 + speed * 0.28 - mass * 0.10);
+  const height   = R * (0.50 + speed * 0.28);
+  const baseOff  = 0.32;   // angular spread of fin base from REAR
+
   ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.70})`;
-  ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.12})`;
-  ctx.lineWidth   = 1.3;
-  const spread = count === 3 ? 0.42 : 0.26;
-  for (let i = 0; i < count; i++) {
-    const off = count < 2 ? 0 : (i / (count - 1) - 0.5) * spread * 2;
-    const baseAngle = REAR + off;
-    const bx = cx + R * 0.74 * Math.cos(baseAngle);
-    const by = cy + R * 0.74 * Math.sin(baseAngle);
-    // tip swept backward and slightly outward
-    const tipOff = off + (off > 0 ? 0.28 : off < 0 ? -0.28 : 0.20);
-    const tx = cx + (R + height) * Math.cos(REAR + tipOff);
-    const ty = cy + (R + height) * Math.sin(REAR + tipOff);
-    // inner edge slightly inward from base
-    const inOff = off + (off >= 0 ? -0.16 : 0.16);
-    const ix = cx + R * 0.58 * Math.cos(REAR + inOff);
-    const iy = cy + R * 0.58 * Math.sin(REAR + inOff);
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.78})`;
+  ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.18})`;
+  ctx.lineWidth   = 1.5;
+
+  for (const side of [-1, 1]) {
+    // Base: where fin meets body at rear
+    const baseAngle = REAR + side * baseOff;
+    const bx = cx + R * 0.82 * Math.cos(baseAngle);
+    const by = cy + R * 0.82 * Math.sin(baseAngle);
+    // Tip: swept further out and rearward
+    const tipAngle = REAR + side * (baseOff + 0.24);
+    const tx = cx + (R + height) * Math.cos(tipAngle);
+    const ty = cy + (R + height) * Math.sin(tipAngle);
+    // Inner corner: at the body edge, closer to REAR axis
+    const inAngle = REAR + side * (baseOff - 0.20);
+    const ix = cx + R * 0.58 * Math.cos(inAngle);
+    const iy = cy + R * 0.58 * Math.sin(inAngle);
+
     ctx.beginPath();
     ctx.moveTo(bx, by);
     ctx.lineTo(tx, ty);
@@ -368,603 +366,695 @@ function grammarFins(
   ctx.restore();
 }
 
-/** Circular propulsion jets for heavy+fast viruses. */
-function grammarJets(
+/**
+ * Two circular jet ports at the rear, mirrored above/below REAR axis.
+ * Communicates: heavy + fast propulsion.
+ */
+function bilateralJets(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
   mass: number, speed: number, alpha: number,
 ): void {
-  const count = mass > 0.78 ? 3 : 2;
-  const portR = R * (0.072 + mass * 0.038);
-  const spread = count === 3 ? 0.33 : 0.20;
+  const portR  = R * (0.10 + mass * 0.05);
+  const offset = 0.26;
+
   ctx.save();
-  for (let i = 0; i < count; i++) {
-    const off = count < 2 ? 0 : (i / (count - 1) - 0.5) * spread * 2;
-    const angle = REAR + off;
-    const dist = R * (0.84 + mass * 0.06);
+  for (const side of [-1, 1]) {
+    const angle = REAR + side * offset;
+    const dist  = R * 0.86;
     const px = cx + dist * Math.cos(angle);
     const py = cy + dist * Math.sin(angle);
+
     // Port outer ring
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.72})`;
-    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.82})`;
+    ctx.lineWidth   = 2;
     ctx.beginPath(); ctx.arc(px, py, portR, 0, Math.PI * 2); ctx.stroke();
-    // Inner glow disc
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.22})`;
+    // Inner glow
+    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.32})`;
     ctx.beginPath(); ctx.arc(px, py, portR * 0.52, 0, Math.PI * 2); ctx.fill();
-    // Exhaust cone
+    // Exhaust plume
     if (speed > 0.55) {
-      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.18})`;
-      ctx.lineWidth = 0.8;
-      const ex = cx + (dist + portR * 2.5) * Math.cos(angle);
-      const ey = cy + (dist + portR * 2.5) * Math.sin(angle);
-      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.20})`;
+      ctx.lineWidth   = portR * 1.4;
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + R * 0.30, py);   // directly rearward (REAR = 0, cos(0)=1)
+      ctx.stroke();
+      ctx.lineCap = 'butt';
     }
   }
   ctx.restore();
 }
 
-/** Stabilizer struts for very heavy, slow viruses. */
-function grammarStruts(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  mass: number, alpha: number,
-): void {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.40})`;
-  ctx.lineWidth = 1.5;
-  // Four splayed ground-struts, like landing legs
-  [-0.55, -0.20, 0.20, 0.55].forEach(off => {
-    const angle = REAR + Math.PI / 2 + off; // spread below and above rear
-    const bx = cx + R * 0.65 * Math.cos(REAR + off);
-    const by = cy + R * 0.65 * Math.sin(REAR + off);
-    const ex = cx + (R + R * 0.30) * Math.cos(angle);
-    const ey = cy + (R + R * 0.30) * Math.sin(angle);
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-    // Foot pad
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.30})`;
-    ctx.beginPath(); ctx.arc(ex, ey, R * 0.045, 0, Math.PI * 2); ctx.fill();
-  });
-  ctx.restore();
-}
-
-// ── B. Armor structures (perimeter) ──────────────────────────────────────────
-
-/** Overlapping armor plates around the body perimeter. */
-function grammarArmorPlates(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  armor: number, speed: number, lobes: number, alpha: number,
-): void {
-  // High speed + armor → plates concentrate at the front (forward-facing shield)
-  // Low speed → full perimeter coverage
-  const frontBiased = speed > 0.58;
-  const plateCount = frontBiased
-    ? Math.max(2, Math.round(lobes * 0.65))
-    : lobes;
-  const coverage = frontBiased ? 0.55 : 0.88;  // fraction of circumference covered
-  const totalArc  = Math.PI * 2 * coverage;
-  const plateArc  = totalArc / plateCount;
-  const gap       = plateArc * 0.10;
-  const startAngle = frontBiased ? FRONT - totalArc / 2 : -Math.PI / 2;
-  const plateRadius = R * 0.91;
-  const plateWidth  = R * (0.09 + armor * 0.09);
-
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.48 + armor * 0.22)})`;
-  ctx.lineWidth   = plateWidth;
-  for (let i = 0; i < plateCount; i++) {
-    const a0 = startAngle + i * plateArc + gap;
-    const a1 = startAngle + (i + 1) * plateArc - gap;
-    ctx.beginPath(); ctx.arc(cx, cy, plateRadius, a0, a1); ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/** Full circumferential shell for very heavily armored viruses. */
-function grammarArmorShell(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  armor: number, alpha: number,
-): void {
-  ctx.save();
-  // Main shell ring
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.52})`;
-  ctx.lineWidth   = R * (0.11 + armor * 0.10);
-  ctx.beginPath(); ctx.arc(cx, cy, R * 0.90, 0, Math.PI * 2); ctx.stroke();
-  // Seam lines dividing the shell into plates
-  ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.40})`;
-  ctx.lineWidth   = 0.9;
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.moveTo(cx + R * 0.83 * Math.cos(a), cy + R * 0.83 * Math.sin(a));
-    ctx.lineTo(cx + R * 0.97 * Math.cos(a), cy + R * 0.97 * Math.sin(a));
-    ctx.stroke();
-  }
-  // Inner shell detail ring
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.18})`;
-  ctx.lineWidth   = 0.8;
-  ctx.beginPath(); ctx.arc(cx, cy, R * 0.78, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-}
-
-/** Streamlined fairing for high-speed + high-armor viruses (no bulky plates). */
-function grammarStreamlinedFairing(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  speed: number, armor: number, alpha: number,
-): void {
-  ctx.save();
-  // Protective forward arc — armor aligned with direction of travel
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.38 + armor * 0.18)})`;
-  ctx.lineWidth   = R * (0.06 + armor * 0.05);
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 0.94, FRONT - 0.52, FRONT + 0.52);
-  ctx.stroke();
-  // Speed-line fairings along the body flanks
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.18})`;
-  ctx.lineWidth   = 0.8;
-  [-0.28, 0.28].forEach(off => {
-    ctx.beginPath();
-    ctx.moveTo(cx + R * 0.72 * Math.cos(FRONT + off), cy + R * 0.72 * Math.sin(FRONT + off));
-    ctx.lineTo(cx + R * 0.72 * Math.cos(REAR  + off), cy + R * 0.72 * Math.sin(REAR  + off));
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
-// ── C. Weapon structures (front of body) ─────────────────────────────────────
-
-/** Blade/claw appendages for melee-focused viruses. */
-function grammarMeleeClaws(
+/**
+ * Two forward-sweeping claws, one above and one below the FRONT axis.
+ * Communicates: melee aggression / close-quarters attack.
+ */
+function bilateralClaws(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
   aggression: number, alpha: number,
 ): void {
-  const count  = aggression > 0.70 ? 3 : 2;
-  const length = R * (0.30 + aggression * 0.24);
-  const spread = 0.32;
+  const length  = R * (0.44 + aggression * 0.24);
+  const spread  = 0.28 + aggression * 0.06;
+
   ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.78})`;
-  ctx.lineWidth   = 1.5;
-  for (let i = 0; i < count; i++) {
-    const off = count < 2 ? 0 : (i / (count - 1) - 0.5) * spread * 2;
-    const baseAngle = FRONT + off;
-    const bx  = cx + R * 0.76 * Math.cos(baseAngle);
-    const by  = cy + R * 0.76 * Math.sin(baseAngle);
-    // tip: extends forward with slight inward hook
-    const tipAngle = FRONT + off * 0.45;
-    const tx  = cx + (R + length) * Math.cos(tipAngle);
-    const ty  = cy + (R + length) * Math.sin(tipAngle);
-    // barb: perpendicular to claw, hooking inward
-    const hookDir = off >= 0 ? 1 : -1;
-    const hAngle  = tipAngle + hookDir * (Math.PI / 2);
-    const hx = tx + R * 0.13 * Math.cos(hAngle);
-    const hy = ty + R * 0.13 * Math.sin(hAngle);
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.88})`;
+  ctx.lineWidth   = 2;
+  ctx.lineCap     = 'round';
+
+  for (const side of [-1, 1]) {
+    const baseAngle = FRONT + side * spread;
+    const bx = cx + R * 0.80 * Math.cos(baseAngle);
+    const by = cy + R * 0.80 * Math.sin(baseAngle);
+    // Tip converges toward the axis (inward hook)
+    const tipAngle = FRONT + side * spread * 0.30;
+    const tx = cx + (R + length) * Math.cos(tipAngle);
+    const ty = cy + (R + length) * Math.sin(tipAngle);
+    // Barb: short perpendicular at the tip, pointing inward
+    const barbDir = tipAngle + side * (Math.PI / 2);
+    const barbLen = R * 0.16;
+
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.lineTo(hx, hy);
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + barbLen * Math.cos(barbDir), ty + barbLen * Math.sin(barbDir));
     ctx.stroke();
   }
+  ctx.lineCap = 'butt';
   ctx.restore();
 }
 
-/** Curved mandibles for high-aggression melee viruses. */
-function grammarMandibles(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  aggression: number, alpha: number,
-): void {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.62})`;
-  ctx.lineWidth   = 1.8;
-  [-0.44, 0.44].forEach(off => {
-    const a0 = FRONT + off;
-    const aMid = FRONT + off * 0.40;
-    const aTip = FRONT + off * 1.15 + (off > 0 ? 0.30 : -0.30);
-    ctx.beginPath();
-    ctx.moveTo(cx + R * 0.62 * Math.cos(a0), cy + R * 0.62 * Math.sin(a0));
-    ctx.quadraticCurveTo(
-      cx + (R + R * 0.48) * Math.cos(aMid), cy + (R + R * 0.48) * Math.sin(aMid),
-      cx + (R + R * 0.26) * Math.cos(aTip), cy + (R + R * 0.26) * Math.sin(aTip),
-    );
-    ctx.stroke();
-  });
-  ctx.restore();
-}
-
-/** Elongated weapon barrels for ranged viruses. */
-function grammarRangedBarrels(
+/**
+ * One or two forward-pointing weapon barrels on the FRONT axis.
+ * Dual barrels when sensorRadius is high (targeting capability).
+ * Communicates: ranged attack.
+ */
+function bilateralBarrels(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
   mass: number, sensorRadius: number, alpha: number,
 ): void {
-  const count        = sensorRadius > 0.65 ? 3 : mass > 0.60 ? 1 : 2;
-  const barrelLength = R * (0.36 + mass * 0.20);
-  const barrelHalf   = R * (0.055 + mass * 0.038);
-  const spread       = count === 3 ? 0.26 : count === 2 ? 0.16 : 0;
+  const dual         = sensorRadius > 0.58;
+  const barrelLength = R * (0.50 + mass * 0.18);
+  const barrelWidth  = R * (0.07 + mass * 0.04);
+  const spread       = 0.17;
+  const offsets      = dual ? [-1, 1] : [0];
+
   ctx.save();
-  for (let i = 0; i < count; i++) {
-    const off = count === 1 ? 0 : (i / (count - 1) - 0.5) * spread * 2;
-    const angle = FRONT + off;
-    const bx = cx + R * 0.68 * Math.cos(angle);
-    const by = cy + R * 0.68 * Math.sin(angle);
+  ctx.lineCap = 'butt';
+
+  for (const s of offsets) {
+    const angle = FRONT + s * spread;
+    const bx = cx + R * 0.74 * Math.cos(angle);
+    const by = cy + R * 0.74 * Math.sin(angle);
     const ex = cx + (R + barrelLength) * Math.cos(angle);
     const ey = cy + (R + barrelLength) * Math.sin(angle);
-    // Barrel shaft (thick stroke = rectangular barrel)
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.72})`;
-    ctx.lineWidth   = barrelHalf * 2;
-    ctx.lineCap     = 'butt';
+
+    // Barrel shaft (thick line)
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.80})`;
+    ctx.lineWidth   = barrelWidth * 2;
     ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.lineCap     = 'round';
-    // Emitter ring at muzzle
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.88})`;
-    ctx.lineWidth   = 1.3;
-    ctx.beginPath(); ctx.arc(ex, ey, barrelHalf * 0.78, 0, Math.PI * 2); ctx.stroke();
-    // Stabilizer mount flanges (heavier mass = wider)
-    if (mass > 0.48) {
-      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.28})`;
-      ctx.lineWidth   = 0.8;
-      const midX = (bx + ex) / 2;
-      const midY = (by + ey) / 2;
-      const perp  = angle + Math.PI / 2;
-      const fSize = barrelHalf * 2.0;
-      [1, -1].forEach(side => {
-        ctx.beginPath();
-        ctx.moveTo(midX + fSize * side * Math.cos(perp), midY + fSize * side * Math.sin(perp));
-        ctx.lineTo(bx  + fSize * side * 0.5 * Math.cos(perp), by  + fSize * side * 0.5 * Math.sin(perp));
-        ctx.stroke();
-      });
+    // Muzzle ring
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.95})`;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath(); ctx.arc(ex, ey, barrelWidth * 0.90, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.lineCap = 'round';
+  ctx.restore();
+}
+
+/**
+ * Two rounded pulse-emitter lobes on the upper and lower flanks.
+ * Communicates: omnidirectional mid-range pulse attack.
+ */
+function bilateralPulseEmitters(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  alpha: number,
+): void {
+  const nodeR = R * 0.13;
+  const dist  = R * 0.86;
+
+  ctx.save();
+  for (const side of [-1, 1]) {
+    const angle = side === -1 ? UP : DOWN;
+    const nx = cx + dist * Math.cos(angle);
+    const ny = cy + dist * Math.sin(angle);
+
+    // Emitter node
+    ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.40})`;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.fill();
+    // Emission ring
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.55})`;
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.stroke();
+    // Outer pulse halo
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.22})`;
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR * 2.0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Protective arc covering the front-facing hemisphere.
+ * Used for armored bilateral viruses.
+ * Communicates: defensive protection of the attack vector.
+ */
+function bilateralArmorArc(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  armor: number, alpha: number,
+): void {
+  const coverage = Math.PI * (0.40 + armor * 0.25);   // arc half-angle
+  const shellR   = R * 0.93;
+  const thick    = R * (0.09 + armor * 0.08);
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.50 + armor * 0.22)})`;
+  ctx.lineWidth   = thick;
+  ctx.beginPath();
+  ctx.arc(cx, cy, shellR, FRONT - coverage, FRONT + coverage);
+  ctx.stroke();
+  // Seam gap markers (make it look like segmented plates)
+  ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.35})`;
+  ctx.lineWidth   = 1;
+  for (const off of [-coverage / 2, 0, coverage / 2]) {
+    const a = FRONT + off;
+    ctx.beginPath();
+    ctx.moveTo(cx + (shellR - thick * 0.6) * Math.cos(a), cy + (shellR - thick * 0.6) * Math.sin(a));
+    ctx.lineTo(cx + (shellR + thick * 0.6) * Math.cos(a), cy + (shellR + thick * 0.6) * Math.sin(a));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Paired symmetric flank plates on the upper and lower body halves.
+ * Used for moderately armored bilateral viruses.
+ */
+function bilateralFlankPlates(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  armor: number, alpha: number,
+): void {
+  const arcSpan = Math.PI * (0.28 + armor * 0.14);
+  const plateR  = R * 0.91;
+  const thick   = R * (0.07 + armor * 0.06);
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.44 + armor * 0.18)})`;
+  ctx.lineWidth   = thick;
+  // Upper plate (centered on UP) and lower plate (centered on DOWN)
+  for (const center of [UP, DOWN]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, plateR, center - arcSpan, center + arcSpan);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Two symmetric antennae from the forward-top quadrant.
+ * Communicates: sensory capability / detection range.
+ * Length and spread scale with sensorRadius.
+ */
+function bilateralAntennae(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  sensorRadius: number, aggression: number, alpha: number,
+): void {
+  const length     = R * (0.48 + sensorRadius * 0.34);
+  const spread     = 0.22 + sensorRadius * 0.12;
+  // Aggressive viruses lean antennae slightly forward
+  const centerAngle = aggression > 0.55 ? UP + 0.14 : UP;
+  const nodeR      = R * (0.042 + sensorRadius * 0.024);
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.72})`;
+  ctx.lineWidth   = 1.5;
+
+  for (const side of [-1, 1]) {
+    const baseAngle = centerAngle + side * spread;
+    const bx  = cx + R * 0.78 * Math.cos(baseAngle);
+    const by  = cy + R * 0.78 * Math.sin(baseAngle);
+    // Slight outward lean at tip
+    const tipAngle = baseAngle + side * 0.12;
+    const tx  = cx + (R + length) * Math.cos(tipAngle);
+    const ty  = cy + (R + length) * Math.sin(tipAngle);
+
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+    // Sensor node at tip
+    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.90})`;
+    ctx.beginPath(); ctx.arc(tx, ty, nodeR, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ─── B. RADIAL structures (N-fold rotational symmetry) ────────────────────────
+
+/**
+ * N-fold fins arranged evenly around the body.
+ * Count derived from lobes (clamped 3–6).
+ */
+function radialFins(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  lobes: number, speed: number, alpha: number,
+): void {
+  const count  = Math.min(lobes, 6);
+  const height = R * (0.40 + speed * 0.20);
+  const half   = Math.PI / count * 0.38;   // half-angle width of each fin
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.72})`;
+  ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.16})`;
+  ctx.lineWidth   = 1.5;
+
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 - Math.PI / 2;
+    const bxL = cx + R * 0.80 * Math.cos(a - half);
+    const byL = cy + R * 0.80 * Math.sin(a - half);
+    const bxR = cx + R * 0.80 * Math.cos(a + half);
+    const byR = cy + R * 0.80 * Math.sin(a + half);
+    const tx  = cx + (R + height) * Math.cos(a);
+    const ty  = cy + (R + height) * Math.sin(a);
+
+    ctx.beginPath();
+    ctx.moveTo(bxL, byL);
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(bxR, byR);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Concentric armor shell for radially armored viruses.
+ * Divides into armor-count shell segments with seam lines.
+ */
+function radialShell(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  armor: number, lobes: number, alpha: number,
+): void {
+  const shellR = R * 0.91;
+  const thick  = R * (0.09 + armor * 0.09);
+  const seams  = Math.min(lobes, 6);
+
+  ctx.save();
+  // Main shell ring
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.48 + armor * 0.22)})`;
+  ctx.lineWidth   = thick;
+  ctx.beginPath(); ctx.arc(cx, cy, shellR, 0, Math.PI * 2); ctx.stroke();
+  // Seam lines
+  ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.38})`;
+  ctx.lineWidth   = 1;
+  for (let i = 0; i < seams; i++) {
+    const a = (i / seams) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx + (shellR - thick * 0.55) * Math.cos(a), cy + (shellR - thick * 0.55) * Math.sin(a));
+    ctx.lineTo(cx + (shellR + thick * 0.55) * Math.cos(a), cy + (shellR + thick * 0.55) * Math.sin(a));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * N-fold radial weapon emitters for melee/pulse radial viruses,
+ * or N-fold barrel stubs for ranged radial viruses.
+ */
+function radialWeapon(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  lobes: number, attackStyle: 'melee' | 'pulse' | 'ranged',
+  aggression: number, alpha: number,
+): void {
+  const count = Math.min(lobes, 6);
+  ctx.save();
+
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 - Math.PI / 2;
+
+    if (attackStyle === 'ranged') {
+      // Short barrel stub pointing outward
+      const barrelLen = R * (0.28 + aggression * 0.10);
+      const barrelW   = R * 0.06;
+      const bx = cx + R * 0.76 * Math.cos(a);
+      const by = cy + R * 0.76 * Math.sin(a);
+      const ex = cx + (R + barrelLen) * Math.cos(a);
+      const ey = cy + (R + barrelLen) * Math.sin(a);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.82})`;
+      ctx.lineWidth   = barrelW * 2;
+      ctx.lineCap     = 'butt';
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.lineCap     = 'round';
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.95})`;
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath(); ctx.arc(ex, ey, barrelW * 0.85, 0, Math.PI * 2); ctx.stroke();
+
+    } else if (attackStyle === 'melee') {
+      // Outward spine (tapered line)
+      const spineLen = R * (0.35 + aggression * 0.16);
+      const bx = cx + R * 0.82 * Math.cos(a);
+      const by = cy + R * 0.82 * Math.sin(a);
+      const ex = cx + (R + spineLen) * Math.cos(a);
+      const ey = cy + (R + spineLen) * Math.sin(a);
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.88})`;
+      ctx.lineWidth   = 2.5;
+      ctx.lineCap     = 'round';
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.lineCap     = 'butt';
+
+    } else {
+      // Pulse emitter node at the body surface
+      const nodeR = R * 0.10;
+      const nx = cx + R * 0.85 * Math.cos(a);
+      const ny = cy + R * 0.85 * Math.sin(a);
+      ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.42})`;
+      ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.62})`;
+      ctx.lineWidth   = 1.8;
+      ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.20})`;
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.arc(nx, ny, nodeR * 2.0, 0, Math.PI * 2); ctx.stroke();
     }
   }
   ctx.restore();
 }
 
-/** Radial pulse-burst emitter nodes for mid-range viruses. */
-function grammarPulseNodes(
+/**
+ * N-fold sensor nodes for radial viruses with high sensorRadius.
+ * Small bright dots at the body surface, equally spaced.
+ */
+function radialSensorNodes(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  lobes: number, alpha: number,
+  sensorRadius: number, lobes: number, alpha: number,
 ): void {
-  const count = Math.min(lobes, 5);
+  const count = Math.min(lobes, 8);
+  const nodeR = R * (0.042 + sensorRadius * 0.022);
+  const dist  = R * 0.88;
+
   ctx.save();
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const nx = cx + R * 0.83 * Math.cos(angle);
-    const ny = cy + R * 0.83 * Math.sin(angle);
-    const nr = R * 0.072;
-    // Node fill
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.35})`;
-    ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2); ctx.fill();
-    // Emitter ring
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.26})`;
-    ctx.lineWidth   = 0.9;
-    ctx.beginPath(); ctx.arc(nx, ny, nr * 1.75, 0, Math.PI * 2); ctx.stroke();
-    // Spoke to center
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.15})`;
-    ctx.lineWidth   = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(cx + R * 0.28 * Math.cos(angle), cy + R * 0.28 * Math.sin(angle));
-    ctx.lineTo(nx, ny);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-// ── D. Sensor structures ──────────────────────────────────────────────────────
-
-/** Thin antennae extending from the top of the body. */
-function grammarAntennae(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  sensorRadius: number, aggression: number, alpha: number,
-): void {
-  const count  = sensorRadius > 0.72 ? 4 : sensorRadius > 0.50 ? 3 : 2;
-  const length = R * (0.42 + sensorRadius * 0.32);
-  // Aggressive viruses lean antennae slightly forward
-  const baseAngle = aggression > 0.55 ? UP + 0.18 : UP;
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.68})`;
-  ctx.lineWidth   = 0.9;
-  const totalSpread = 0.50;
-  for (let i = 0; i < count; i++) {
-    const off = count < 2 ? 0 : (i / (count - 1) - 0.5) * totalSpread;
-    const a   = baseAngle + off;
-    const bx  = cx + R * 0.76 * Math.cos(a);
-    const by  = cy + R * 0.76 * Math.sin(a);
-    // Slight lean outward at tip
-    const ta  = a + off * 0.18;
-    const tx  = cx + (R + length) * Math.cos(ta);
-    const ty  = cy + (R + length) * Math.sin(ta);
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
-    // Tip sensor node
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.85})`;
-    ctx.beginPath();
-    ctx.arc(tx, ty, R * (0.038 + sensorRadius * 0.028), 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-/** Eye-like sensory nodes near the front of the body. */
-function grammarEyeArray(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  sensorRadius: number, alpha: number,
-): void {
-  const count = sensorRadius > 0.72 ? 3 : 2;
-  const eyeR  = R * (0.058 + sensorRadius * 0.030);
-  // Eyes cluster near front-upper quadrant
-  const positions: [number, number][] =
-    count >= 3
-      ? [[-0.21, -0.26], [0.01, -0.36], [0.21, -0.26]]
-      : [[-0.16, -0.30], [0.16, -0.30]];
-  ctx.save();
-  positions.forEach(([dx, dy]) => {
-    const ex = cx + R * dx;
-    const ey = cy + R * dy;
-    // Outer eye socket
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.78})`;
-    ctx.lineWidth   = 1.1;
-    ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.stroke();
-    // Directional pupil (slightly forward-biased)
+    const a  = (i / count) * Math.PI * 2 - Math.PI / 2;
+    const nx = cx + dist * Math.cos(a);
+    const ny = cy + dist * Math.sin(a);
     ctx.fillStyle = `rgba(255,255,255,${alpha * 0.88})`;
-    ctx.beginPath();
-    ctx.arc(ex - eyeR * 0.18, ey, eyeR * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-  });
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.30})`;
+    ctx.lineWidth   = 0.8;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR * 2.2, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.restore();
 }
 
-// ── E. Defensive structures ────────────────────────────────────────────────────
+// ─── C. ASYMMETRIC structures (deliberate mass imbalance, still directional) ──
 
-/** Partial arc shield at front for evasive viruses. */
-function grammarShieldArc(
+/**
+ * Single dominant fin on the heavier side of the asymmetric body.
+ * Larger than a bilateral fin to emphasize the asymmetry.
+ */
+function asymmetricFin(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  evasion: number, alpha: number,
+  n: number, speed: number, alpha: number,
 ): void {
-  const coverage = 0.22 + evasion * 0.44;  // arc half-angle in radians
+  // Side chosen deterministically by n
+  const side   = normalizedHash(n, 37) > 0.5 ? 1 : -1;
+  const height = R * (0.55 + speed * 0.28);
+  const offA   = side * 0.38;
+
+  const baseAngle = REAR + offA;
+  const bx = cx + R * 0.82 * Math.cos(baseAngle);
+  const by = cy + R * 0.82 * Math.sin(baseAngle);
+  const tipAngle = REAR + side * (Math.abs(offA) + 0.22);
+  const tx = cx + (R + height) * Math.cos(tipAngle);
+  const ty = cy + (R + height) * Math.sin(tipAngle);
+  const inAngle = REAR + side * (Math.abs(offA) - 0.18);
+  const ix = cx + R * 0.56 * Math.cos(inAngle);
+  const iy = cy + R * 0.56 * Math.sin(inAngle);
+
   ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.42 + evasion * 0.28)})`;
-  ctx.lineWidth   = R * (0.07 + evasion * 0.04);
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.80})`;
+  ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.22})`;
+  ctx.lineWidth   = 2;
   ctx.beginPath();
-  ctx.arc(cx, cy, R * (0.98 + evasion * 0.06), FRONT - coverage, FRONT + coverage);
-  ctx.stroke();
-  // Secondary inner arc at lower opacity
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.15})`;
-  ctx.lineWidth   = 0.8;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * (0.86 + evasion * 0.04), FRONT - coverage * 0.7, FRONT + coverage * 0.7);
-  ctx.stroke();
+  ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.lineTo(ix, iy);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
 
-// ── F. Regeneration structures ────────────────────────────────────────────────
-
-/** Visible growth nodes — redundant structural clusters indicating regen. */
-function grammarRegenNodes(
+/**
+ * Single dominant weapon on the forward, off-axis side.
+ * The asymmetric virus commits its attack capability to one prominent structure.
+ */
+function asymmetricWeapon(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  regen: number, lobes: number, alpha: number,
+  n: number, attackStyle: 'melee' | 'pulse' | 'ranged',
+  aggression: number, mass: number, alpha: number,
 ): void {
-  const count = Math.round(2 + regen * 4);  // 2–6 nodes
+  // Weapon side chosen deterministically (often opposite the fin side)
+  const side = normalizedHash(n, 39) > 0.5 ? 1 : -1;
+  const offA = side * (0.20 + normalizedHash(n, 41) * 0.14);
+
   ctx.save();
-  for (let i = 0; i < count; i++) {
-    const a    = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const dist = R * (0.68 + normalizedHash(i * 7, 19) * 0.18);
-    const nx   = cx + dist * Math.cos(a);
-    const ny   = cy + dist * Math.sin(a);
-    const nr   = R * (0.040 + regen * 0.038 + normalizedHash(i, 23) * 0.018);
-    // Node body
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.42})`;
-    ctx.beginPath(); ctx.arc(nx, ny, nr, 0, Math.PI * 2); ctx.fill();
-    // Growth halo
-    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.17})`;
-    ctx.lineWidth   = 0.7;
-    ctx.beginPath(); ctx.arc(nx, ny, nr * 1.85, 0, Math.PI * 2); ctx.stroke();
-  }
-  // Connecting filaments
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.12})`;
-  ctx.lineWidth   = 0.6;
-  for (let i = 0; i < Math.min(count - 1, 5); i++) {
-    const a0 = (i / count) * Math.PI * 2 - Math.PI / 2;
-    const a1 = ((i + 1) / count) * Math.PI * 2 - Math.PI / 2;
+
+  if (attackStyle === 'melee') {
+    // Single large claw
+    const length    = R * (0.50 + aggression * 0.26);
+    const baseAngle = FRONT + offA;
+    const bx = cx + R * 0.80 * Math.cos(baseAngle);
+    const by = cy + R * 0.80 * Math.sin(baseAngle);
+    const tipAngle = FRONT + offA * 0.25;
+    const tx = cx + (R + length) * Math.cos(tipAngle);
+    const ty = cy + (R + length) * Math.sin(tipAngle);
+    const barbDir = tipAngle + side * (Math.PI / 2);
+    const barbLen = R * 0.18;
+
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.92})`;
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(cx + R * 0.72 * Math.cos(a0), cy + R * 0.72 * Math.sin(a0));
-    ctx.lineTo(cx + R * 0.72 * Math.cos(a1), cy + R * 0.72 * Math.sin(a1));
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(tx + barbLen * Math.cos(barbDir), ty + barbLen * Math.sin(barbDir));
     ctx.stroke();
-  }
-  ctx.restore();
-}
+    ctx.lineCap = 'butt';
 
-/** Visible segmentation lines for regen+armor viruses (replaceable plates). */
-function grammarSegmentation(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  lobes: number, alpha: number,
-): void {
-  const segCount = Math.min(lobes, 5);
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.20})`;
-  ctx.lineWidth   = 0.8;
-  ctx.setLineDash([2, 3]);
-  for (let i = 0; i < segCount; i++) {
-    const a = (i / segCount) * Math.PI * 2 - Math.PI / 2;
-    ctx.beginPath();
-    ctx.moveTo(cx + R * 0.30 * Math.cos(a), cy + R * 0.30 * Math.sin(a));
-    ctx.lineTo(cx + R * 0.90 * Math.cos(a), cy + R * 0.90 * Math.sin(a));
-    ctx.stroke();
-  }
-  ctx.setLineDash([]);
-  ctx.restore();
-}
+  } else if (attackStyle === 'ranged') {
+    // Single off-axis barrel
+    const barrelLength = R * (0.52 + mass * 0.16);
+    const barrelWidth  = R * (0.08 + mass * 0.04);
+    const angle = FRONT + offA;
+    const bx = cx + R * 0.74 * Math.cos(angle);
+    const by = cy + R * 0.74 * Math.sin(angle);
+    const ex = cx + (R + barrelLength) * Math.cos(angle);
+    const ey = cy + (R + barrelLength) * Math.sin(angle);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.82})`;
+    ctx.lineWidth   = barrelWidth * 2;
+    ctx.lineCap     = 'butt';
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.lineCap     = 'round';
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.96})`;
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath(); ctx.arc(ex, ey, barrelWidth * 0.90, 0, Math.PI * 2); ctx.stroke();
 
-// ── G. Mutation / advanced detail structures ──────────────────────────────────
-
-/** Inner core — visible reactor or nucleus for energy-dense viruses. */
-function grammarInnerCore(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  intensity: number, alpha: number,
-): void {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.38})`;
-  ctx.lineWidth   = 1.1;
-  ctx.beginPath(); ctx.arc(cx, cy, R * 0.26, 0, Math.PI * 2); ctx.stroke();
-  if (intensity > 0.58) {
-    ctx.fillStyle = `rgba(255,255,255,${alpha * 0.16})`;
-    ctx.fill();
-    // Inner crosshair
+  } else {
+    // Single offset pulse node — heavier and more prominent than bilateral pair
+    const nodeR = R * 0.16;
+    const angle = side === -1 ? UP + 0.16 : DOWN - 0.16;
+    const nx = cx + R * 0.84 * Math.cos(angle);
+    const ny = cy + R * 0.84 * Math.sin(angle);
+    ctx.fillStyle   = `rgba(255,255,255,${alpha * 0.45})`;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.68})`;
+    ctx.lineWidth   = 2;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.22})`;
-    ctx.lineWidth   = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(cx - R * 0.18, cy); ctx.lineTo(cx + R * 0.18, cy); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - R * 0.18); ctx.lineTo(cx, cy + R * 0.18); ctx.stroke();
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.arc(nx, ny, nodeR * 2.2, 0, Math.PI * 2); ctx.stroke();
   }
+
   ctx.restore();
 }
 
-/** Asymmetric protrusion for highly asymmetric forms (visible mutation). */
-function grammarAsymmetricProtrusion(
+/**
+ * Single armor patch on the heavier side of the body.
+ * Communicates: partial protection weighted toward the dominant mass.
+ */
+function asymmetricArmorPatch(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  n: number, alpha: number,
+  n: number, armor: number, alpha: number,
 ): void {
-  // Placed at a deterministically chosen angle (varies by n)
-  const angle  = normalizedHash(n, 41) * Math.PI * 2;
-  const length = R * (0.22 + normalizedHash(n, 43) * 0.18);
-  const width  = R * (0.08 + normalizedHash(n, 47) * 0.06);
-  const bx = cx + R * 0.80 * Math.cos(angle);
-  const by = cy + R * 0.80 * Math.sin(angle);
-  const ex = cx + (R + length) * Math.cos(angle);
-  const ey = cy + (R + length) * Math.sin(angle);
+  const side    = normalizedHash(n, 43) > 0.5 ? 1 : -1;
+  const center  = side === -1 ? UP + 0.20 : DOWN - 0.20;
+  const arcSpan = Math.PI * (0.32 + armor * 0.20);
+  const thick   = R * (0.09 + armor * 0.07);
+
   ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.50})`;
-  ctx.lineWidth   = width;
-  ctx.lineCap     = 'round';
-  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-  ctx.lineCap     = 'butt';
-  // Tip node
-  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.60})`;
-  ctx.beginPath(); ctx.arc(ex, ey, width * 0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * (0.48 + armor * 0.20)})`;
+  ctx.lineWidth   = thick;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.92, center - arcSpan, center + arcSpan);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Single forward-biased antenna for asymmetric viruses with sensor capability.
+ */
+function asymmetricAntenna(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  n: number, sensorRadius: number, alpha: number,
+): void {
+  const side   = normalizedHash(n, 45) > 0.5 ? -1 : 1;
+  const angle  = UP + side * 0.20;
+  const length = R * (0.50 + sensorRadius * 0.36);
+  const nodeR  = R * (0.044 + sensorRadius * 0.024);
+
+  const bx = cx + R * 0.78 * Math.cos(angle);
+  const by = cy + R * 0.78 * Math.sin(angle);
+  const tx = cx + (R + length) * Math.cos(angle + side * 0.10);
+  const ty = cy + (R + length) * Math.sin(angle + side * 0.10);
+
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.74})`;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.92})`;
+  ctx.beginPath(); ctx.arc(tx, ty, nodeR, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 8  Phenotype renderer — assembles structural layers from phenotype
+//
+//  Layer order (same for all symmetry types):
+//    1. Locomotion  (rear)
+//    2. Weapons     (front / perimeter)
+//    3. Armor       (perimeter)
+//    4. Sensors     (forward-top)
+//
+//  Refinement gates secondary/tertiary structures.
+//  Each symmetry path is self-contained — no cross-path calls.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Draw all phenotype-derived structural elements on top of the base body.
- * Layer order:
- *   locomotion (rear) → armor (perimeter) → weapons (front)
- *   → sensors (top) → defensive (front arc) → regen → core → mutations
- *
- * `refinement` [0,1] gates secondary/tertiary structures — early in a lineage's
- * life only the dominant trait structure appears; elaboration comes with maturity.
- */
 function drawPhenotypeStructures(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
   p: VirusPhenotype,
   refinement: number,
 ): void {
-  const r = refinement;  // shorthand
+  const r = refinement;
 
-  // ── Layer 1: Locomotion (rear of body) ──────────────────────────────────────
-  const locoAlpha = 0.52 + r * 0.28;
-  if (p.locomotionType === 'fins') {
-    grammarFins(ctx, cx, cy, R, p.speed, p.mass, locoAlpha);
-  } else if (p.locomotionType === 'jets') {
-    grammarJets(ctx, cx, cy, R, p.mass, p.speed, locoAlpha);
-  } else if (p.locomotionType === 'struts') {
-    grammarStruts(ctx, cx, cy, R, p.mass, locoAlpha);
-  }
-  // passive: body silhouette carries the locomotion signal; no appendages
+  if (p.symmetry === 'bilateral') {
+    // ── BILATERAL PATH ─────────────────────────────────────────────────────────
+    //
+    // Layer 1: Locomotion (rear)
+    //   Always present unless passive; alpha scales with refinement.
+    if (p.locomotionType === 'jets') {
+      bilateralJets(ctx, cx, cy, R, p.mass, p.speed, 0.55 + r * 0.28);
+    } else if (p.locomotionType === 'fins') {
+      bilateralFins(ctx, cx, cy, R, p.speed, 0.55 + r * 0.28);
+    }
+    // passive: silhouette communicates locomotion; no appendages.
 
-  // ── Layer 2: Armor (perimeter) ───────────────────────────────────────────────
-  const armorAlpha = 0.50 + r * 0.22;
-  if (p.armor > 0.75) {
-    // Very heavy armor → full enclosing shell
-    grammarArmorShell(ctx, cx, cy, R, p.armor, armorAlpha);
-  } else if (p.armor > 0.50) {
-    if (p.speed > 0.58) {
-      // Speed + armor → streamlined fairing (no bulky plates)
-      grammarStreamlinedFairing(ctx, cx, cy, R, p.speed, p.armor, armorAlpha);
+    // Layer 2: Weapons (front)
+    //   Always present; the dominant visual feature.
+    const weapAlpha = 0.65 + r * 0.22;
+    if (p.attackStyle === 'melee') {
+      bilateralClaws(ctx, cx, cy, R, p.aggression, weapAlpha);
+    } else if (p.attackStyle === 'ranged') {
+      bilateralBarrels(ctx, cx, cy, R, p.mass, p.sensorRadius, weapAlpha);
     } else {
-      grammarArmorPlates(ctx, cx, cy, R, p.armor, p.speed, p.lobes, armorAlpha);
+      bilateralPulseEmitters(ctx, cx, cy, R, weapAlpha);
     }
-  }
 
-  // ── Layer 3: Weapons (front of body) ─────────────────────────────────────────
-  const weapAlpha = 0.58 + r * 0.26;
-  if (p.attackStyle === 'melee') {
-    grammarMeleeClaws(ctx, cx, cy, R, p.aggression, weapAlpha);
-    // Mandibles appear on aggressive melee viruses; more prominent with refinement
-    if (p.aggression > 0.68 && r > 0.22) {
-      grammarMandibles(ctx, cx, cy, R, p.aggression, (r - 0.22) / 0.78 * 0.55 + 0.20);
-    }
-  } else if (p.attackStyle === 'ranged') {
-    grammarRangedBarrels(ctx, cx, cy, R, p.mass, p.sensorRadius, weapAlpha);
-    // Stabilizer struts for heavy ranged platforms
-    if (p.mass > 0.58 && r > 0.30) {
-      const strutAlpha = (r - 0.30) / 0.70 * 0.35 + 0.15;
-      // Draw two bracing struts from body flanks to barrel mount area
-      ctx.save();
-      ctx.strokeStyle = `rgba(255,255,255,${strutAlpha})`;
-      ctx.lineWidth   = 1;
-      [UP - 0.28, UP + 0.28].forEach(a => {
-        ctx.beginPath();
-        ctx.moveTo(cx + R * 0.55 * Math.cos(a),    cy + R * 0.55 * Math.sin(a));
-        ctx.lineTo(cx + R * 0.82 * Math.cos(FRONT), cy + R * 0.82 * Math.sin(FRONT));
-        ctx.stroke();
-      });
-      ctx.restore();
-    }
-  } else {
-    // Pulse: radial emitter nodes
-    grammarPulseNodes(ctx, cx, cy, R, p.lobes, 0.48 + r * 0.24);
-  }
-
-  // ── Layer 4: Sensors (top of body, forward lean for aggressive) ──────────────
-  // Primary antennae appear when sensorRadius is high OR refinement unlocks them
-  const sensorGate = p.sensorRadius > 0.44 || r > 0.22;
-  if (sensorGate) {
-    const sensorContrib = Math.max(0, p.sensorRadius - 0.28);
-    const sensorAlpha   = sensorContrib * 0.72 + r * 0.28;
-    if (sensorAlpha > 0.08) {
-      grammarAntennae(ctx, cx, cy, R, p.sensorRadius, p.aggression, sensorAlpha);
-      // Eye array: high sensor + refinement > 0.3
-      if (p.sensorRadius > 0.60 && r > 0.30) {
-        grammarEyeArray(ctx, cx, cy, R, p.sensorRadius, sensorAlpha * 0.68);
+    // Layer 3: Armor (perimeter)
+    //   Appears with refinement; type depends on armor + speed interaction.
+    if (p.armor > 0.38 && r > 0.08) {
+      const armorAlpha = Math.min(1, (r - 0.08) / 0.40) * 0.62 + 0.18;
+      if (p.armor > 0.62) {
+        // Heavy armor: full front-arc shield
+        bilateralArmorArc(ctx, cx, cy, R, p.armor, armorAlpha);
+      } else {
+        // Moderate armor: flank plates (don't conflict with front weapons)
+        bilateralFlankPlates(ctx, cx, cy, R, p.armor, armorAlpha);
       }
     }
-  }
 
-  // ── Layer 5: Defensive shield arc ────────────────────────────────────────────
-  if (p.evasion > 0.42) {
-    grammarShieldArc(ctx, cx, cy, R, p.evasion, 0.44 + r * 0.26);
-  }
-
-  // ── Layer 6: Regeneration indicators ─────────────────────────────────────────
-  if (p.regen > 0.38) {
-    grammarRegenNodes(ctx, cx, cy, R, p.regen, p.lobes, 0.33 + r * 0.32);
-    // Segmentation lines: regen + armor combination
-    if (p.regen > 0.48 && p.armor > 0.32 && r > 0.20) {
-      grammarSegmentation(ctx, cx, cy, R, p.lobes, 0.22 + r * 0.26);
+    // Layer 4: Sensors (forward-top)
+    //   Appear at moderate refinement when sensor capability justifies them.
+    if (p.sensorRadius > 0.40 && r > 0.28) {
+      const sensorAlpha = Math.min(1, (r - 0.28) / 0.40) * 0.65 + 0.15;
+      bilateralAntennae(ctx, cx, cy, R, p.sensorRadius, p.aggression, sensorAlpha);
     }
-  }
 
-  // ── Layer 7: Inner core (energy/tracking-intense viruses) ────────────────────
-  const coreSignal = p.sensorRadius * 0.35 + p.regen * 0.30 + p.attackRange * 0.35;
-  if (coreSignal > 0.48 && r > 0.28) {
-    grammarInnerCore(ctx, cx, cy, R, coreSignal, (coreSignal - 0.38) * 0.55 + r * 0.20);
-  }
+  } else if (p.symmetry === 'radial') {
+    // ── RADIAL PATH ────────────────────────────────────────────────────────────
+    //
+    // Layer 1: Locomotion (radial fins)
+    //   Only for non-passive; moderate-to-high refinement.
+    if (p.locomotionType !== 'passive') {
+      const locoAlpha = 0.48 + r * 0.30;
+      radialFins(ctx, cx, cy, R, p.lobes, p.speed, locoAlpha);
+    }
 
-  // ── Layer 8: Asymmetric mutation (refinement ≥ 0.55, asymmetric lineages) ────
-  if (p.symmetry === 'asymmetric' && r > 0.55) {
-    grammarAsymmetricProtrusion(ctx, cx, cy, R, p.n, (r - 0.55) / 0.45 * 0.55);
+    // Layer 2: Weapons (N-fold radial)
+    //   Present from the start; intensity scales with refinement.
+    const weapAlpha = 0.50 + r * 0.32;
+    radialWeapon(ctx, cx, cy, R, p.lobes, p.attackStyle, p.aggression, weapAlpha);
+
+    // Layer 3: Armor (concentric shell)
+    //   Radial viruses naturally armor via shell rings; always present when armored.
+    if (p.armor > 0.30) {
+      radialShell(ctx, cx, cy, R, p.armor, p.lobes, 0.50 + r * 0.24);
+    }
+
+    // Layer 4: Sensors (N-fold nodes)
+    //   Appear at higher refinement for sensitive radial viruses.
+    if (p.sensorRadius > 0.48 && r > 0.35) {
+      const sensorAlpha = Math.min(1, (r - 0.35) / 0.40) * 0.60 + 0.18;
+      radialSensorNodes(ctx, cx, cy, R, p.sensorRadius, p.lobes, sensorAlpha);
+    }
+
+  } else {
+    // ── ASYMMETRIC PATH ────────────────────────────────────────────────────────
+    //
+    // Layer 1: Locomotion (single dominant fin)
+    if (p.locomotionType !== 'passive') {
+      asymmetricFin(ctx, cx, cy, R, p.n, p.speed, 0.58 + r * 0.26);
+    }
+
+    // Layer 2: Weapon (single dominant, off-axis)
+    //   Always present; asymmetric viruses commit to one strong feature.
+    asymmetricWeapon(
+      ctx, cx, cy, R, p.n,
+      p.attackStyle, p.aggression, p.mass,
+      0.68 + r * 0.20,
+    );
+
+    // Layer 3: Armor (single-side patch)
+    if (p.armor > 0.38 && r > 0.18) {
+      const armorAlpha = Math.min(1, (r - 0.18) / 0.42) * 0.58 + 0.18;
+      asymmetricArmorPatch(ctx, cx, cy, R, p.n, p.armor, armorAlpha);
+    }
+
+    // Layer 4: Sensors (single antenna, forward-biased)
+    if (p.sensorRadius > 0.44 && r > 0.32) {
+      const sensorAlpha = Math.min(1, (r - 0.32) / 0.40) * 0.62 + 0.15;
+      asymmetricAntenna(ctx, cx, cy, R, p.n, p.sensorRadius, sensorAlpha);
+    }
   }
 }
 
@@ -979,7 +1069,7 @@ const ARCHETYPES: VirusArchetype[] = [
   'skeletal', 'fluid',
 ];
 
-/** @deprecated Use getVirusPhenotype instead. Retained for compatibility. */
+/** @deprecated Use getVirusPhenotype instead. */
 export function getVirusModelProfile(value: number): VirusModelProfile {
   const h = (salt: number) => normalizedHash(value, salt);
   const pi = Math.floor(h(1) * ARCHETYPES.length);
@@ -1016,7 +1106,8 @@ export function getCompatibilityScore(
   const geometryMatch = lobes >= minL && lobes <= maxL ? 1 : 0;
   const [sMin, sMax] = model.compatibleFeatures.symmetryRange ?? [0, 1];
   const symmetryMatch = symmetryLevel >= sMin && symmetryLevel <= sMax ? 1 : 0;
-  return archetypeMatch * 0.40 + geometryMatch * 0.25 + symmetryMatch * 0.15;
+  void symmetryMatch;  // used in deprecated API only
+  return archetypeMatch * 0.40 + geometryMatch * 0.25;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1026,11 +1117,13 @@ export function getCompatibilityScore(
 /**
  * Draw a virus at canvas coordinates (cx, cy).
  *
- * Rendering pipeline:
- *  1. Polar base body (lobe + spike/notch — authoritative silhouette)
- *  2. Class decorations (inner ring for power-of-two/square; spokes for prime)
- *  3. Phenotype structural layers (locomotion → armor → weapons → sensors → …)
- *  4. Refinement tiers (progressive elaboration as lineage matures)
+ * Pipeline:
+ *  1. Polar base body  (primary mass — authoritative silhouette)
+ *  2. Class decorations (inner ring / spokes — communicates mathematical class)
+ *  3. Phenotype structures (symmetry-driven: locomotion → weapons → armor → sensors)
+ *  4. Refinement tiers  (purely additive elaboration as lineage matures)
+ *
+ * Signature is unchanged from v2; all callers are compatible.
  */
 export function drawVirus(
   ctx:       CanvasRenderingContext2D,
@@ -1040,20 +1133,20 @@ export function drawVirus(
   cell:      number,
   flash:     boolean,
   green      = false,
-  refinement = 0,    // 0 = fresh spawn · 1 = fully evolved apex form
+  refinement = 0,
 ): void {
   const cls  = green ? 'even-composite' : getVirusClass(n);
   const fill = green ? (flash ? '#f0fdf4' : '#4ade80')
                      : (flash ? CLASS_FLASH[cls] : CLASS_FILL[cls]);
   const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
 
-  // Refined lineages grow slightly larger (up to +20% at apex)
-  const sizeBoost = 1 + refinement * 0.20;
+  // Refined lineages grow slightly larger (up to +18% at apex)
+  const sizeBoost = 1 + refinement * 0.18;
   const R0 = cell * 0.185 * sizeBoost;
   const k  = cell * 0.026;
   const R  = getVirusRadius(n, R0, k);
 
-  // ── 1. Base body ──────────────────────────────────────────────────────────────
+  // ── 1. Primary mass (base body) ───────────────────────────────────────────────
   buildBodyPath(ctx, cx, cy, n, R);
   ctx.shadowColor = glow;
   ctx.shadowBlur  = flash ? 4 : 10;
@@ -1064,16 +1157,26 @@ export function drawVirus(
   ctx.lineWidth   = 1;
   ctx.stroke();
 
-  // ── 2. Class decorations ──────────────────────────────────────────────────────
+  // ── 2. Class decorations (mathematical identity markers) ─────────────────────
   if (!green) {
     if (cls === 'perfect-square' || cls === 'power-of-two') {
+      // Inner ring — radial structural marker
       ctx.beginPath();
       ctx.arc(cx, cy, R * 0.40, 0, Math.PI * 2);
       ctx.strokeStyle = flash ? 'rgba(255,255,255,0.70)' : 'rgba(255,255,255,0.45)';
       ctx.lineWidth   = 1.5;
       ctx.stroke();
     }
+    if (cls === 'power-of-two') {
+      // Second outer ring for binary viruses
+      ctx.beginPath();
+      ctx.arc(cx, cy, R * 0.70, 0, Math.PI * 2);
+      ctx.strokeStyle = flash ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.18)';
+      ctx.lineWidth   = 1;
+      ctx.stroke();
+    }
     if (cls === 'prime') {
+      // Radial spokes for prime viruses (bilateral marker)
       const L = getVirusLobes(n);
       ctx.strokeStyle = flash ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.22)';
       ctx.lineWidth   = 0.8;
@@ -1085,44 +1188,36 @@ export function drawVirus(
         ctx.stroke();
       }
     }
-    if (cls === 'power-of-two') {
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 0.70, 0, Math.PI * 2);
-      ctx.strokeStyle = flash ? 'rgba(255,255,255,0.40)' : 'rgba(255,255,255,0.18)';
-      ctx.lineWidth   = 1;
-      ctx.stroke();
-    }
   }
 
-  // ── 3. Phenotype structural layers ────────────────────────────────────────────
+  // ── 3. Phenotype structures (symmetry-first, trait-justified) ─────────────────
   if (!flash && !green) {
     const phenotype = getVirusPhenotype(n);
     drawPhenotypeStructures(ctx, cx, cy, R, phenotype, refinement);
   }
 
-  // ── 4. Refinement visual tiers ────────────────────────────────────────────────
-  // These sit on top of everything, marking the lineage's evolutionary maturity.
+  // ── 4. Refinement tiers (purely additive — never overwrites earlier geometry) ─
   if (!flash && !green && refinement > 0.02) {
     const t1 = Math.min(1,                refinement         / 0.30);
     const t2 = Math.min(1, Math.max(0, (refinement - 0.30) / 0.35));
     const t3 = Math.min(1, Math.max(0, (refinement - 0.65) / 0.35));
 
-    // Tier 1 (0→30%): outer structural ring — first visible mark of refinement
+    // Tier 1 (0→30%): outer structural ring — first visible lineage marker
     ctx.beginPath();
-    ctx.arc(cx, cy, R * (1.22 + t1 * 0.06), 0, Math.PI * 2);
+    ctx.arc(cx, cy, R * (1.20 + t1 * 0.06), 0, Math.PI * 2);
     ctx.strokeStyle = `rgba(255,255,255,${t1 * 0.22})`;
     ctx.lineWidth   = 0.8 + t1 * 0.4;
     ctx.stroke();
 
     if (t2 > 0) {
-      // Tier 2 (30→65%): second ring + inner luminous core
+      // Tier 2 (30→65%): second ring + luminous inner core
       ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.42, 0, Math.PI * 2);
+      ctx.arc(cx, cy, R * 1.40, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,255,255,${t2 * 0.14})`;
       ctx.lineWidth   = 1.2;
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(cx, cy, R * 0.22, 0, Math.PI * 2);
+      ctx.arc(cx, cy, R * 0.20, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255,255,255,${t2 * 0.28})`;
       ctx.fill();
     }
@@ -1135,8 +1230,8 @@ export function drawVirus(
       ctx.lineWidth   = 1.5;
       for (let i = 0; i < lobes; i++) {
         const a  = (i / lobes) * Math.PI * 2 - Math.PI / 2;
-        const r0 = R * 1.12;
-        const r1 = R * (1.52 + t3 * 0.20);
+        const r0 = R * 1.10;
+        const r1 = R * (1.50 + t3 * 0.20);
         ctx.beginPath();
         ctx.moveTo(cx + r0 * Math.cos(a - spread), cy + r0 * Math.sin(a - spread));
         ctx.lineTo(cx + r1 * Math.cos(a),           cy + r1 * Math.sin(a));
@@ -1146,9 +1241,9 @@ export function drawVirus(
       }
       // Corona glow
       ctx.shadowColor = glow;
-      ctx.shadowBlur  = t3 * 20;
+      ctx.shadowBlur  = t3 * 18;
       ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.08, 0, Math.PI * 2);
+      ctx.arc(cx, cy, R * 1.06, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255,255,255,${t3 * 0.10})`;
       ctx.lineWidth   = 2;
       ctx.stroke();

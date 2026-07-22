@@ -19,7 +19,25 @@ Evolution is NOT a genetic algorithm. It is per-integer-value visual refinement:
 - Tier 2 (30→65%): second ring + inner core glow.
 - Tier 3 (65→100%): crown spines at each lobe peak + outer corona glow.
 
-## Phenotype Grammar (v2 morphology)
+## Phenotype Grammar (v3 morphology — symmetry-first)
+
+**Design hierarchy:** Functional Traits → Body Plan → Symmetry → Anatomy → Surface Detail
+
+Symmetry is determined once and drives ALL structural placement. Three exclusive rendering paths in `drawPhenotypeStructures`:
+
+- **BILATERAL** (primes): Paired structures mirrored about FRONT-REAR axis. Grammar fns: `bilateralFins`, `bilateralJets`, `bilateralClaws`, `bilateralBarrels`, `bilateralPulseEmitters`, `bilateralArmorArc`, `bilateralFlankPlates`, `bilateralAntennae`.
+- **RADIAL** (power-of-two, perfect-square): N-fold rotational structures. Grammar fns: `radialFins`, `radialShell`, `radialWeapon`, `radialSensorNodes`.
+- **ASYMMETRIC** (some composites): Single dominant structures, deliberately offset. Grammar fns: `asymmetricFin`, `asymmetricWeapon`, `asymmetricArmorPatch`, `asymmetricAntenna`.
+
+Layer order (identical across all paths): Locomotion → Weapons → Armor → Sensors. Each layer may only appear ONCE. No cross-path calls.
+
+Max simultaneous active structures: 4 (fresh viruses show 1-2; refinement gates armor and sensors).
+
+Refinement tiers (rings/crown) are purely additive on top — they never overwrite structural layers.
+
+`locomotionType` simplified to `fins | jets | passive` (struts removed).
+
+## Phenotype Grammar (v2 morphology — superseded)
 
 `getVirusPhenotype(n)` decodes n into: speed, armor, mass, attackRange, sensorRadius, aggression, regen, evasion, symmetry, attackStyle, locomotionType. All deterministic.
 
