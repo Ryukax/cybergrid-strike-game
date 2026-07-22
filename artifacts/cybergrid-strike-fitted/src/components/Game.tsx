@@ -5,14 +5,19 @@ import {
   createEvolutionState,
   evolvePopulation,
   sampleNextEnemy,
-  recordKill        as evoRecordKill,
-  recordEscape      as evoRecordEscape,
-  recordAbilityUse  as evoRecordAbility,
-  recordPlayerRow   as evoRecordRow,
-  recordBulletFired as evoRecordFired,
-  recordBulletHit   as evoRecordHit,
+  recordKill                as evoRecordKill,
+  recordEscape              as evoRecordEscape,
+  recordAbilityUse          as evoRecordAbility,
+  recordPlayerRow           as evoRecordRow,
+  recordBulletFired         as evoRecordFired,
+  recordBulletHit           as evoRecordHit,
+  resetEvolutionaryPressures,
+  injectEvolutionaryNoise,
+  swapEvolutionaryPressures,
+  getDominantClass,
   type EvolutionState,
 } from '../game/evolution';
+import { getVirusClass } from '../game/virus-morphology';
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -121,6 +126,8 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     npcBullets: [],
     npcEnemies: [],
     playerWon: false,
+    exploitTimer: 0,
+    exploitClass: null,
   };
 }
 
@@ -675,7 +682,9 @@ export default function Game() {
 
     } else if (type === 'rowshuffle') {
       for (const e of s.enemies) { e.row = Math.floor(Math.random() * 3); e.flash = 0.1; }
-      showMessage('Row Chaos — viruses scrambled to random rows!', 1500);
+      // Also reset evolution row bias — counters lane-targeting adaptation
+      evolutionRef.current.rowBias = [1 / 3, 1 / 3, 1 / 3];
+      showMessage('Row Chaos — viruses scrambled; lane-targeting adaptation reset!', 1500);
 
     // ── New timer-based abilities ──────────────────────────────────────────
     } else if (type === 'ghost') {
@@ -715,6 +724,39 @@ export default function Game() {
     } else if (type === 'crit') {
       s.critTimer = 5;
       showMessage('Crit Boost — 40% chance of triple damage for 5s!', 1500);
+
+    // ── Evolution-interacting abilities ───────────────────────────────────────
+
+    } else if (type === 'memwipe') {
+      resetEvolutionaryPressures(evolutionRef.current);
+      showMessage('Memory Wipe — viral evolutionary pressures collapsed by 65%!', 2200);
+
+    } else if (type === 'ancestral') {
+      evolutionRef.current.forcedAncestralCount = 10;
+      showMessage('Ancestral Call — next 10 spawns regress to primitive forms!', 2200);
+
+    } else if (type === 'exploit') {
+      const domClass = getDominantClass(evolutionRef.current);
+      s.exploitTimer = 8;
+      s.exploitClass = domClass;
+      const classLabel: Record<string, string> = {
+        'prime': 'Prime', 'power-of-two': 'Power-of-Two',
+        'perfect-square': 'Perfect Square', 'even-composite': 'Even Composite',
+        'odd-composite': 'Odd Composite',
+      };
+      showMessage(`Exploit Weakness — 3× damage vs ${classLabel[domClass] ?? domClass} strain for 8s!`, 2200);
+
+    } else if (type === 'disrupt') {
+      injectEvolutionaryNoise(evolutionRef.current);
+      showMessage('Disrupt Evolution — genomic chaos injected; next wave scrambles!', 2200);
+
+    } else if (type === 'biolock') {
+      evolutionRef.current.biolockCount = 15;
+      showMessage('Biolock — next 15 kills leave no evolutionary trace!', 2200);
+
+    } else if (type === 'pshift') {
+      swapEvolutionaryPressures(evolutionRef.current);
+      showMessage('Pressure Shift — speed and armor adaptations swapped!', 2200);
     }
 
     playAbility(type);
@@ -840,6 +882,7 @@ export default function Game() {
     s.magnetTimer    = Math.max(0, s.magnetTimer - dt);
     s.berserkTimer   = Math.max(0, s.berserkTimer - dt);
     s.critTimer      = Math.max(0, s.critTimer - dt);
+    s.exploitTimer   = Math.max(0, s.exploitTimer - dt);
     if (s.pulseTimer > 0) {
       s.pulseTimer = Math.max(0, s.pulseTimer - dt);
       s.pulseTick  = Math.max(0, s.pulseTick  - dt);
@@ -988,7 +1031,8 @@ export default function Game() {
       for (const e of s.enemies) {
         if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
           if (!b.pierce) b.colPos = 99;
-          e.hp -= b.power ?? 1;
+          const exploitMult = (s.exploitTimer > 0 && s.exploitClass !== null && getVirusClass(e.value) === s.exploitClass) ? 3 : 1;
+          e.hp -= (b.power ?? 1) * exploitMult;
           e.flash = 0.08;
           evoRecordHit(evolutionRef.current);
           if (e.hp <= 0) {

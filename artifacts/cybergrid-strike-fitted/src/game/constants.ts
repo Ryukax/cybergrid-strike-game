@@ -57,6 +57,14 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'magnet',    name: 'MAGNET',     desc: 'Magnetic field pulls viruses back 0.4 cells/s for 6s', cooldown: 10 },
   { id: 'berserk',   name: 'BERSERK',    desc: 'Extreme fire rate — 4× speed for 4s',                  cooldown: 9  },
   { id: 'crit',      name: 'CRIT BOOST', desc: '40% chance per bullet to deal triple damage for 5s',   cooldown: 11 },
+
+  // ── Evolution-interacting abilities ───────────────────────────────────────
+  { id: 'memwipe',   name: 'MEMORY WIPE',       desc: 'Collapse virus evolutionary pressures — populations lose 65% of learned adaptations', cooldown: 20 },
+  { id: 'ancestral', name: 'ANCESTRAL CALL',    desc: 'Force population regression — next 10 spawns revert to primitive ancestral forms',    cooldown: 18 },
+  { id: 'exploit',   name: 'EXPLOIT WEAKNESS',  desc: 'Analyse the dominant strain — triple damage vs the most evolved class for 8s',        cooldown: 15 },
+  { id: 'disrupt',   name: 'DISRUPT EVOLUTION', desc: 'Inject genomic chaos into the population — next wave spawns erratically',             cooldown: 16 },
+  { id: 'biolock',   name: 'BIOLOCK',           desc: 'Ghost kills — next 15 eliminations leave no evolutionary trace, hiding your strategy', cooldown: 22 },
+  { id: 'pshift',    name: 'PRESSURE SHIFT',    desc: 'Invert evolved adaptations — speed and armor pressures swap instantly',               cooldown: 14 },
 ];
 
 export const ABILITY_LOOKUP: Record<string, Ability> = Object.fromEntries(

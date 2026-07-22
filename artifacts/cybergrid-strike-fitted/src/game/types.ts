@@ -101,6 +101,9 @@ export interface GameState {
   npcBullets: Bullet[];
   npcEnemies: Enemy[];     // green enemies moving right, sent by player kills
   playerWon: boolean;
+  // Exploit Weakness ability state
+  exploitTimer: number;
+  exploitClass: string | null;
 }
 
 export interface Ability {

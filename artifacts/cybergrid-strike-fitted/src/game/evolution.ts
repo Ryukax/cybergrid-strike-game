@@ -19,6 +19,7 @@ import {
   getVirusModelProfile,
   getVirusLobes,
   getVirusClass,
+  type VirusClass,
 } from './virus-morphology';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -192,6 +193,18 @@ export interface EvolutionState {
 
   /** How many wave-transitions have been processed (used for ramp-up curves). */
   wavesSeen: number;
+
+  /**
+   * BIOLOCK: while > 0, kills are not recorded into fitness scores.
+   * Decrements by 1 on each recordKill() call.
+   */
+  biolockCount: number;
+
+  /**
+   * ANCESTRAL CALL: while > 0, sampleNextEnemy() forces ancestral archetype.
+   * Decrements by 1 on each spawn.
+   */
+  forcedAncestralCount: number;
 }
 
 /** Create a fresh evolution state for a new game session. */
@@ -218,6 +231,8 @@ export function createEvolutionState(): EvolutionState {
     speedPressure: 0,
     armorPressure: 0,
     wavesSeen: 0,
+    biolockCount: 0,
+    forcedAncestralCount: 0,
   };
 }
 
@@ -232,6 +247,14 @@ export function recordKill(
   row: number,
   survivalTime: number,
 ): void {
+  // BIOLOCK: skip fitness recording but still track kill time for averages
+  if (state.biolockCount > 0) {
+    state.biolockCount--;
+    // Still track aggregate timing so avg kill time remains accurate
+    state.playerProfile.totalKillTime += survivalTime;
+    state.playerProfile.killCount++;
+    return;
+  }
   state.waveKills.push({ n, row, survivalTime });
   state.playerProfile.totalKillTime += survivalTime;
   state.playerProfile.killCount++;
@@ -595,6 +618,76 @@ function updateRowBias(state: EvolutionState, waveScale: number): void {
 // § 7  Sampling
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// § 7a  Ability-triggered evolution interventions (exported)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * MEMORY WIPE — collapse accumulated evolutionary pressures by 65%.
+ * Resets row bias to uniform. Viruses lose most of their learned adaptations.
+ */
+export function resetEvolutionaryPressures(state: EvolutionState): void {
+  state.speedPressure   *= 0.35;
+  state.armorPressure   *= 0.35;
+  // Soften trait fitness memory
+  for (const k of Object.keys(state.traitFitness) as (keyof TraitFitness)[]) {
+    state.traitFitness[k] *= 0.40;
+  }
+  // Decay fitness scores (not zero — preserves phenotype identity, just weakens it)
+  for (let i = 1; i <= 255; i++) state.fitness[i] *= 0.45;
+  // Reset row-targeting adaptation to uniform
+  state.rowBias = [1 / 3, 1 / 3, 1 / 3];
+}
+
+/**
+ * DISRUPT EVOLUTION — inject 10 random disruptive cluster mutations into
+ * the population weights, forcing erratic spawns next wave.
+ */
+export function injectEvolutionaryNoise(state: EvolutionState): void {
+  const { weights } = state;
+  for (let d = 0; d < 10; d++) {
+    const pivot = 1 + Math.floor(Math.random() * 255);
+    for (let i = Math.max(1, pivot - 10); i <= Math.min(255, pivot + 10); i++) {
+      weights[i] *= 1.45;
+    }
+  }
+  // Renormalize
+  let total = 0;
+  for (let i = 1; i <= 255; i++) total += weights[i];
+  const norm = 255 / total;
+  for (let i = 1; i <= 255; i++) weights[i] *= norm;
+}
+
+/**
+ * PRESSURE SHIFT — swap speed and armor evolutionary pressures.
+ * Viruses that evolved to be fast suddenly spawn with armor traits and vice versa.
+ */
+export function swapEvolutionaryPressures(state: EvolutionState): void {
+  [state.speedPressure, state.armorPressure] = [state.armorPressure, state.speedPressure];
+  [state.traitFitness.speed, state.traitFitness.armor] =
+    [state.traitFitness.armor, state.traitFitness.speed];
+}
+
+/**
+ * EXPLOIT WEAKNESS — return the virus class currently dominating the
+ * population (by summed spawn weight). Used to set the exploit target.
+ */
+export function getDominantClass(state: EvolutionState): VirusClass {
+  const totals: Record<VirusClass, number> = {
+    'prime': 0, 'power-of-two': 0, 'perfect-square': 0,
+    'even-composite': 0, 'odd-composite': 0,
+  };
+  for (let i = 1; i <= 255; i++) {
+    totals[getVirusClass(i)] += state.weights[i];
+  }
+  let best: VirusClass = 'odd-composite';
+  let bestVal = -Infinity;
+  for (const [cls, val] of Object.entries(totals)) {
+    if (val > bestVal) { bestVal = val; best = cls as VirusClass; }
+  }
+  return best;
+}
+
 /** Weighted random sample from the weights array. */
 function weightedSample(weights: Float32Array, rand: () => number): number {
   let total = 0;
@@ -634,6 +727,15 @@ export function sampleNextEnemy(
 ): SpawnSpec {
   const { weights, fitness } = state;
   const waveScale = Math.min(1, state.wavesSeen / 10);
+
+  // ── ANCESTRAL CALL override ────────────────────────────────────────────────
+  if (state.forcedAncestralCount > 0) {
+    state.forcedAncestralCount--;
+    const value = 1 + Math.floor(rand() * 80);
+    const preferredRow = sampleRow(state.rowBias, rand);
+    // Ancestral forms are slower and weaker (no evolved pressure applied)
+    return { value, speedMod: 1.0, hpBonusChance: 0, preferredRow, archetype: 'ancestral' };
+  }
 
   // ── Choose archetype ───────────────────────────────────────────────────────
   const roll = rand();
