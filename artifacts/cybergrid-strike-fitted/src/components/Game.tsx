@@ -1,6 +1,18 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
+import {
+  createEvolutionState,
+  evolvePopulation,
+  sampleNextEnemy,
+  recordKill        as evoRecordKill,
+  recordEscape      as evoRecordEscape,
+  recordAbilityUse  as evoRecordAbility,
+  recordPlayerRow   as evoRecordRow,
+  recordBulletFired as evoRecordFired,
+  recordBulletHit   as evoRecordHit,
+  type EvolutionState,
+} from '../game/evolution';
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -138,6 +150,14 @@ export default function Game() {
   const stateRef = useRef<GameState>(makeInitialState());
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+
+  // ── Adaptive Evolution System ──────────────────────────────────────────────
+  /** Persists across waves within a session; reset on restart. */
+  const evolutionRef  = useRef<EvolutionState>(createEvolutionState());
+  /** Tracks spawn time (s.timer at spawn) and row per enemy object. */
+  const enemyMetaRef  = useRef(new WeakMap<object, { spawnedAt: number; row: number }>());
+  /** Detect wave transitions to trigger evolvePopulation(). */
+  const prevWaveRef   = useRef(1);
 
   // Input state (refs — no re-render needed)
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
@@ -396,6 +416,7 @@ export default function Game() {
       const echoRow = (row + 1) % 3;
       s.bullets.push({ colPos: s.player.col + 0.55, row: echoRow, speed: 8.5, power: Math.max(1, power - 1), big: false, pierce: false });
     }
+    evoRecordFired(evolutionRef.current);
     playShot();
     if (playerSkinRef.current === 'rocket') rocketShootFlash();
     if (playerSkinRef.current === 'gem') gemShootFlash();
@@ -455,6 +476,8 @@ export default function Game() {
     // Already used this hand or on cooldown — do nothing
     if (s.usedInHand.includes(type)) return;
     if ((s.abilityCooldowns[type] ?? 0) > 0) return;
+    // Record ability use for counter-adaptation
+    evoRecordAbility(evolutionRef.current, type);
 
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
@@ -798,6 +821,8 @@ export default function Game() {
     }
 
     s.timer += dt;
+    // Record player row each frame for row-preference tracking
+    evoRecordRow(evolutionRef.current, s.player.row);
     s.moveFlash      = Math.max(0, s.moveFlash - dt);
     s.slowTimer      = Math.max(0, s.slowTimer - dt);
     s.overclockTimer = Math.max(0, s.overclockTimer - dt);
@@ -907,16 +932,23 @@ export default function Game() {
       }
     }
 
-    // Spawn enemies
+    // Spawn enemies — using evolved population distribution
     s.enemySpawnTimer -= dt;
     const spawnDelay = Math.max(0.6, 1.25 - s.wave * 0.05);
     if (s.enemySpawnTimer <= 0) {
       s.enemySpawnTimer = spawnDelay;
-      const row = Math.floor(Math.random() * 3);
-      const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
-      const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
-      const value = Math.floor(Math.random() * 255) + 1;
-      s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0, value });
+      // Sample the next virus from the evolved population distribution
+      const spec  = sampleNextEnemy(evolutionRef.current, s.wave);
+      const row   = spec.preferredRow;
+      const baseSpeed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
+      const speed = baseSpeed * spec.speedMod;
+      const baseHpChance = 0.2 + Math.min(0.25, s.wave * 0.03);
+      const hp    = Math.random() < baseHpChance + spec.hpBonusChance ? 2 : 1;
+      const value = spec.value;
+      const newEnemy = { colPos: 5.6, row, speed, hp, flash: 0, value };
+      s.enemies.push(newEnemy);
+      // Track spawn time and row for survival-time calculation
+      enemyMetaRef.current.set(newEnemy, { spawnedAt: s.timer, row });
     }
 
     // Move bullets
@@ -938,6 +970,10 @@ export default function Game() {
         } else if (s.ghostTimer > 0) {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
+          // Record as successful escape (dealt damage to player) for evolution
+          const metaE    = enemyMetaRef.current.get(e);
+          const surviveE = metaE ? s.timer - metaE.spawnedAt : 0;
+          evoRecordEscape(evolutionRef.current, e.value, e.row, surviveE, true);
           s.hp--;
           e.colPos = -9;
           playHit();
@@ -954,8 +990,13 @@ export default function Game() {
           if (!b.pierce) b.colPos = 99;
           e.hp -= b.power ?? 1;
           e.flash = 0.08;
+          evoRecordHit(evolutionRef.current);
           if (e.hp <= 0) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
+            // Record kill for adaptive evolution (before removing enemy)
+            const metaK    = enemyMetaRef.current.get(e);
+            const surviveT = metaK ? s.timer - metaK.spawnedAt : 0;
+            evoRecordKill(evolutionRef.current, e.value, e.row, surviveT);
             e.colPos = -9;
             s.score += s.overdriveTimer > 0 ? 300 : 100;
             if (s.score % 500 === 0) s.wave++;
@@ -986,7 +1027,22 @@ export default function Game() {
       }
     }
 
+    // Detect enemies that walked off the left edge without dealing damage
+    // (colPos ≤ -1 and not killed: -9). Record as successful escape for evolution.
+    for (const e of s.enemies) {
+      if (e.colPos <= -1 && e.colPos > -8) {
+        const metaF    = enemyMetaRef.current.get(e);
+        const surviveF = metaF ? s.timer - metaF.spawnedAt : 0;
+        evoRecordEscape(evolutionRef.current, e.value, e.row, surviveF, false);
+      }
+    }
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
+
+    // Trigger evolution step on wave transition
+    if (s.wave !== prevWaveRef.current) {
+      evolvePopulation(evolutionRef.current, s.wave);
+      prevWaveRef.current = s.wave;
+    }
 
     for (const p of s.particles) {
       p.life -= dt;
@@ -1188,6 +1244,9 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
+    // Fresh evolution state for each new session
+    evolutionRef.current = createEvolutionState();
+    prevWaveRef.current  = 1;
     phaseRef.current = 'playing';
     setPhase('playing');
     updateHud();
@@ -1213,6 +1272,9 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
+    // Reset evolution state for new session
+    evolutionRef.current = createEvolutionState();
+    prevWaveRef.current  = 1;
     phaseRef.current = 'menu';
     pausedRef.current = false;
     // Reset reward accumulator for new session
