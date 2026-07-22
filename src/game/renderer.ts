@@ -1,4 +1,5 @@
 import type { GameState, BoardMetrics } from './types';
+import { drawVirus } from './virus-morphology';
 
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
@@ -189,16 +190,10 @@ export function draw(
   for (const e of state.enemies) {
     const ex = m.x + (e.colPos + 0.5) * m.cell;
     const ey = m.y + (e.row + 0.5) * m.cell;
-    ctx.fillStyle = e.flash > 0 ? '#fff1f2' : '#fb7185';
-    ctx.beginPath();
-    (ctx as Ctx2D).roundRect(ex - m.cell * 0.2, ey - m.cell * 0.2, m.cell * 0.4, m.cell * 0.4, 12);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(ex - m.cell * 0.12, ey - m.cell * 0.12, m.cell * 0.24, m.cell * 0.24);
+    drawVirus(ctx, ex, ey, e.value ?? 6, m.cell, e.flash > 0);
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
-      ctx.fillRect(ex - 5, ey - m.cell * 0.3, 10, 3);
+      ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);
     }
   }
 
@@ -207,16 +202,10 @@ export function draw(
     for (const e of state.npcEnemies) {
       const ex = m.x + (e.colPos + 0.5) * m.cell;
       const ey = m.y + (e.row + 0.5) * m.cell;
-      ctx.fillStyle = e.flash > 0 ? '#f0fdf4' : '#4ade80';
-      ctx.beginPath();
-      (ctx as Ctx2D).roundRect(ex - m.cell * 0.2, ey - m.cell * 0.2, m.cell * 0.4, m.cell * 0.4, 12);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(ex - m.cell * 0.12, ey - m.cell * 0.12, m.cell * 0.24, m.cell * 0.24);
+      drawVirus(ctx, ex, ey, e.value ?? 6, m.cell, e.flash > 0, true);
       if (e.hp > 1) {
         ctx.fillStyle = '#fff';
-        ctx.fillRect(ex - 5, ey - m.cell * 0.3, 10, 3);
+        ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);
       }
     }
   }
