@@ -906,7 +906,8 @@ export default function Game() {
       const row = Math.floor(Math.random() * 3);
       const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
       const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
-      s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0 });
+      const value = Math.floor(Math.random() * 255) + 1;
+      s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0, value });
     }
 
     // Move bullets
@@ -961,6 +962,7 @@ export default function Game() {
                 speed: 1.15 + Math.random() * 0.5,
                 hp: 1,
                 flash: 0,
+                value: Math.floor(Math.random() * 255) + 1,
               });
             }
             playScore();

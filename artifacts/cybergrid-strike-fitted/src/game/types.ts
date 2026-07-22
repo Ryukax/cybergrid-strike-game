@@ -15,6 +15,8 @@ export interface Enemy {
   speed: number;
   hp: number;
   flash: number;
+  /** Integer 1–255; determines virus morphology via Virus Morphology Encoding Standard v1 */
+  value: number;
 }
 
 export interface Particle {
