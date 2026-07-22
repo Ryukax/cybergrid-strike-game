@@ -1,0 +1,238 @@
+v8 — Render Pipeline Audit, Not Another Morphology Rewrite
+Do not create another chassis system.
+The live screenshots still show the same organic morphology despite repeated rewrites claiming to replace it.
+This means the primary problem is now likely one of:
+1. drawVirus() is still calling legacy morphology code
+2. the new chassis renderer is not used by actual Enemy instances
+3. a second rendering pass is drawing legacy lobes over the chassis
+4. spawn data is still generating old morphology fields
+5. cached/duplicate files exist and the edited file is not the imported file
+6. production build is serving stale code
+7. visual effects are deforming or masking the chassis
+8. multiple drawVirus implementations exist
+9. an old bundle/service worker is being loaded
+The next task is to determine which one.
+Step 1 — Prove which renderer executes
+At the first line of the live drawVirus() actually imported by the game, temporarily replace the entire enemy rendering with:
+ctx.save();
+
+ctx.fillStyle = "#00ff00";
+ctx.fillRect(x - 24, y - 8, 48, 16);
+
+ctx.fillStyle = "#ff0000";
+ctx.fillRect(x + 16, y - 3, 16, 6);
+
+ctx.restore();
+
+return;
+No morphology.
+No chassis.
+No glow.
+No phenotype.
+No traits.
+Every virus in the live game must now appear as:
+GREEN RECTANGLE + RED BAR
+Take an actual gameplay screenshot.
+Interpretation
+If organic blobs still appear:
+The edited drawVirus() is not the renderer used by the live game.
+Stop all morphology work and trace imports/bundling.
+If every enemy becomes a green rectangle with a red bar:
+The correct renderer has been found.
+Only then continue.
+ 
+⸻
+ 
+Step 2 — Search the entire project for legacy rendering
+Search globally for all of:
+drawVirus
+drawEnemy
+virusRadius
+drawPhenotype
+drawPhenotypeStructures
+drawArchitecture
+drawChassis
+ctx.arc
+ctx.ellipse
+bezierCurveTo
+quadraticCurveTo
+List every file and every call site.
+There must be exactly one authoritative enemy rendering path.
+Identify:
+Game component
+    ↓
+enemy iteration
+    ↓
+render function
+    ↓
+drawVirus
+Report the exact file path for every step.
+Do not infer it.
+Verify it from imports.
+ 
+⸻
+ 
+Step 3 — Check for duplicate morphology files
+Search for:
+virus-morphology.ts
+virusMorphology.ts
+morphology.ts
+enemy-renderer.ts
+renderer.ts
+There may be an old copy still imported by the game.
+For every match report:
+file path
+exported renderer
+who imports it
+whether it is reachable from live gameplay
+Delete or disconnect obsolete duplicates.
+ 
+⸻
+ 
+Step 4 — Strip the entire rendering pipeline
+Once the green/red marker test proves the correct function, rebuild live rendering incrementally.
+First:
+drawHullOnly();
+return;
+Screenshot.
+Then:
+drawHull();
+drawWeapon();
+return;
+Screenshot.
+Then:
+drawHull();
+drawWeapon();
+drawEngine();
+return;
+Screenshot.
+Then:
+drawHull();
+drawWeapon();
+drawEngine();
+drawArmor();
+return;
+Screenshot.
+Do not add:
+glow
+mutation effects
+phenotype overlays
+corona
+spines
+trait decorations
+prime effects
+tier effects
+until the basic morphology is visibly correct.
+This will reveal exactly which layer reintroduces the flower/blob appearance.
+ 
+⸻
+ 
+Step 5 — Disable all post-chassis morphology
+Temporarily disable every call after chassis rendering.
+The live function should become structurally equivalent to:
+export function drawVirus(...) {
+    ctx.save();
+
+    applyTransform();
+
+    drawChassis(ctx, chassis);
+
+    ctx.restore();
+}
+Nothing else.
+Specifically disable:
+prime decorations
+tier decorations
+mutation overlays
+coronas
+spikes
+trait marks
+aura geometry
+secondary appendages
+damage effects
+outline distortions
+procedural contour effects
+Glow may be reintroduced only after geometry is verified.
+ 
+⸻
+ 
+Step 6 — Prove chassis identity visually
+Temporarily replace all ten chassis with intentionally absurd test geometry.
+For example:
+interceptor = long rectangle
+striker     = triangle
+artillery   = extremely long horizontal bar
+tank        = square
+rammer      = huge wedge
+turret      = T shape
+carrier     = wide rectangle
+swarm       = tiny diamond
+controller  = L shape
+adaptive    = Z shape
+These are not final artwork.
+They are diagnostic markers.
+Spawn one of each in actual gameplay.
+If the screenshot does not clearly show those ten shapes, then deriveChassis() or the live entity data is not reaching the renderer correctly.
+ 
+⸻
+ 
+Step 7 — Log the live chassis values
+For every enemy rendered during the diagnostic scene, log once:
+console.log({
+    enemyId,
+    chassis,
+    radius,
+    x,
+    y
+});
+Verify that different chassis types actually reach drawChassis().
+If every enemy receives the same chassis, the failure is upstream in derivation/spawning.
+If chassis values differ but visuals do not, the failure is inside rendering.
+ 
+⸻
+ 
+Step 8 — Verify the deployed build
+The screenshots are from:
+*.replit.dev
+Confirm that the live deployment is serving the current source.
+Add a temporary visible build marker:
+BUILD: V8-PIPELINE-AUDIT
+inside the game UI.
+Also log:
+console.log("V8 PIPELINE AUDIT ACTIVE");
+If the marker does not appear on the phone, the browser is running a stale build.
+Then investigate:
+browser cache
+service worker
+Replit deployment state
+duplicate dev server
+stale Vite bundle
+old preview URL
+Do not continue morphology work until the phone demonstrably runs the same build that was edited.
+ 
+⸻
+ 
+Required evidence before any further rewrite
+The agent must provide these four screenshots in order:
+Screenshot A
+Every enemy is a green rectangle with a red bar.
+This proves the correct live renderer was found.
+Screenshot B
+Ten deliberately primitive diagnostic chassis shapes.
+This proves chassis selection reaches live rendering.
+Screenshot C
+Final chassis geometry only, with all overlays disabled.
+This proves the underlying shapes are correct.
+Screenshot D
+Final live game with effects restored one layer at a time.
+This proves no later pass reintroduces the organic blobs.
+ 
+⸻
+ 
+Critical rule
+Do not write v8 morphology.
+Do not add more polygon definitions.
+Do not redesign chassis again.
+First prove that the code being rewritten is actually the code producing the pixels in these screenshots.
+ 
+⸻
