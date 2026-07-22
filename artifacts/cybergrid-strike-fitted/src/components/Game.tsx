@@ -1,4 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { ChainPanel } from './ChainPanel';
+import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -316,6 +318,11 @@ export default function Game() {
     };
   }, [playerSkin]);
 
+  // ── Blockchain reward state ───────────────────────────────────────────────
+  const rewardAccRef = useRef<RewardAccumulator>(new RewardAccumulator());
+  const [sessionCGRD, setSessionCGRD] = useState(0);
+  const [gameKills,   setGameKills]   = useState<KillRecord[]>([]);
+
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
   const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
 
@@ -435,6 +442,8 @@ export default function Game() {
       playGameOver();
       showMessage('CONNECTION LOST — tap Play Again to restart.', false);
     }
+    // Capture final kills for blockchain claim
+    setGameKills([...rewardAccRef.current.killList]);
     updateHud();
   }, [showMessage, updateHud]);
 
@@ -965,6 +974,9 @@ export default function Game() {
                 value: Math.floor(Math.random() * 255) + 1,
               });
             }
+            // Record kill for CGRD reward
+            rewardAccRef.current.recordKill(e.value ?? 1);
+            setSessionCGRD(rewardAccRef.current.totalCGRD);
             playScore();
             updateHud();
           } else {
@@ -1203,6 +1215,10 @@ export default function Game() {
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
     pausedRef.current = false;
+    // Reset reward accumulator for new session
+    rewardAccRef.current.reset();
+    setSessionCGRD(0);
+    setGameKills([]);
     setPaused(false);
     setPhase('menu');
     updateHud();
@@ -1594,6 +1610,13 @@ export default function Game() {
                   {hud.gameMode === 'classic' && <div id="gameOverWave">Wave: {hud.wave}</div>}
                 </>
             }
+            <ChainPanel
+              kills={gameKills}
+              totalCGRD={sessionCGRD}
+              gameOver={true}
+              finalScore={hud.score}
+              finalWave={hud.wave}
+            />
             <button
               id="playAgainBtn"
               onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); restart(); }}
