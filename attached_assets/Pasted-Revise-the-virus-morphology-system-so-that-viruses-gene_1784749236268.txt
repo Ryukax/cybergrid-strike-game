@@ -1,0 +1,329 @@
+Revise the virus morphology system so that viruses generate more elaborate, contextually meaningful shapes based on their actual functional traits, evolutionary history, combat role, and current environmental pressures.
+
+The goal is to stop viruses from looking like simple geometric variants and instead make each evolved form look like a coherent organism whose visible structure communicates what it is designed to do.
+
+Core Requirement
+
+Virus shape generation must become:
+
+* more elaborate
+* more structurally coherent
+* more context-sensitive
+* more directly tied to gameplay function
+* more visually readable
+* more evolutionarily consistent
+
+Do not generate complexity for decoration alone.
+
+Every major visible structure should correspond to some underlying gameplay property, adaptation, or evolutionary pressure.
+
+Contextual Morphology
+
+Generate virus anatomy from the combination of:
+
+* movement type
+* movement speed
+* acceleration
+* turning ability
+* attack type
+* attack range
+* attack frequency
+* armor
+* health
+* regeneration
+* resistance profile
+* sensory radius
+* aggression
+* evasiveness
+* size
+* mass
+* wave number
+* dominant phenotype
+* recent evolutionary adaptations
+* player behavior being countered
+
+The final body should visually communicate these properties.
+
+Examples:
+
+A fast pursuit virus should tend toward:
+
+* forward-oriented structure
+* narrow or aerodynamic body
+* directional fins, spines, or trailing structures
+* reduced unnecessary bulk
+* emphasized propulsion or locomotion geometry
+
+A heavily armored virus should tend toward:
+
+* layered plating
+* overlapping shells
+* reinforced central mass
+* reduced exposed weak points
+* thicker structural connections
+
+A long-range attacker should tend toward:
+
+* elongated weapon appendages
+* directional emitters
+* stabilized firing geometry
+* sensory structures oriented toward targeting
+
+A highly sensory virus should tend toward:
+
+* antenna arrays
+* eye-like nodes
+* radial sensors
+* scanning appendages
+* asymmetric detection structures where appropriate
+
+A regenerating virus may use:
+
+* redundant lobes
+* duplicated structural segments
+* organic branching
+* visible growth nodes
+* modular body regions
+
+A swarm-oriented virus should tend toward:
+
+* compact efficient bodies
+* simpler individual weapon structures
+* high locomotion emphasis
+* morphology suited to coordinated movement
+
+These should be emergent tendencies, not rigid hard-coded classes.
+
+Elaborate Shape Construction
+
+Build each virus from multiple procedural structural layers.
+
+Suggested hierarchy:
+
+1. Core body
+2. Secondary mass regions
+3. Armor or shell structures
+4. Locomotion structures
+5. Weapon structures
+6. Sensory structures
+7. Defensive structures
+8. Evolutionary mutation details
+9. Surface details
+10. Animation-specific deformation
+
+Do not simply stack random polygons.
+
+Each layer should be positioned according to the virus’s functional layout.
+
+The final silhouette should remain readable at gameplay scale.
+
+Structural Grammar
+
+Create a reusable procedural morphology grammar.
+
+Possible shape primitives include:
+
+* lobes
+* capsules
+* tapered limbs
+* articulated branches
+* shells
+* plates
+* rings
+* fins
+* spikes
+* tendrils
+* antennae
+* mandibles
+* weapon barrels
+* emitter nodes
+* eyes
+* shield arcs
+* segmented tails
+* radial arms
+* asymmetric protrusions
+
+Allow these primitives to combine into higher-order structures.
+
+For example:
+
+core + radial lobes + armor plates + tracking antennae
+
+should produce one coherent structure rather than four unrelated decorative features.
+
+Trait Interaction
+
+Morphology should account for interactions between traits.
+
+Examples:
+
+High armor + high speed:
+
+* streamlined armor
+* fewer protruding structures
+* protective plating aligned with movement direction
+
+High mass + ranged attack:
+
+* larger stabilized body
+* reinforced weapon mount
+* slower but more visually imposing structure
+
+High agility + melee attack:
+
+* articulated limbs
+* hooked or blade-like appendages
+* compact central mass
+
+High regeneration + armor:
+
+* segmented or layered shell
+* visible replaceable plates
+* redundant internal-looking structures
+
+Do not map each trait independently without considering how traits affect one another.
+
+Evolutionary Continuity
+
+Descendants of the same dominant phenotype should look related.
+
+Preserve inherited structural patterns such as:
+
+* body symmetry
+* lobe count
+* primary silhouette
+* appendage placement
+* locomotion layout
+* weapon placement
+
+Evolution should revise these structures over time rather than regenerate each virus from scratch.
+
+Mutations may:
+
+* enlarge an existing structure
+* reduce or remove an ineffective structure
+* duplicate a successful structure
+* relocate armor
+* lengthen a weapon appendage
+* change symmetry
+* fuse nearby structures
+* split one structure into specialized substructures
+
+This should make evolution visually traceable.
+
+Shape Complexity Scaling
+
+Wave progression should increase the sophistication of morphology.
+
+Early waves:
+
+* simple readable body plans
+* fewer structural layers
+* fewer specialized appendages
+
+Mid waves:
+
+* more integrated anatomy
+* specialized armor
+* distinct locomotion systems
+* visible weapon structures
+
+Late waves:
+
+* complex but coherent morphology
+* fused adaptations
+* structural specialization
+* refined inherited body plans
+* visually obvious counter-adaptations
+
+Do not make late-game viruses noisy or visually cluttered.
+
+Complexity should come from better structural organization, not excessive detail.
+
+Player-Context Adaptation
+
+The shape system should visually reflect how viruses are adapting to the player.
+
+Examples:
+
+If the player frequently attacks from range:
+
+* more frontal armor
+* smaller exposed core
+* lateral movement structures
+* longer-range counterattack anatomy
+
+If the player constantly circles enemies:
+
+* radial sensors
+* wider firing coverage
+* rotational symmetry
+* lateral appendages
+
+If the player relies on high mobility:
+
+* predictive targeting structures
+* tracking antennae
+* wider sensory geometry
+* interception-oriented body layout
+
+These adaptations should emerge gradually across waves.
+
+Visual Readability
+
+Despite increased complexity, each virus should remain identifiable at a glance.
+
+Prioritize:
+
+* silhouette
+* hierarchy
+* symmetry or deliberate asymmetry
+* clear orientation
+* visible weapon direction
+* visible armor regions
+* readable movement anatomy
+
+Avoid generating thin details that disappear at gameplay scale.
+
+Use large structural features first and smaller details second.
+
+Implementation Goal
+
+Refactor the virus renderer so morphology is generated from a structured phenotype object rather than a small set of isolated numeric shape variables.
+
+Create something conceptually similar to:
+
+interface VirusPhenotype {
+  bodyPlan: BodyPlan;
+  symmetry: SymmetryType;
+  coreShape: CoreShape;
+  locomotion: LocomotionStructure[];
+  weapons: WeaponStructure[];
+  armor: ArmorStructure[];
+  sensors: SensorStructure[];
+  defensiveStructures: DefensiveStructure[];
+  mutations: MorphologicalMutation[];
+}
+
+The phenotype should be derived from gameplay traits and evolutionary state.
+
+Rendering should then construct the visible virus from that phenotype.
+
+Final Result
+
+Viruses should increasingly resemble evolved synthetic organisms.
+
+Their shapes should answer the question:
+
+“Why does this virus look this way?”
+
+The answer should always be traceable to:
+
+* what it does
+* how it moves
+* how it attacks
+* what it resists
+* what evolutionary pressures shaped it
+* what earlier phenotype it descended from
+
+The end result should be more elaborate than the current morphology system while remaining procedural, evolutionarily consistent, and immediately meaningful to gameplay.

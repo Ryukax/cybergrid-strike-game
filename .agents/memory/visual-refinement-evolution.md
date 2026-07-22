@@ -19,6 +19,28 @@ Evolution is NOT a genetic algorithm. It is per-integer-value visual refinement:
 - Tier 2 (30→65%): second ring + inner core glow.
 - Tier 3 (65→100%): crown spines at each lobe peak + outer corona glow.
 
+## Phenotype Grammar (v2 morphology)
+
+`getVirusPhenotype(n)` decodes n into: speed, armor, mass, attackRange, sensorRadius, aggression, regen, evasion, symmetry, attackStyle, locomotionType. All deterministic.
+
+Structural grammar layers (drawn in order):
+1. **Locomotion** (rear): fins (speed), jets (heavy+fast), struts (very heavy)
+2. **Armor** (perimeter): shell (>0.75), streamlined fairing (speed+armor), plates (armor>0.5)
+3. **Weapons** (front): melee claws + mandibles, ranged barrels + struts, pulse nodes
+4. **Sensors** (top): antennae, eye array (high sensor + refinement)
+5. **Defensive**: shield arc (front, evasion)
+6. **Regen**: growth nodes + segmentation (regen+armor combo)
+7. **Core**: inner reactor (energy-dense lineages)
+8. **Mutation**: asymmetric protrusion (refinement ≥ 0.55, asymmetric lineages only)
+
+Trait interactions encoded:
+- speed > 0.58 && armor > 0.50 → streamlined fairing, not plates
+- mass > 0.60 && ranged → stabilizer struts
+- aggression > 0.68 && melee && refinement > 0.22 → mandibles
+- regen > 0.48 && armor > 0.32 → segmentation lines
+
+Old 17-archetype overlay system removed entirely. Legacy exports (getVirusModelProfile, getCompatibilityScore, VirusModelProfile) kept as deprecated stubs for TS compatibility.
+
 ## Key Files
 
 - `evolution.ts` — `createEvolutionState`, `recordDamage`, `recordEdgeEscape`, `sampleVirusValue`, `sampleSpawnRow`, `getRefinement`.
