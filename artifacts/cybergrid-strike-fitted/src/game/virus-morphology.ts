@@ -36,6 +36,13 @@ const REAR  = 0;
 const UP    = -Math.PI / 2;
 const DOWN  =  Math.PI / 2;
 
+/**
+ * Silhouette debug mode.
+ * When true, drawVirus() renders only the primary body as flat white, no glow,
+ * no structures, no refinement.  Use drawSilhouetteDebugGrid() to see all 10.
+ */
+export const MORPHOLOGY_SILHOUETTE_DEBUG = false;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 1  Types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -346,20 +353,31 @@ export function getVirusPhenotype(n: number): VirusPhenotype {
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 6  Body rendering — one function per architecture
 //
-//  Each function:
-//    1. Builds the primary body path
-//    2. Applies fill + glow (or handles complex cases like ring/segmented)
-//    3. Returns BodyGeometry so structures attach to the correct surface
-//
-//  The body IS the silhouette — no external sinusoidal lobe modifier.
+//  Design rules (from spec):
+//    • Each architecture changes TOPOLOGY, not just proportions.
+//    • Multi-mass bodies are drawn as separate circles/rects with visible gaps.
+//    • NO universal outer hull enclosing all masses — that collapses them to blobs.
+//    • Structural ratios are exaggerated (2–3× differences), not 10–20%.
+//    • Negative space (gaps, bridges, hollow centers) is a primary design tool.
+//    • At R ≈ 12px (typical gameplay), each silhouette must be unambiguous.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** Apply fill + optional glow + edge stroke to the current path. */
 function applyBodyFill(
   ctx:   CanvasRenderingContext2D,
   fill:  string,
   glow:  string,
   flash: boolean,
+  debug: boolean = false,
 ): void {
+  if (debug) {
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+    return;
+  }
   ctx.shadowColor = glow;
   ctx.shadowBlur  = flash ? 4 : 10;
   ctx.fillStyle   = fill;
@@ -370,361 +388,378 @@ function applyBodyFill(
   ctx.stroke();
 }
 
-/** Broad, near-circular hub. Slightly wider than tall. */
+/** Helper: filled circle. */
+function filledCircle(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, r: number,
+  fill: string, glow: string, flash: boolean, debug: boolean,
+): void {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  applyBodyFill(ctx, fill, glow, flash, debug);
+}
+
+/**
+ * compact — one dense near-circular mass.
+ * Topology: 1 mass.  Readable as: "ball / hub".
+ */
 function drawBodyCompact(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const rX = R * 0.92, rY = R * 0.84;
+  const r = R * 0.90;
   ctx.beginPath();
-  ctx.ellipse(cx, cy, rX, rY, 0, 0, TAU);
-  applyBodyFill(ctx, fill, glow, flash);
-  return { frontReach: rX, rearReach: rX, sideReach: rY, R };
+  ctx.arc(cx, cy, r, 0, TAU);
+  applyBodyFill(ctx, fill, glow, flash, debug);
+  return { frontReach: r, rearReach: r, sideReach: r, R };
 }
 
-/** Long horizontal ellipse — clear forward thrust axis. */
+/**
+ * elongated — torpedo pill shape, 3:1 length-to-height ratio.
+ * Topology: 1 elongated mass.  Readable as: "rod / torpedo".
+ */
 function drawBodyElongated(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  speed: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const stretch = 0.65 + speed * 0.30;
-  const rX = R * (1.10 + stretch * 0.22);
-  const rY = R * Math.max(0.34, 0.62 - stretch * 0.18);
+  // Very strongly stretched: width = 3× height so it can't be confused with compact.
+  const rX = R * 1.55;
+  const rY = R * 0.30;
   ctx.beginPath();
   ctx.ellipse(cx, cy, rX, rY, 0, 0, TAU);
-  applyBodyFill(ctx, fill, glow, flash);
+  applyBodyFill(ctx, fill, glow, flash, debug);
   return { frontReach: rX, rearReach: rX, sideReach: rY, R };
 }
 
 /**
- * Teardrop: large attack-facing bulge tapering to a narrow rear.
- * FRONT = left = the wide end.  REAR = right = the narrow tip.
+ * forwardWeighted — large front attack mass + small rear propulsion nub.
+ * Topology: 2 masses (front circle 2.5× rear circle), thin bridge.
+ * FRONT = left.  The big circle is at the left (attack) end.
+ * Readable as: "hammerhead / big fist leading".
  */
 function drawBodyForwardWeighted(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  aggression: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const fR = R * (0.98 + aggression * 0.10);  // front bulge radius
-  const rR = R * 0.36;                          // rear tip radius (half-width)
-  const sH = R * (0.72 + aggression * 0.06);   // half-height at widest point
+  const frontR  = R * 0.78;          // large attack mass
+  const rearR   = R * 0.32;          // small propulsion nub (2.4× smaller)
+  const gap     = R * 0.30;          // visible gap between circles
+  // Center the pair so the virus position (cx) is roughly the body midpoint
+  const totalHalfWidth = frontR + gap + rearR;
+  const frontCx = cx - totalHalfWidth * 0.38;   // front circle center (left)
+  const rearCx  = frontCx + frontR + gap + rearR; // rear circle center (right)
+  const bridgeH = R * 0.14;          // narrow connector
 
-  // FRONT is left (FRONT = π → cos(π) = -1).  So the front bulge is at cx - fR.
-  // REAR is right (REAR = 0 → cos(0) = 1).  Rear narrow tip is at cx + rR.
-  const fX = cx - fR;   // leftmost (front — wide end)
-  const rX = cx + rR;   // rightmost (rear — narrow tip)
+  const d = debug;
+  const glowColor = debug ? 'transparent' : glow;
 
+  // Bridge first (underneath circles)
+  const bridgeX1 = frontCx + frontR - R * 0.04;
+  const bridgeX2 = rearCx  - rearR  + R * 0.04;
   ctx.beginPath();
-  ctx.moveTo(fX, cy);
-  // Upper half: tangent rises straight up from front, converges to rear tip from above
-  ctx.bezierCurveTo(fX, cy - sH, rX, cy - sH * 0.22, rX, cy);
-  // Lower half: symmetric
-  ctx.bezierCurveTo(rX, cy + sH * 0.22, fX, cy + sH, fX, cy);
-  ctx.closePath();
-  applyBodyFill(ctx, fill, glow, flash);
-  return { frontReach: fR, rearReach: rR, sideReach: sH, R };
-}
+  ctx.rect(bridgeX1, cy - bridgeH, bridgeX2 - bridgeX1, bridgeH * 2);
+  applyBodyFill(ctx, fill, glowColor, flash, d);
 
-/**
- * Reversed teardrop: large propulsion rear, narrow attack tip pointing FRONT.
- * FRONT = left = narrow tip.  REAR = right = wide propulsion mass.
- */
-function drawBodyRearWeighted(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  mass: number,
-  fill: string, glow: string, flash: boolean,
-): BodyGeometry {
-  const fR = R * 0.40;                          // front tip
-  const rR = R * (0.90 + mass * 0.12);          // rear bulk
-  const sH = R * (0.70 + mass * 0.08);
-
-  const fX = cx - fR;   // leftmost (front — narrow tip)
-  const rX = cx + rR;   // rightmost (rear — wide end)
-
-  ctx.beginPath();
-  ctx.moveTo(fX, cy);
-  // Upper half: front tip rises gently, rear bulges broadly upward
-  ctx.bezierCurveTo(fX, cy - sH * 0.22, rX, cy - sH, rX, cy);
-  // Lower half: symmetric
-  ctx.bezierCurveTo(rX, cy + sH, fX, cy + sH * 0.22, fX, cy);
-  ctx.closePath();
-  applyBodyFill(ctx, fill, glow, flash);
-  return { frontReach: fR, rearReach: rR, sideReach: sH, R };
-}
-
-/**
- * Three connected structural masses arranged along the FRONT-REAR axis.
- * Front segment (attack), middle segment (core), rear segment (propulsion).
- */
-function drawBodySegmented(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, R: number,
-  fill: string, glow: string, flash: boolean,
-): BodyGeometry {
-  const segR    = R * 0.44;
-  const spacing = R * 0.60;          // center-to-center
-
-  // Draw middle segment first (largest), then front and rear
-  const segments: [number, number][] = [
-    [cx,           segR * 1.08],    // middle — slightly larger
-    [cx - spacing, segR * 0.94],    // front (left)
-    [cx + spacing, segR * 0.90],    // rear (right)
-  ];
-
-  ctx.shadowColor = glow;
-  ctx.shadowBlur  = flash ? 4 : 10;
-  ctx.fillStyle   = fill;
-
-  for (const [sx, sr] of segments) {
-    ctx.beginPath();
-    ctx.arc(sx, cy, sr, 0, TAU);
-    ctx.fill();
-  }
+  // Front mass (large)
+  ctx.shadowColor = debug ? 'transparent' : glow;
+  ctx.shadowBlur  = flash || debug ? 0 : 10;
+  filledCircle(ctx, frontCx, cy, frontR, fill, glow, flash, d);
   ctx.shadowBlur = 0;
 
-  // Connective bridges (filled trapezoids between segments)
-  const bridgeH = segR * 0.52;
-  for (const [sx, dir] of [[cx - spacing * 0.50, -1], [cx + spacing * 0.50, 1]] as [number, number][]) {
-    void dir;
-    ctx.beginPath();
-    ctx.rect(sx - spacing * 0.24, cy - bridgeH, spacing * 0.48, bridgeH * 2);
-    ctx.fill();
-  }
-
-  // Stroke each segment
-  ctx.strokeStyle = flash ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.24)';
-  ctx.lineWidth   = 1.2;
-  for (const [sx, sr] of segments) {
-    ctx.beginPath();
-    ctx.arc(sx, cy, sr, 0, TAU);
-    ctx.stroke();
-  }
+  // Rear nub (small)
+  filledCircle(ctx, rearCx, cy, rearR, fill, glow, flash, d);
 
   return {
-    frontReach: spacing + segR * 0.94,
-    rearReach:  spacing + segR * 0.90,
-    sideReach:  segR * 1.08,
+    frontReach: cx - (frontCx - frontR),
+    rearReach:  (rearCx + rearR) - cx,
+    sideReach:  frontR,
     R,
   };
 }
 
 /**
- * Annular body — mass distributed as a ring around a central void.
- * Used by radial viruses with high armor.
+ * rearWeighted — small front attack tip + large rear propulsion mass.
+ * Topology: 2 masses (rear circle 2.5× front circle), thin bridge.
+ * FRONT = left.  The small tip is at the left; the big mass is at right.
+ * Readable as: "spear tip / engine-back".
+ * Visually opposite of forwardWeighted.
+ */
+function drawBodyRearWeighted(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  fill: string, glow: string, flash: boolean, debug: boolean,
+): BodyGeometry {
+  const frontR  = R * 0.32;          // small attack tip
+  const rearR   = R * 0.78;          // large propulsion mass
+  const gap     = R * 0.30;
+  const totalHalfWidth = frontR + gap + rearR;
+  const frontCx = cx - totalHalfWidth * 0.62;   // tip left
+  const rearCx  = frontCx + frontR + gap + rearR;
+  const bridgeH = R * 0.14;
+
+  const d = debug;
+
+  // Bridge
+  const bridgeX1 = frontCx + frontR - R * 0.04;
+  const bridgeX2 = rearCx  - rearR  + R * 0.04;
+  ctx.beginPath();
+  ctx.rect(bridgeX1, cy - bridgeH, bridgeX2 - bridgeX1, bridgeH * 2);
+  applyBodyFill(ctx, fill, glow, flash, d);
+
+  // Front tip (small)
+  filledCircle(ctx, frontCx, cy, frontR, fill, glow, flash, d);
+
+  // Rear mass (large)
+  filledCircle(ctx, rearCx, cy, rearR, fill, glow, flash, d);
+
+  return {
+    frontReach: cx - (frontCx - frontR),
+    rearReach:  (rearCx + rearR) - cx,
+    sideReach:  rearR,
+    R,
+  };
+}
+
+/**
+ * segmented — THREE clearly separated circular modules in a line.
+ * Topology: 3 distinct masses with visible gaps; narrow rectangular connectors.
+ * Readable as: "caterpillar / train".
+ */
+function drawBodySegmented(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, R: number,
+  fill: string, glow: string, flash: boolean, debug: boolean,
+): BodyGeometry {
+  const coreR   = R * 0.44;    // center module
+  const sideR   = R * 0.36;    // front and rear modules (smaller)
+  const spacing = R * 1.04;    // center-to-center — ensures visible gap
+  const bridgeH = R * 0.15;    // thin connector height
+
+  const frontCx = cx - spacing;
+  const rearCx  = cx + spacing;
+
+  const d = debug;
+
+  // Bridges first (underneath circles)
+  for (const [x1, x2] of [[frontCx + sideR - R * 0.02, cx - coreR + R * 0.02], [cx + coreR - R * 0.02, rearCx - sideR + R * 0.02]] as [number, number][]) {
+    ctx.beginPath();
+    ctx.rect(x1, cy - bridgeH, x2 - x1, bridgeH * 2);
+    applyBodyFill(ctx, fill, glow, flash, d);
+  }
+
+  // Front module (left)
+  filledCircle(ctx, frontCx, cy, sideR, fill, glow, flash, d);
+  // Center module (largest)
+  filledCircle(ctx, cx, cy, coreR, fill, glow, flash, d);
+  // Rear module (right)
+  filledCircle(ctx, rearCx, cy, sideR, fill, glow, flash, d);
+
+  return {
+    frontReach: spacing + sideR,
+    rearReach:  spacing + sideR,
+    sideReach:  coreR,
+    R,
+  };
+}
+
+/**
+ * ring — annular mass with a large, obvious hollow center.
+ * Topology: 1 closed loop with clear negative space (hole ≥ 65% of outer).
+ * Readable as: "donut / torus".
  */
 function drawBodyRing(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  armor: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const outerR  = R * 0.92;
-  const ringW   = R * (0.28 + armor * 0.14);  // ring thickness
-  const innerR  = outerR - ringW;
+  const outerR = R * 0.95;
+  const innerR = R * 0.58;   // hole = 61% of outer — unmistakably hollow
 
-  // Filled donut via evenodd winding rule
   ctx.beginPath();
-  ctx.arc(cx, cy, outerR, 0, TAU, false);   // outer CCW
-  ctx.arc(cx, cy, innerR, 0, TAU, true);    // inner CW (hole)
+  ctx.arc(cx, cy, outerR, 0, TAU, false);
+  ctx.arc(cx, cy, innerR, 0, TAU, true);    // CW = hole
 
-  ctx.shadowColor = glow;
-  ctx.shadowBlur  = flash ? 4 : 10;
-  ctx.fillStyle   = fill;
-  ctx.fill('evenodd');
-  ctx.shadowBlur  = 0;
-
-  // Stroke outer and inner separately for clean edges
-  ctx.strokeStyle = flash ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.24)';
-  ctx.lineWidth   = 1.2;
-  ctx.beginPath(); ctx.arc(cx, cy, outerR, 0, TAU); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, TAU); ctx.stroke();
+  if (debug) {
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fill('evenodd');
+    ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, outerR, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, TAU); ctx.stroke();
+  } else {
+    ctx.shadowColor = glow;
+    ctx.shadowBlur  = flash ? 4 : 10;
+    ctx.fillStyle   = fill;
+    ctx.fill('evenodd');
+    ctx.shadowBlur  = 0;
+    ctx.strokeStyle = flash ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.24)';
+    ctx.lineWidth   = 1.2;
+    ctx.beginPath(); ctx.arc(cx, cy, outerR, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, TAU); ctx.stroke();
+  }
 
   return { frontReach: outerR, rearReach: outerR, sideReach: outerR, R };
 }
 
 /**
- * Regular polygon — clean geometric form for radial attackers.
- * Sides derived from lobes (5–8).  Slightly rounded by draw approach.
+ * radialCore — central hub with 3 large structural arms at 120° intervals.
+ * Topology: 1 hub + 3 arms.  NOT a star polygon or flower.
+ * Readable as: "three-armed hub / Y-shape".
  */
 function drawBodyRadialCore(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  lobes: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const sides   = Math.min(8, Math.max(5, lobes));
-  const polyR   = R * 0.88;
-  // Rotate so a flat edge faces UP (top) for visual stability
-  const baseAngle = -Math.PI / 2 + Math.PI / sides;
+  const hubR   = R * 0.42;   // central hub circle
+  const armW   = R * 0.22;   // arm width (half)
+  const armLen = R * 0.60;   // arm extension beyond hub edge
 
-  ctx.beginPath();
-  for (let i = 0; i <= sides; i++) {
-    const a = baseAngle + (i / sides) * TAU;
-    const x = cx + polyR * Math.cos(a);
-    const y = cy + polyR * Math.sin(a);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-  applyBodyFill(ctx, fill, glow, flash);
-  // Inset ridge line
-  if (!flash) {
+  const d = debug;
+
+  // Draw 3 arms at 90°, 210°, 330° (one pointing REAR for visual stability)
+  const armAngles = [REAR, REAR + TAU / 3, REAR + (2 * TAU) / 3];
+
+  ctx.save();
+  for (const angle of armAngles) {
+    // Arm as a rotated rectangle extending from hub surface to tip
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
     ctx.beginPath();
-    for (let i = 0; i <= sides; i++) {
-      const a = baseAngle + (i / sides) * TAU;
-      const x = cx + polyR * 0.62 * Math.cos(a);
-      const y = cy + polyR * 0.62 * Math.sin(a);
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.lineWidth   = 0.8;
-    ctx.stroke();
+    ctx.rect(hubR - R * 0.04, -armW, armLen + R * 0.04, armW * 2);
+    applyBodyFill(ctx, fill, glow, flash, d);
+    ctx.restore();
   }
-  return { frontReach: polyR, rearReach: polyR, sideReach: polyR, R };
+
+  // Central hub on top
+  ctx.beginPath();
+  ctx.arc(cx, cy, hubR, 0, TAU);
+  applyBodyFill(ctx, fill, glow, flash, d);
+  ctx.restore();
+
+  const armTip = hubR + armLen;
+  return { frontReach: armTip, rearReach: armTip, sideReach: armTip, R };
 }
 
 /**
- * Two vertically-offset masses connected by a bridge — figure-8 / H shape.
- * Used by asymmetric composites with regen.
+ * splitCore — two circles stacked vertically, connected by a narrow bridge.
+ * Topology: 2 dominant masses + visible gap around bridge.
+ * Readable as: "figure-8 / bimodal mass".
  */
 function drawBodySplitCore(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  n: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const lR      = R * 0.52;                    // lobe radius
-  const offset  = R * (0.40 + normalizedHash(n, 53) * 0.08);  // vertical offset
+  const lobeR    = R * 0.52;
+  const sep      = R * 0.60;    // center-to-center — ensures visible gap between lobes
+  const bridgeW  = R * 0.28;    // narrow connector width
 
-  ctx.shadowColor = glow;
-  ctx.shadowBlur  = flash ? 4 : 10;
-  ctx.fillStyle   = fill;
+  const d = debug;
+
+  // Narrow bridge first
+  ctx.beginPath();
+  ctx.rect(cx - bridgeW, cy - sep, bridgeW * 2, sep * 2);
+  applyBodyFill(ctx, fill, glow, flash, d);
 
   // Top lobe
-  ctx.beginPath(); ctx.arc(cx, cy - offset, lR, 0, TAU); ctx.fill();
+  filledCircle(ctx, cx, cy - sep, lobeR, fill, glow, flash, d);
   // Bottom lobe
-  ctx.beginPath(); ctx.arc(cx, cy + offset, lR, 0, TAU); ctx.fill();
-  // Bridge
-  ctx.beginPath();
-  ctx.rect(cx - lR * 0.46, cy - offset, lR * 0.92, offset * 2);
-  ctx.fill();
+  filledCircle(ctx, cx, cy + sep, lobeR, fill, glow, flash, d);
 
-  ctx.shadowBlur  = 0;
-  ctx.strokeStyle = flash ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.24)';
-  ctx.lineWidth   = 1.2;
-  ctx.beginPath(); ctx.arc(cx, cy - offset, lR, 0, TAU); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx, cy + offset, lR, 0, TAU); ctx.stroke();
-
-  return { frontReach: lR, rearReach: lR, sideReach: offset + lR, R };
+  return { frontReach: lobeR, rearReach: lobeR, sideReach: sep + lobeR, R };
 }
 
 /**
- * Narrow central body with swept wing surfaces.
- * Communicates: speed + lateral maneuverability.
+ * winged — narrow central fuselage with dominant swept wing surfaces.
+ * Topology: 1 thin body + 2 large wings (wing span = 2.8× body width).
+ * Readable as: "aircraft / delta wing".
  */
 function drawBodyWinged(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  speed: number, evasion: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const bRX     = R * 0.52;           // central body half-width
-  const bRY     = R * 0.28;           // central body half-height
-  const wingH   = R * (0.82 + evasion * 0.20);  // wing half-span
-  const wingX   = cx + R * (0.30 + speed * 0.12); // wing trailing x
+  const bodyRX  = R * 0.50;          // fuselage half-length
+  const bodyRY  = R * 0.18;          // fuselage half-height — very thin
+  const wingSpan = R * 1.10;         // wing tip distance from center (2.8× body half-height)
+  // Wings sweep from front-center rearward — delta wing shape
+  const wingFrontX = cx - bodyRX * 0.55;   // wing root at ~55% forward
+  const wingTipX   = cx + bodyRX * 0.80;   // tip sweeps back past the body rear
 
-  ctx.shadowColor = glow;
-  ctx.shadowBlur  = flash ? 4 : 10;
-  ctx.fillStyle   = fill;
+  const d = debug;
 
-  // Wing surfaces (drawn first so body sits on top)
+  // Draw wings first so fuselage sits on top
   for (const side of [-1, 1]) {
     ctx.beginPath();
-    ctx.moveTo(cx - bRX * 0.65, cy + side * bRY * 0.85);   // front root
-    ctx.lineTo(cx + bRX * 0.50, cy + side * bRY * 0.85);   // rear root
-    ctx.lineTo(wingX,            cy + side * wingH);          // wing tip
+    ctx.moveTo(wingFrontX, cy);                           // leading edge root (near front)
+    ctx.lineTo(wingTipX,   cy + side * wingSpan);         // tip — far out and rear
+    ctx.lineTo(cx + bodyRX * 1.05, cy + side * bodyRY);  // trailing edge at rear
     ctx.closePath();
-    ctx.fill();
+    applyBodyFill(ctx, fill, glow, flash, d);
   }
-  ctx.shadowBlur = 0;
 
-  // Central body ellipse
-  ctx.shadowColor = glow;
-  ctx.shadowBlur  = flash ? 4 : 10;
+  // Fuselage ellipse
   ctx.beginPath();
-  ctx.ellipse(cx, cy, bRX, bRY, 0, 0, TAU);
-  ctx.fill();
-  ctx.shadowBlur  = 0;
+  ctx.ellipse(cx, cy, bodyRX, bodyRY, 0, 0, TAU);
+  applyBodyFill(ctx, fill, glow, flash, d);
 
-  // Strokes
-  ctx.strokeStyle = flash ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.24)';
-  ctx.lineWidth   = 1.2;
-  for (const side of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(cx - bRX * 0.65, cy + side * bRY * 0.85);
-    ctx.lineTo(cx + bRX * 0.50, cy + side * bRY * 0.85);
-    ctx.lineTo(wingX,            cy + side * wingH);
-    ctx.closePath();
-    ctx.stroke();
-  }
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, bRX, bRY, 0, 0, TAU);
-  ctx.stroke();
-
-  return { frontReach: bRX, rearReach: Math.max(bRX, wingX - cx), sideReach: wingH, R };
+  return {
+    frontReach: cx - wingFrontX,
+    rearReach:  wingTipX - cx,
+    sideReach:  wingSpan,
+    R,
+  };
 }
 
 /**
- * D-shape: flat armoured face at FRONT (left), rounded propulsion dome at REAR (right).
- * Communicates: heavy frontal defence, slow movement.
+ * shielded — large flat frontal shield wall + small circular protected core.
+ * Topology: 2 distinct masses (shield plate + rear core), clear structural gap.
+ * FRONT = left = the broad shield face.
+ * Readable as: "tower shield with core behind it".
  */
 function drawBodyShielded(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  armor: number,
-  fill: string, glow: string, flash: boolean,
+  fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const flatX = cx - R * (0.62 + armor * 0.08); // x of the flat shield face (left)
-  const domeX = cx + R * (0.62 + armor * 0.06); // x of dome peak (right)
-  const halfH = R * (0.88 + armor * 0.06);
+  // Shield plate: tall flat rectangle at front (left side)
+  const shieldW  = R * 0.28;          // plate thickness
+  const shieldH  = R * 0.95;          // half-height — 2× the core radius
+  const shieldX  = cx - R * 0.68;     // left edge of shield
+  // Core: small circle behind the shield
+  const coreR    = R * 0.44;          // core radius — 2× smaller than shield height
+  const coreCx   = shieldX + shieldW + R * 0.20 + coreR; // core center, sits behind shield
 
+  const d = debug;
+
+  // Core first (behind shield visually)
+  filledCircle(ctx, coreCx, cy, coreR, fill, glow, flash, d);
+
+  // Shield plate (drawn on top — dominates the front silhouette)
   ctx.beginPath();
-  ctx.moveTo(flatX, cy - halfH);    // top of shield face
-  ctx.lineTo(flatX, cy + halfH);    // bottom of shield face (flat vertical edge)
-  ctx.bezierCurveTo(
-    domeX + R * 0.48, cy + halfH,   // lower dome ctrl
-    domeX + R * 0.48, cy - halfH,   // upper dome ctrl
-    flatX, cy - halfH,              // back to top of shield face
-  );
-  ctx.closePath();
-  applyBodyFill(ctx, fill, glow, flash);
+  ctx.rect(shieldX, cy - shieldH, shieldW, shieldH * 2);
+  applyBodyFill(ctx, fill, glow, flash, d);
 
-  // Shield face panel lines
-  if (!flash) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.30)';
+  // Panel seam lines on shield face (not in debug mode)
+  if (!flash && !debug) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
     ctx.lineWidth   = 1;
-    // Horizontal panel seams on the flat face
-    for (const dy of [-halfH * 0.38, 0, halfH * 0.38]) {
+    for (const dy of [-shieldH * 0.45, 0, shieldH * 0.45]) {
       ctx.beginPath();
-      ctx.moveTo(flatX, cy + dy);
-      ctx.lineTo(flatX + R * 0.28, cy + dy);
+      ctx.moveTo(shieldX + shieldW * 0.15, cy + dy);
+      ctx.lineTo(shieldX + shieldW * 0.85, cy + dy);
       ctx.stroke();
     }
-    // Vertical centre line on dome
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - halfH * 0.72);
-    ctx.lineTo(cx, cy + halfH * 0.72);
-    ctx.stroke();
   }
 
-  const frontReach = cx - flatX;       // = R * (0.62 + armor * 0.08)
-  const domeReach  = domeX + R * 0.48 * 0.7 - cx;  // approximate dome rightmost
-  return { frontReach, rearReach: domeReach, sideReach: halfH, R };
+  const frontReach = cx - shieldX;
+  const rearReach  = (coreCx + coreR) - cx;
+  return { frontReach, rearReach, sideReach: shieldH, R };
 }
 
 /** Dispatch to the correct body drawing function and return geometry. */
@@ -733,19 +768,73 @@ function drawPrimaryBody(
   cx:    number, cy: number, R: number,
   p:     VirusPhenotype,
   fill:  string, glow: string, flash: boolean,
+  debug: boolean = false,
 ): BodyGeometry {
   switch (p.architecture) {
-    case 'elongated':       return drawBodyElongated(ctx, cx, cy, R, p.speed, fill, glow, flash);
-    case 'forwardWeighted': return drawBodyForwardWeighted(ctx, cx, cy, R, p.aggression, fill, glow, flash);
-    case 'rearWeighted':    return drawBodyRearWeighted(ctx, cx, cy, R, p.mass, fill, glow, flash);
-    case 'segmented':       return drawBodySegmented(ctx, cx, cy, R, fill, glow, flash);
-    case 'ring':            return drawBodyRing(ctx, cx, cy, R, p.armor, fill, glow, flash);
-    case 'radialCore':      return drawBodyRadialCore(ctx, cx, cy, R, p.lobes, fill, glow, flash);
-    case 'splitCore':       return drawBodySplitCore(ctx, cx, cy, R, p.n, fill, glow, flash);
-    case 'winged':          return drawBodyWinged(ctx, cx, cy, R, p.speed, p.evasion, fill, glow, flash);
-    case 'shielded':        return drawBodyShielded(ctx, cx, cy, R, p.armor, fill, glow, flash);
-    default:                return drawBodyCompact(ctx, cx, cy, R, fill, glow, flash);
+    case 'elongated':       return drawBodyElongated(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'forwardWeighted': return drawBodyForwardWeighted(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'rearWeighted':    return drawBodyRearWeighted(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'segmented':       return drawBodySegmented(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'ring':            return drawBodyRing(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'radialCore':      return drawBodyRadialCore(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'splitCore':       return drawBodySplitCore(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'winged':          return drawBodyWinged(ctx, cx, cy, R, fill, glow, flash, debug);
+    case 'shielded':        return drawBodyShielded(ctx, cx, cy, R, fill, glow, flash, debug);
+    default:                return drawBodyCompact(ctx, cx, cy, R, fill, glow, flash, debug);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// § 6b  Silhouette debug grid
+//
+//  Call drawSilhouetteDebugGrid(ctx, width, height) to render all 10 body
+//  architectures as flat-white silhouettes on black.  Use this to verify
+//  visual distinctiveness before enabling structures.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export function drawSilhouetteDebugGrid(
+  ctx:    CanvasRenderingContext2D,
+  width:  number,
+  height: number,
+): void {
+  const archs: BodyArchitecture[] = [
+    'compact', 'elongated', 'forwardWeighted', 'rearWeighted', 'segmented',
+    'ring', 'radialCore', 'splitCore', 'winged', 'shielded',
+  ];
+
+  const cols    = 5;
+  const rows    = 2;
+  const cellW   = width  / cols;
+  const cellH   = height / rows;
+  const R       = Math.min(cellW, cellH) * 0.24;
+
+  // Background
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, width, height);
+
+  archs.forEach((arch, i) => {
+    const col  = i % cols;
+    const row  = Math.floor(i / cols);
+    const cx   = cellW * (col + 0.5);
+    const cy   = cellH * (row + 0.5) - R * 0.25;  // slight upward shift for label
+
+    // Fake phenotype with neutral trait values
+    const fakePhenotype: VirusPhenotype = {
+      n: 7, cls: 'prime', lobes: 5, spikes: [], spikeCount: 3,
+      speed: 0.5, armor: 0.5, mass: 0.5, attackRange: 0.5,
+      sensorRadius: 0.5, aggression: 0.5, regen: 0.5, evasion: 0.5,
+      symmetry: 'bilateral', attackStyle: 'melee', locomotionType: 'fins',
+      architecture: arch,
+    };
+
+    drawPrimaryBody(ctx, cx, cy, R, fakePhenotype, '#fff', 'transparent', false, true);
+
+    // Label
+    ctx.fillStyle  = 'rgba(255,255,255,0.70)';
+    ctx.font       = `${Math.max(9, R * 0.55)}px monospace`;
+    ctx.textAlign  = 'center';
+    ctx.fillText(arch, cx, cy + R * 1.65);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1483,7 +1572,10 @@ export function drawVirus(
 
   // ── 1 + 2. Primary body + class decoration (flash = fill only, no structures) ─
   const phenotype = getVirusPhenotype(n);
-  const geo = drawPrimaryBody(ctx, cx, cy, R, phenotype, fill, glow, flash);
+  const geo = drawPrimaryBody(ctx, cx, cy, R, phenotype, fill, glow, flash, MORPHOLOGY_SILHOUETTE_DEBUG);
+
+  // Debug mode: body-only silhouette, no decorations or structures.
+  if (MORPHOLOGY_SILHOUETTE_DEBUG) return;
 
   // ── 3. Class decoration (mathematical identity markers) ─────────────────────
   if (!green) {

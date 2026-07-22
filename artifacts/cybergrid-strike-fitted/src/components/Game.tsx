@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { MORPHOLOGY_SILHOUETTE_DEBUG } from '../game/virus-morphology';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 import {
@@ -1500,8 +1501,8 @@ export default function Game() {
         </button>
       )}
 
-      {/* Main Menu overlay */}
-      {phase === 'menu' && (
+      {/* Main Menu overlay — suppressed in silhouette debug mode */}
+      {phase === 'menu' && !MORPHOLOGY_SILHOUETTE_DEBUG && (
         <div id="mainMenu">
           {menuScreen === 'main' ? (
             <div id="menuCard">

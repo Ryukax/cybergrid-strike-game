@@ -25,18 +25,25 @@ Row bias: 25% uniform + 75% historical escape distribution after 5 total escapes
 
 ### Body Architectures (10 types, all derived deterministically from traits)
 
-| Architecture | Derives from | Shape |
-|---|---|---|
-| `compact` | Default / armored+slow | Near-circular ellipse |
-| `elongated` | speed > 0.50 (bilateral) | Long horizontal ellipse |
-| `forwardWeighted` | speed>0.62 + aggression>0.50 | Teardrop: wide front (left=FRONT), narrow rear |
-| `rearWeighted` | attackRange>0.62 + mass>0.52 | Reversed teardrop: narrow front, wide rear |
-| `segmented` | regen>0.58 + speed<0.56 | Three connected circles in a horizontal line |
-| `ring` | radial + armor>0.55 | Annular/donut shape (evenodd fill for hole) |
-| `radialCore` | radial (default) | Regular polygon, 5–8 sides from lobes |
-| `splitCore` | asymmetric + regen>0.56 | Two vertically-offset lobes with bridge |
-| `winged` | evasion>0.56 + speed>0.46 | Narrow ellipse body with swept wing triangles |
-| `shielded` | armor>0.60 + speed<0.42 | D-shape: flat left (FRONT) face, round right (REAR) dome |
+**v5 topology-first rewrite** (confirmed visually distinct in silhouette debug grid):
+
+| Architecture | Derives from | Topology | Structural ratio |
+|---|---|---|---|
+| `compact` | Default / armored+slow | 1 circle | R×0.90 — baseline reference |
+| `elongated` | speed > 0.50 | 1 wide ellipse | 5:1 width:height (rX=1.55R, rY=0.30R) |
+| `forwardWeighted` | speed>0.62 + aggression>0.50 | 2 circles + bridge | Front R×0.78, rear R×0.32 (2.4× ratio) |
+| `rearWeighted` | attackRange>0.62 + mass>0.52 | 2 circles + bridge | Front R×0.32, rear R×0.78 (mirror) |
+| `segmented` | regen>0.58 + speed<0.56 | 3 circles + 2 bridges | Spacing 1.04R ensures visible gaps |
+| `ring` | radial + armor>0.55 | 1 annulus, evenodd | Inner = 0.58R (hole 61% of outer) |
+| `radialCore` | radial (default) | Hub + 3 rectangular arms | Hub R×0.42, arms extend 0.60R at 0°/120°/240° |
+| `splitCore` | asymmetric + regen>0.56 | 2 circles + bridge | Vertical sep 0.60R, lobe R×0.52, bridge W×0.28R |
+| `winged` | evasion>0.56 + speed>0.46 | Thin ellipse + 2 swept triangles | Wing span R×1.10 vs body height R×0.18 (6:1) |
+| `shielded` | armor>0.60 + speed<0.42 | Rect shield + circle core | Shield H×0.95R, core R×0.44 (shield is 2× taller) |
+
+**Critical rule: multi-mass bodies are drawn as separate shapes with visible gaps, NOT as single bezier paths.**
+No universal outer hull. Allow gaps, bridges, negative space.
+
+**FRONT orientation:** FRONT = left (π direction). forwardWeighted large mass is LEFT, rearWeighted large mass is RIGHT.
 
 Symmetry class assignment:
 - `perfect-square`, `power-of-two` → radial → usually `ring` or `radialCore`

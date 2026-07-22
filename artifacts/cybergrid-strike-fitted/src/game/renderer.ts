@@ -1,5 +1,5 @@
 import type { GameState, BoardMetrics } from './types';
-import { drawVirus } from './virus-morphology';
+import { drawVirus, drawSilhouetteDebugGrid, MORPHOLOGY_SILHOUETTE_DEBUG } from './virus-morphology';
 
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
@@ -26,6 +26,12 @@ export function draw(
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
   ctx.fillStyle = '#06101e';
   ctx.fillRect(0, 0, w, h);
+
+  // Silhouette debug mode: show architecture grid and skip game rendering
+  if (MORPHOLOGY_SILHOUETTE_DEBUG) {
+    drawSilhouetteDebugGrid(ctx, w, h);
+    return;
+  }
 
   const m = getBoardMetrics(w, h);
   const splitX = m.x + m.cell * 3;
