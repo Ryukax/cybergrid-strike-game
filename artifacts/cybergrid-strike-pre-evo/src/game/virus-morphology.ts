@@ -803,14 +803,13 @@ const ARCHETYPE_OVERLAYS: Record<VirusArchetype, OverlayFn> = {
  *  5. Draw secondary archetype overlay at reduced opacity (hybrid coherence)
  */
 export function drawVirus(
-  ctx:        CanvasRenderingContext2D,
-  cx:         number,
-  cy:         number,
-  n:          number,
-  cell:       number,
-  flash:      boolean,
-  green       = false,
-  refinement  = 0,   // 0 = fresh spawn · 1 = fully evolved apex form
+  ctx:   CanvasRenderingContext2D,
+  cx:    number,
+  cy:    number,
+  n:     number,
+  cell:  number,
+  flash: boolean,
+  green  = false,
 ): void {
   const cls = green ? 'even-composite' : getVirusClass(n);
 
@@ -820,9 +819,7 @@ export function drawVirus(
 
   const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
 
-  // Refined lineages grow slightly larger — up to +20% radius at apex
-  const sizeBoost = 1 + refinement * 0.20;
-  const R0 = cell * 0.185 * sizeBoost;
+  const R0 = cell * 0.185;
   const k  = cell * 0.026;
   const R  = getVirusRadius(n, R0, k);
 
@@ -873,78 +870,18 @@ export function drawVirus(
     const lobes   = getVirusLobes(n);
     const spikes  = getVirusSpikes(n);
 
-    // Primary archetype overlay — opacity scales with refinement level
-    const overlayBoost = 1 + refinement * 0.50;
+    // Primary archetype at full weight
     ARCHETYPE_OVERLAYS[profile.primaryArchetype](
       ctx, cx, cy, R, lobes, spikes, profile,
-      Math.min(0.98, profile.primaryWeight * 0.80 * overlayBoost),
+      profile.primaryWeight * 0.80,
     );
 
     // Secondary archetype at reduced weight (hybrid coherence)
     if (profile.secondaryWeight > 0.15) {
       ARCHETYPE_OVERLAYS[profile.secondaryArchetype](
         ctx, cx, cy, R, lobes, spikes, profile,
-        Math.min(0.98, profile.secondaryWeight * 0.45 * overlayBoost),
+        profile.secondaryWeight * 0.45,
       );
-    }
-  }
-
-  // ── 4. Refinement visual layers ───────────────────────────────────────────
-  // Added on top of the base VMES rendering as the lineage matures.
-  // Three tiers activate progressively as refinement climbs from 0 → 1.
-  if (!flash && !green && refinement > 0.02) {
-    const t1 = Math.min(1,                refinement         / 0.30);
-    const t2 = Math.min(1, Math.max(0, (refinement - 0.30) / 0.35));
-    const t3 = Math.min(1, Math.max(0, (refinement - 0.65) / 0.35));
-
-    // Tier 1 (refinement 0→30%): outer structural ring — first visible sign
-    ctx.beginPath();
-    ctx.arc(cx, cy, R * (1.22 + t1 * 0.06), 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(255,255,255,${t1 * 0.22})`;
-    ctx.lineWidth   = 0.8 + t1 * 0.4;
-    ctx.stroke();
-
-    if (t2 > 0) {
-      // Tier 2 (30→65%): second ring + inner luminous core
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.42, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,255,255,${t2 * 0.14})`;
-      ctx.lineWidth   = 1.2;
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 0.22, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${t2 * 0.28})`;
-      ctx.fill();
-    }
-
-    if (t3 > 0) {
-      // Tier 3 (65→100%): apex crown — structural spines at each lobe peak
-      const lobes  = getVirusLobes(n);
-      const spread = 0.10;
-      ctx.strokeStyle = `rgba(255,255,255,${t3 * 0.55})`;
-      ctx.lineWidth   = 1.5;
-      for (let i = 0; i < lobes; i++) {
-        const angle = (i / lobes) * Math.PI * 2 - Math.PI / 2;
-        const r0    = R * 1.12;
-        const r1    = R * (1.52 + t3 * 0.20);
-        ctx.beginPath();
-        ctx.moveTo(cx + r0 * Math.cos(angle - spread), cy + r0 * Math.sin(angle - spread));
-        ctx.lineTo(cx + r1 * Math.cos(angle),           cy + r1 * Math.sin(angle));
-        ctx.moveTo(cx + r0 * Math.cos(angle + spread), cy + r0 * Math.sin(angle + spread));
-        ctx.lineTo(cx + r1 * Math.cos(angle),           cy + r1 * Math.sin(angle));
-        ctx.stroke();
-      }
-
-      // Outer corona glow
-      ctx.shadowColor = glow;
-      ctx.shadowBlur  = t3 * 20;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.08, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,255,255,${t3 * 0.10})`;
-      ctx.lineWidth   = 2;
-      ctx.stroke();
-      ctx.shadowBlur  = 0;
     }
   }
 }

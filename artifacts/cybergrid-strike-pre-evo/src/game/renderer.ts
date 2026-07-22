@@ -21,7 +21,6 @@ export function draw(
   h: number,
   state: GameState,
   hasOverlay?: boolean,
-  refinementMap?: Float32Array,
 ) {
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
   ctx.fillStyle = '#06101e';
@@ -191,8 +190,7 @@ export function draw(
   for (const e of state.enemies) {
     const ex = m.x + (e.colPos + 0.5) * m.cell;
     const ey = m.y + (e.row + 0.5) * m.cell;
-    const ref = refinementMap?.[e.value ?? 6] ?? 0;
-    drawVirus(ctx, ex, ey, e.value ?? 6, m.cell, e.flash > 0, false, ref);
+    drawVirus(ctx, ex, ey, e.value ?? 6, m.cell, e.flash > 0);
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);

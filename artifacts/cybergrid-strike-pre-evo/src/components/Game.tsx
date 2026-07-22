@@ -1,14 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
-import {
-  createEvolutionState,
-  sampleVirusValue,
-  sampleSpawnRow,
-  recordDamage,
-  recordEdgeEscape,
-  type EvolutionState,
-} from '../game/evolution';
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -146,9 +138,6 @@ export default function Game() {
   const stateRef = useRef<GameState>(makeInitialState());
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
-
-  // ── Visual Refinement Evolution — persists across waves; reset on restart ──
-  const evolutionRef  = useRef<EvolutionState>(createEvolutionState());
 
   // Input state (refs — no re-render needed)
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
@@ -466,6 +455,7 @@ export default function Game() {
     // Already used this hand or on cooldown — do nothing
     if (s.usedInHand.includes(type)) return;
     if ((s.abilityCooldowns[type] ?? 0) > 0) return;
+
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
 
@@ -917,16 +907,15 @@ export default function Game() {
       }
     }
 
-    // Spawn enemies — using evolved population distribution
+    // Spawn enemies
     s.enemySpawnTimer -= dt;
     const spawnDelay = Math.max(0.6, 1.25 - s.wave * 0.05);
     if (s.enemySpawnTimer <= 0) {
       s.enemySpawnTimer = spawnDelay;
-      // Sample from the evolved lineage distribution
-      const value = sampleVirusValue(evolutionRef.current);
-      const row   = sampleSpawnRow(evolutionRef.current);
+      const row = Math.floor(Math.random() * 3);
       const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
-      const hp    = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
+      const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
+      const value = Math.floor(Math.random() * 255) + 1;
       s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0, value });
     }
 
@@ -949,8 +938,6 @@ export default function Game() {
         } else if (s.ghostTimer > 0) {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
-          // This lineage landed a hit — earn visual refinement
-          recordDamage(evolutionRef.current, e.value, e.row);
           s.hp--;
           e.colPos = -9;
           playHit();
@@ -999,12 +986,6 @@ export default function Game() {
       }
     }
 
-    // Edge escapes earn partial refinement — the lineage survived but didn't land
-    for (const e of s.enemies) {
-      if (e.colPos <= -1 && e.colPos > -8) {
-        recordEdgeEscape(evolutionRef.current, e.value, e.row);
-      }
-    }
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
 
     for (const p of s.particles) {
@@ -1123,7 +1104,7 @@ export default function Game() {
       const ctx = canvas.getContext('2d');
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
       const skinHasOverlay = playerSkinRef.current === 'rocket' || playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem';
-      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay, evolutionRef.current.refinement);
+      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay);
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
       if (skinHasOverlay) {
@@ -1207,7 +1188,6 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
-    evolutionRef.current = createEvolutionState();
     phaseRef.current = 'playing';
     setPhase('playing');
     updateHud();
@@ -1233,7 +1213,6 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
-    evolutionRef.current = createEvolutionState();
     phaseRef.current = 'menu';
     pausedRef.current = false;
     // Reset reward accumulator for new session

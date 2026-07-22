@@ -1,1 +1,2 @@
 - [Blockchain architecture](blockchain-arch.md) — CGRD token + leaderboard on Base Sepolia; deploy script pattern; secrets needed before going live.
+- [Visual Refinement Evolution](visual-refinement-evolution.md) — per-n refinement system replacing the genetic algorithm; three rendering tiers; spawn bias mechanics.
