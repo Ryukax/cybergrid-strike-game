@@ -1,0 +1,1 @@
+- [Blockchain architecture](blockchain-arch.md) — CGRD token + leaderboard on Base Sepolia; deploy script pattern; secrets needed before going live.
