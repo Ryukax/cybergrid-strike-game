@@ -1,0 +1,328 @@
+Yes. The implementation is still optimizing the wrong thing.
+It keeps trying to make tiny procedural sprites look like physically meaningful machines by rearranging 2D primitives inside a ~24–32 px footprint. At that scale, a capsule + wedge + detached circles still collapses into an abstract glyph. More rewrites of the same renderer will keep producing the same perceptual result.
+The next instruction should be fundamentally different:
+ 
+⸻
+ 
+v7 — Stop Procedural Silhouette Generation
+Do not rewrite the chassis functions again.
+The current screenshots prove that procedural Canvas geometry is not producing pragmatic, readable entities at the game’s actual scale.
+Replace the procedural morphology renderer with a sprite-based modular assembly system.
+The important distinction is:
+Current system:
+code generates shape → shape is interpreted as anatomy
+
+Required system:
+anatomy is explicitly designed → code assembles and transforms anatomy
+1. Create actual designed assets
+Each functional part needs a deliberately drawn sprite:
+hulls/
+    interceptor.png
+    tank.png
+    carrier.png
+    artillery.png
+
+weapons/
+    cannon_short.png
+    cannon_long.png
+    ram_prow.png
+    dual_gun.png
+
+propulsion/
+    engine_single.png
+    engine_dual.png
+    thruster_small.png
+
+armor/
+    side_plate.png
+    frontal_plate.png
+    shell_heavy.png
+
+utility/
+    sensor.png
+    emitter.png
+    pod.png
+These can be SVGs or high-resolution transparent PNGs.
+Do not generate the final appearance from arc(), ellipse(), and Bézier paths.
+ 
+⸻
+ 
+2. Design at low resolution first
+The asset must be created and judged at approximately:
+32×32 px
+48×48 px maximum source design grid
+Then displayed near native scale.
+Do not design at 200×200 and shrink it.
+That is exactly how visually distinct details disappear.
+Every sprite should be manually pixel-checked at:
+1× gameplay scale
+2× zoom for inspection
+The 1× version is authoritative.
+ 
+⸻
+ 
+3. Use shape language, not merely different geometry
+Each family needs a radically different visual vocabulary.
+For example:
+Interceptor
+thin
+angular
+swept
+rear-heavy propulsion
+sharp forward axis
+
+Tank
+square
+wide
+layered
+thick perimeter
+compact weapon
+
+Artillery
+long
+asymmetric
+weapon-dominated
+large rear support body
+
+Rammer
+triangular
+front-heavy
+large continuous prow
+minimal exposed equipment
+
+Carrier
+broad
+rectangular/ovoid
+visible bays
+multiple payload modules
+
+Controller
+tall or asymmetric
+antennae
+sensor mast
+emitter structures
+Do not let all chassis share the same central circle or capsule.
+That alone makes them look like variants of one species.
+ 
+⸻
+ 
+4. Increase visual scale
+The current enemy sprite size is probably too small for the level of anatomical information being demanded.
+At approximately R=12–16 px, you have a practical diameter around:
+24–32 px
+That is enough for a simple icon, but not for:
+weapon
+armor
+engine
+sensor
+payload
+direction
+mutation
+all simultaneously.
+Increase major enemy visual diameter to roughly:
+40–64 px
+while keeping collision boxes smaller if necessary.
+Example:
+visualRadius = collisionRadius * 1.5;
+or:
+collisionRadius = 14;
+spriteSize = 48;
+Gameplay collision does not need to equal artwork dimensions.
+This would immediately give the morphology more room to read.
+ 
+⸻
+ 
+5. Use explicit visual layering
+A unit should visually consist of separated layers:
+shadow
+↓
+rear propulsion
+↓
+main chassis
+↓
+armor
+↓
+weapon
+↓
+sensor
+↓
+effects
+For example:
+drawEngine();
+drawHull();
+drawArmor();
+drawWeapon();
+drawSensor();
+drawGlow();
+But unlike v6, these should use deliberately authored assets, not primitives that happen to overlap.
+ 
+⸻
+ 
+6. Separate morphology from class
+The current system appears to derive appearance directly from broad roles.
+That creates ten archetypes, not morphology.
+Instead:
+Role
+determines required functional modules
+
+Morphology
+determines how those modules are physically instantiated
+Example:
+Role: artillery
+
+Possible morphologies:
+
+Tracked artillery
+    armored hull
+    dorsal cannon
+    rear engine
+
+Flying artillery
+    narrow fuselage
+    underslung cannon
+    lateral thrusters
+
+Biological artillery
+    carapace
+    elongated projectile organ
+    rear locomotor limbs
+
+Crystalline artillery
+    central crystal
+    projecting focusing lance
+    stabilizer shards
+All four are pragmatically artillery units.
+But they should look fundamentally different.
+This is how you get universal morphology, rather than ten hard-coded icons.
+ 
+⸻
+ 
+7. Use three independent axes
+Generate entities from:
+FUNCTION
+×
+BODY PLAN
+×
+MATERIAL / ORGANISM TYPE
+For example:
+functionType:
+  interceptor
+  artillery
+  tank
+  carrier
+
+bodyPlan:
+  bilateral
+  quadrupedal
+  segmented
+  vehicular
+  avian
+  serpentine
+  cephalopod
+  modular
+  stationary
+
+materialType:
+  mechanical
+  biological
+  cybernetic
+  crystalline
+  energy
+Then:
+artillery + vehicular + mechanical
+might produce a self-propelled gun.
+artillery + bilateral + biological
+might produce a creature with a large projectile organ.
+artillery + segmented + cybernetic
+might resemble a long centipede-like firing platform.
+This is much closer to the universal system you originally described.
+ 
+⸻
+ 
+8. Stop forcing all anatomy into the unit’s center
+The screenshots still show most mass concentrated into a roughly circular region.
+Allow strongly non-square bounding boxes.
+Examples:
+artillery:
+60×24
+
+interceptor:
+48×20
+
+tank:
+42×36
+
+carrier:
+56×42
+
+rammer:
+48×32
+This alone will dramatically improve differentiation.
+Do not normalize every enemy to the same radius.
+Instead use:
+interface VisualBounds {
+    width: number;
+    height: number;
+}
+Collision can remain grid-based independently.
+ 
+⸻
+ 
+9. Eliminate the universal central-core motif
+From your screenshots, many enemies still appear to have:
+central circular mass
++
+surrounding appendages
+That is one of the strongest reasons they all look related.
+Ban the assumption that every chassis has a central core.
+Examples:
+interceptor:
+long fuselage
+
+tank:
+rectangular armored block
+
+artillery:
+rear chassis + forward cannon
+
+rammer:
+single continuous wedge
+
+carrier:
+large bay structure
+
+serpentine:
+multiple sequential segments
+A central circle should only appear where genuinely appropriate.
+ 
+⸻
+ 
+10. The next acceptance test must use the screenshot itself
+Do not allow the coding agent to state:
+readable ✓
+or:
+acceptance test passed ✓
+based on its own interpretation.
+The test should instead produce:
+actual live-game screenshot
+same viewport
+same zoom
+same device scale
+same glow
+same colors
+Then compare against these objective criteria:
+1. Can two different units be confused when rendered as solid silhouettes?
+2. Do more than 25% of units resemble stars, flowers, crosses, or blobs?
+3. Do most units share a circular central mass?
+4. Are the bounding boxes approximately the same aspect ratio?
+5. Can the front be identified in under one second?
+6. Does the largest functional feature correspond to the unit’s gameplay behavior?
+Any yes to 1–4 is failure.
+Any no to 5–6 is failure.
+ 
+⸻
+ 
+The central conclusion is:
+You have probably reached the practical limit of procedural Canvas primitives for this particular visual goal.
+The code has now gone through v4, v5, and v6 while retaining essentially the same perceptual output. That strongly suggests the problem is not the specific chassis algorithm anymore. It is the rendering paradigm, sprite scale, and shared visual grammar.
+I would now move to authored low-resolution modular sprites with variable aspect ratios, while keeping procedural generation only for selecting and assembling those modules. That is the first change likely to produce a genuinely different result rather than another variation of the same flowers and symbols.

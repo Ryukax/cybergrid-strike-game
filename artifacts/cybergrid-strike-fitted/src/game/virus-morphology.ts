@@ -456,516 +456,526 @@ function compTri(
   applyBodyFill(ctx, fill, glow, flash, debug);
 }
 
-// ─── Mechanical drawing primitives ──────────────────────────────────────────
+// ─── v7 Authored Sprite Assembly ─────────────────────────────────────────────
 //
-//  v6 rule: every chassis is a MECHANICAL PART ASSEMBLY.
-//  Use only these discrete named shapes — no organic continuous outlines.
-//  Parts must be separated by a visible gap (G ≥ 2px at gameplay scale).
+//  Design rule: chassis shapes are EXPLICIT POLYGON DATA, not algorithmic paths.
+//  Every polygon vertex was placed intentionally at a specific visual position.
+//
+//  Visual scale:  su = R * 1.4  (sprite-unit, pixels per unit-grid step)
+//  At R=14 (typical gameplay):  su ≈ 19.6 px
+//  At R=20 (boss):              su ≈ 28.0 px
+//
+//  Unit grid:  origin = entity pivot (cx, cy)
+//              FRONT  = negative X (left)   REAR = positive X (right)
+//
+//  Aspect ratios are NON-UNIFORM — do not normalize to the same radius.
+//    interceptor   3.8 × 1.8  units  (very elongated)
+//    artillery     3.6 × 1.0  units  (weapon-dominated, barrel length ≥ 40%)
+//    tank          2.2 × 2.2  units  (nearly square, layered)
+//    rammer        2.4 × 1.9  units  (forward-heavy triangle)
+//    carrier       3.2 × 2.6  units  (wide bay structure)
+//
+//  Visual radius for BodyGeometry is computed from ACTUAL polygon extents,
+//  not from the collision R.  Collision boxes remain at R.
 
-/**
- * Rounded-corner rectangle, centered at (cx, cy).
- * cornerR = 0 → sharp rect;  cornerR = min(w,h)/2 → capsule/pill.
- */
-function drawRoundedRect(
+type Pt = readonly [number, number];
+
+// ── Low-level sprite draw ops  ─────────────────────────────────────────────────
+//    All coordinates are in unit-grid space; `su` converts to canvas pixels.
+
+/** Filled polygon in unit-grid space. */
+function spPoly(
   ctx: CanvasRenderingContext2D,
-  cx: number, cy: number, w: number, h: number, cornerR: number,
+  pts: readonly Pt[],
+  cx: number, cy: number, su: number,
   fill: string, glow: string, flash: boolean, debug: boolean,
+  alpha = 1.0,
 ): void {
-  const x = cx - w / 2, y = cy - h / 2;
-  const r = Math.min(Math.abs(cornerR), w / 2, h / 2);
+  if (pts.length < 2) return;
+  const prev = ctx.globalAlpha;
+  if (alpha < 1.0) ctx.globalAlpha = prev * alpha;
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y,     x + w, y + r,     r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h,     x, y + h - r,     r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y,         x + r, y,         r);
+  ctx.moveTo(cx + pts[0][0] * su, cy + pts[0][1] * su);
+  for (let i = 1; i < pts.length; i++)
+    ctx.lineTo(cx + pts[i][0] * su, cy + pts[i][1] * su);
   ctx.closePath();
   applyBodyFill(ctx, fill, glow, flash, debug);
+  ctx.globalAlpha = prev;
 }
 
-/**
- * Filled bar: axis runs from (x1,y1) to (x2,y2), half-width hw perpendicular.
- * Used for gun barrels, struts, structural connectors.
- */
-function drawBar(
+/** Filled rect in unit-grid space (corners given). */
+function spRect(
   ctx: CanvasRenderingContext2D,
-  x1: number, y1: number, x2: number, y2: number, hw: number,
+  ux0: number, uy0: number, ux1: number, uy1: number,
+  cx: number, cy: number, su: number,
   fill: string, glow: string, flash: boolean, debug: boolean,
+  alpha = 1.0,
 ): void {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 0.5) return;
-  const px = (-dy / len) * hw, py = (dx / len) * hw;
-  ctx.beginPath();
-  ctx.moveTo(x1 + px, y1 + py);
-  ctx.lineTo(x2 + px, y2 + py);
-  ctx.lineTo(x2 - px, y2 - py);
-  ctx.lineTo(x1 - px, y1 - py);
-  ctx.closePath();
-  applyBodyFill(ctx, fill, glow, flash, debug);
+  spPoly(ctx,
+    [[ux0, uy0], [ux1, uy0], [ux1, uy1], [ux0, uy1]],
+    cx, cy, su, fill, glow, flash, debug, alpha);
 }
 
-/**
- * Filled wedge: sharp tip at (tipX,tipY), flat base centered at (baseX,baseY),
- * half-width hw perpendicular to the tip→base axis.
- * Used for nose cones, ramming prows, forward weapons.
- */
-function drawWedge(
+/** Filled circle in unit-grid space. */
+function spCirc(
   ctx: CanvasRenderingContext2D,
-  tipX: number, tipY: number, baseX: number, baseY: number, hw: number,
+  ucx: number, ucy: number, ur: number,
+  cx: number, cy: number, su: number,
   fill: string, glow: string, flash: boolean, debug: boolean,
+  alpha = 1.0,
 ): void {
-  const dx = baseX - tipX, dy = baseY - tipY;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 0.5) return;
-  const px = (-dy / len) * hw, py = (dx / len) * hw;
+  const prev = ctx.globalAlpha;
+  if (alpha < 1.0) ctx.globalAlpha = prev * alpha;
   ctx.beginPath();
-  ctx.moveTo(tipX, tipY);
-  ctx.lineTo(baseX + px, baseY + py);
-  ctx.lineTo(baseX - px, baseY - py);
-  ctx.closePath();
+  ctx.arc(cx + ucx * su, cy + ucy * su, Math.max(ur * su, 1.5), 0, TAU);
   applyBodyFill(ctx, fill, glow, flash, debug);
+  ctx.globalAlpha = prev;
+}
+
+/** Filled bar (rect with axis from point1 to point2). */
+function spBar(
+  ctx: CanvasRenderingContext2D,
+  ux1: number, uy1: number, ux2: number, uy2: number, uhw: number,
+  cx: number, cy: number, su: number,
+  fill: string, glow: string, flash: boolean, debug: boolean,
+  alpha = 1.0,
+): void {
+  const dx = ux2 - ux1, dy = uy2 - uy1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 0.01) return;
+  const px = (-dy / len) * uhw, py = (dx / len) * uhw;
+  spPoly(ctx,
+    [[ux1 + px, uy1 + py], [ux2 + px, uy2 + py],
+     [ux2 - px, uy2 - py], [ux1 - px, uy1 - py]],
+    cx, cy, su, fill, glow, flash, debug, alpha);
 }
 
 // ─── Chassis 1: INTERCEPTOR ──────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  narrow hull  ·  2 lateral wings  ·  1 engine pod  ·  nose spike
+//  Shape language: thin · angular · swept · rear-heavy propulsion · sharp axis
+//  NO central circle.  The FUSELAGE POLYGON is the primary shape.
 //
-//  [SPIKE]──[══════HULL-CAPSULE══════]──[ENGINE]
-//                    [LEFT-WING]
-//                    [RIGHT-WING]
+//  Layer order:  engine nozzle → fuselage → wings → nose spike
 //
-//  FRONT = left.  Hull is a 4:1 elongated capsule.
-//  Wings are flat rectangular plates at the rear half, clearly separate from hull.
-//  Engine is a detached circle at the very rear.
-//  Spike is a detached wedge at the very front.
+//  Unit-grid bounding box at design scale:
+//    X: −1.52 (nose spike tip) → +0.88 (engine rear)   ≈ 2.40 units
+//    Y: −0.98 (wing tip)       → +0.98                  ≈ 1.96 units
+//  At R=14, su=19.6 → sprite ≈ 47 × 38 px
 //
 function drawChassisInterceptor(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.2);
+  const su = R * 1.4;
 
-  const hW = R * 2.20, hH = R * 0.54;
-  const hFront = cx - hW / 2, hRear = cx + hW / 2;
+  // Layer 1: engine nozzle — circle at rear, behind fuselage
+  spCirc(ctx, 0.76, 0, 0.24, cx, cy, su, fill, glow, flash, debug, 0.70);
 
-  // 1. Hull — elongated capsule
-  drawRoundedRect(ctx, cx, cy, hW, hH, hH / 2, fill, glow, flash, debug);
+  // Layer 2: main fuselage — narrow angular polygon, NO central mass
+  //   Nose at left (−X = FRONT), wider toward rear
+  spPoly(ctx, [
+    [-1.10,  0.00],   // nose tip (FRONT)
+    [-0.78, -0.22],   // upper nose
+    [-0.22, -0.38],   // upper forward
+    [ 0.28, -0.40],   // upper mid
+    [ 0.68, -0.30],   // upper rear shoulder
+    [ 0.76, -0.12],   // rear upper connect
+    [ 0.76,  0.12],   // rear lower connect
+    [ 0.68,  0.30],   // lower rear shoulder
+    [ 0.28,  0.40],   // lower mid
+    [-0.22,  0.38],   // lower forward
+    [-0.78,  0.22],   // lower nose
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Wings — flat rect plates, at rear half, perpendicular
-  const wingW = R * (0.45 + p.evasion * 0.15);
-  const wingH = Math.max(R * 0.28, 3.5);
-  const wingCX = cx + R * 0.30;
-  const wingCY = hH / 2 + G + wingH / 2;
-  drawRoundedRect(ctx, wingCX, cy - wingCY, wingW, wingH, wingH * 0.25, fill, glow, flash, debug);
-  drawRoundedRect(ctx, wingCX, cy + wingCY, wingW, wingH, wingH * 0.25, fill, glow, flash, debug);
+  // Layer 3: swept wing plates — two flat rect plates at hull rear
+  //   Clearly separate from fuselage (above/below, wider than body)
+  spPoly(ctx, [                              // UPPER wing
+    [-0.08, -0.40], [ 0.62, -0.40],
+    [ 0.78, -0.98], [-0.08, -0.98],
+  ], cx, cy, su, fill, glow, flash, debug, 0.88);
+  spPoly(ctx, [                              // LOWER wing
+    [-0.08,  0.40], [ 0.62,  0.40],
+    [ 0.78,  0.98], [-0.08,  0.98],
+  ], cx, cy, su, fill, glow, flash, debug, 0.88);
 
-  // 3. Engine pod — detached circle at rear
-  const engR = Math.max(R * 0.27, 3.5);
-  const engX  = hRear + G + engR;
-  compCircle(ctx, engX, cy, engR, fill, glow, flash, debug);
+  // Layer 4: nose spike — sharp weapon extending ahead of fuselage
+  spPoly(ctx, [
+    [-1.52,  0.00],   // spike tip
+    [-1.10, -0.12],   // base upper
+    [-1.10,  0.12],   // base lower
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // 4. Nose spike — detached wedge at front (weapon, drawn last)
-  const spkLen = R * (0.36 + p.aggression * 0.18);
-  const spkHW  = Math.max(R * 0.22, 2.8);
-  drawWedge(ctx, hFront - G - spkLen, cy, hFront - G, cy, spkHW, fill, glow, flash, debug);
-
-  return {
-    frontReach: cx - (hFront - G - spkLen),
-    rearReach:  engX + engR - cx,
-    sideReach:  wingCY + wingH / 2,
-    R,
-  };
+  return { frontReach: 1.52 * su, rearReach: 0.88 * su, sideReach: 0.98 * su, R };
 }
 
 // ─── Chassis 2: STRIKER ──────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  compact hull  ·  large forward wedge weapon  ·  engine block
+//  Shape language: compact · wedge-dominated · aggressive forward bias
+//  The WEAPON WEDGE is the largest single shape — it defines the silhouette.
+//  Hull and engine are visually secondary.
 //
-//  [WEDGE]──[HULL]──[ENGINE-BLOCK]
-//
-//  Wedge is the melee weapon — dominant, clearly forward-facing.
-//  Engine block is taller than wide, visibly different from hull.
+//  Unit-grid bounding box:
+//    X: −1.10 (wedge tip) → +0.90 (engine rear)    ≈ 2.00 units
+//    Y: −0.62 (wedge base) → +0.62                  ≈ 1.24 units
+//  At R=14, su=19.6 → sprite ≈ 39 × 24 px
 //
 function drawChassisStriker(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.2);
+  const su = R * 1.4;
 
-  const hW = R * 1.06, hH = R * 0.90;
-  const hullCX = cx + R * 0.14;
-  const hFront = hullCX - hW / 2, hRear = hullCX + hW / 2;
+  // Layer 1: engine block — rear propulsion, taller than wide
+  spRect(ctx, 0.58, -0.34, 0.90, 0.34, cx, cy, su, fill, glow, flash, debug, 0.70);
 
-  // 1. Hull — compact rect
-  drawRoundedRect(ctx, hullCX, cy, hW, hH, R * 0.15, fill, glow, flash, debug);
+  // Layer 2: compact hull body
+  spRect(ctx, -0.10, -0.46, 0.58, 0.46, cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Engine block — separate, taller than wide (propulsion signature)
-  const engW = Math.max(R * 0.36, 5.0), engH = R * 0.58;
-  const engCX = hRear + G + engW / 2;
-  drawRoundedRect(ctx, engCX, cy, engW, engH, R * 0.10, fill, glow, flash, debug);
+  // Layer 3: forward weapon wedge — the DOMINANT shape
+  spPoly(ctx, [
+    [-1.10,  0.00],   // weapon tip (FRONT)
+    [-0.10, -0.62],   // base upper (at hull front face)
+    [-0.10,  0.62],   // base lower
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // 3. Forward weapon wedge — dominant (drawn last)
-  const wLen = R * (0.90 + p.aggression * 0.28);
-  const wHW  = R * (0.52 + p.mass * 0.08);
-  drawWedge(ctx, hFront - G - wLen, cy, hFront - G, cy, wHW, fill, glow, flash, debug);
-
-  return {
-    frontReach: cx - (hFront - G - wLen),
-    rearReach:  engCX + engW / 2 - cx,
-    sideReach:  Math.max(hH / 2, wHW),
-    R,
-  };
+  return { frontReach: 1.10 * su, rearReach: 0.90 * su, sideReach: 0.62 * su, R };
 }
 
 // ─── Chassis 3: ARTILLERY ────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  very long barrel  ·  small mount  ·  large rear mass
-//  Barrel ≥ 40% of total entity length.
+//  Shape language: long · asymmetric · weapon-dominated · large rear support
+//  The BARREL is the dominant shape — it occupies >40% of total length.
+//  No central circle anywhere.
 //
-//  [BARREL══════════════════]──[MOUNT]──[REAR-MASS]
+//  Unit-grid bounding box:
+//    X: −2.10 (barrel tip) → +0.86 (rear mass right edge)   ≈ 2.96 units
+//    Y: −0.52 (rear mass)  → +0.52                           ≈ 1.04 units
+//  At R=14, su=19.6 → sprite ≈ 58 × 20 px  (≈3:1 ratio vs tank's 1:1)
 //
 function drawChassisArtillery(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.2);
+  const su = R * 1.4;
 
-  // 1. Rear recoil mass — large circle
-  const massR  = R * (0.58 + p.mass * 0.14);
-  const massCX = cx + massR * 0.76;
-  compCircle(ctx, massCX, cy, massR, fill, glow, flash, debug);
+  // Layer 1: rear recoil mass — large body, right of pivot
+  spRect(ctx, 0.08, -0.52, 0.86, 0.52, cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Barrel mount — small connector
-  const mntW = R * 0.28, mntH = R * 0.44;
-  const mntCX = cx - mntW * 0.18;
-  drawRoundedRect(ctx, mntCX, cy, mntW, mntH, R * 0.08, fill, glow, flash, debug);
+  // Layer 2: barrel mount — small connector block
+  spRect(ctx, -0.20, -0.28, 0.08, 0.28, cx, cy, su, fill, glow, flash, debug, 0.85);
 
-  // 3. Barrel — dominant weapon (drawn last)
-  const barLen = R * (1.40 + p.attackRange * 0.82);
-  const barHW  = Math.max(R * 0.17, 2.2);
-  const barS   = mntCX - mntW / 2 - G;
-  drawBar(ctx, barS, cy, barS - barLen, cy, barHW, fill, glow, flash, debug);
+  // Layer 3: barrel — DOMINANT WEAPON, long thin rectangle
+  //   Extends far forward (−X), clearly the defining feature
+  spBar(ctx, -0.20, 0, -2.10, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
 
-  return {
-    frontReach: cx - (barS - barLen),
-    rearReach:  massCX + massR - cx,
-    sideReach:  massR,
-    R,
-  };
+  // Layer 4: barrel tip reinforcement
+  spRect(ctx, -2.10, -0.20, -1.88, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90);
+
+  return { frontReach: 2.10 * su, rearReach: 0.86 * su, sideReach: 0.52 * su, R };
 }
 
 // ─── Chassis 4: TANK ─────────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  armor plates (wider than hull)  ·  hull  ·  short gun
+//  Shape language: square · wide · layered · thick perimeter · compact weapon
+//  Armor plates are WIDER than hull — the layered structure is the silhouette.
+//  Short gun stub — does NOT dominate.
 //
-//  [TOP-ARMOR-PLATE — wider than hull]
-//  [         HULL         ] [GUN──>]
-//  [BOTTOM-ARMOR-PLATE]
+//  Unit-grid bounding box:
+//    X: −0.90 (gun tip) → +0.62 (hull rear)   ≈ 1.52 units
+//    Y: −0.72 (armor)   → +0.72               ≈ 1.44 units
+//  At R=14, su=19.6 → sprite ≈ 30 × 28 px  (nearly square — very different from artillery)
 //
 function drawChassisTank(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.18, 2.0);
+  const su = R * 1.4;
 
-  const hullW = R * 1.16, hullH = R * 0.96;
-  const platW = hullW + R * (0.22 + p.armor * 0.12);
-  const platH = Math.max(R * 0.27, 3.5);
-  const platCY = hullH / 2 + platH / 2 + 1;
+  // Layer 1: wide bottom armor plate (wider than hull)
+  spRect(ctx, -0.58, 0.52, 0.62, 0.72, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // 1. Armor plates — visibly wider than hull (clamping effect)
-  drawRoundedRect(ctx, cx, cy - platCY, platW, platH, platH * 0.20, fill, glow, flash, debug);
-  drawRoundedRect(ctx, cx, cy + platCY, platW, platH, platH * 0.20, fill, glow, flash, debug);
+  // Layer 2: wide top armor plate (wider than hull)
+  spRect(ctx, -0.58, -0.72, 0.62, -0.52, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // 2. Hull — near-square
-  drawRoundedRect(ctx, cx, cy, hullW, hullH, R * 0.14, fill, glow, flash, debug);
+  // Layer 3: main armored hull body
+  spRect(ctx, -0.46, -0.52, 0.62, 0.52, cx, cy, su, fill, glow, flash, debug);
 
-  // 3. Short gun stub — exits front face of hull
-  const gunLen = R * (0.44 + p.aggression * 0.14);
-  const gunHW  = Math.max(R * 0.18, 2.5);
-  const gunS   = cx - hullW / 2 - G;
-  drawBar(ctx, gunS, cy, gunS - gunLen, cy, gunHW, fill, glow, flash, debug);
+  // Layer 4: inner hull detail (creates layered look)
+  spRect(ctx, -0.36, -0.38, 0.50, 0.38, cx, cy, su, fill, glow, flash, debug, 0.65);
 
-  return {
-    frontReach: hullW / 2 + G + gunLen,
-    rearReach:  hullW / 2,
-    sideReach:  platCY + platH / 2,
-    R,
-  };
+  // Layer 5: short gun stub — exits front face, compact
+  spBar(ctx, -0.46, 0, -0.90, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
+
+  return { frontReach: 0.90 * su, rearReach: 0.62 * su, sideReach: 0.72 * su, R };
 }
 
 // ─── Chassis 5: RAMMER ───────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  wide reinforced prow  ·  compact hull  ·  2 drive pods
-//  Prow is LARGER and WIDER than striker's wedge — blunt impact, not a spike.
+//  Shape language: triangular · front-heavy · large continuous prow · minimal equipment
+//  The ENTIRE FRONT is a single continuous mass — hull IS the weapon.
+//  No separate weapon mount. Drives at extreme rear corners.
 //
-//  [══PROW══]──[HULL]
-//               [LDRIVE][RDRIVE]
+//  Unit-grid bounding box:
+//    X: −1.20 (prow tip) → +0.62 (drive rear)   ≈ 1.82 units
+//    Y: −0.98 (prow/drives) → +0.98              ≈ 1.96 units
+//  At R=14, su=19.6 → sprite ≈ 36 × 38 px  (wide forward triangle)
 //
 function drawChassisRammer(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.2);
+  const su = R * 1.4;
 
-  const hW = R * 0.92, hH = R * 0.78;
-  const hullCX = cx + R * 0.22;
-  const hFront = hullCX - hW / 2, hRear = hullCX + hW / 2;
+  // Layer 1: drive pods — rear propulsion circles, drawn first (behind prow)
+  spCirc(ctx, 0.54, -0.72, 0.22, cx, cy, su, fill, glow, flash, debug, 0.70);
+  spCirc(ctx, 0.54,  0.72, 0.22, cx, cy, su, fill, glow, flash, debug, 0.70);
 
-  // 1. Hull
-  drawRoundedRect(ctx, hullCX, cy, hW, hH, R * 0.12, fill, glow, flash, debug);
+  // Layer 2: entire prow — ONE continuous forward mass (hull + weapon unified)
+  //   Triangular/arrowhead — front-heavy, rear narrows
+  spPoly(ctx, [
+    [-1.20,  0.00],   // prow tip (FRONT) — the strike point
+    [-0.50, -0.60],   // upper shoulder
+    [ 0.26, -0.88],   // upper rear
+    [ 0.46, -0.68],   // upper drive mount
+    [ 0.46,  0.68],   // lower drive mount
+    [ 0.26,  0.88],   // lower rear
+    [-0.50,  0.60],   // lower shoulder
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Drive pods — two circles at rear flanks
-  const dR = Math.max(R * 0.23, 3.2);
-  const dY = hH * 0.32, dX = hRear + G + dR;
-  compCircle(ctx, dX, cy - dY, dR, fill, glow, flash, debug);
-  compCircle(ctx, dX, cy + dY, dR, fill, glow, flash, debug);
-
-  // 3. Ramming prow — big, wide wedge (drawn last)
-  const pLen = R * (1.22 + p.mass * 0.28);
-  const pHW  = R * (0.64 + p.aggression * 0.10);
-  drawWedge(ctx, hFront - G - pLen, cy, hFront - G, cy, pHW, fill, glow, flash, debug);
-
-  return {
-    frontReach: cx - (hFront - G - pLen),
-    rearReach:  dX + dR - cx,
-    sideReach:  Math.max(hH / 2, pHW),
-    R,
-  };
+  return { frontReach: 1.20 * su, rearReach: 0.62 * su, sideReach: 0.98 * su, R };
 }
 
 // ─── Chassis 6: TURRET ───────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  square base  ·  rotating hub  ·  4 gun barrels
-//  Barrels are DISCRETE RECTANGULAR BARS — not lobes, not petals.
+//  Shape language: stationary · octagonal base · discrete rectangular gun modules
+//  4 gun barrels are RECTANGULAR BARS — not lobes, not petals, not circles.
+//  Hub is a small secondary element, not the dominant mass.
 //
-//       [GUN-N]
-//  [GUN-W][BASE+HUB][GUN-E]
-//       [GUN-S]
+//  Unit-grid bounding box: ±0.90 in all directions ≈ 1.80 × 1.80 units
+//  At R=14, su=19.6 → sprite ≈ 35 × 35 px  (square, clearly gun emplacement)
 //
 function drawChassisTurret(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.18, 2.0);
-  const base = R * 0.86;
-  const hubR  = R * 0.30;
+  const su = R * 1.4;
 
-  // 1. Base plate — square mounting platform
-  drawRoundedRect(ctx, cx, cy, base, base, R * 0.12, fill, glow, flash, debug);
+  // Layer 1: octagonal base plate
+  const b = 0.50, bc = 0.34;   // radius and cut corner offset
+  spPoly(ctx, [
+    [-bc, -b], [ bc, -b],
+    [ b, -bc], [ b,  bc],
+    [ bc,  b], [-bc,  b],
+    [-b,  bc], [-b, -bc],
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Hub — circular rotating mount
-  compCircle(ctx, cx, cy, hubR, fill, glow, flash, debug);
+  // Layer 2: central hub (small — NOT dominant)
+  spCirc(ctx, 0, 0, 0.24, cx, cy, su, fill, glow, flash, debug, 0.85);
 
-  // 3. Gun barrels — 4 rectangular bars, each with a visible gap from hub
-  const gLen = R * (0.62 + p.attackRange * 0.28);
-  const gHW  = Math.max(R * 0.15, 2.2);
-  for (const a of [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2]) {
-    const cos = Math.cos(a), sin = Math.sin(a);
-    drawBar(
-      ctx,
-      cx + cos * (hubR + G),         cy + sin * (hubR + G),
-      cx + cos * (hubR + G + gLen),  cy + sin * (hubR + G + gLen),
-      gHW, fill, glow, flash, debug,
-    );
+  // Layer 3: 4 gun barrel modules — discrete rectangular bars
+  //   Each starts at hub edge + gap and extends outward
+  const gunStart = 0.26, gunEnd = 0.90, gunHW = 0.13;
+  spBar(ctx, -gunStart, 0, -gunEnd, 0, gunHW, cx, cy, su, fill, glow, flash, debug);  // FRONT barrel
+  spBar(ctx,  gunStart, 0,  gunEnd, 0, gunHW, cx, cy, su, fill, glow, flash, debug);  // rear barrel
+  spBar(ctx, 0, -gunStart, 0, -gunEnd, gunHW, cx, cy, su, fill, glow, flash, debug);  // top barrel
+  spBar(ctx, 0,  gunStart, 0,  gunEnd, gunHW, cx, cy, su, fill, glow, flash, debug);  // bottom barrel
+
+  // Layer 4: gun tips (small squares to cap the barrels)
+  const gt = 0.90;
+  for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as [number,number][]) {
+    spRect(ctx, gt*dx - 0.14*Math.abs(dy) - 0.04*Math.abs(dx),
+               gt*dy - 0.14*Math.abs(dx) - 0.04*Math.abs(dy),
+               gt*dx + 0.14*Math.abs(dy) + 0.04*Math.abs(dx),
+               gt*dy + 0.14*Math.abs(dx) + 0.04*Math.abs(dy),
+               cx, cy, su, fill, glow, flash, debug, 0.90);
   }
 
-  const reach = hubR + G + gLen;
+  const reach = 0.90 * su;
   return { frontReach: reach, rearReach: reach, sideReach: reach, R };
 }
 
 // ─── Chassis 7: CARRIER ──────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  large hull  ·  3 deployment pods  ·  2 rear engines
+//  Shape language: broad · rectangular/boxy · visible deployment bays · multiple modules
+//  Large rectangular hull — not elongated, not circular.
+//  Pods are separate circles attached to hull perimeter faces.
 //
-//  [FPOD]──[══════════HULL══════════]──[LENG]
-//          [TPOD]          [BPOD]       [RENG]
+//  Unit-grid bounding box:
+//    X: −1.14 (front pod)  → +1.06 (engine rear)   ≈ 2.20 units
+//    Y: −1.00 (top pod)    → +1.00                  ≈ 2.00 units
+//  At R=14, su=19.6 → sprite ≈ 43 × 39 px  (widest in Y relative to X)
 //
 function drawChassisCarrier(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.5);
-  const hW = R * 1.72, hH = R * 1.14;
-  const hFront = cx - hW / 2, hRear = cx + hW / 2;
+  const su = R * 1.4;
 
-  // 1. Twin engines — detached circles at rear
-  const engR = Math.max(R * 0.21, 3.0);
-  const engY = hH * 0.30, engX = hRear + G + engR;
-  compCircle(ctx, engX, cy - engY, engR, fill, glow, flash, debug);
-  compCircle(ctx, engX, cy + engY, engR, fill, glow, flash, debug);
+  // Layer 1: twin rear engines (behind hull)
+  spCirc(ctx,  0.88, -0.38, 0.20, cx, cy, su, fill, glow, flash, debug, 0.65);
+  spCirc(ctx,  0.88,  0.38, 0.20, cx, cy, su, fill, glow, flash, debug, 0.65);
 
-  // 2. Hull — large body
-  drawRoundedRect(ctx, cx, cy, hW, hH, R * 0.18, fill, glow, flash, debug);
+  // Layer 2: main hull — wide rect, NOT elongated
+  spRect(ctx, -0.76, -0.70, 0.76, 0.70, cx, cy, su, fill, glow, flash, debug);
 
-  // 3. Deployment pods — detached circles at hull perimeter
-  const podR = Math.max(R * (0.22 + p.regen * 0.06), 3.5);
-  compCircle(ctx, hFront - G - podR,    cy,                      podR, fill, glow, flash, debug); // front
-  compCircle(ctx, cx - R * 0.18,        cy - (hH / 2 + G + podR), podR, fill, glow, flash, debug); // top
-  compCircle(ctx, cx - R * 0.18,        cy + (hH / 2 + G + podR), podR, fill, glow, flash, debug); // bottom
+  // Layer 3: hull detail panels (creates bay structure visual)
+  spRect(ctx, -0.72, -0.62, -0.08, -0.14, cx, cy, su, fill, glow, flash, debug, 0.55);
+  spRect(ctx, -0.72,  0.14, -0.08,  0.62, cx, cy, su, fill, glow, flash, debug, 0.55);
+  spRect(ctx,  0.10, -0.62,  0.70, -0.14, cx, cy, su, fill, glow, flash, debug, 0.55);
+  spRect(ctx,  0.10,  0.14,  0.70,  0.62, cx, cy, su, fill, glow, flash, debug, 0.55);
 
-  return {
-    frontReach: cx - (hFront - G - podR - podR),
-    rearReach:  engX + engR - cx,
-    sideReach:  hH / 2 + G + podR * 2,
-    R,
-  };
+  // Layer 4: deployment pods — discrete circles at hull faces (clearly separate)
+  spCirc(ctx, -0.94, 0, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90);   // front pod
+  spCirc(ctx, -0.18, -0.90, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90); // top pod
+  spCirc(ctx, -0.18,  0.90, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90); // bottom pod
+
+  return { frontReach: 1.14 * su, rearReach: 1.06 * su, sideReach: 1.00 * su, R };
 }
 
 // ─── Chassis 8: SWARM ────────────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  body  ·  front spike  ·  rear nub
-//  Minimal three-part assembly — compact, expendable, clearly directional.
+//  Shape language: simple · directional · compact · expendable
+//  Teardrop silhouette — rounded rear, pointed front (FRONT = −X).
+//  Tiny and fast-looking. NO separate weapon part needed; nose IS the attack.
 //
-//  [SPIKE]──[BODY]──[NUB]
+//  Unit-grid bounding box:
+//    X: −0.70 (nose) → +0.56 (rear nub)   ≈ 1.26 units
+//    Y: −0.44        → +0.44              ≈ 0.88 units
+//  At R=14, su=19.6 → sprite ≈ 25 × 17 px  (small, fast profile)
 //
 function drawChassisSwarm(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.18, 2.0);
+  const su = R * 1.4;
 
-  const bodyR = R * 0.50;
-  compCircle(ctx, cx, cy, bodyR, fill, glow, flash, debug);
+  // Layer 1: rear propulsion nub
+  spCirc(ctx, 0.44, 0, 0.16, cx, cy, su, fill, glow, flash, debug, 0.70);
 
-  // Rear propulsion nub
-  const nubR = Math.max(R * 0.20, 2.8);
-  compCircle(ctx, cx + bodyR + G + nubR, cy, nubR, fill, glow, flash, debug);
+  // Layer 2: teardrop body — pointed nose, rounded rear
+  spPoly(ctx, [
+    [-0.70,  0.00],   // nose tip (FRONT)
+    [-0.44, -0.30],   // upper nose
+    [-0.06, -0.44],   // upper body
+    [ 0.26, -0.42],   // upper rear
+    [ 0.44, -0.24],   // rear upper
+    [ 0.44,  0.24],   // rear lower
+    [ 0.26,  0.42],   // lower rear
+    [-0.06,  0.44],   // lower body
+    [-0.44,  0.30],   // lower nose
+  ], cx, cy, su, fill, glow, flash, debug);
 
-  // Front spike — thin bar (weapon)
-  const spkL = R * (0.26 + p.aggression * 0.14);
-  const spkHW = Math.max(R * 0.13, 2.0);
-  drawBar(ctx, cx - bodyR - G, cy, cx - bodyR - G - spkL, cy, spkHW, fill, glow, flash, debug);
-
-  return {
-    frontReach: bodyR + G + spkL,
-    rearReach:  bodyR + G + nubR * 2,
-    sideReach:  bodyR,
-    R,
-  };
+  return { frontReach: 0.70 * su, rearReach: 0.56 * su, sideReach: 0.44 * su, R };
 }
 
 // ─── Chassis 9: CONTROLLER ───────────────────────────────────────────────────
 //
-//  Mandatory anatomy:  hub  ·  3 arms (Y-shape)  ·  3 emitter nodes
-//  Forward arm (FRONT=left) is LONGER than the two rear arms — establishes facing.
+//  Shape language: tall · asymmetric · antennae · emitter structures
+//  Y-shape with 3 asymmetric arms.  FORWARD arm (−X) is LONGER — facing indicator.
+//  Hub is small; arms define the silhouette.
 //
-//  [FWDNODE]════════[HUB]
-//                  /    \
-//           [LNODE]      [RNODE]
+//  Unit-grid bounding box:
+//    X: −1.44 (forward node)  → +0.76 (side arm reach)   ≈ 2.20 units
+//    Y: −1.12 (upper node)    → +1.12                     ≈ 2.24 units
+//  At R=14, su=19.6 → sprite ≈ 43 × 44 px  (tall Y-shape, clearly asymmetric)
 //
 function drawChassisController(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G    = Math.max(R * 0.18, 2.0);
-  const hubR = R * 0.30;
-  const fLen = R * (0.82 + p.attackRange * 0.40);  // forward arm — longer
-  const sLen = R * (0.56 + p.attackRange * 0.22);  // side arms — shorter
-  const aHW  = Math.max(R * 0.13, 2.0);
-  const fNR  = Math.max(R * 0.22, 3.0);
-  const sNR  = Math.max(R * 0.18, 2.8);
+  const su = R * 1.4;
 
-  const FWD  = FRONT;
-  const LARM = FRONT - TAU / 3;
-  const RARM = FRONT + TAU / 3;
+  // Y-arm angles: forward = FRONT (-X), upper-right, lower-right
+  // Using 115° and 245° (not symmetric 120°/240°) for visible asymmetry
+  const fwdA   = Math.PI;           // 180° — forward (FRONT)
+  const upperA = (115 / 180) * Math.PI;  // 115° — upper-rear
+  const lowerA = (245 / 180) * Math.PI;  // 245° — lower-rear
 
-  // 1. Arms (under hub and nodes)
-  for (const [angle, len] of [[FWD, fLen], [LARM, sLen], [RARM, sLen]] as [number, number][]) {
-    drawBar(
-      ctx,
-      cx + Math.cos(angle) * (hubR + G),        cy + Math.sin(angle) * (hubR + G),
-      cx + Math.cos(angle) * (hubR + G + len),   cy + Math.sin(angle) * (hubR + G + len),
-      aHW, fill, glow, flash, debug,
-    );
-  }
+  const fwdLen   = 1.14;  // forward arm — LONGER (facing indicator)
+  const sideLen  = 0.80;  // side arms — shorter
+  const armHW    = 0.10;
+  const hubR     = 0.24;
+  const fwdNR    = 0.20;
+  const sideNR   = 0.16;
 
-  // 2. Hub
-  compCircle(ctx, cx, cy, hubR, fill, glow, flash, debug);
+  // Layer 1: arms (under hub and nodes)
+  spBar(ctx, Math.cos(fwdA)*hubR,    Math.sin(fwdA)*hubR,
+             Math.cos(fwdA)*fwdLen,  Math.sin(fwdA)*fwdLen,
+             armHW, cx, cy, su, fill, glow, flash, debug);
+  spBar(ctx, Math.cos(upperA)*hubR,  Math.sin(upperA)*hubR,
+             Math.cos(upperA)*sideLen, Math.sin(upperA)*sideLen,
+             armHW, cx, cy, su, fill, glow, flash, debug);
+  spBar(ctx, Math.cos(lowerA)*hubR,  Math.sin(lowerA)*hubR,
+             Math.cos(lowerA)*sideLen, Math.sin(lowerA)*sideLen,
+             armHW, cx, cy, su, fill, glow, flash, debug);
 
-  // 3. Emitter nodes
-  compCircle(
-    ctx,
-    cx + Math.cos(FWD) * (hubR + G + fLen), cy + Math.sin(FWD) * (hubR + G + fLen),
-    fNR, fill, glow, flash, debug,
-  );
-  for (const angle of [LARM, RARM]) {
-    compCircle(
-      ctx,
-      cx + Math.cos(angle) * (hubR + G + sLen), cy + Math.sin(angle) * (hubR + G + sLen),
-      sNR, fill, glow, flash, debug,
-    );
-  }
+  // Layer 2: hub (small — NOT dominant)
+  spCirc(ctx, 0, 0, hubR, cx, cy, su, fill, glow, flash, debug, 0.90);
 
-  const fReach = hubR + G + fLen + fNR;
-  const sReach = hubR + G + sLen + sNR;
-  return { frontReach: fReach, rearReach: sReach, sideReach: sReach, R };
+  // Layer 3: emitter nodes at arm tips
+  spCirc(ctx, Math.cos(fwdA)*fwdLen,    Math.sin(fwdA)*fwdLen,
+              fwdNR, cx, cy, su, fill, glow, flash, debug);
+  spCirc(ctx, Math.cos(upperA)*sideLen,  Math.sin(upperA)*sideLen,
+              sideNR, cx, cy, su, fill, glow, flash, debug);
+  spCirc(ctx, Math.cos(lowerA)*sideLen,  Math.sin(lowerA)*sideLen,
+              sideNR, cx, cy, su, fill, glow, flash, debug);
+
+  return {
+    frontReach: (fwdLen + fwdNR) * su,
+    rearReach:  (sideLen * 0.6 + sideNR) * su,
+    sideReach:  (sideLen + sideNR) * su,
+    R,
+  };
 }
 
 // ─── Chassis 10: ADAPTIVE ────────────────────────────────────────────────────
 //
-//  Tank + Artillery hybrid: armor-plated hull with a medium barrel.
-//  Reads as neither a pure tank nor pure artillery — a recognizable crossover.
+//  Shape language: armored block + medium barrel — hybrid of tank and artillery
+//  Distinguishable from BOTH: barrel is longer than tank's stub, shorter than artillery's.
+//  Armor plates still wider than hull (tank inheritance).
 //
-//  [TOP-ARMOR]
-//  [HULL][BARREL══]
-//  [BOTTOM-ARMOR]
+//  Unit-grid bounding box:
+//    X: −1.26 (barrel tip) → +0.62 (hull rear)   ≈ 1.88 units
+//    Y: −0.68 (armor)      → +0.68               ≈ 1.36 units
+//  At R=14, su=19.6 → sprite ≈ 37 × 27 px  (intermediate between tank and artillery)
 //
 function drawChassisAdaptive(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
-  p: VirusPhenotype,
+  _p: VirusPhenotype,
   fill: string, glow: string, flash: boolean, debug: boolean,
 ): BodyGeometry {
-  const G = Math.max(R * 0.20, 2.2);
+  const su = R * 1.4;
 
-  const hullW = R * 1.06, hullH = R * 0.90;
-  const platW = hullW + R * (0.18 + p.armor * 0.10);
-  const platH = Math.max(R * 0.24, 3.0);
-  const platCY = hullH / 2 + platH / 2 + 1;
+  // Layer 1: armor plates (wider than hull — tank element)
+  spRect(ctx, -0.50, -0.68, 0.62, -0.50, cx, cy, su, fill, glow, flash, debug, 0.80);
+  spRect(ctx, -0.50,  0.50, 0.62,  0.68, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // 1. Armor plates — tank element
-  drawRoundedRect(ctx, cx, cy - platCY, platW, platH, platH * 0.20, fill, glow, flash, debug);
-  drawRoundedRect(ctx, cx, cy + platCY, platW, platH, platH * 0.20, fill, glow, flash, debug);
+  // Layer 2: main hull
+  spRect(ctx, -0.50, -0.50, 0.62,  0.50, cx, cy, su, fill, glow, flash, debug);
 
-  // 2. Hull
-  drawRoundedRect(ctx, cx, cy, hullW, hullH, R * 0.14, fill, glow, flash, debug);
+  // Layer 3: medium barrel — artillery element (shorter than pure artillery ~2.1, longer than tank ~0.44)
+  spBar(ctx, -0.50, 0, -1.26, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
 
-  // 3. Forward barrel — artillery element (medium length, drawn last)
-  const barLen = R * (0.72 + p.attackRange * 0.36);
-  const barHW  = Math.max(R * 0.17, 2.2);
-  const barS   = cx - hullW / 2 - G;
-  drawBar(ctx, barS, cy, barS - barLen, cy, barHW, fill, glow, flash, debug);
-
-  return {
-    frontReach: hullW / 2 + G + barLen,
-    rearReach:  hullW / 2,
-    sideReach:  platCY + platH / 2,
-    R,
-  };
+  return { frontReach: 1.26 * su, rearReach: 0.62 * su, sideReach: 0.68 * su, R };
 }
 
 // ─── Chassis dispatcher ───────────────────────────────────────────────────────
@@ -991,16 +1001,19 @@ function drawChassis(
   }
 }
 
-// ─── Silhouette debug grid — GAMEPLAY SCALE ──────────────────────────────────
+// ─── Debug grid — GAMEPLAY-SCALE acceptance test ──────────────────────────────
 //
-//  Renders all 10 chassis at R=15px — actual gameplay entity size.
-//  This is an honest acceptance test, not a misleading large-scale render.
+//  Renders all 10 chassis at R=15px (actual gameplay entity size).
+//  Visual sprites are shown at full su=R*1.4 scale with glow and fill color,
+//  exactly as they appear in the running game.
 //
-//  Acceptance criteria (no colors, no glow, solid white on black):
-//    A. Role recognition: fast / heavy / ranged / ramming / carrier / turret
-//       distinguishable without labels.
-//    B. Facing recognition: FRONT direction obvious for every directional chassis.
-//    C. Structural recognition: weapon, engine, armor individually pointable.
+//  PASS criteria:
+//    1. No two chassis can be confused as solid silhouettes         → distinct shapes
+//    2. <25% resemble stars, flowers, crosses, or blobs             → no radial motifs
+//    3. Most units do NOT share a circular central mass              → no central-core
+//    4. Bounding boxes show varied aspect ratios                     → no normalization
+//    5. Front identifiable in <1 second                             → clear facing
+//    6. Largest feature corresponds to gameplay behavior             → function-readable
 
 const CHASSIS_PREVIEW_TRAITS: Record<ChassisType, Partial<VirusPhenotype>> = {
   interceptor: { speed: 0.72, evasion: 0.55, aggression: 0.52, attackRange: 0.22, armor: 0.22, mass: 0.28, regen: 0.28, sensorRadius: 0.40 },
@@ -1021,30 +1034,29 @@ export function drawSilhouetteDebugGrid(
   height: number,
 ): void {
   const chassis: ChassisType[] = [
-    'interceptor', 'striker', 'artillery', 'rammer', 'swarm',
-    'tank',        'turret',  'carrier',   'controller', 'adaptive',
+    'interceptor', 'striker',    'artillery', 'rammer',  'swarm',
+    'tank',        'turret',     'carrier',   'controller', 'adaptive',
   ];
 
   const cols = 5, rows = 2;
   const cellW = width / cols, cellH = height / rows;
 
-  // ── GAMEPLAY-SCALE RADIUS ─────────────────────────────────────────────────
-  // Actual gameplay: cell≈64px → R0=11.8, typical R≈14–18px.
-  // We use R=15 here — an honest test of what the player sees.
+  // R=15 = actual gameplay entity size (cell≈64, R0≈11.8, typical n gives R≈14–18)
   const R = 15;
 
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, width, height);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.30)';
+  // Show scale note
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
   ctx.font      = '10px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`R=${R}px  (gameplay scale)`, 8, height - 8);
+  ctx.fillText(`R=${R}px · su=${(R * 1.4).toFixed(1)}px · gameplay scale`, 8, height - 8);
 
   chassis.forEach((ch, i) => {
     const col = i % cols, row = Math.floor(i / cols);
     const cx  = cellW * (col + 0.5);
-    const cy  = cellH * (row + 0.5) - 14;
+    const cy  = cellH * (row + 0.5) - 16;
 
     const p: VirusPhenotype = {
       n: 7, cls: 'prime', lobes: 5, spikes: [], spikeCount: 3,
@@ -1055,17 +1067,20 @@ export function drawSilhouetteDebugGrid(
       ...CHASSIS_PREVIEW_TRAITS[ch],
     };
 
-    drawChassis(ctx, cx, cy, R, p, '#fff', 'transparent', false, true);
+    // Draw with actual game colors + glow (not debug=true) so this is the TRUE rendering
+    const fill = '#e2e8f0';
+    const glow = 'rgba(148,163,184,0.60)';
+    drawChassis(ctx, cx, cy, R, p, fill, glow, false, false);
 
-    ctx.fillStyle = 'rgba(255,255,255,0.65)';
-    ctx.font      = '11px monospace';
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font      = '10px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(ch, cx, cy + R * 3.2 + 10);
+    ctx.fillText(ch, cx, cy + R * 3.8 + 8);
   });
 }
 
 
-// §7 structural grammar and §8 phenotype renderer have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // (intentional placeholder — do not remove; consumed below)

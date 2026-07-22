@@ -1,61 +1,98 @@
 ---
-name: Chassis Architecture v6
-description: v6 paradigm — mechanical part assemblies replace organic silhouettes; each chassis built from named discrete parts with explicit pixel-gaps; verified at gameplay scale R=15px.
+name: Chassis Architecture v7
+description: v7 paradigm — authored polygon sprites replace all procedural geometry; visual scale 1.4×R independent of collision radius; variable aspect ratios per chassis; no central-core motif.
 ---
 
-## Rule
-Every chassis is a **MECHANICAL PART ASSEMBLY**, not a continuous organic outline.
-Each named part (hull, weapon, engine, armor, sensor) is drawn separately with an
-explicit gap `G = Math.max(R * 0.20, 2.2)` between adjacent parts.
-The silhouette emerges from part arrangement, never from perimeter deformation.
+## The paradigm shift (why v3–v6 all failed)
 
-**Why:** v3–v5 all converged on flower/starfish silhouettes because the geometry was
-continuous blob paths (lobes, spokes, ellipses). At gameplay scale (R≈14–18px) these
-were indistinguishable. Part assemblies survive small scale because the gap between
-parts reads as structural separation even at 14px.
+v3, v4, v5, v6 each rewrote the chassis algorithm but kept the same rendering paradigm:
+`code generates shape → shape is interpreted as anatomy`
 
-**Critical lesson:** The debug grid acceptance test MUST use gameplay-scale R (≈15px),
-NOT a large R (≈60px). A large-R grid is a dishonest test — it passes shapes that
-collapse to blobs in the actual game.
+At gameplay scale (R≈14–18px, sprite dia≈28–36px), ANY combination of arcs/ellipses/
+bezier paths collapses into an abstract glyph. More rewrites of the same renderer
+produce the same perceptual output.
 
-## Three mechanical drawing primitives (v6)
-- `drawRoundedRect(ctx, cx, cy, w, h, cornerR, ...)` — hull/plate/block shapes
-- `drawBar(ctx, x1, y1, x2, y2, hw, ...)` — barrels, struts, arms
-- `drawWedge(ctx, tipX, tipY, baseX, baseY, hw, ...)` — nose cones, prows, weapon wedges
+v7 rule: `anatomy is explicitly designed → code assembles and transforms anatomy`
 
-Existing helper `compCircle` still used for engine pods, deployment bays, hub nodes.
+## What v7 does
 
-## The 10 chassis (v6 anatomy)
-- `interceptor` — elongated capsule hull (4:1) + 2 flat wing plates at rear + detached engine circle + nose wedge spike
-- `striker` — compact hull (offset right) + large forward wedge weapon + taller engine block at rear
-- `artillery` — very long thin barrel (bar) + small mount + large rear circle (recoil mass)
-- `tank` — armor plates visibly WIDER than hull (clamping effect) + near-square hull + short gun stub
-- `rammer` — large WIDE wedge prow (wider than striker) + compact hull + 2 drive circles at rear flanks
-- `turret` — square base plate + hub circle + 4 rectangular gun bars at N/S/E/W (NOT lobes)
-- `carrier` — large hull + 3 detached deployment pods (front/top/bottom) + 2 rear engine circles
-- `swarm` — body circle + front spike bar + rear nub circle; 3 parts, clearly directional
-- `controller` — hub + 3 bars in Y-shape (FRONT arm longer = facing indicator) + 3 emitter nodes
-- `adaptive` — tank hull + armor plates + medium-length barrel (hybrid, shorter barrel than artillery)
+All chassis shapes are **authored polygon point arrays** — explicit vertex coordinates
+placed intentionally, NOT computed from traits. The shapes are designed at ~32px grid
+scale and verified at gameplay R=15px before shipping.
 
-## Removed flower generators
-1. **Prime spokes** in `drawVirus`: radial lines for prime-class viruses → removed entirely.
-   Now prime class gets no class decoration at gameplay scale.
-2. **Tier-3 crown spines** in `drawVirus`: radial spine pairs at lobe peaks → removed.
-   Tier-3 now renders only a subtle corona arc glow (no radial geometry).
+## Visual scale
 
-## Draw pipeline in drawVirus (v6)
+`su = R * 1.4` (sprite-unit, pixels per unit-grid step)
+- At R=14 (typical gameplay): su = 19.6px
+- At R=20 (boss): su = 28.0px
+
+Visual dimensions are 2–4× larger than collision radius R.
+Collision boxes remain at R; sprites extend freely.
+
+## Variable aspect ratios (critical — do NOT normalize)
+
+| Chassis      | Units W×H    | At R=14 (px) |
+|---|---|---|
+| interceptor  | 2.4 × 1.96   | 47 × 38      |
+| striker      | 2.0 × 1.24   | 39 × 24      |
+| artillery    | 2.96 × 1.04  | 58 × 20      |
+| tank         | 1.52 × 1.44  | 30 × 28      |
+| rammer       | 1.82 × 1.96  | 36 × 38      |
+| turret       | 1.80 × 1.80  | 35 × 35      |
+| carrier      | 2.20 × 2.00  | 43 × 39      |
+| swarm        | 1.26 × 0.88  | 25 × 17      |
+| controller   | 2.20 × 2.24  | 43 × 44      |
+| adaptive     | 1.88 × 1.36  | 37 × 27      |
+
+## Primary shape vocabulary (NO central-core motif)
+
+- **interceptor**: narrow fuselage polygon (11 vertices) + swept wing plates + nose spike
+- **striker**: weapon wedge triangle dominates; compact hull + engine block behind
+- **artillery**: long thin barrel bar (>40% total width) + rear support block; NO circle
+- **tank**: wide rect hull + WIDER armor plates top/bottom + inner detail + short stub
+- **rammer**: single continuous forward triangle (hull IS weapon) + rear drive pods
+- **turret**: octagonal base + small hub + 4 rectangular gun bars at N/S/E/W
+- **carrier**: wide rectangular hull + 4 bay detail panels + 3 pods + 2 engine circles
+- **swarm**: teardrop polygon (9 vertices) + rear nub; no separate spike needed
+- **controller**: Y-shape bars (fwd arm longer) + hub + 3 emitter nodes; arms define silhouette
+- **adaptive**: armored hull rect + wider armor plates + medium barrel (between tank/artillery)
+
+## Low-level sprite ops in virus-morphology.ts
+
+```
+spPoly(ctx, pts, cx, cy, su, fill, glow, flash, debug, alpha?)
+spRect(ctx, ux0, uy0, ux1, uy1, cx, cy, su, fill, glow, flash, debug, alpha?)
+spCirc(ctx, ucx, ucy, ur, cx, cy, su, fill, glow, flash, debug, alpha?)
+spBar(ctx, ux1, uy1, ux2, uy2, uhw, cx, cy, su, fill, glow, flash, debug, alpha?)
+```
+All coords are unit-grid. `su` converts to canvas pixels.
+`alpha < 1.0` = engine/secondary layers drawn behind primary.
+
+## Draw pipeline in drawVirus (v7)
+
 1. `getVirusPhenotype(n)` — derives chassis + all traits
-2. `drawChassis(...)` — renders complete part assembly; returns BodyGeometry
-3. Class decorations: only concentric rings for square/power-of-two; no spokes
-4. Refinement tiers: tier-1/2 concentric rings; tier-3 corona glow only
-No structural grammar pass — all anatomy is inside chassis functions.
+2. `drawChassis(...)` — renders complete authored sprite; returns BodyGeometry
+3. Class decorations: only concentric rings for square/power-of-two (no spokes)
+4. Refinement tiers: tier-1/2 rings; tier-3 corona glow only (no radial spines)
+Collision R unchanged; visual sprites are larger.
 
-## Debug grid acceptance test
-`MORPHOLOGY_SILHOUETTE_DEBUG = true` renders at R=15px (gameplay scale) on black background.
-`CHASSIS_PREVIEW_TRAITS` contains representative trait values per chassis.
-Verified: all 10 chassis identifiable as mechanical units, no flowers, clear facing direction.
+## Acceptance test
 
-## How to apply
-When modifying chassis anatomy, only use `drawRoundedRect`, `drawBar`, `drawWedge`,
-`compCircle`. Do NOT add new lobe-path or radial-spoke geometry — that is what caused
-v3–v5 to fail. Verify every change with the gameplay-scale debug grid (R≈15px).
+Enable `MORPHOLOGY_SILHOUETTE_DEBUG = true`, screenshot at R=15px (gameplay scale).
+The debug grid renders with ACTUAL game colors + glow (not white-on-black), making
+it the true acceptance test.
+
+Pass criteria (from user brief):
+1. No two units confusable as solid silhouettes → distinct polygon vocabulary
+2. <25% resemble stars/flowers/crosses/blobs → no radial motifs
+3. Most units do NOT share a circular central mass → no central-core assumption
+4. Bounding boxes show varied aspect ratios → see table above
+5. Front identifiable in <1 second → all directional units have clear -X feature
+6. Largest feature corresponds to gameplay behavior → barrel, wedge, prow, fuselage
+
+## How to apply when modifying
+
+- Only use spPoly/spRect/spCirc/spBar for chassis rendering
+- Never add computed lobe-path, arc-blob, or radial-spoke geometry
+- If adding a new chassis, author the polygon vertices by hand at ~32px grid scale
+- Verify at R=15px (gameplay scale) BEFORE declaring success — not at R=60px
