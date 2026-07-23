@@ -198,24 +198,24 @@ export default function Game() {
   const gemMoveMirrorRef   = useRef(false);
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
-  // Shoot triggers a full animation cycle through all frames 1→(N-1) then back to 0 (idle).
-  // Any new shot while animating immediately restarts from frame 1.
+  // rocketFrameRef: -1 = idle (show gifFramesRef[0]), 0–N = attack frame index into gifAttackFramesRef.
+  // Any new shot while animating immediately restarts from attack frame 0.
   const rocketShootFlash = useCallback(() => {
-    const frames = gifFramesRef.current;
-    if (frames.length < 2) return;
+    const attackFrames = gifAttackFramesRef.current;
+    if (attackFrames.length < 1) return;
     if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
     const FRAME_MS = 80; // ms per attack frame
     const playFrom = (idx: number) => {
       rocketFrameRef.current = idx;
-      if (idx < frames.length - 1) {
+      if (idx < attackFrames.length - 1) {
         rocketAnimTimer.current = setTimeout(() => playFrom(idx + 1), FRAME_MS);
       } else {
         rocketAnimTimer.current = setTimeout(() => {
-          rocketFrameRef.current = 0;                    // idle
+          rocketFrameRef.current = -1;                   // back to idle
         }, FRAME_MS);
       }
     };
-    playFrom(1);
+    playFrom(0);
   }, []);
 
   // Gem move: plays all move frames once then returns to idle. Any new move restarts.
@@ -248,16 +248,24 @@ export default function Game() {
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
     if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem') return;
+    const base = import.meta.env.BASE_URL;
+    const loadBmp = (url: string): Promise<ImageBitmap> =>
+      new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload  = () => createImageBitmap(img).then(resolve).catch(reject);
+        img.onerror = () => reject(new Error(`Failed to load ${url}`));
+        img.src = url;
+      });
+
+    // Load rocket attack frames into gifAttackFramesRef
+    if (playerSkin === 'rocket') {
+      Promise.all(Array.from({ length: 13 }, (_, i) => loadBmp(`${base}skins/rocket_attack_frame_${i}.png`)))
+        .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
+        .catch(err => console.error('[rocket attack] frame load error:', err));
+    }
+
     // Also load gem attack + move frames whenever gem is selected
     if (playerSkin === 'gem') {
-      const base = import.meta.env.BASE_URL;
-      const loadBmp = (url: string): Promise<ImageBitmap> =>
-        new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload  = () => createImageBitmap(img).then(resolve).catch(reject);
-          img.onerror = () => reject(new Error(`Failed to load ${url}`));
-          img.src = url;
-        });
       Promise.all([0,1,2].map(i => loadBmp(`${base}skins/gem_attack_frame_${i}.png`)))
         .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
         .catch(err => console.error('[gem attack] frame load error:', err));
@@ -280,7 +288,7 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         const urls = playerSkin === 'rocket'
-          ? Array.from({ length: 14 }, (_, i) => `${base}skins/rocket_frame_${i}.png?v=2`)
+          ? [`${base}skins/rocket_frame_0.png`]
           : playerSkin === 'dots'
           ? [
               `${base}skins/dots_frame_0.png`,
@@ -293,7 +301,7 @@ export default function Game() {
         const bitmaps = await Promise.all(urls.map(loadBitmap));
         if (cancelled) { bitmaps.forEach(b => b.close()); return; }
         gifFramesRef.current = bitmaps;
-        rocketFrameRef.current = 0;
+        rocketFrameRef.current = -1; // -1 = idle
       } catch (err) {
         console.error(`[${playerSkin} skin] frame load error:`, err);
       }
@@ -310,7 +318,7 @@ export default function Game() {
       gifAttackFramesRef.current = [];
       gifMoveFramesRef.current.forEach(b => b.close());
       gifMoveFramesRef.current = [];
-      rocketFrameRef.current = 0;
+      rocketFrameRef.current = -1;
       gemAttackFrameRef.current = -1;
       gemMoveStartRef.current = -1;
     };
@@ -1125,12 +1133,16 @@ export default function Game() {
             // Dots: auto-cycle walk animation via performance.now()
             // Gem idle: auto-cycle; Gem attack: use gifAttackFramesRef + gemAttackFrameRef
             let bitmap: ImageBitmap;
-            if (playerSkinRef.current === 'gem' && gemAttackFrameRef.current >= 0) {
-              // Attack takes highest priority
+            if (playerSkinRef.current === 'rocket' && rocketFrameRef.current >= 0) {
+              // Rocket attack — cycle through gifAttackFramesRef
+              const aFrames = gifAttackFramesRef.current;
+              bitmap = aFrames[Math.min(rocketFrameRef.current, aFrames.length - 1)];
+            } else if (playerSkinRef.current === 'gem' && gemAttackFrameRef.current >= 0) {
+              // Gem attack takes highest priority
               const aFrames = gifAttackFramesRef.current;
               bitmap = aFrames[gemAttackFrameRef.current % Math.max(1, aFrames.length)];
             } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
-              // Movement second priority
+              // Gem movement second priority
               const mFrames = gifMoveFramesRef.current;
               const elapsed = performance.now() - gemMoveStartRef.current;
               const mIdx = Math.min(Math.floor(elapsed / GEM_MOVE_FRAME_MS), mFrames.length - 1);
@@ -1139,7 +1151,8 @@ export default function Game() {
               // Idle auto-cycle
               bitmap = frames[Math.floor(performance.now() / 120) % frames.length];
             } else {
-              bitmap = frames[rocketFrameRef.current % frames.length];
+              // Rocket idle — frames[0] is the only idle frame
+              bitmap = frames[0];
             }
             if (sCanvas.width !== sz || sCanvas.height !== sz) {
               sCanvas.width  = sz;
