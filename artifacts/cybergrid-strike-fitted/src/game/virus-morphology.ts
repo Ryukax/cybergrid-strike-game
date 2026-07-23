@@ -696,21 +696,22 @@ function drawChassisTank(
   spRect(ctx, -0.55, -0.86, 1.35, -0.62, cx, cy, su, fill, glow, flash, debug);
   spRect(ctx, -0.55,  0.62, 1.35,  0.86, cx, cy, su, fill, glow, flash, debug);
 
-  // Main armored hull body
+  // Main armored hull body — pure box, no protrusion (barrel removed)
   spRect(ctx, -0.55, -0.62, 1.35, 0.62, cx, cy, su, fill, glow, flash, debug);
 
   // Inner hull layer (creates visual depth/layers)
   spRect(ctx, -0.38, -0.44, 1.18, 0.44, cx, cy, su, fill, glow, flash, debug, 0.50);
 
-  // Short gun stub — clearly smaller than artillery barrel
-  spRect(ctx, -0.55, -0.18, -0.92, 0.18, cx, cy, su, fill, glow, flash, debug);
+  // No barrel — tank is pure armored box; offensive is adaptive/artillery's domain.
 
-  return { frontReach: 0.92 * su, rearReach: 1.35 * su, sideReach: 0.86 * su, R };
+  return { frontReach: 0.55 * su, rearReach: 1.35 * su, sideReach: 0.86 * su, R };
 }
 
 // ─── RAMMER ──────────────────────────────────────────────────────────────────
-//  Triangle IS the weapon — prow occupies 66% of mass.
-//  No separate weapon mount. No circles.
+//  Wide flat-faced battering slab — the FRONT FACE is the weapon, not a tip.
+//  Distinguished from striker (pointed triangle) by its flat front edge.
+//  The whole body is a wide trapezoid: wide front, tapers to rear.
+//  No circles.
 function drawChassisRammer(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -719,17 +720,20 @@ function drawChassisRammer(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // REAR zone: compact engine block
-  spRect(ctx, 0.54, -0.48, 1.19, 0.48, cx, cy, su, fill, glow, flash, debug, 0.80);
+  // REAR zone: narrow engine block
+  spRect(ctx, 0.58, -0.34, 1.14, 0.34, cx, cy, su, fill, glow, flash, debug, 0.75);
 
-  // FRONT zone: massive prow triangle — hull IS the weapon
+  // FRONT zone: wide flat-faced slab — front edge straight, NOT pointed
+  //   Upper-front and lower-front corners are square (flat face).
+  //   Sides taper inward toward the rear — wedge from the sides only.
   spPoly(ctx, [
-    [-1.19,  0.00],  // prow tip (strike point, FRONT)
-    [ 0.54, -0.71],  // upper rear corner
-    [ 0.54,  0.71],  // lower rear corner
+    [-1.14, -0.82],  // upper front corner (FRONT face is a flat vertical edge)
+    [-1.14,  0.82],  // lower front corner
+    [ 0.58,  0.58],  // lower rear (tapers in — wide front, narrow rear)
+    [ 0.58, -0.58],  // upper rear
   ], cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 1.19 * su, rearReach: 1.19 * su, sideReach: 0.71 * su, R };
+  return { frontReach: 1.14 * su, rearReach: 1.14 * su, sideReach: 0.82 * su, R };
 }
 
 // ─── TURRET ──────────────────────────────────────────────────────────────────
@@ -846,8 +850,10 @@ function drawChassisController(
 }
 
 // ─── ADAPTIVE ────────────────────────────────────────────────────────────────
-//  Tank-style layered armor + medium barrel (longer than tank stub, shorter than artillery).
-//  Clearly intermediate between tank (square) and artillery (long).
+//  Layered armor hull + TWIN BARRELS — the double barrel silhouette is unique
+//  among all chassis (no other has two parallel barrels).
+//  Distinguishes from: tank (no barrel), turret (single wide barrel),
+//                       artillery (single very long barrel + block).
 //  No circles.
 function drawChassisAdaptive(
   ctx: CanvasRenderingContext2D,
@@ -867,10 +873,12 @@ function drawChassisAdaptive(
   // Inner hull detail
   spRect(ctx, -0.35, -0.36, 0.95, 0.36, cx, cy, su, fill, glow, flash, debug, 0.50);
 
-  // Medium barrel — 0.95u forward (between tank's 0.37u and artillery's 1.73u)
-  spBar(ctx, -0.50, 0, -1.45, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
+  // TWIN BARRELS — two parallel bars, offset above and below center.
+  // The double-barrel silhouette is the defining feature of this chassis.
+  spBar(ctx, -0.50, -0.26, -1.38, -0.26, 0.12, cx, cy, su, fill, glow, flash, debug);
+  spBar(ctx, -0.50,  0.26, -1.38,  0.26, 0.12, cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 1.45 * su, rearReach: 1.10 * su, sideReach: 0.70 * su, R };
+  return { frontReach: 1.38 * su, rearReach: 1.10 * su, sideReach: 0.70 * su, R };
 }
 
 // ─── Chassis dispatcher ───────────────────────────────────────────────────────
@@ -913,8 +921,9 @@ export function drawPrimaryDebugGrid(
   height: number,
 ): void {
   const CHASSIS_LIST: ChassisType[] = [
-    'interceptor', 'striker',    'artillery', 'rammer',  'swarm',
-    'tank',        'turret',     'carrier',   'controller', 'adaptive',
+    'interceptor', 'striker',    'artillery', 'rammer',    'swarm',
+    'tank',        'turret',     'controller','adaptive',  'carrier',
+    // carrier moved to col-4 row-1 (far right) to avoid d-pad UI overlap
   ];
 
   const cols = 5, rows = 2;
@@ -1061,17 +1070,17 @@ export function drawPrimaryDebugGrid(
         rect(-0.55, 0.62, 1.35, 0.86, cx,cy, false,1.0,fill,glow);
         // Secondary: inner hull detail layer
         rect(-0.38,-0.44, 1.18, 0.44, cx,cy, false,0.50,fill,glow);
-        // Secondary: short gun stub
-        rect(-0.55,-0.18, -0.92, 0.18, cx,cy, false,1.0,fill,glow);
+        // No gun stub — tank is pure armored box
         // PRIMARY: main armored hull body
         rect(-0.55,-0.62, 1.35, 0.62, cx,cy, true,1.0,fill,glow);
         break;
 
       case 'rammer':
-        // Secondary: rear engine block
-        rect(0.54,-0.48, 1.19, 0.48, cx,cy, false,0.80,fill,glow);
-        // PRIMARY: massive prow triangle
-        poly([[-1.19,0.00],[0.54,-0.71],[0.54,0.71]], cx,cy, true,1.0,fill,glow);
+        // Secondary: narrow rear engine block
+        rect(0.58,-0.34, 1.14,0.34, cx,cy, false,0.75,fill,glow);
+        // PRIMARY: wide flat-faced battering slab (front edge is flat, NOT a point)
+        poly([[-1.14,-0.82],[-1.14,0.82],[0.58,0.58],[0.58,-0.58]],
+             cx,cy, true,1.0,fill,glow);
         break;
 
       case 'turret':
@@ -1120,8 +1129,9 @@ export function drawPrimaryDebugGrid(
         rect(-0.50,-0.70, 1.10,-0.52, cx,cy, false,1.0,fill,glow);
         rect(-0.50, 0.52, 1.10, 0.70, cx,cy, false,1.0,fill,glow);
         rect(-0.35,-0.36, 0.95, 0.36, cx,cy, false,0.50,fill,glow);
-        // Secondary: medium barrel
-        bar(-0.50,0, -1.45,0, 0.16, cx,cy, false,1.0,fill,glow);
+        // Secondary: twin barrels (two parallel bars — unique silhouette)
+        bar(-0.50,-0.26, -1.38,-0.26, 0.12, cx,cy, false,1.0,fill,glow);
+        bar(-0.50, 0.26, -1.38, 0.26, 0.12, cx,cy, false,1.0,fill,glow);
         // PRIMARY: main hull body
         rect(-0.50,-0.52, 1.10, 0.52, cx,cy, true,1.0,fill,glow);
         break;
