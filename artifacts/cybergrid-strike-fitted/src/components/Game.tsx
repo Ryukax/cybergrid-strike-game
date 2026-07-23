@@ -107,7 +107,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     bullets: [],
     enemies: [],
     particles: [],
-    autoBuster: true,
+    autoBuster: false,
     shieldCharges: 0,
     pierceShots: 0,
     abilityCooldowns: Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0])),
