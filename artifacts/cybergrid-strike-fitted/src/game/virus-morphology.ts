@@ -43,6 +43,23 @@ const DOWN  =  Math.PI / 2;
  */
 export const MORPHOLOGY_SILHOUETTE_DEBUG = false;
 
+/**
+ * Primary-geometry-only debug mode.
+ * When true, renders a 2×5 grid showing ONLY the single dominant shape of each
+ * chassis — no secondary layers, no glow, no shadow, no stroke, no alpha,
+ * no shared morphology, flat white fill only.
+ * Use this to verify the bare silhouettes before re-enabling rendering layers.
+ *
+ * Layer re-enable sequence (controlled by MORPHOLOGY_LAYER_STAGE):
+ *   0 = primary shape only (the gate)
+ *   1 = + secondary shapes (fins, mount, cheeks, bays, arm…)
+ *   2 = + stroke outline (the 1.2px white border)
+ *   3 = + shadow glow (shadowBlur=10)
+ *   4 = full rendering (colors, alpha variation)
+ */
+export const MORPHOLOGY_PRIMARY_DEBUG = false;
+export const MORPHOLOGY_LAYER_STAGE: number = 0;  // 0–4
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 1  Types
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -877,6 +894,247 @@ function drawChassis(
     case 'controller':  return drawChassisController  (ctx, cx, cy, R, p, fill, glow, flash, debug);
     default:            return drawChassisAdaptive    (ctx, cx, cy, R, p, fill, glow, flash, debug);
   }
+}
+
+// ─── Primary-only debug grid ──────────────────────────────────────────────────
+//
+//  Draws the ONE defining shape per chassis.  No secondary shapes, no glow,
+//  no stroke, no shadow, no alpha variation.  Pure flat white fill only.
+//
+//  When MORPHOLOGY_LAYER_STAGE > 0, layers are added back incrementally:
+//    stage 1: secondary shapes (fins, mounts, cheeks, bays, arm)
+//    stage 2: stage 1 + 1.2px white stroke outline
+//    stage 3: stage 2 + shadowBlur=10 glow
+//    stage 4: full rendering (game colors + alpha variation)
+
+export function drawPrimaryDebugGrid(
+  ctx:   CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  const CHASSIS_LIST: ChassisType[] = [
+    'interceptor', 'striker',    'artillery', 'rammer',  'swarm',
+    'tank',        'turret',     'carrier',   'controller', 'adaptive',
+  ];
+
+  const cols = 5, rows = 2;
+  const cellW = width / cols, cellH = height / rows;
+  const R  = 15;
+  const su = R * 1.4;  // ≈21px at gameplay scale
+
+  // ── helpers that respect the current stage ─────────────────────────────────
+  const stage = MORPHOLOGY_LAYER_STAGE;
+
+  // Fills the currently open path according to the current stage.
+  // stage 0-1: flat white, no stroke, no shadow
+  // stage 2:   flat white + stroke
+  // stage 3:   flat white + stroke + shadowBlur glow
+  // stage 4:   use provided fill/glow
+  function applyStage(
+    fill = '#e2e8f0', glow = 'rgba(148,163,184,0.6)',
+  ): void {
+    if (stage <= 2) {
+      ctx.fillStyle = '#ffffff';
+    } else if (stage === 3) {
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(255,255,255,0.8)';
+      ctx.shadowBlur  = 10;
+    } else {
+      ctx.fillStyle = fill;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur  = 10;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    if (stage >= 2) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.60)';
+      ctx.lineWidth   = 1.2;
+      ctx.stroke();
+    }
+  }
+
+  // Draw a polygon from unit-grid coords; only filled if showSecondary || isPrimary.
+  function poly(
+    pts: readonly Pt[], cx: number, cy: number,
+    isPrimary: boolean, alpha = 1.0,
+    fill?: string, glow?: string,
+  ): void {
+    if (!isPrimary && stage < 1) return;
+    const prev = ctx.globalAlpha;
+    if (!isPrimary && stage < 4) ctx.globalAlpha = prev * Math.min(alpha, 0.70);
+    ctx.beginPath();
+    ctx.moveTo(cx + pts[0][0] * su, cy + pts[0][1] * su);
+    for (let i = 1; i < pts.length; i++)
+      ctx.lineTo(cx + pts[i][0] * su, cy + pts[i][1] * su);
+    ctx.closePath();
+    applyStage(fill, glow);
+    ctx.globalAlpha = prev;
+  }
+
+  // Draw a rect from unit-grid coords.
+  function rect(
+    ux0: number, uy0: number, ux1: number, uy1: number,
+    cx: number, cy: number,
+    isPrimary: boolean, alpha = 1.0,
+    fill?: string, glow?: string,
+  ): void {
+    poly([[ux0, uy0], [ux1, uy0], [ux1, uy1], [ux0, uy1]], cx, cy, isPrimary, alpha, fill, glow);
+  }
+
+  // Draw a bar (axis-aligned rect) from unit-grid coords.
+  function bar(
+    ux1: number, uy1: number, ux2: number, uy2: number, uhw: number,
+    cx: number, cy: number,
+    isPrimary: boolean, alpha = 1.0,
+    fill?: string, glow?: string,
+  ): void {
+    const dx = ux2 - ux1, dy = uy2 - uy1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.01) return;
+    const px = (-dy / len) * uhw, py = (dx / len) * uhw;
+    poly(
+      [[ux1 + px, uy1 + py], [ux2 + px, uy2 + py],
+       [ux2 - px, uy2 - py], [ux1 - px, uy1 - py]],
+      cx, cy, isPrimary, alpha, fill, glow,
+    );
+  }
+
+  // ── Background ──────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, width, height);
+
+  // ── Stage label ─────────────────────────────────────────────────────────────
+  const stageLabel = [
+    'STAGE 0: primary shape only',
+    'STAGE 1: + secondary shapes',
+    'STAGE 2: + stroke outline',
+    'STAGE 3: + shadow glow',
+    'STAGE 4: full rendering',
+  ][stage] ?? `STAGE ${stage}`;
+  ctx.fillStyle = 'rgba(255,255,255,0.38)';
+  ctx.font      = '11px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(stageLabel, 8, height - 8);
+  ctx.fillText(`R=${R}px · su=${su.toFixed(1)}px · gameplay scale`, 8, height - 22);
+
+  // ── Per-chassis rendering ───────────────────────────────────────────────────
+  CHASSIS_LIST.forEach((ch, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const cx  = cellW * (col + 0.5);
+    const cy  = cellH * (row + 0.5) - 12;
+
+    const fill = '#e2e8f0';
+    const glow = 'rgba(148,163,184,0.60)';
+
+    switch (ch) {
+
+      case 'interceptor':
+        // Secondary: swept fins (both angle rearward)
+        poly([[ 0.30,-0.38],[ 0.90,-0.38],[1.43,-0.80],[0.20,-0.80]], cx,cy, false,0.80,fill,glow);
+        poly([[ 0.30, 0.38],[ 0.90, 0.38],[1.43, 0.80],[0.20, 0.80]], cx,cy, false,0.80,fill,glow);
+        // PRIMARY: tapered hexagon fuselage
+        poly([[-1.43,0.00],[-1.10,-0.22],[-0.30,-0.38],[0.90,-0.38],
+              [1.43,-0.22],[1.43,0.22],[0.90,0.38],[-0.30,0.38],[-1.10,0.22]],
+             cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'striker':
+        // Secondary: rear hull block
+        rect(0.50,-0.50, 1.05,0.50, cx,cy, false,0.85,fill,glow);
+        // PRIMARY: forward wedge triangle
+        poly([[-1.05,0.00],[0.50,-0.62],[0.50,0.62]], cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'artillery':
+        // Secondary: rear recoil block + barrel mount
+        rect(0.40,-0.43, 1.60, 0.43, cx,cy, false,1.0,fill,glow);
+        rect(-0.22,-0.26, 0.40, 0.26, cx,cy, false,0.80,fill,glow);
+        // Secondary: barrel tip cap
+        rect(-1.73,-0.22, -1.52, 0.22, cx,cy, false,1.0,fill,glow);
+        // PRIMARY: barrel bar
+        bar(-0.22,0, -1.73,0, 0.13, cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'tank':
+        // Secondary: outer armor plates (top + bottom)
+        rect(-0.55,-0.86, 1.35,-0.62, cx,cy, false,1.0,fill,glow);
+        rect(-0.55, 0.62, 1.35, 0.86, cx,cy, false,1.0,fill,glow);
+        // Secondary: inner hull detail layer
+        rect(-0.38,-0.44, 1.18, 0.44, cx,cy, false,0.50,fill,glow);
+        // Secondary: short gun stub
+        rect(-0.55,-0.18, -0.92, 0.18, cx,cy, false,1.0,fill,glow);
+        // PRIMARY: main armored hull body
+        rect(-0.55,-0.62, 1.35, 0.62, cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'rammer':
+        // Secondary: rear engine block
+        rect(0.54,-0.48, 1.19, 0.48, cx,cy, false,0.80,fill,glow);
+        // PRIMARY: massive prow triangle
+        poly([[-1.19,0.00],[0.54,-0.71],[0.54,0.71]], cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'turret':
+        // Secondary: side armor cheeks
+        rect(-0.20,-0.71, 0.32,-0.50, cx,cy, false,0.85,fill,glow);
+        rect(-0.20, 0.50, 0.32, 0.71, cx,cy, false,0.85,fill,glow);
+        // Secondary: directional barrel
+        bar(-0.20,0, -1.51,0, 0.24, cx,cy, false,1.0,fill,glow);
+        // PRIMARY: main armored base block
+        rect(-0.20,-0.71, 1.51, 0.71, cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'carrier':
+        // Secondary: payload bay panels (4)
+        rect(-1.30,-0.72, -0.55,-0.08, cx,cy, false,0.45,fill,glow);
+        rect(-1.30, 0.08, -0.55, 0.72, cx,cy, false,0.45,fill,glow);
+        rect(-0.38,-0.72,  0.38,-0.08, cx,cy, false,0.45,fill,glow);
+        rect(-0.38, 0.08,  0.38, 0.72, cx,cy, false,0.45,fill,glow);
+        // Secondary: front armor + rear engine
+        rect(-1.48,-0.90, -1.18, 0.90, cx,cy, false,0.80,fill,glow);
+        rect( 1.18,-0.68,  1.48, 0.68, cx,cy, false,0.80,fill,glow);
+        // PRIMARY: wide flat hull rect
+        rect(-1.48,-0.90, 1.48, 0.90, cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'swarm':
+        // PRIMARY (only shape): dart arrowhead
+        poly([[-0.52,0.00],[-0.24,-0.24],[0.52,-0.24],[0.52,0.24],[-0.24,0.24]],
+             cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'controller':
+        // Secondary: mast crossbar
+        rect(-0.60,-1.06, 0.60,-0.88, cx,cy, false,0.80,fill,glow);
+        // Secondary: forward arm + arm tip
+        rect(-1.62, 0.16, -0.81, 0.56, cx,cy, false,0.90,fill,glow);
+        rect(-1.62, 0.06, -1.40, 0.66, cx,cy, false,1.0,fill,glow);
+        // PRIMARY: vertical mast rect (defines "tall" character)
+        rect(-0.22,-1.24, 0.22, 0.00, cx,cy, true,1.0,fill,glow);
+        // PRIMARY: horizontal body block (drawn with primary flag so both show at stage 0)
+        rect(-0.81, 0.00, 0.81, 1.24, cx,cy, true,1.0,fill,glow);
+        break;
+
+      case 'adaptive':
+        // Secondary: outer armor plates + inner hull detail
+        rect(-0.50,-0.70, 1.10,-0.52, cx,cy, false,1.0,fill,glow);
+        rect(-0.50, 0.52, 1.10, 0.70, cx,cy, false,1.0,fill,glow);
+        rect(-0.35,-0.36, 0.95, 0.36, cx,cy, false,0.50,fill,glow);
+        // Secondary: medium barrel
+        bar(-0.50,0, -1.45,0, 0.16, cx,cy, false,1.0,fill,glow);
+        // PRIMARY: main hull body
+        rect(-0.50,-0.52, 1.10, 0.52, cx,cy, true,1.0,fill,glow);
+        break;
+    }
+
+    // Chassis label
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.60)';
+    ctx.font      = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(ch, cx, cy + R * 3.8 + 8);
+    ctx.restore();
+  });
 }
 
 // ─── Debug grid — GAMEPLAY-SCALE acceptance test ──────────────────────────────
