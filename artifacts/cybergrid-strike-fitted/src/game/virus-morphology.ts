@@ -550,18 +550,36 @@ function spBar(
     cx, cy, su, fill, glow, flash, debug, alpha);
 }
 
-// ─── Chassis 1: INTERCEPTOR ──────────────────────────────────────────────────
+// ─── v9 Chassis Artwork ───────────────────────────────────────────────────────
 //
-//  Shape language: thin · angular · swept · rear-heavy propulsion · sharp axis
-//  NO central circle.  The FUSELAGE POLYGON is the primary shape.
+//  Design rules (v9):
+//  • Hard angular geometry ONLY: spPoly, spRect, spBar. No spCirc.
+//  • No arc(), ellipse(), bezierCurveTo(), quadraticCurveTo() anywhere.
+//  • No central circle / ring / orb on any chassis.
+//  • No radial / petal / evenly-spaced appendage distribution.
+//  • Extreme aspect ratios — most chassis width/height ≥ 1.8 or height/width ≥ 1.8.
+//  • Front / Middle / Rear zones — ≥60% mass along dominant axis.
+//  • Dominant feature = gameplay function (barrel, prow, mast, bays).
 //
-//  Layer order:  engine nozzle → fuselage → wings → nose spike
+//  FRONT = −X (left).  su = R * 1.4  (pixels per unit-grid step, ≈21px at R=15).
 //
-//  Unit-grid bounding box at design scale:
-//    X: −1.52 (nose spike tip) → +0.88 (engine rear)   ≈ 2.40 units
-//    Y: −0.98 (wing tip)       → +0.98                  ≈ 1.96 units
-//  At R=14, su=19.6 → sprite ≈ 47 × 38 px
-//
+//  Target bounding boxes:
+//    interceptor  ~60×20 px  (3:1 elongated torpedo)
+//    striker      ~44×26 px  (wedge-dominant)
+//    artillery    ~70×18 px  (barrel = 54% of width)
+//    tank         ~40×36 px  (near-square box — most square of all)
+//    rammer       ~50×30 px  (triangle, front-heavy)
+//    turret       ~36×30 px  body + single directional barrel
+//    carrier      ~62×38 px  (wide flat hull + visible bays)
+//    swarm        ~22×10 px  (tiny dart — smallest by far)
+//    controller   ~34×52 px  (TALL — antenna mast dominates height)
+//    adaptive     ~48×28 px  (barrel + armor hybrid)
+
+// ─── INTERCEPTOR ─────────────────────────────────────────────────────────────
+//  Long torpedo fuselage + swept delta fins.
+//  Front: sharp nose triangle. Middle: narrow tapered body. Rear: delta fins.
+//  Fins both sweep rearward (NOT symmetric petal lobes).
+//  No circles. ~2.86 × 0.80 fuselage, ~3:1 ratio.
 function drawChassisInterceptor(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -570,57 +588,33 @@ function drawChassisInterceptor(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: engine nozzle — circle at rear, behind fuselage
-  spCirc(ctx, 0.76, 0, 0.24, cx, cy, su, fill, glow, flash, debug, 0.70);
+  // REAR zone: swept delta fins — both angle rearward (not radial petals)
+  spPoly(ctx, [  // upper fin — sweeps up-and-back
+    [ 0.30, -0.38], [ 0.90, -0.38], [ 1.43, -0.80], [ 0.20, -0.80],
+  ], cx, cy, su, fill, glow, flash, debug, 0.80);
+  spPoly(ctx, [  // lower fin — sweeps down-and-back
+    [ 0.30,  0.38], [ 0.90,  0.38], [ 1.43,  0.80], [ 0.20,  0.80],
+  ], cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // Layer 2: main fuselage — narrow angular polygon, NO central mass
-  //   Nose at left (−X = FRONT), wider toward rear
+  // MIDDLE zone: main fuselage — tapered hexagon, nose at front
   spPoly(ctx, [
-    [-1.10,  0.00],   // nose tip (FRONT)
-    [-0.78, -0.22],   // upper nose
-    [-0.22, -0.38],   // upper forward
-    [ 0.28, -0.40],   // upper mid
-    [ 0.68, -0.30],   // upper rear shoulder
-    [ 0.76, -0.12],   // rear upper connect
-    [ 0.76,  0.12],   // rear lower connect
-    [ 0.68,  0.30],   // lower rear shoulder
-    [ 0.28,  0.40],   // lower mid
-    [-0.22,  0.38],   // lower forward
-    [-0.78,  0.22],   // lower nose
+    [-1.43,  0.00],  // nose point (FRONT)
+    [-1.10, -0.22],  // upper nose
+    [-0.30, -0.38],  // upper forward
+    [ 0.90, -0.38],  // upper rear
+    [ 1.43, -0.22],  // rear upper corner
+    [ 1.43,  0.22],  // rear lower corner
+    [ 0.90,  0.38],  // lower rear
+    [-0.30,  0.38],  // lower forward
+    [-1.10,  0.22],  // lower nose
   ], cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 3: swept wing plates — two flat rect plates at hull rear
-  //   Clearly separate from fuselage (above/below, wider than body)
-  spPoly(ctx, [                              // UPPER wing
-    [-0.08, -0.40], [ 0.62, -0.40],
-    [ 0.78, -0.98], [-0.08, -0.98],
-  ], cx, cy, su, fill, glow, flash, debug, 0.88);
-  spPoly(ctx, [                              // LOWER wing
-    [-0.08,  0.40], [ 0.62,  0.40],
-    [ 0.78,  0.98], [-0.08,  0.98],
-  ], cx, cy, su, fill, glow, flash, debug, 0.88);
-
-  // Layer 4: nose spike — sharp weapon extending ahead of fuselage
-  spPoly(ctx, [
-    [-1.52,  0.00],   // spike tip
-    [-1.10, -0.12],   // base upper
-    [-1.10,  0.12],   // base lower
-  ], cx, cy, su, fill, glow, flash, debug);
-
-  return { frontReach: 1.52 * su, rearReach: 0.88 * su, sideReach: 0.98 * su, R };
+  return { frontReach: 1.43 * su, rearReach: 1.43 * su, sideReach: 0.80 * su, R };
 }
 
-// ─── Chassis 2: STRIKER ──────────────────────────────────────────────────────
-//
-//  Shape language: compact · wedge-dominated · aggressive forward bias
-//  The WEAPON WEDGE is the largest single shape — it defines the silhouette.
-//  Hull and engine are visually secondary.
-//
-//  Unit-grid bounding box:
-//    X: −1.10 (wedge tip) → +0.90 (engine rear)    ≈ 2.00 units
-//    Y: −0.62 (wedge base) → +0.62                  ≈ 1.24 units
-//  At R=14, su=19.6 → sprite ≈ 39 × 24 px
-//
+// ─── STRIKER ─────────────────────────────────────────────────────────────────
+//  Large forward wedge = dominant shape. Rear hull block is secondary.
+//  No circles.
 function drawChassisStriker(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -629,33 +623,23 @@ function drawChassisStriker(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: engine block — rear propulsion, taller than wide
-  spRect(ctx, 0.58, -0.34, 0.90, 0.34, cx, cy, su, fill, glow, flash, debug, 0.70);
+  // REAR zone: compact hull block
+  spRect(ctx, 0.50, -0.50, 1.05, 0.50, cx, cy, su, fill, glow, flash, debug, 0.85);
 
-  // Layer 2: compact hull body
-  spRect(ctx, -0.10, -0.46, 0.58, 0.46, cx, cy, su, fill, glow, flash, debug);
-
-  // Layer 3: forward weapon wedge — the DOMINANT shape
+  // FRONT zone: weapon wedge — defines the entire silhouette
   spPoly(ctx, [
-    [-1.10,  0.00],   // weapon tip (FRONT)
-    [-0.10, -0.62],   // base upper (at hull front face)
-    [-0.10,  0.62],   // base lower
+    [-1.05,  0.00],  // weapon tip (FRONT)
+    [ 0.50, -0.62],  // base upper
+    [ 0.50,  0.62],  // base lower
   ], cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 1.10 * su, rearReach: 0.90 * su, sideReach: 0.62 * su, R };
+  return { frontReach: 1.05 * su, rearReach: 1.05 * su, sideReach: 0.62 * su, R };
 }
 
-// ─── Chassis 3: ARTILLERY ────────────────────────────────────────────────────
-//
-//  Shape language: long · asymmetric · weapon-dominated · large rear support
-//  The BARREL is the dominant shape — it occupies >40% of total length.
-//  No central circle anywhere.
-//
-//  Unit-grid bounding box:
-//    X: −2.10 (barrel tip) → +0.86 (rear mass right edge)   ≈ 2.96 units
-//    Y: −0.52 (rear mass)  → +0.52                           ≈ 1.04 units
-//  At R=14, su=19.6 → sprite ≈ 58 × 20 px  (≈3:1 ratio vs tank's 1:1)
-//
+// ─── ARTILLERY ───────────────────────────────────────────────────────────────
+//  Barrel = 54% of total width. Most elongated chassis (3.9:1).
+//  Front: long thin barrel. Middle: mount. Rear: support block.
+//  No circles.
 function drawChassisArtillery(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -664,33 +648,25 @@ function drawChassisArtillery(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: rear recoil mass — large body, right of pivot
-  spRect(ctx, 0.08, -0.52, 0.86, 0.52, cx, cy, su, fill, glow, flash, debug);
+  // REAR zone: recoil/support mass block
+  spRect(ctx, 0.40, -0.43, 1.60, 0.43, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: barrel mount — small connector block
-  spRect(ctx, -0.20, -0.28, 0.08, 0.28, cx, cy, su, fill, glow, flash, debug, 0.85);
+  // MIDDLE zone: barrel mount
+  spRect(ctx, -0.22, -0.26, 0.40, 0.26, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // Layer 3: barrel — DOMINANT WEAPON, long thin rectangle
-  //   Extends far forward (−X), clearly the defining feature
-  spBar(ctx, -0.20, 0, -2.10, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
+  // FRONT zone: barrel — 1.73 units forward (54% of 3.33 total)
+  spBar(ctx, -0.22, 0, -1.73, 0, 0.13, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 4: barrel tip reinforcement
-  spRect(ctx, -2.10, -0.20, -1.88, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90);
+  // Barrel tip reinforcement (wider cap — distinct from barrel shaft)
+  spRect(ctx, -1.73, -0.22, -1.52, 0.22, cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 2.10 * su, rearReach: 0.86 * su, sideReach: 0.52 * su, R };
+  return { frontReach: 1.73 * su, rearReach: 1.60 * su, sideReach: 0.43 * su, R };
 }
 
-// ─── Chassis 4: TANK ─────────────────────────────────────────────────────────
-//
-//  Shape language: square · wide · layered · thick perimeter · compact weapon
-//  Armor plates are WIDER than hull — the layered structure is the silhouette.
-//  Short gun stub — does NOT dominate.
-//
-//  Unit-grid bounding box:
-//    X: −0.90 (gun tip) → +0.62 (hull rear)   ≈ 1.52 units
-//    Y: −0.72 (armor)   → +0.72               ≈ 1.44 units
-//  At R=14, su=19.6 → sprite ≈ 30 × 28 px  (nearly square — very different from artillery)
-//
+// ─── TANK ────────────────────────────────────────────────────────────────────
+//  Boxy and square — clearly the most square chassis.
+//  Outer armor plates are the dominant shape. Short stub gun does NOT dominate.
+//  No circles.
 function drawChassisTank(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -699,35 +675,25 @@ function drawChassisTank(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: wide bottom armor plate (wider than hull)
-  spRect(ctx, -0.58, 0.52, 0.62, 0.72, cx, cy, su, fill, glow, flash, debug, 0.80);
+  // Outer armor — top and bottom plates, widest elements
+  spRect(ctx, -0.55, -0.86, 1.35, -0.62, cx, cy, su, fill, glow, flash, debug);
+  spRect(ctx, -0.55,  0.62, 1.35,  0.86, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: wide top armor plate (wider than hull)
-  spRect(ctx, -0.58, -0.72, 0.62, -0.52, cx, cy, su, fill, glow, flash, debug, 0.80);
+  // Main armored hull body
+  spRect(ctx, -0.55, -0.62, 1.35, 0.62, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 3: main armored hull body
-  spRect(ctx, -0.46, -0.52, 0.62, 0.52, cx, cy, su, fill, glow, flash, debug);
+  // Inner hull layer (creates visual depth/layers)
+  spRect(ctx, -0.38, -0.44, 1.18, 0.44, cx, cy, su, fill, glow, flash, debug, 0.50);
 
-  // Layer 4: inner hull detail (creates layered look)
-  spRect(ctx, -0.36, -0.38, 0.50, 0.38, cx, cy, su, fill, glow, flash, debug, 0.65);
+  // Short gun stub — clearly smaller than artillery barrel
+  spRect(ctx, -0.55, -0.18, -0.92, 0.18, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 5: short gun stub — exits front face, compact
-  spBar(ctx, -0.46, 0, -0.90, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
-
-  return { frontReach: 0.90 * su, rearReach: 0.62 * su, sideReach: 0.72 * su, R };
+  return { frontReach: 0.92 * su, rearReach: 1.35 * su, sideReach: 0.86 * su, R };
 }
 
-// ─── Chassis 5: RAMMER ───────────────────────────────────────────────────────
-//
-//  Shape language: triangular · front-heavy · large continuous prow · minimal equipment
-//  The ENTIRE FRONT is a single continuous mass — hull IS the weapon.
-//  No separate weapon mount. Drives at extreme rear corners.
-//
-//  Unit-grid bounding box:
-//    X: −1.20 (prow tip) → +0.62 (drive rear)   ≈ 1.82 units
-//    Y: −0.98 (prow/drives) → +0.98              ≈ 1.96 units
-//  At R=14, su=19.6 → sprite ≈ 36 × 38 px  (wide forward triangle)
-//
+// ─── RAMMER ──────────────────────────────────────────────────────────────────
+//  Triangle IS the weapon — prow occupies 66% of mass.
+//  No separate weapon mount. No circles.
 function drawChassisRammer(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -736,34 +702,23 @@ function drawChassisRammer(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: drive pods — rear propulsion circles, drawn first (behind prow)
-  spCirc(ctx, 0.54, -0.72, 0.22, cx, cy, su, fill, glow, flash, debug, 0.70);
-  spCirc(ctx, 0.54,  0.72, 0.22, cx, cy, su, fill, glow, flash, debug, 0.70);
+  // REAR zone: compact engine block
+  spRect(ctx, 0.54, -0.48, 1.19, 0.48, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // Layer 2: entire prow — ONE continuous forward mass (hull + weapon unified)
-  //   Triangular/arrowhead — front-heavy, rear narrows
+  // FRONT zone: massive prow triangle — hull IS the weapon
   spPoly(ctx, [
-    [-1.20,  0.00],   // prow tip (FRONT) — the strike point
-    [-0.50, -0.60],   // upper shoulder
-    [ 0.26, -0.88],   // upper rear
-    [ 0.46, -0.68],   // upper drive mount
-    [ 0.46,  0.68],   // lower drive mount
-    [ 0.26,  0.88],   // lower rear
-    [-0.50,  0.60],   // lower shoulder
+    [-1.19,  0.00],  // prow tip (strike point, FRONT)
+    [ 0.54, -0.71],  // upper rear corner
+    [ 0.54,  0.71],  // lower rear corner
   ], cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 1.20 * su, rearReach: 0.62 * su, sideReach: 0.98 * su, R };
+  return { frontReach: 1.19 * su, rearReach: 1.19 * su, sideReach: 0.71 * su, R };
 }
 
-// ─── Chassis 6: TURRET ───────────────────────────────────────────────────────
-//
-//  Shape language: stationary · octagonal base · discrete rectangular gun modules
-//  4 gun barrels are RECTANGULAR BARS — not lobes, not petals, not circles.
-//  Hub is a small secondary element, not the dominant mass.
-//
-//  Unit-grid bounding box: ±0.90 in all directions ≈ 1.80 × 1.80 units
-//  At R=14, su=19.6 → sprite ≈ 35 × 35 px  (square, clearly gun emplacement)
-//
+// ─── TURRET ──────────────────────────────────────────────────────────────────
+//  Armored base block + SINGLE directional barrel (NOT 4-way symmetric).
+//  One barrel faces FRONT only. Side armor cheeks reinforce lateral stance.
+//  No circles.
 function drawChassisTurret(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -772,51 +727,23 @@ function drawChassisTurret(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: octagonal base plate
-  const b = 0.50, bc = 0.34;   // radius and cut corner offset
-  spPoly(ctx, [
-    [-bc, -b], [ bc, -b],
-    [ b, -bc], [ b,  bc],
-    [ bc,  b], [-bc,  b],
-    [-b,  bc], [-b, -bc],
-  ], cx, cy, su, fill, glow, flash, debug);
+  // REAR zone: main armored base block
+  spRect(ctx, -0.20, -0.71, 1.51, 0.71, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: central hub (small — NOT dominant)
-  spCirc(ctx, 0, 0, 0.24, cx, cy, su, fill, glow, flash, debug, 0.85);
+  // Side armor cheeks (front-face corners — directional stance)
+  spRect(ctx, -0.20, -0.71, 0.32, -0.50, cx, cy, su, fill, glow, flash, debug, 0.85);
+  spRect(ctx, -0.20,  0.50, 0.32,  0.71, cx, cy, su, fill, glow, flash, debug, 0.85);
 
-  // Layer 3: 4 gun barrel modules — discrete rectangular bars
-  //   Each starts at hub edge + gap and extends outward
-  const gunStart = 0.26, gunEnd = 0.90, gunHW = 0.13;
-  spBar(ctx, -gunStart, 0, -gunEnd, 0, gunHW, cx, cy, su, fill, glow, flash, debug);  // FRONT barrel
-  spBar(ctx,  gunStart, 0,  gunEnd, 0, gunHW, cx, cy, su, fill, glow, flash, debug);  // rear barrel
-  spBar(ctx, 0, -gunStart, 0, -gunEnd, gunHW, cx, cy, su, fill, glow, flash, debug);  // top barrel
-  spBar(ctx, 0,  gunStart, 0,  gunEnd, gunHW, cx, cy, su, fill, glow, flash, debug);  // bottom barrel
+  // FRONT zone: single directional barrel (FRONT only — not 4-way)
+  spBar(ctx, -0.20, 0, -1.51, 0, 0.24, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 4: gun tips (small squares to cap the barrels)
-  const gt = 0.90;
-  for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as [number,number][]) {
-    spRect(ctx, gt*dx - 0.14*Math.abs(dy) - 0.04*Math.abs(dx),
-               gt*dy - 0.14*Math.abs(dx) - 0.04*Math.abs(dy),
-               gt*dx + 0.14*Math.abs(dy) + 0.04*Math.abs(dx),
-               gt*dy + 0.14*Math.abs(dx) + 0.04*Math.abs(dy),
-               cx, cy, su, fill, glow, flash, debug, 0.90);
-  }
-
-  const reach = 0.90 * su;
-  return { frontReach: reach, rearReach: reach, sideReach: reach, R };
+  return { frontReach: 1.51 * su, rearReach: 1.51 * su, sideReach: 0.71 * su, R };
 }
 
-// ─── Chassis 7: CARRIER ──────────────────────────────────────────────────────
-//
-//  Shape language: broad · rectangular/boxy · visible deployment bays · multiple modules
-//  Large rectangular hull — not elongated, not circular.
-//  Pods are separate circles attached to hull perimeter faces.
-//
-//  Unit-grid bounding box:
-//    X: −1.14 (front pod)  → +1.06 (engine rear)   ≈ 2.20 units
-//    Y: −1.00 (top pod)    → +1.00                  ≈ 2.00 units
-//  At R=14, su=19.6 → sprite ≈ 43 × 39 px  (widest in Y relative to X)
-//
+// ─── CARRIER ─────────────────────────────────────────────────────────────────
+//  Wide flat rectangular hull. Payload bays are visually obvious.
+//  Front armor reinforcement + rear engine section.
+//  No circles.
 function drawChassisCarrier(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -825,38 +752,27 @@ function drawChassisCarrier(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: twin rear engines (behind hull)
-  spCirc(ctx,  0.88, -0.38, 0.20, cx, cy, su, fill, glow, flash, debug, 0.65);
-  spCirc(ctx,  0.88,  0.38, 0.20, cx, cy, su, fill, glow, flash, debug, 0.65);
+  // Main hull — widest chassis, clearly rectangular
+  spRect(ctx, -1.48, -0.90, 1.48, 0.90, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: main hull — wide rect, NOT elongated
-  spRect(ctx, -0.76, -0.70, 0.76, 0.70, cx, cy, su, fill, glow, flash, debug);
+  // Payload bay panels (recessed — clearly distinct at scale)
+  spRect(ctx, -1.30, -0.72, -0.55, -0.08, cx, cy, su, fill, glow, flash, debug, 0.45);
+  spRect(ctx, -1.30,  0.08, -0.55,  0.72, cx, cy, su, fill, glow, flash, debug, 0.45);
+  spRect(ctx, -0.38, -0.72,  0.38, -0.08, cx, cy, su, fill, glow, flash, debug, 0.45);
+  spRect(ctx, -0.38,  0.08,  0.38,  0.72, cx, cy, su, fill, glow, flash, debug, 0.45);
 
-  // Layer 3: hull detail panels (creates bay structure visual)
-  spRect(ctx, -0.72, -0.62, -0.08, -0.14, cx, cy, su, fill, glow, flash, debug, 0.55);
-  spRect(ctx, -0.72,  0.14, -0.08,  0.62, cx, cy, su, fill, glow, flash, debug, 0.55);
-  spRect(ctx,  0.10, -0.62,  0.70, -0.14, cx, cy, su, fill, glow, flash, debug, 0.55);
-  spRect(ctx,  0.10,  0.14,  0.70,  0.62, cx, cy, su, fill, glow, flash, debug, 0.55);
+  // Front face armor (thicker leading edge reinforcement)
+  spRect(ctx, -1.48, -0.90, -1.18, 0.90, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // Layer 4: deployment pods — discrete circles at hull faces (clearly separate)
-  spCirc(ctx, -0.94, 0, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90);   // front pod
-  spCirc(ctx, -0.18, -0.90, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90); // top pod
-  spCirc(ctx, -0.18,  0.90, 0.20, cx, cy, su, fill, glow, flash, debug, 0.90); // bottom pod
+  // Rear engine section (narrower profile)
+  spRect(ctx, 1.18, -0.68, 1.48, 0.68, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  return { frontReach: 1.14 * su, rearReach: 1.06 * su, sideReach: 1.00 * su, R };
+  return { frontReach: 1.48 * su, rearReach: 1.48 * su, sideReach: 0.90 * su, R };
 }
 
-// ─── Chassis 8: SWARM ────────────────────────────────────────────────────────
-//
-//  Shape language: simple · directional · compact · expendable
-//  Teardrop silhouette — rounded rear, pointed front (FRONT = −X).
-//  Tiny and fast-looking. NO separate weapon part needed; nose IS the attack.
-//
-//  Unit-grid bounding box:
-//    X: −0.70 (nose) → +0.56 (rear nub)   ≈ 1.26 units
-//    Y: −0.44        → +0.44              ≈ 0.88 units
-//  At R=14, su=19.6 → sprite ≈ 25 × 17 px  (small, fast profile)
-//
+// ─── SWARM ───────────────────────────────────────────────────────────────────
+//  Tiny dart — smallest chassis by far. Bounding box ~22×10.
+//  No circles. Simple 5-vertex arrowhead.
 function drawChassisSwarm(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -865,36 +781,22 @@ function drawChassisSwarm(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: rear propulsion nub
-  spCirc(ctx, 0.44, 0, 0.16, cx, cy, su, fill, glow, flash, debug, 0.70);
-
-  // Layer 2: teardrop body — pointed nose, rounded rear
+  // Dart / arrowhead — 5 vertices, points left (FRONT)
   spPoly(ctx, [
-    [-0.70,  0.00],   // nose tip (FRONT)
-    [-0.44, -0.30],   // upper nose
-    [-0.06, -0.44],   // upper body
-    [ 0.26, -0.42],   // upper rear
-    [ 0.44, -0.24],   // rear upper
-    [ 0.44,  0.24],   // rear lower
-    [ 0.26,  0.42],   // lower rear
-    [-0.06,  0.44],   // lower body
-    [-0.44,  0.30],   // lower nose
+    [-0.52,  0.00],  // nose (FRONT)
+    [-0.24, -0.24],  // upper neck
+    [ 0.52, -0.24],  // upper tail
+    [ 0.52,  0.24],  // lower tail
+    [-0.24,  0.24],  // lower neck
   ], cx, cy, su, fill, glow, flash, debug);
 
-  return { frontReach: 0.70 * su, rearReach: 0.56 * su, sideReach: 0.44 * su, R };
+  return { frontReach: 0.52 * su, rearReach: 0.52 * su, sideReach: 0.24 * su, R };
 }
 
-// ─── Chassis 9: CONTROLLER ───────────────────────────────────────────────────
-//
-//  Shape language: tall · asymmetric · antennae · emitter structures
-//  Y-shape with 3 asymmetric arms.  FORWARD arm (−X) is LONGER — facing indicator.
-//  Hub is small; arms define the silhouette.
-//
-//  Unit-grid bounding box:
-//    X: −1.44 (forward node)  → +0.76 (side arm reach)   ≈ 2.20 units
-//    Y: −1.12 (upper node)    → +1.12                     ≈ 2.24 units
-//  At R=14, su=19.6 → sprite ≈ 43 × 44 px  (tall Y-shape, clearly asymmetric)
-//
+// ─── CONTROLLER ──────────────────────────────────────────────────────────────
+//  Antenna mast extends far above body — height >> width (TALL chassis).
+//  Mast crossbar + body block + forward arm = asymmetric silhouette.
+//  No circles.
 function drawChassisController(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -903,60 +805,33 @@ function drawChassisController(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Y-arm angles: forward = FRONT (-X), upper-right, lower-right
-  // Using 115° and 245° (not symmetric 120°/240°) for visible asymmetry
-  const fwdA   = Math.PI;           // 180° — forward (FRONT)
-  const upperA = (115 / 180) * Math.PI;  // 115° — upper-rear
-  const lowerA = (245 / 180) * Math.PI;  // 245° — lower-rear
+  // SENSOR MAST: tall slim vertical rect — the defining silhouette feature
+  spRect(ctx, -0.22, -1.24, 0.22,  0.00, cx, cy, su, fill, glow, flash, debug);
 
-  const fwdLen   = 1.14;  // forward arm — LONGER (facing indicator)
-  const sideLen  = 0.80;  // side arms — shorter
-  const armHW    = 0.10;
-  const hubR     = 0.24;
-  const fwdNR    = 0.20;
-  const sideNR   = 0.16;
+  // Mast crossbar / antenna brace (wide horizontal bar near top of mast)
+  spRect(ctx, -0.60, -1.06, 0.60, -0.88, cx, cy, su, fill, glow, flash, debug, 0.80);
 
-  // Layer 1: arms (under hub and nodes)
-  spBar(ctx, Math.cos(fwdA)*hubR,    Math.sin(fwdA)*hubR,
-             Math.cos(fwdA)*fwdLen,  Math.sin(fwdA)*fwdLen,
-             armHW, cx, cy, su, fill, glow, flash, debug);
-  spBar(ctx, Math.cos(upperA)*hubR,  Math.sin(upperA)*hubR,
-             Math.cos(upperA)*sideLen, Math.sin(upperA)*sideLen,
-             armHW, cx, cy, su, fill, glow, flash, debug);
-  spBar(ctx, Math.cos(lowerA)*hubR,  Math.sin(lowerA)*hubR,
-             Math.cos(lowerA)*sideLen, Math.sin(lowerA)*sideLen,
-             armHW, cx, cy, su, fill, glow, flash, debug);
+  // BODY: wide horizontal block at center-to-bottom
+  spRect(ctx, -0.81,  0.00, 0.81,  1.24, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: hub (small — NOT dominant)
-  spCirc(ctx, 0, 0, hubR, cx, cy, su, fill, glow, flash, debug, 0.90);
+  // FORWARD ARM: sensor/weapon extension pointing FRONT (−X) — asymmetric with mast
+  spRect(ctx, -1.62,  0.16, -0.81,  0.56, cx, cy, su, fill, glow, flash, debug, 0.90);
 
-  // Layer 3: emitter nodes at arm tips
-  spCirc(ctx, Math.cos(fwdA)*fwdLen,    Math.sin(fwdA)*fwdLen,
-              fwdNR, cx, cy, su, fill, glow, flash, debug);
-  spCirc(ctx, Math.cos(upperA)*sideLen,  Math.sin(upperA)*sideLen,
-              sideNR, cx, cy, su, fill, glow, flash, debug);
-  spCirc(ctx, Math.cos(lowerA)*sideLen,  Math.sin(lowerA)*sideLen,
-              sideNR, cx, cy, su, fill, glow, flash, debug);
+  // Arm tip reinforcement block
+  spRect(ctx, -1.62,  0.06, -1.40,  0.66, cx, cy, su, fill, glow, flash, debug);
 
   return {
-    frontReach: (fwdLen + fwdNR) * su,
-    rearReach:  (sideLen * 0.6 + sideNR) * su,
-    sideReach:  (sideLen + sideNR) * su,
+    frontReach: 1.62 * su,
+    rearReach:  0.81 * su,
+    sideReach:  1.24 * su,
     R,
   };
 }
 
-// ─── Chassis 10: ADAPTIVE ────────────────────────────────────────────────────
-//
-//  Shape language: armored block + medium barrel — hybrid of tank and artillery
-//  Distinguishable from BOTH: barrel is longer than tank's stub, shorter than artillery's.
-//  Armor plates still wider than hull (tank inheritance).
-//
-//  Unit-grid bounding box:
-//    X: −1.26 (barrel tip) → +0.62 (hull rear)   ≈ 1.88 units
-//    Y: −0.68 (armor)      → +0.68               ≈ 1.36 units
-//  At R=14, su=19.6 → sprite ≈ 37 × 27 px  (intermediate between tank and artillery)
-//
+// ─── ADAPTIVE ────────────────────────────────────────────────────────────────
+//  Tank-style layered armor + medium barrel (longer than tank stub, shorter than artillery).
+//  Clearly intermediate between tank (square) and artillery (long).
+//  No circles.
 function drawChassisAdaptive(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number, R: number,
@@ -965,17 +840,20 @@ function drawChassisAdaptive(
 ): BodyGeometry {
   const su = R * 1.4;
 
-  // Layer 1: armor plates (wider than hull — tank element)
-  spRect(ctx, -0.50, -0.68, 0.62, -0.50, cx, cy, su, fill, glow, flash, debug, 0.80);
-  spRect(ctx, -0.50,  0.50, 0.62,  0.68, cx, cy, su, fill, glow, flash, debug, 0.80);
+  // Outer armor plates — wider than hull body
+  spRect(ctx, -0.50, -0.70, 1.10, -0.52, cx, cy, su, fill, glow, flash, debug);
+  spRect(ctx, -0.50,  0.52, 1.10,  0.70, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 2: main hull
-  spRect(ctx, -0.50, -0.50, 0.62,  0.50, cx, cy, su, fill, glow, flash, debug);
+  // Main hull body
+  spRect(ctx, -0.50, -0.52, 1.10, 0.52, cx, cy, su, fill, glow, flash, debug);
 
-  // Layer 3: medium barrel — artillery element (shorter than pure artillery ~2.1, longer than tank ~0.44)
-  spBar(ctx, -0.50, 0, -1.26, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
+  // Inner hull detail
+  spRect(ctx, -0.35, -0.36, 0.95, 0.36, cx, cy, su, fill, glow, flash, debug, 0.50);
 
-  return { frontReach: 1.26 * su, rearReach: 0.62 * su, sideReach: 0.68 * su, R };
+  // Medium barrel — 0.95u forward (between tank's 0.37u and artillery's 1.73u)
+  spBar(ctx, -0.50, 0, -1.45, 0, 0.16, cx, cy, su, fill, glow, flash, debug);
+
+  return { frontReach: 1.45 * su, rearReach: 1.10 * su, sideReach: 0.70 * su, R };
 }
 
 // ─── Chassis dispatcher ───────────────────────────────────────────────────────
@@ -1176,71 +1054,9 @@ export function drawVirus(
   // ── 2. Draw chassis — ALL anatomy in one call (weapon + propulsion + armor) ─
   const geo = drawChassis(ctx, cx, cy, R, phenotype, fill, glow, flash, MORPHOLOGY_SILHOUETTE_DEBUG);
 
-  // Debug mode: body-only silhouette, no decorations or structures.
+  // Debug mode: body-only silhouette, no decorations.
   if (MORPHOLOGY_SILHOUETTE_DEBUG) return;
 
-  // ── 3. Class decoration (mathematical identity markers) ─────────────────────
-  //  Only concentric rings — no radial spokes (they create flower silhouettes).
-  if (!green && !flash) {
-    const effectiveR = (geo.frontReach + geo.rearReach + geo.sideReach) / 3;
-    if (cls === 'perfect-square' || cls === 'power-of-two') {
-      // Subtle inner ring only — does not create star/flower pattern
-      ctx.beginPath();
-      ctx.arc(cx, cy, effectiveR * 0.40, 0, TAU);
-      ctx.strokeStyle = 'rgba(255,255,255,0.30)';
-      ctx.lineWidth   = 1.2;
-      ctx.stroke();
-    }
-    if (cls === 'power-of-two') {
-      ctx.beginPath();
-      ctx.arc(cx, cy, effectiveR * 0.65, 0, TAU);
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-      ctx.lineWidth   = 0.8;
-      ctx.stroke();
-    }
-    // NOTE: Prime spokes removed — they created radial flower silhouettes
-    //       that dominated the chassis shape at gameplay scale.
-  }
-
-  // ── 4. Refinement tiers (purely additive) ────────────────────────────────────
-  //  (Structural grammar removed in v5 — anatomy is now folded into chassis renderers.
-  //   Refinement tiers remain as purely additive elaboration on top of the chassis.)
-  if (!flash && !green && refinement > 0.02) {
-    const effectiveR = (geo.frontReach + geo.rearReach + geo.sideReach) / 3;
-    const t1 = Math.min(1,                refinement         / 0.30);
-    const t2 = Math.min(1, Math.max(0, (refinement - 0.30) / 0.35));
-    const t3 = Math.min(1, Math.max(0, (refinement - 0.65) / 0.35));
-
-    // Tier 1: outer structural ring
-    ctx.beginPath();
-    ctx.arc(cx, cy, effectiveR * (1.22 + t1 * 0.06), 0, TAU);
-    ctx.strokeStyle = `rgba(255,255,255,${t1 * 0.22})`;
-    ctx.lineWidth   = 0.8 + t1 * 0.4;
-    ctx.stroke();
-
-    if (t2 > 0) {
-      // Tier 2: second ring + inner core luminance
-      ctx.beginPath();
-      ctx.arc(cx, cy, effectiveR * 1.42, 0, TAU);
-      ctx.strokeStyle = `rgba(255,255,255,${t2 * 0.14})`;
-      ctx.lineWidth   = 1.2;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(cx, cy, effectiveR * 0.20, 0, TAU);
-      ctx.fillStyle = `rgba(255,255,255,${t2 * 0.28})`;
-      ctx.fill();
-    }
-
-    if (t3 > 0) {
-      // Tier 3: apex corona glow (no radial spines — they create flower patterns)
-      ctx.shadowColor = glow;
-      ctx.shadowBlur  = t3 * 18;
-      ctx.beginPath();
-      ctx.arc(cx, cy, effectiveR * 1.10, 0, TAU);
-      ctx.strokeStyle = `rgba(255,255,255,${t3 * 0.14})`;
-      ctx.lineWidth   = 2;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-  }
+  // v9: class decorations and refinement-tier rings disabled.
+  // Keep only: chassis geometry + glow (applied inside spPoly/spRect/spBar via applyBodyFill).
 }

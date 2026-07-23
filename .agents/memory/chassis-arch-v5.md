@@ -1,98 +1,64 @@
 ---
-name: Chassis Architecture v7
-description: v7 paradigm — authored polygon sprites replace all procedural geometry; visual scale 1.4×R independent of collision radius; variable aspect ratios per chassis; no central-core motif.
+name: Chassis Architecture v9
+description: v9 paradigm — hard angular geometry only, no arcs/circles, extreme aspect ratios, front/middle/rear zones, overlays stripped. Replaces v7 artwork entirely.
 ---
 
-## The paradigm shift (why v3–v6 all failed)
+## Why v7 artwork still read as flowers
 
-v3, v4, v5, v6 each rewrote the chassis algorithm but kept the same rendering paradigm:
-`code generates shape → shape is interpreted as anatomy`
+v7 polygon vertices were designed around a central mass with appendages radiating from it.
+Even as explicit authored polygons, the underlying *design vocabulary* was:
+`central blob + symmetrically distributed protrusions` = flower at 14–18px scale.
 
-At gameplay scale (R≈14–18px, sprite dia≈28–36px), ANY combination of arcs/ellipses/
-bezier paths collapses into an abstract glyph. More rewrites of the same renderer
-produce the same perceptual output.
+The fix was not another coordinate rewrite — it was destroying the design vocabulary entirely.
 
-v7 rule: `anatomy is explicitly designed → code assembles and transforms anatomy`
+## v9 rules (non-negotiable)
 
-## What v7 does
+1. **No arc(), ellipse(), bezierCurveTo(), quadraticCurveTo() — ever.**
+   No spCirc. Only spPoly, spRect, spBar.
+2. **No central circle / ring / orb.** Not as hub, not as core, not as junction.
+3. **No radial or evenly-spaced appendages.** No symmetric wings. No petal distribution.
+4. **Extreme aspect ratios.** Most chassis ≥ 1.8:1 or ≤ 0.55:1. Only tank is near-square and it must be the squarest by a large margin.
+5. **Front / Middle / Rear zones explicit.** ≥60% mass on dominant axis.
+6. **Dominant feature = gameplay function.** Barrel visible on artillery. Prow dominates rammer. Mast makes controller taller than wide.
+7. **All overlays stripped from drawVirus.** Sections 3 (class rings) and 4 (refinement tiers) removed. Only chassis + glow.
 
-All chassis shapes are **authored polygon point arrays** — explicit vertex coordinates
-placed intentionally, NOT computed from traits. The shapes are designed at ~32px grid
-scale and verified at gameplay R=15px before shipping.
+## Chassis designs (v9, unit-grid space, FRONT = −X)
 
-## Visual scale
-
-`su = R * 1.4` (sprite-unit, pixels per unit-grid step)
-- At R=14 (typical gameplay): su = 19.6px
-- At R=20 (boss): su = 28.0px
-
-Visual dimensions are 2–4× larger than collision radius R.
-Collision boxes remain at R; sprites extend freely.
-
-## Variable aspect ratios (critical — do NOT normalize)
-
-| Chassis      | Units W×H    | At R=14 (px) |
-|---|---|---|
-| interceptor  | 2.4 × 1.96   | 47 × 38      |
-| striker      | 2.0 × 1.24   | 39 × 24      |
-| artillery    | 2.96 × 1.04  | 58 × 20      |
-| tank         | 1.52 × 1.44  | 30 × 28      |
-| rammer       | 1.82 × 1.96  | 36 × 38      |
-| turret       | 1.80 × 1.80  | 35 × 35      |
-| carrier      | 2.20 × 2.00  | 43 × 39      |
-| swarm        | 1.26 × 0.88  | 25 × 17      |
-| controller   | 2.20 × 2.24  | 43 × 44      |
-| adaptive     | 1.88 × 1.36  | 37 × 27      |
-
-## Primary shape vocabulary (NO central-core motif)
-
-- **interceptor**: narrow fuselage polygon (11 vertices) + swept wing plates + nose spike
-- **striker**: weapon wedge triangle dominates; compact hull + engine block behind
-- **artillery**: long thin barrel bar (>40% total width) + rear support block; NO circle
-- **tank**: wide rect hull + WIDER armor plates top/bottom + inner detail + short stub
-- **rammer**: single continuous forward triangle (hull IS weapon) + rear drive pods
-- **turret**: octagonal base + small hub + 4 rectangular gun bars at N/S/E/W
-- **carrier**: wide rectangular hull + 4 bay detail panels + 3 pods + 2 engine circles
-- **swarm**: teardrop polygon (9 vertices) + rear nub; no separate spike needed
-- **controller**: Y-shape bars (fwd arm longer) + hub + 3 emitter nodes; arms define silhouette
-- **adaptive**: armored hull rect + wider armor plates + medium barrel (between tank/artillery)
-
-## Low-level sprite ops in virus-morphology.ts
-
-```
-spPoly(ctx, pts, cx, cy, su, fill, glow, flash, debug, alpha?)
-spRect(ctx, ux0, uy0, ux1, uy1, cx, cy, su, fill, glow, flash, debug, alpha?)
-spCirc(ctx, ucx, ucy, ur, cx, cy, su, fill, glow, flash, debug, alpha?)
-spBar(ctx, ux1, uy1, ux2, uy2, uhw, cx, cy, su, fill, glow, flash, debug, alpha?)
-```
-All coords are unit-grid. `su` converts to canvas pixels.
-`alpha < 1.0` = engine/secondary layers drawn behind primary.
-
-## Draw pipeline in drawVirus (v7)
-
-1. `getVirusPhenotype(n)` — derives chassis + all traits
-2. `drawChassis(...)` — renders complete authored sprite; returns BodyGeometry
-3. Class decorations: only concentric rings for square/power-of-two (no spokes)
-4. Refinement tiers: tier-1/2 rings; tier-3 corona glow only (no radial spines)
-Collision R unchanged; visual sprites are larger.
+| Chassis | Approx px @ R=15 | Primary shape | Key rule |
+|---|---|---|---|
+| interceptor | 60×20 | Tapered hexagon fuselage + delta fins swept rearward | Fins NOT radial — both angle back |
+| striker | 44×26 | Large forward triangle + rear hull block | Triangle is dominant shape |
+| artillery | 70×18 | Rear block + mount + long spBar barrel (54% of width) | Barrel tip wider cap |
+| tank | 40×36 | Outer armor plates + hull body + inner detail + short stub | Most square chassis |
+| rammer | 50×30 | Single large triangle (prow IS weapon) + rear block | No circles at all |
+| turret | 36+barrel × 30 | Rear base block + side cheeks + ONE directional barrel | NOT 4-way — directional only |
+| carrier | 62×38 | Wide rect hull + 4 bay panels (alpha 0.45) + front armor + rear | Bays visually obvious |
+| swarm | 22×10 | 5-vertex dart/arrowhead | Smallest by far |
+| controller | 34×52 | Vertical mast + mast crossbar + horizontal body + forward arm | TALL: height > width |
+| adaptive | 48×28 | Armor plates + hull + inner detail + medium spBar barrel | Barrel between tank and artillery |
 
 ## Acceptance test
 
-Enable `MORPHOLOGY_SILHOUETTE_DEBUG = true`, screenshot at R=15px (gameplay scale).
-The debug grid renders with ACTUAL game colors + glow (not white-on-black), making
-it the true acceptance test.
-
-Pass criteria (from user brief):
-1. No two units confusable as solid silhouettes → distinct polygon vocabulary
-2. <25% resemble stars/flowers/crosses/blobs → no radial motifs
-3. Most units do NOT share a circular central mass → no central-core assumption
-4. Bounding boxes show varied aspect ratios → see table above
-5. Front identifiable in <1 second → all directional units have clear -X feature
-6. Largest feature corresponds to gameplay behavior → barrel, wedge, prow, fuselage
+Enable `MORPHOLOGY_SILHOUETTE_DEBUG = true`, screenshot at R=15px.
+Pass criteria from v9 brief:
+- No flower or starfish shapes
+- Zero central circles on any chassis
+- ≤1 unit near 1:1 aspect ratio (tank is the exception by design)
+- No radial symmetry
+- Artillery barrel visible and long (>50% width)
+- Rammer front dominant (triangle takes >60% mass)
+- Tank visibly boxier than interceptor
 
 ## How to apply when modifying
 
-- Only use spPoly/spRect/spCirc/spBar for chassis rendering
-- Never add computed lobe-path, arc-blob, or radial-spoke geometry
-- If adding a new chassis, author the polygon vertices by hand at ~32px grid scale
-- Verify at R=15px (gameplay scale) BEFORE declaring success — not at R=60px
+- Only spPoly, spRect, spBar — never spCirc
+- If tempted to add a circle "just for detail" — don't. Use a small rect or diamond polygon.
+- If adding a new chassis, verify it cannot be mistaken for any existing one as a solid silhouette
+- Verify at R=15px (gameplay scale) using the debug grid — not R=60px
+
+## Visual scale
+
+`su = R * 1.4` (unchanged from v7)
+- At R=14 gameplay: su ≈ 19.6px
+- At R=20 boss: su ≈ 28.0px
+Collision R unchanged; visual sprites extend beyond it.
