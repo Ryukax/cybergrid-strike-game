@@ -1284,47 +1284,110 @@ export function getCompatibilityScore(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Draw a virus at canvas coordinates (cx, cy).
+ * v11 — Binary silhouette reset.
  *
- * Pipeline:
- *  1. Derive phenotype (includes architecture, symmetry, all traits)
- *  2. Draw primary body (architecture-specific silhouette — the authoritative shape)
- *  3. Class decorations (mathematical identity markers)
- *  4. Phenotype structures (anchor-driven: locomotion → weapons → armor → sensors)
- *  5. Refinement tiers (purely additive elaboration as lineage matures)
+ * Complete rendering path:
+ *   ctx.save() → fillStyle → fixed-pixel primitive → ctx.restore()
  *
- * Signature is unchanged from v2/v3; all callers are compatible.
+ * Nothing else. No glow. No outline. No stroke. No shadow. No secondary geometry.
+ * No trait scaling. No radius scaling. No decoration of any kind.
+ * Dimensions are absolute pixels independent of collision radius.
+ *
+ *   interceptor  60 × 12   horizontal rectangle
+ *   striker      50 × 24   triangle pointing left
+ *   artillery    80 × 10   long bar + 18 × 28 rear block
+ *   tank         36 × 36   square
+ *   rammer       52 × 30   trapezoid (flat front face)
+ *   turret       42 × 24   20 × 24 base + 22 × 8 barrel
+ *   carrier      72 × 30   wide rectangle
+ *   swarm        18 × 6    tiny rectangle
+ *   controller   14 × 60   tall rectangle
+ *   adaptive     58 × 18   two parallel 58 × 6 bars (6 px gap)
  */
 export function drawVirus(
   ctx:       CanvasRenderingContext2D,
   cx:        number,
   cy:        number,
   n:         number,
-  cell:      number,
+  _cell:     number,
   flash:     boolean,
   green      = false,
-  refinement = 0,
+  _refinement = 0,
 ): void {
-  const cls  = green ? 'even-composite' : getVirusClass(n);
-  const fill = green ? (flash ? '#f0fdf4' : '#4ade80')
-                     : (flash ? CLASS_FLASH[cls] : CLASS_FILL[cls]);
-  const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
+  const cls    = green ? 'even-composite' : getVirusClass(n);
+  const fill   = green ? '#4ade80'
+                       : (flash ? CLASS_FLASH[cls] : CLASS_FILL[cls]);
+  const chassis = getVirusPhenotype(n).chassis;
 
-  // Refined lineages grow slightly larger (up to +18% at apex)
-  const sizeBoost = 1 + refinement * 0.18;
-  const R0 = cell * 0.185 * sizeBoost;
-  const k  = cell * 0.026;
-  const R  = getVirusRadius(n, R0, k);
+  ctx.save();
+  ctx.fillStyle = fill;
 
-  // ── 1. Derive phenotype (chassis + all gameplay traits) ────────────────────
-  const phenotype = getVirusPhenotype(n);
+  switch (chassis) {
 
-  // ── 2. Draw chassis — ALL anatomy in one call (weapon + propulsion + armor) ─
-  const geo = drawChassis(ctx, cx, cy, R, phenotype, fill, glow, flash, MORPHOLOGY_SILHOUETTE_DEBUG);
+    case 'interceptor':
+      // 60 × 12 horizontal rectangle
+      ctx.fillRect(cx - 30, cy - 6, 60, 12);
+      break;
 
-  // Debug mode: body-only silhouette, no decorations.
-  if (MORPHOLOGY_SILHOUETTE_DEBUG) return;
+    case 'striker':
+      // 50 × 24 triangle pointing left (front = left)
+      ctx.beginPath();
+      ctx.moveTo(cx - 25, cy);
+      ctx.lineTo(cx + 25, cy - 12);
+      ctx.lineTo(cx + 25, cy + 12);
+      ctx.closePath();
+      ctx.fill();
+      break;
 
-  // v9: class decorations and refinement-tier rings disabled.
-  // Keep only: chassis geometry + glow (applied inside spPoly/spRect/spBar via applyBodyFill).
+    case 'artillery':
+      // 80 × 10 long bar + 18 × 28 rear block
+      ctx.fillRect(cx - 40, cy - 5,  80, 10);   // main bar
+      ctx.fillRect(cx + 22, cy - 14, 18, 28);   // rear block
+      break;
+
+    case 'tank':
+      // 36 × 36 square
+      ctx.fillRect(cx - 18, cy - 18, 36, 36);
+      break;
+
+    case 'rammer':
+      // 52 × 30 trapezoid: flat front face, tapers at rear
+      ctx.beginPath();
+      ctx.moveTo(cx - 26, cy - 15);  // upper front (flat face)
+      ctx.lineTo(cx - 26, cy + 15);  // lower front
+      ctx.lineTo(cx + 26, cy + 10);  // lower rear (tapers in)
+      ctx.lineTo(cx + 26, cy - 10);  // upper rear
+      ctx.closePath();
+      ctx.fill();
+      break;
+
+    case 'turret':
+      // 20 × 24 vertical base block + 22 × 8 barrel pointing left
+      ctx.fillRect(cx +  0, cy - 12, 20, 24);   // base
+      ctx.fillRect(cx - 22, cy -  4, 22,  8);   // barrel
+      break;
+
+    case 'carrier':
+      // 72 × 30 wide rectangle
+      ctx.fillRect(cx - 36, cy - 15, 72, 30);
+      break;
+
+    case 'swarm':
+      // 18 × 6 tiny rectangle
+      ctx.fillRect(cx - 9, cy - 3, 18, 6);
+      break;
+
+    case 'controller':
+      // 14 × 60 tall rectangle
+      ctx.fillRect(cx - 7, cy - 30, 14, 60);
+      break;
+
+    default: // adaptive
+      // 58 × 18 — two parallel 58 × 6 bars with 6 px gap between
+      ctx.fillRect(cx - 29, cy - 9, 58, 6);   // upper bar
+      ctx.fillRect(cx - 29, cy + 3, 58, 6);   // lower bar
+      break;
+  }
+
+  ctx.restore();
 }

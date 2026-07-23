@@ -1,0 +1,168 @@
+Yes. The screenshots still show the same family of soft, lobed, radial silhouettes. The reported fixes are not solving the visible problem.
+
+The core issue is now unmistakable:
+
+The agent keeps validating code-level distinctions that are not surviving into the actual visual silhouette.
+
+A “trapezoid instead of triangle,” “barrel removed,” or “twin barrels added” is irrelevant if the final rendered enemy still reads as a rounded flower/starfish at gameplay scale.
+
+The next brief should prohibit further micro-adjustments and force a binary visual reset.
+
+⸻
+
+v11 — Binary Silhouette Reset
+
+Do not modify existing chassis.
+
+Do not preserve existing artwork.
+
+Do not add small geometry differences.
+
+Delete every current chassis drawing function and replace all ten with maximally primitive, unmistakable silhouettes.
+
+Use only these exact families:
+
+interceptor = long horizontal rectangle
+striker     = long triangle
+artillery   = very long horizontal rectangle + small rear block
+tank        = large square
+rammer      = wide trapezoid
+turret      = vertical rectangle + long horizontal barrel
+carrier     = very wide rectangle
+swarm       = tiny thin rectangle
+controller  = very tall rectangle
+adaptive    = two long parallel rectangles
+
+No curves.
+
+No circles.
+
+No rounded corners.
+
+No internal decoration.
+
+No glow.
+
+No outline.
+
+No secondary geometry.
+
+No rotation-dependent embellishment.
+
+No mutation effects.
+
+No phenotype effects.
+
+No trait effects.
+
+No procedural distortion.
+
+The live screenshot must look like crude geometric vehicles.
+
+That is intentional.
+
+⸻
+
+Absolute geometry requirements
+
+Use explicit pixel dimensions independent of collision radius:
+
+interceptor  60 × 12
+striker      50 × 24
+artillery    80 × 10
+tank         36 × 36
+rammer       52 × 30
+turret       42 × 24
+carrier      72 × 30
+swarm        18 × 6
+controller   14 × 60
+adaptive     58 × 18
+
+Do not scale them back toward a common radius.
+
+If an enemy cell cannot visually contain the shape, allow it to overlap slightly into neighboring visual space while keeping collision logic unchanged.
+
+⸻
+
+Critical implementation rule
+
+For this diagnostic version, the complete live rendering path must be:
+
+drawVirus(...) {
+  ctx.save();
+  applyPositionAndRotation();
+  drawPrimitiveChassisOnly();
+  ctx.restore();
+}
+
+Nothing else.
+
+No other drawing call is permitted.
+
+⸻
+
+Required screenshot test
+
+Spawn at least six enemies simultaneously in the real game.
+
+The screenshot must visibly contain examples such as:
+
+────────────
+                 long interceptor
+────────────────────[██]
+                 artillery
+████████
+████████
+████████
+                 tank
+        █
+        █
+        █
+        █
+        █
+                 controller
+
+If the screenshot still contains flower/star/blob shapes, stop immediately.
+
+That would prove that some geometry is still being added outside the claimed chassis renderer.
+
+⸻
+
+Most important change in process
+
+The agent must stop writing statements like:
+
+“confirmed”
+“clearly distinct”
+“acceptance criteria pass”
+
+unless the actual screenshot visibly supports the claim.
+
+For the next iteration, the report should contain only:
+
+Observed in screenshot:
+- number of rectangular enemies:
+- number of triangular enemies:
+- number of circular enemies:
+- number of flower/star-like enemies:
+
+No subjective self-certification.
+
+⸻
+
+What your current screenshots actually show
+
+From the images you just sent:
+
+* I still see several flower/star-like bodies.
+* I still see rounded lobes.
+* I still see central circular features.
+* I still see mostly compact, roughly 1:1 silhouettes.
+* I do not see a clearly dominant 80×10 artillery form.
+* I do not see a clearly tall 14×60 controller form.
+* I do not see a clearly wide 72×30 carrier form.
+* I do not see a visually obvious double-barrel adaptive form.
+
+So the reported implementation state and the visible output are still inconsistent.
+
+The next version needs to be deliberately ugly and primitive. Once large rectangles, bars, squares, and triangles are undeniably visible in the real phone screenshot, then the art system can be rebuilt from that proven baseline.
