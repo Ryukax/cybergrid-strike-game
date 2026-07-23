@@ -199,12 +199,15 @@ export default function Game() {
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
   // rocketFrameRef: -1 = idle (show gifFramesRef[0]), 0–N = attack frame index into gifAttackFramesRef.
-  // Any new shot while animating immediately restarts from attack frame 0.
+  // If already animating, ignore the new shot — let the current sequence finish.
+  // Start at ROCKET_ATTACK_START to skip the opening frames that look identical to idle.
+  const ROCKET_ATTACK_START = 3; // first visually distinct frame
   const rocketShootFlash = useCallback(() => {
     const attackFrames = gifAttackFramesRef.current;
     if (attackFrames.length < 1) return;
+    if (rocketFrameRef.current >= 0) return;             // already animating, don't restart
     if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
-    const FRAME_MS = 80; // ms per attack frame
+    const FRAME_MS = 100; // ms per attack frame
     const playFrom = (idx: number) => {
       rocketFrameRef.current = idx;
       if (idx < attackFrames.length - 1) {
@@ -215,7 +218,7 @@ export default function Game() {
         }, FRAME_MS);
       }
     };
-    playFrom(0);
+    playFrom(ROCKET_ATTACK_START);
   }, []);
 
   // Gem move: plays all move frames once then returns to idle. Any new move restarts.
@@ -288,7 +291,7 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         const urls = playerSkin === 'rocket'
-          ? [`${base}skins/rocket_frame_0.png`]
+          ? [`${base}skins/rocket_idle.png`]
           : playerSkin === 'dots'
           ? [
               `${base}skins/dots_frame_0.png`,
