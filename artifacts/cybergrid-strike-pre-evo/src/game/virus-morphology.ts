@@ -323,6 +323,259 @@ function buildChassisPath(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// § 7b  Secondary chassis anatomy  (structural sub-shapes per chassis type)
+//
+//  Draws 1–3 filled structural masses that extend/overlap the primary chassis
+//  to build a compound multi-part silhouette.  Colors use the same class fill
+//  at reduced globalAlpha so they read as integral anatomy, not decoration.
+//  Call AFTER primary chassis fill+stroke; BEFORE archetype overlays.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function drawChassisSecondary(
+  ctx:   CanvasRenderingContext2D,
+  cx: number, cy: number,
+  n:     number, R: number,
+  fill:  string,
+  glow:  string,
+  flash: boolean,
+): void {
+  const chassis = getChassisType(n);
+  ctx.save();
+
+  // Helper — fill a closed polygon then stroke with a thin separation line
+  const poly = (pts: [number, number][], alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = fill;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur  = flash ? 3 : 6;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+    ctx.strokeStyle = flash ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)';
+    ctx.lineWidth   = 0.8;
+    ctx.stroke();
+  };
+
+  switch (chassis) {
+
+    case 0: { // WEDGE — rear engine block + swept upper/lower strakes
+      // Rear engine block (filling the chevron notch behind cx+R*0.28)
+      poly([
+        [cx + R * 0.28, cy - R * 0.22],
+        [cx + R * 0.65, cy - R * 0.38],
+        [cx + R * 0.95, cy - R * 0.26],
+        [cx + R * 0.95, cy + R * 0.26],
+        [cx + R * 0.65, cy + R * 0.38],
+        [cx + R * 0.28, cy + R * 0.22],
+      ], 0.70);
+      // Upper swept strake fin
+      poly([
+        [cx - R * 0.20, cy - R * 0.42],
+        [cx + R * 0.08, cy - R * 0.82],
+        [cx + R * 0.55, cy - R * 0.85],
+        [cx + R * 0.45, cy - R * 0.58],
+        [cx - R * 0.05, cy - R * 0.46],
+      ], 0.56);
+      // Lower swept strake fin (mirrored)
+      poly([
+        [cx - R * 0.20, cy + R * 0.42],
+        [cx + R * 0.08, cy + R * 0.82],
+        [cx + R * 0.55, cy + R * 0.85],
+        [cx + R * 0.45, cy + R * 0.58],
+        [cx - R * 0.05, cy + R * 0.46],
+      ], 0.56);
+      break;
+    }
+
+    case 1: { // STRIKER — rear twin thruster pods + lateral canard fins
+      // Rear thruster block (right end of diamond)
+      poly([
+        [cx + R * 0.62, cy - R * 0.30],
+        [cx + R * 0.85, cy - R * 0.22],
+        [cx + R * 1.12, cy - R * 0.30],
+        [cx + R * 1.12, cy + R * 0.30],
+        [cx + R * 0.85, cy + R * 0.22],
+        [cx + R * 0.62, cy + R * 0.30],
+      ], 0.72);
+      // Upper canard fin
+      poly([
+        [cx - R * 0.18, cy - R * 0.38],
+        [cx + R * 0.22, cy - R * 0.38],
+        [cx + R * 0.12, cy - R * 0.70],
+        [cx - R * 0.28, cy - R * 0.60],
+      ], 0.56);
+      // Lower canard fin (mirrored)
+      poly([
+        [cx - R * 0.18, cy + R * 0.38],
+        [cx + R * 0.22, cy + R * 0.38],
+        [cx + R * 0.12, cy + R * 0.70],
+        [cx - R * 0.28, cy + R * 0.60],
+      ], 0.56);
+      break;
+    }
+
+    case 2: { // TANK — front armor slab + rear command tower + central turret
+      // Front armor plate (protrudes left from the flat frontal face)
+      poly([
+        [cx - R * 0.82, cy - R * 0.52],
+        [cx - R * 0.50, cy - R * 0.52],
+        [cx - R * 0.50, cy + R * 0.52],
+        [cx - R * 0.82, cy + R * 0.52],
+      ], 0.72);
+      // Rear command tower (right side)
+      poly([
+        [cx + R * 0.62, cy - R * 0.88],
+        [cx + R * 0.88, cy - R * 0.68],
+        [cx + R * 0.88, cy + R * 0.68],
+        [cx + R * 0.62, cy + R * 0.88],
+      ], 0.62);
+      // Central turret mass
+      poly([
+        [cx - R * 0.08, cy - R * 0.38],
+        [cx + R * 0.32, cy - R * 0.44],
+        [cx + R * 0.48, cy],
+        [cx + R * 0.32, cy + R * 0.44],
+        [cx - R * 0.08, cy + R * 0.38],
+      ], 0.58);
+      break;
+    }
+
+    case 3: { // ARTILLERY — barrel extension + rear recoil block + mount bracket
+      // Barrel tip cap (extends left beyond the chassis nose)
+      poly([
+        [cx - R * 1.05, cy - R * 0.14],
+        [cx - R * 1.05, cy + R * 0.14],
+        [cx - R * 1.50, cy + R * 0.10],
+        [cx - R * 1.50, cy - R * 0.10],
+      ], 0.76);
+      // Rear recoil block (right end, taller and wider)
+      poly([
+        [cx + R * 0.88, cy - R * 0.52],
+        [cx + R * 1.22, cy - R * 0.44],
+        [cx + R * 1.22, cy + R * 0.44],
+        [cx + R * 0.88, cy + R * 0.52],
+      ], 0.68);
+      // Mid mounting bracket (above the barrel)
+      poly([
+        [cx - R * 0.08, cy - R * 0.30],
+        [cx + R * 0.22, cy - R * 0.30],
+        [cx + R * 0.22, cy - R * 0.62],
+        [cx - R * 0.08, cy - R * 0.62],
+      ], 0.58);
+      break;
+    }
+
+    case 4: { // CRAWLER — side leg masses + forward plow wedge
+      // Left leg mass
+      poly([
+        [cx - R * 0.46, cy - R * 0.42],
+        [cx - R * 0.46, cy + R * 0.42],
+        [cx - R * 0.92, cy + R * 0.58],
+        [cx - R * 0.92, cy - R * 0.32],
+      ], 0.70);
+      // Right leg mass
+      poly([
+        [cx + R * 0.46, cy - R * 0.42],
+        [cx + R * 0.92, cy - R * 0.32],
+        [cx + R * 0.92, cy + R * 0.58],
+        [cx + R * 0.46, cy + R * 0.42],
+      ], 0.70);
+      // Forward plow (above center, narrows toward top)
+      poly([
+        [cx - R * 0.28, cy - R * 0.46],
+        [cx + R * 0.28, cy - R * 0.46],
+        [cx + R * 0.12, cy - R * 0.90],
+        [cx - R * 0.12, cy - R * 0.90],
+      ], 0.58);
+      break;
+    }
+
+    case 5: { // BRUISER — face plate + upper shoulder armor + lower counter-mass
+      // Broad face plate on the wide left frontage
+      poly([
+        [cx - R * 1.02, cy - R * 0.40],
+        [cx - R * 0.68, cy - R * 0.70],
+        [cx - R * 0.50, cy - R * 0.50],
+        [cx - R * 0.50, cy + R * 0.50],
+        [cx - R * 0.68, cy + R * 0.70],
+        [cx - R * 1.02, cy + R * 0.40],
+      ], 0.72);
+      // Upper shoulder armor slab
+      poly([
+        [cx - R * 0.68, cy - R * 0.92],
+        [cx + R * 0.12, cy - R * 0.90],
+        [cx + R * 0.32, cy - R * 0.58],
+        [cx - R * 0.42, cy - R * 0.52],
+      ], 0.62);
+      // Lower counter-mass
+      poly([
+        [cx - R * 0.28, cy + R * 0.58],
+        [cx + R * 0.55, cy + R * 0.55],
+        [cx + R * 0.88, cy + R * 0.58],
+        [cx + R * 0.58, cy + R * 0.90],
+        [cx - R * 0.18, cy + R * 0.92],
+      ], 0.58);
+      break;
+    }
+
+    case 6: { // SPECTER — angled booster pods + central spine blade
+      // Upper booster pod (at the upper-right vertex)
+      poly([
+        [cx - R * 0.08, cy - R * 1.0],
+        [cx + R * 0.30, cy - R * 0.85],
+        [cx + R * 0.58, cy - R * 0.40],
+        [cx + R * 0.26, cy - R * 0.50],
+      ], 0.68);
+      // Lower booster pod (at the lower-left vertex, mirrored)
+      poly([
+        [cx + R * 0.08, cy + R * 1.0],
+        [cx - R * 0.30, cy + R * 0.85],
+        [cx - R * 0.58, cy + R * 0.40],
+        [cx - R * 0.26, cy + R * 0.50],
+      ], 0.68);
+      // Central spine blade along the long diagonal
+      poly([
+        [cx - R * 0.58, cy - R * 0.28],
+        [cx - R * 0.38, cy - R * 0.55],
+        [cx + R * 0.58, cy + R * 0.28],
+        [cx + R * 0.38, cy + R * 0.55],
+      ], 0.54);
+      break;
+    }
+
+    default: { // STALKER (7) — dorsal spine slab + lower anchor mass + rear flange
+      // Dorsal spine slab (upper-left to upper-right edge)
+      poly([
+        [cx - R * 0.28, cy - R * 0.95],
+        [cx + R * 0.55, cy - R * 0.78],
+        [cx + R * 0.45, cy - R * 0.46],
+        [cx - R * 0.18, cy - R * 0.58],
+      ], 0.68);
+      // Lower anchor mass (heavy block at lower-right)
+      poly([
+        [cx + R * 0.32, cy + R * 0.90],
+        [cx + R * 0.92, cy + R * 0.45],
+        [cx + R * 1.12, cy + R * 0.65],
+        [cx + R * 0.72, cy + R * 1.08],
+      ], 0.62);
+      // Rear lateral flange (lower-left quadrant)
+      poly([
+        [cx - R * 0.78, cy],
+        [cx - R * 0.42, cy + R * 0.58],
+        [cx - R * 0.68, cy + R * 0.80],
+        [cx - R * 1.02, cy + R * 0.28],
+      ], 0.58);
+      break;
+    }
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // § 8  Archetype overlay renderers
 //
 //  Each function draws ON TOP of the already-filled body.
@@ -893,6 +1146,9 @@ export function drawVirus(
   ctx.strokeStyle = flash ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.22)';
   ctx.lineWidth   = 1;
   ctx.stroke();
+
+  // ── 1b. Secondary structural anatomy (filled sub-shapes extending the silhouette) ──
+  drawChassisSecondary(ctx, cx, cy, n, R, fill, glow, flash);
 
   // ── 2. Class-specific decorations ──
   if (!green) {
