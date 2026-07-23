@@ -819,8 +819,8 @@ export function drawVirus(
 
   const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
 
-  const R0 = cell * 0.185;
-  const k  = cell * 0.026;
+  const R0 = cell * 0.30;
+  const k  = cell * 0.032;
   const R  = getVirusRadius(n, R0, k);
 
   // ── 1. Base shape ──

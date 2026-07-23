@@ -1486,6 +1486,7 @@ export default function Game() {
             <div id="menuCard">
               <div id="menuTitle">CYBERGRID<br />STRIKE</div>
               <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
+              <div id="preEvoLabel">⬡ PRE-EVOLUTION EDITION ⬡</div>
               <button
                 id="menuPlayBtn"
                 onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('classic'); }}
