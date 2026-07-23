@@ -198,21 +198,24 @@ export default function Game() {
   const gemMoveMirrorRef   = useRef(false);
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
-  // shoot → 120 ms → post-shoot A → 200 ms → post-shoot B → 200 ms → idle
-  // Any new shot while in post-shoot immediately jumps back to shoot pose.
+  // Shoot triggers a full animation cycle through all frames 1→(N-1) then back to 0 (idle).
+  // Any new shot while animating immediately restarts from frame 1.
   const rocketShootFlash = useCallback(() => {
-    if (gifFramesRef.current.length < 4) return;
-    rocketFrameRef.current = 1;                          // shoot pose
+    const frames = gifFramesRef.current;
+    if (frames.length < 2) return;
     if (rocketAnimTimer.current) clearTimeout(rocketAnimTimer.current);
-    rocketAnimTimer.current = setTimeout(() => {
-      rocketFrameRef.current = 2;                        // post-shoot A
-      rocketAnimTimer.current = setTimeout(() => {
-        rocketFrameRef.current = 3;                      // post-shoot B
+    const FRAME_MS = 80; // ms per attack frame
+    const playFrom = (idx: number) => {
+      rocketFrameRef.current = idx;
+      if (idx < frames.length - 1) {
+        rocketAnimTimer.current = setTimeout(() => playFrom(idx + 1), FRAME_MS);
+      } else {
         rocketAnimTimer.current = setTimeout(() => {
           rocketFrameRef.current = 0;                    // idle
-        }, 200);
-      }, 200);
-    }, 120);
+        }, FRAME_MS);
+      }
+    };
+    playFrom(1);
   }, []);
 
   // Gem move: plays all move frames once then returns to idle. Any new move restarts.
@@ -277,12 +280,7 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         const urls = playerSkin === 'rocket'
-          ? [
-              `${base}skins/rocket_frame_0.png`,
-              `${base}skins/rocket_frame_1.png`,
-              `${base}skins/rocket_frame_2.png`,
-              `${base}skins/rocket_frame_3.png`,
-            ]
+          ? Array.from({ length: 13 }, (_, i) => `${base}skins/rocket_frame_${i}.png`)
           : playerSkin === 'dots'
           ? [
               `${base}skins/dots_frame_0.png`,
