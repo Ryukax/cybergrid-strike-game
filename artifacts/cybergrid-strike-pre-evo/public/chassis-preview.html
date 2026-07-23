@@ -2,185 +2,276 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Chassis Preview — Composite</title>
+<title>Chassis Preview — Composite + Curves</title>
 <style>
-  body { background: #06101e; margin: 0; display: flex; flex-direction: column; align-items: center; padding: 24px; font-family: monospace; }
-  h2 { color: #38bdf8; margin: 0 0 16px; letter-spacing: 0.1em; font-size: 14px; }
-  .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-  .label { color: rgba(219,234,254,0.6); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
-  canvas { border: 1px solid rgba(56,189,248,0.18); border-radius: 4px; }
+  body { background: #06101e; margin: 0; display: flex; flex-direction: column;
+         align-items: center; padding: 24px; font-family: monospace; gap: 8px; }
+  h2   { color: #38bdf8; margin: 0; letter-spacing: 0.1em; font-size: 13px; }
+  p    { color: rgba(219,234,254,0.4); font-size: 10px; margin: 0 0 8px;
+         letter-spacing: 0.08em; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .label { color: rgba(219,234,254,0.55); font-size: 9px; letter-spacing: 0.12em;
+           text-transform: uppercase; }
+  canvas { border: 1px solid rgba(56,189,248,0.14); border-radius: 3px; }
 </style>
 </head>
 <body>
-<h2>⬡ PRE-EVOLUTION — CHASSIS SILHOUETTES (COMPOSITE) ⬡</h2>
+<h2>⬡ PRE-EVOLUTION — CHASSIS SILHOUETTES ⬡</h2>
+<p>Selective curves: organic phenotypes use bezier / quadratic; mechanical keep hard edges</p>
 <div class="row" id="row"></div>
 <script>
 const CHASSIS = [
-  { id: 0, name: 'WEDGE',      color: '#fb923c', glow: 'rgba(251,146,60,0.6)'  },
-  { id: 1, name: 'STRIKER',    color: '#e879f9', glow: 'rgba(232,121,249,0.6)' },
-  { id: 2, name: 'TANK',       color: '#fb7185', glow: 'rgba(251,113,133,0.5)' },
-  { id: 3, name: 'ARTILLERY',  color: '#22d3ee', glow: 'rgba(34,211,238,0.6)'  },
-  { id: 4, name: 'CRAWLER',    color: '#fbbf24', glow: 'rgba(251,191,36,0.6)'  },
-  { id: 5, name: 'BRUISER',    color: '#fb923c', glow: 'rgba(251,146,60,0.6)'  },
-  { id: 6, name: 'SPECTER',    color: '#e879f9', glow: 'rgba(232,121,249,0.6)' },
-  { id: 7, name: 'STALKER',    color: '#22d3ee', glow: 'rgba(34,211,238,0.6)'  },
+  { id:0, name:'WEDGE',     color:'#fb923c', glow:'rgba(251,146,60,0.6)',  note:'mech' },
+  { id:1, name:'STRIKER',   color:'#e879f9', glow:'rgba(232,121,249,0.6)', note:'hybrid' },
+  { id:2, name:'TANK',      color:'#fb7185', glow:'rgba(251,113,133,0.5)', note:'armor' },
+  { id:3, name:'ARTILLERY', color:'#22d3ee', glow:'rgba(34,211,238,0.6)',  note:'mech' },
+  { id:4, name:'CRAWLER',   color:'#fbbf24', glow:'rgba(251,191,36,0.6)',  note:'bio' },
+  { id:5, name:'BRUISER',   color:'#fb923c', glow:'rgba(251,146,60,0.6)',  note:'biomech' },
+  { id:6, name:'SPECTER',   color:'#e879f9', glow:'rgba(232,121,249,0.6)', note:'crystal' },
+  { id:7, name:'STALKER',   color:'#22d3ee', glow:'rgba(34,211,238,0.6)',  note:'organic' },
 ];
 
-const R = 28; // representative radius for SIZE=160 canvas
+const R = 28;
 
-function buildChassisPath(ctx, cx, cy, chassis, R) {
+/* ── Primary silhouette paths ─────────────────────────────────────────── */
+function buildChassisPath(ctx, cx, cy, id, R) {
   ctx.beginPath();
-  switch (chassis) {
-    case 0: // WEDGE
-      ctx.moveTo(cx - R,        cy);
-      ctx.lineTo(cx + R * 0.65, cy - R * 0.85);
-      ctx.lineTo(cx + R * 0.28, cy);
-      ctx.lineTo(cx + R * 0.65, cy + R * 0.85);
+  switch (id) {
+    case 0: // WEDGE — hard mechanical
+      ctx.moveTo(cx-R,       cy);
+      ctx.lineTo(cx+R*.65,   cy-R*.85);
+      ctx.lineTo(cx+R*.28,   cy);
+      ctx.lineTo(cx+R*.65,   cy+R*.85);
       break;
-    case 1: // STRIKER
-      ctx.moveTo(cx - R,        cy);
-      ctx.lineTo(cx - R * 0.05, cy - R * 0.38);
-      ctx.lineTo(cx + R * 0.85, cy);
-      ctx.lineTo(cx - R * 0.05, cy + R * 0.38);
+    case 1: // STRIKER — curved fuselage
+      ctx.moveTo(cx-R,        cy);
+      ctx.quadraticCurveTo(cx-R*.22, cy-R*.52, cx+R*.88, cy-R*.07);
+      ctx.lineTo(cx+R*.88,   cy+R*.07);
+      ctx.quadraticCurveTo(cx-R*.22, cy+R*.52, cx-R,     cy);
       break;
-    case 2: // TANK
-      ctx.moveTo(cx - R * 0.50, cy - R * 1.0);
-      ctx.lineTo(cx - R * 0.50, cy + R * 1.0);
-      ctx.lineTo(cx + R * 0.88, cy + R * 0.68);
-      ctx.lineTo(cx + R * 0.88, cy - R * 0.68);
+    case 2: // TANK — hard armor
+      ctx.moveTo(cx-R*.50,   cy-R);
+      ctx.lineTo(cx-R*.50,   cy+R);
+      ctx.lineTo(cx+R*.88,   cy+R*.68);
+      ctx.lineTo(cx+R*.88,   cy-R*.68);
       break;
-    case 3: // ARTILLERY
-      ctx.moveTo(cx - R * 1.05, cy - R * 0.24);
-      ctx.lineTo(cx - R * 1.05, cy + R * 0.24);
-      ctx.lineTo(cx + R * 0.90, cy + R * 0.30);
-      ctx.lineTo(cx + R * 0.90, cy - R * 0.30);
+    case 3: // ARTILLERY — hard bar
+      ctx.moveTo(cx-R*1.05,  cy-R*.24);
+      ctx.lineTo(cx-R*1.05,  cy+R*.24);
+      ctx.lineTo(cx+R*.90,   cy+R*.30);
+      ctx.lineTo(cx+R*.90,   cy-R*.30);
       break;
-    case 4: // CRAWLER
-      ctx.moveTo(cx - R * 0.46, cy - R * 0.46);
-      ctx.lineTo(cx - R * 0.72, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.72, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.46, cy - R * 0.46);
+    case 4: // CRAWLER — hard dorsal, curved belly
+      ctx.moveTo(cx-R*.46,   cy-R*.46);
+      ctx.lineTo(cx+R*.46,   cy-R*.46);
+      ctx.lineTo(cx+R*.70,   cy+R*.28);
+      ctx.quadraticCurveTo(cx, cy+R*1.08, cx-R*.70, cy+R*.28);
       break;
-    case 5: // BRUISER
-      ctx.moveTo(cx - R * 0.68, cy - R * 0.92);
-      ctx.lineTo(cx - R * 1.0,  cy + R * 0.08);
-      ctx.lineTo(cx - R * 0.60, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.88, cy + R * 0.58);
-      ctx.lineTo(cx + R * 0.88, cy - R * 0.80);
+    case 5: // BRUISER — convex muscle front
+      ctx.moveTo(cx-R*.68,   cy-R*.92);
+      ctx.quadraticCurveTo(cx-R*1.22, cy, cx-R*.60, cy+R*.92);
+      ctx.lineTo(cx+R*.88,   cy+R*.58);
+      ctx.lineTo(cx+R*.88,   cy-R*.80);
       break;
-    case 6: // SPECTER
-      ctx.moveTo(cx - R * 0.82, cy - R * 0.55);
-      ctx.lineTo(cx - R * 0.08, cy - R * 1.0);
-      ctx.lineTo(cx + R * 0.82, cy + R * 0.55);
-      ctx.lineTo(cx + R * 0.08, cy + R * 1.0);
+    case 6: // SPECTER — hard crystal blade
+      ctx.moveTo(cx-R*.82,   cy-R*.55);
+      ctx.lineTo(cx-R*.08,   cy-R);
+      ctx.lineTo(cx+R*.82,   cy+R*.55);
+      ctx.lineTo(cx+R*.08,   cy+R);
       break;
-    default: // STALKER
-      ctx.moveTo(cx - R * 0.78, cy);
-      ctx.lineTo(cx - R * 0.28, cy - R * 0.95);
-      ctx.lineTo(cx + R * 0.55, cy - R * 0.78);
-      ctx.lineTo(cx + R * 0.92, cy + R * 0.18);
-      ctx.lineTo(cx + R * 0.32, cy + R * 0.90);
-      ctx.lineTo(cx - R * 0.42, cy + R * 0.58);
+    default: // STALKER — carapace with curved arcs
+      ctx.moveTo(cx-R*.78,   cy);
+      ctx.lineTo(cx-R*.28,   cy-R*.95);
+      ctx.quadraticCurveTo(cx+R*.22, cy-R*.94, cx+R*.55, cy-R*.78);
+      ctx.lineTo(cx+R*.92,   cy+R*.18);
+      ctx.quadraticCurveTo(cx+R*.65, cy+R*.78, cx+R*.32, cy+R*.90);
+      ctx.lineTo(cx-R*.42,   cy+R*.58);
       break;
   }
   ctx.closePath();
 }
 
-function drawSecondary(ctx, cx, cy, chassis, R, fill, glow) {
-  const poly = (pts, alpha) => {
+/* ── Secondary anatomy helpers ─────────────────────────────────────────── */
+function drawSecondary(ctx, cx, cy, id, R, fill, glow) {
+  const sep  = 'rgba(255,255,255,0.18)';
+
+  function poly(pts, alpha) {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.fillStyle   = fill;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur  = 6;
+    ctx.shadowColor = glow; ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur  = 0;
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-    ctx.lineWidth   = 0.8;
-    ctx.stroke();
+    for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.8; ctx.stroke();
     ctx.restore();
-  };
+  }
 
-  switch (chassis) {
-    case 0: // WEDGE
-      poly([[cx+R*0.28,cy-R*0.22],[cx+R*0.65,cy-R*0.38],[cx+R*0.95,cy-R*0.26],[cx+R*0.95,cy+R*0.26],[cx+R*0.65,cy+R*0.38],[cx+R*0.28,cy+R*0.22]], 0.70);
-      poly([[cx-R*0.20,cy-R*0.42],[cx+R*0.08,cy-R*0.82],[cx+R*0.55,cy-R*0.85],[cx+R*0.45,cy-R*0.58],[cx-R*0.05,cy-R*0.46]], 0.56);
-      poly([[cx-R*0.20,cy+R*0.42],[cx+R*0.08,cy+R*0.82],[cx+R*0.55,cy+R*0.85],[cx+R*0.45,cy+R*0.58],[cx-R*0.05,cy+R*0.46]], 0.56);
+  function curved(pathFn, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = fill;
+    ctx.shadowColor = glow; ctx.shadowBlur = 6;
+    ctx.beginPath(); pathFn(); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.8; ctx.stroke();
+    ctx.restore();
+  }
+
+  switch (id) {
+
+    case 0: // WEDGE — hard engine block; fins with curved trailing edge
+      poly([[cx+R*.28,cy-R*.22],[cx+R*.65,cy-R*.38],[cx+R*.95,cy-R*.26],
+            [cx+R*.95,cy+R*.26],[cx+R*.65,cy+R*.38],[cx+R*.28,cy+R*.22]], 0.70);
+      curved(()=>{
+        ctx.moveTo(cx-R*.20, cy-R*.44);
+        ctx.lineTo(cx+R*.55, cy-R*.86);
+        ctx.lineTo(cx+R*.48, cy-R*.60);
+        ctx.quadraticCurveTo(cx+R*.10,cy-R*.50, cx-R*.08,cy-R*.47);
+      }, 0.56);
+      curved(()=>{
+        ctx.moveTo(cx-R*.20, cy+R*.44);
+        ctx.lineTo(cx+R*.55, cy+R*.86);
+        ctx.lineTo(cx+R*.48, cy+R*.60);
+        ctx.quadraticCurveTo(cx+R*.10,cy+R*.50, cx-R*.08,cy+R*.47);
+      }, 0.56);
       break;
-    case 1: // STRIKER
-      poly([[cx+R*0.62,cy-R*0.30],[cx+R*0.85,cy-R*0.22],[cx+R*1.12,cy-R*0.30],[cx+R*1.12,cy+R*0.30],[cx+R*0.85,cy+R*0.22],[cx+R*0.62,cy+R*0.30]], 0.72);
-      poly([[cx-R*0.18,cy-R*0.38],[cx+R*0.22,cy-R*0.38],[cx+R*0.12,cy-R*0.70],[cx-R*0.28,cy-R*0.60]], 0.56);
-      poly([[cx-R*0.18,cy+R*0.38],[cx+R*0.22,cy+R*0.38],[cx+R*0.12,cy+R*0.70],[cx-R*0.28,cy+R*0.60]], 0.56);
+
+    case 1: // STRIKER — organic thruster pod; curved canards
+      curved(()=>{
+        ctx.moveTo(cx+R*.88, cy-R*.07);
+        ctx.lineTo(cx+R*.88, cy-R*.28);
+        ctx.quadraticCurveTo(cx+R*1.18,cy-R*.28, cx+R*1.18,cy);
+        ctx.quadraticCurveTo(cx+R*1.18,cy+R*.28, cx+R*.88,cy+R*.28);
+        ctx.lineTo(cx+R*.88, cy+R*.07);
+      }, 0.72);
+      curved(()=>{
+        ctx.moveTo(cx-R*.15, cy-R*.07);
+        ctx.lineTo(cx-R*.25, cy-R*.62);
+        ctx.lineTo(cx+R*.12, cy-R*.72);
+        ctx.quadraticCurveTo(cx+R*.24,cy-R*.40, cx+R*.22,cy-R*.07);
+      }, 0.56);
+      curved(()=>{
+        ctx.moveTo(cx-R*.15, cy+R*.07);
+        ctx.lineTo(cx-R*.25, cy+R*.62);
+        ctx.lineTo(cx+R*.12, cy+R*.72);
+        ctx.quadraticCurveTo(cx+R*.24,cy+R*.40, cx+R*.22,cy+R*.07);
+      }, 0.56);
       break;
-    case 2: // TANK
-      poly([[cx-R*0.82,cy-R*0.52],[cx-R*0.50,cy-R*0.52],[cx-R*0.50,cy+R*0.52],[cx-R*0.82,cy+R*0.52]], 0.72);
-      poly([[cx+R*0.62,cy-R*0.88],[cx+R*0.88,cy-R*0.68],[cx+R*0.88,cy+R*0.68],[cx+R*0.62,cy+R*0.88]], 0.62);
-      poly([[cx-R*0.08,cy-R*0.38],[cx+R*0.32,cy-R*0.44],[cx+R*0.48,cy],[cx+R*0.32,cy+R*0.44],[cx-R*0.08,cy+R*0.38]], 0.58);
+
+    case 2: // TANK — all hard
+      poly([[cx-R*.82,cy-R*.52],[cx-R*.50,cy-R*.52],[cx-R*.50,cy+R*.52],[cx-R*.82,cy+R*.52]], 0.72);
+      poly([[cx+R*.62,cy-R*.88],[cx+R*.88,cy-R*.68],[cx+R*.88,cy+R*.68],[cx+R*.62,cy+R*.88]], 0.62);
+      poly([[cx-R*.08,cy-R*.38],[cx+R*.28,cy-R*.44],[cx+R*.48,cy],[cx+R*.28,cy+R*.44],[cx-R*.08,cy+R*.38]], 0.58);
       break;
-    case 3: // ARTILLERY
-      poly([[cx-R*1.05,cy-R*0.14],[cx-R*1.05,cy+R*0.14],[cx-R*1.50,cy+R*0.10],[cx-R*1.50,cy-R*0.10]], 0.76);
-      poly([[cx+R*0.88,cy-R*0.52],[cx+R*1.22,cy-R*0.44],[cx+R*1.22,cy+R*0.44],[cx+R*0.88,cy+R*0.52]], 0.68);
-      poly([[cx-R*0.08,cy-R*0.30],[cx+R*0.22,cy-R*0.30],[cx+R*0.22,cy-R*0.62],[cx-R*0.08,cy-R*0.62]], 0.58);
+
+    case 3: // ARTILLERY — rounded muzzle, hard recoil block, hard mount
+      curved(()=>{
+        ctx.moveTo(cx-R*1.05, cy-R*.14);
+        ctx.lineTo(cx-R*1.05, cy+R*.14);
+        ctx.lineTo(cx-R*1.42, cy+R*.10);
+        ctx.arc(cx-R*1.42, cy, R*.10, Math.PI*.5, -Math.PI*.5, true);
+        ctx.lineTo(cx-R*1.42, cy-R*.10);
+      }, 0.76);
+      poly([[cx+R*.88,cy-R*.52],[cx+R*1.22,cy-R*.44],[cx+R*1.22,cy+R*.44],[cx+R*.88,cy+R*.52]], 0.68);
+      poly([[cx-R*.08,cy-R*.30],[cx+R*.22,cy-R*.30],[cx+R*.22,cy-R*.62],[cx-R*.08,cy-R*.62]], 0.58);
       break;
-    case 4: // CRAWLER
-      poly([[cx-R*0.46,cy-R*0.42],[cx-R*0.46,cy+R*0.42],[cx-R*0.92,cy+R*0.58],[cx-R*0.92,cy-R*0.32]], 0.70);
-      poly([[cx+R*0.46,cy-R*0.42],[cx+R*0.92,cy-R*0.32],[cx+R*0.92,cy+R*0.58],[cx+R*0.46,cy+R*0.42]], 0.70);
-      poly([[cx-R*0.28,cy-R*0.46],[cx+R*0.28,cy-R*0.46],[cx+R*0.12,cy-R*0.90],[cx-R*0.12,cy-R*0.90]], 0.58);
+
+    case 4: // CRAWLER — bezier leg masses, tapered dome crest
+      curved(()=>{
+        ctx.moveTo(cx-R*.46,  cy-R*.38);
+        ctx.lineTo(cx-R*.46,  cy+R*.22);
+        ctx.quadraticCurveTo(cx-R*.55,cy+R*.55, cx-R*.72,cy+R*.38);
+        ctx.bezierCurveTo(cx-R*1.02,cy+R*.20, cx-R*1.02,cy-R*.22, cx-R*.70,cy-R*.32);
+      }, 0.70);
+      curved(()=>{
+        ctx.moveTo(cx+R*.46,  cy-R*.38);
+        ctx.lineTo(cx+R*.70,  cy-R*.32);
+        ctx.bezierCurveTo(cx+R*1.02,cy-R*.22, cx+R*1.02,cy+R*.20, cx+R*.72,cy+R*.38);
+        ctx.quadraticCurveTo(cx+R*.55,cy+R*.55, cx+R*.46,cy+R*.22);
+      }, 0.70);
+      curved(()=>{
+        ctx.moveTo(cx-R*.24, cy-R*.46);
+        ctx.lineTo(cx+R*.24, cy-R*.46);
+        ctx.quadraticCurveTo(cx+R*.18,cy-R*.95, cx,cy-R);
+        ctx.quadraticCurveTo(cx-R*.18,cy-R*.95, cx-R*.24,cy-R*.46);
+      }, 0.58);
       break;
-    case 5: // BRUISER
-      poly([[cx-R*1.02,cy-R*0.40],[cx-R*0.68,cy-R*0.70],[cx-R*0.50,cy-R*0.50],[cx-R*0.50,cy+R*0.50],[cx-R*0.68,cy+R*0.70],[cx-R*1.02,cy+R*0.40]], 0.72);
-      poly([[cx-R*0.68,cy-R*0.92],[cx+R*0.12,cy-R*0.90],[cx+R*0.32,cy-R*0.58],[cx-R*0.42,cy-R*0.52]], 0.62);
-      poly([[cx-R*0.28,cy+R*0.58],[cx+R*0.55,cy+R*0.55],[cx+R*0.88,cy+R*0.58],[cx+R*0.58,cy+R*0.90],[cx-R*0.18,cy+R*0.92]], 0.58);
+
+    case 5: // BRUISER — curved muscle plate, hard shoulder, curved counter-mass
+      curved(()=>{
+        ctx.moveTo(cx-R*.68, cy-R*.70);
+        ctx.quadraticCurveTo(cx-R*1.30,cy, cx-R*.60,cy+R*.70);
+        ctx.lineTo(cx-R*.50, cy+R*.50);
+        ctx.lineTo(cx-R*.50, cy-R*.50);
+      }, 0.72);
+      poly([[cx-R*.68,cy-R*.92],[cx+R*.12,cy-R*.90],[cx+R*.32,cy-R*.58],[cx-R*.42,cy-R*.52]], 0.62);
+      curved(()=>{
+        ctx.moveTo(cx-R*.28, cy+R*.58);
+        ctx.lineTo(cx+R*.88, cy+R*.58);
+        ctx.lineTo(cx+R*.58, cy+R*.90);
+        ctx.quadraticCurveTo(cx+R*.12,cy+R*1.02, cx-R*.18,cy+R*.92);
+      }, 0.58);
       break;
-    case 6: // SPECTER
-      poly([[cx-R*0.08,cy-R*1.0],[cx+R*0.30,cy-R*0.85],[cx+R*0.58,cy-R*0.40],[cx+R*0.26,cy-R*0.50]], 0.68);
-      poly([[cx+R*0.08,cy+R*1.0],[cx-R*0.30,cy+R*0.85],[cx-R*0.58,cy+R*0.40],[cx-R*0.26,cy+R*0.50]], 0.68);
-      poly([[cx-R*0.58,cy-R*0.28],[cx-R*0.38,cy-R*0.55],[cx+R*0.58,cy+R*0.28],[cx+R*0.38,cy+R*0.55]], 0.54);
+
+    case 6: // SPECTER — bezier energy bladders, hard spine
+      curved(()=>{
+        ctx.moveTo(cx-R*.08, cy-R);
+        ctx.bezierCurveTo(cx+R*.40,cy-R*1.05, cx+R*.62,cy-R*.60, cx+R*.28,cy-R*.48);
+        ctx.quadraticCurveTo(cx+R*.02,cy-R*.56, cx-R*.08,cy-R);
+      }, 0.68);
+      curved(()=>{
+        ctx.moveTo(cx+R*.08, cy+R);
+        ctx.bezierCurveTo(cx-R*.40,cy+R*1.05, cx-R*.62,cy+R*.60, cx-R*.28,cy+R*.48);
+        ctx.quadraticCurveTo(cx-R*.02,cy+R*.56, cx+R*.08,cy+R);
+      }, 0.68);
+      poly([[cx-R*.58,cy-R*.28],[cx-R*.38,cy-R*.55],[cx+R*.58,cy+R*.28],[cx+R*.38,cy+R*.55]], 0.54);
       break;
-    default: // STALKER
-      poly([[cx-R*0.28,cy-R*0.95],[cx+R*0.55,cy-R*0.78],[cx+R*0.45,cy-R*0.46],[cx-R*0.18,cy-R*0.58]], 0.68);
-      poly([[cx+R*0.32,cy+R*0.90],[cx+R*0.92,cy+R*0.45],[cx+R*1.12,cy+R*0.65],[cx+R*0.72,cy+R*1.08]], 0.62);
-      poly([[cx-R*0.78,cy],[cx-R*0.42,cy+R*0.58],[cx-R*0.68,cy+R*0.80],[cx-R*1.02,cy+R*0.28]], 0.58);
+
+    default: // STALKER — curved dorsal spine, bezier anchor mass, hard flange
+      curved(()=>{
+        ctx.moveTo(cx-R*.28,  cy-R*.95);
+        ctx.quadraticCurveTo(cx+R*.14,cy-R*1.12, cx+R*.55,cy-R*.78);
+        ctx.lineTo(cx+R*.45,  cy-R*.50);
+        ctx.quadraticCurveTo(cx+R*.10,cy-R*.80, cx-R*.18,cy-R*.60);
+      }, 0.68);
+      curved(()=>{
+        ctx.moveTo(cx+R*.32,  cy+R*.90);
+        ctx.bezierCurveTo(cx+R*.60,cy+R*1.15, cx+R*1.10,cy+R*.80, cx+R*.92,cy+R*.45);
+        ctx.quadraticCurveTo(cx+R*.78,cy+R*.60, cx+R*.50,cy+R*.78);
+      }, 0.62);
+      poly([[cx-R*.78,cy],[cx-R*.42,cy+R*.58],[cx-R*.68,cy+R*.80],[cx-R*1.02,cy+R*.28]], 0.58);
       break;
   }
 }
 
+/* ── Render ─────────────────────────────────────────────────────────────── */
 const row = document.getElementById('row');
-CHASSIS.forEach(({ id, name, color, glow }) => {
-  const SIZE = 160;
-  const cx = SIZE / 2, cy = SIZE / 2;
-
+CHASSIS.forEach(({ id, name, color, glow, note }) => {
+  const SIZE = 170;
+  const cx = SIZE/2, cy = SIZE/2;
   const canvas = document.createElement('canvas');
   canvas.width = SIZE; canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
 
   ctx.fillStyle = '#0a1628';
-  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.fillRect(0,0,SIZE,SIZE);
 
-  // Primary chassis
   buildChassisPath(ctx, cx, cy, id, R);
-  ctx.shadowColor = glow;
-  ctx.shadowBlur = 14;
-  ctx.fillStyle = color;
-  ctx.fill();
+  ctx.shadowColor = glow; ctx.shadowBlur = 14;
+  ctx.fillStyle = color; ctx.fill();
   ctx.shadowBlur = 0;
   ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  ctx.lineWidth = 1; ctx.stroke();
 
-  // Secondary anatomy
   drawSecondary(ctx, cx, cy, id, R, color, glow);
 
   const cell = document.createElement('div');
   cell.className = 'cell';
   const lbl = document.createElement('div');
   lbl.className = 'label';
-  lbl.textContent = `${id} · ${name}`;
+  lbl.textContent = `${id} · ${name} [${note}]`;
   cell.appendChild(canvas);
   cell.appendChild(lbl);
   row.appendChild(cell);

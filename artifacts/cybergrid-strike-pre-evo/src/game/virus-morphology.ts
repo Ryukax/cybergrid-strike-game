@@ -223,11 +223,15 @@ export function getVirusColors(n: number, flash: boolean): { fill: string; glow:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// § 7  Chassis silhouettes  (hard-edged polygonal outer shapes)
+// § 7  Chassis silhouettes
 //
-//  8 chassis templates derived from n % 8.  Each is a distinct non-radially-
-//  symmetric polygon — no sine oscillators, no rose curves.
-//  R is a scalar that sizes the chassis; chassis type controls topology.
+//  8 chassis templates derived from n % 8.  Curves are used selectively:
+//   • Organic/biological chassis (CRAWLER, STALKER, BRUISER, STRIKER) use
+//     quadratic / bezier curves for shell contours, belly membranes, and
+//     muscle-like transitions.
+//   • Mechanical chassis (WEDGE, TANK, ARTILLERY, SPECTER) keep hard polygon
+//     edges to communicate armor, weapons, and rigid structure.
+//  No rose curves, no radial oscillators, no universal blobs.
 //  All shapes face LEFT (direction of travel toward the player).
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -238,17 +242,17 @@ function getChassisType(n: number): number {
 
 /**
  * Builds the chassis outer-silhouette path.
- * Vertices are absolute canvas coordinates centered on (cx, cy).
+ * Vertices and control points are absolute canvas coordinates centered on (cx, cy).
  *
  * Chassis catalogue:
- *   0  WEDGE      — forward arrowhead with rear notch
- *   1  STRIKER    — slim elongated horizontal diamond
- *   2  TANK       — tall wide trapezoid (fortress front)
- *   3  ARTILLERY  — long narrow bar (thin profile)
- *   4  CRAWLER    — low wide trapezoid (hugs ground)
- *   5  BRUISER    — heavy irregular pentagon (broad front face)
- *   6  SPECTER    — tilted parallelogram (diagonal slant)
- *   7  STALKER    — irregular asymmetric hexagon (no symmetry axis)
+ *   0  WEDGE      — hard arrowhead + rear chevron notch  (mechanical)
+ *   1  STRIKER    — curved biomechanical fuselage        (organic/mech hybrid)
+ *   2  TANK       — hard tall trapezoid, fortress front  (armor)
+ *   3  ARTILLERY  — hard narrow bar, weapon platform     (mechanical)
+ *   4  CRAWLER    — hard dorsal + curved organic belly   (biological)
+ *   5  BRUISER    — convex muscle-bulge front face       (biomechanical)
+ *   6  SPECTER    — hard tilted parallelogram            (crystalline/energy)
+ *   7  STALKER    — carapace shell with curved arcs      (organic predator)
  */
 function buildChassisPath(
   ctx: CanvasRenderingContext2D,
@@ -259,63 +263,66 @@ function buildChassisPath(
   ctx.beginPath();
 
   switch (chassis) {
-    case 0: // WEDGE — arrowhead pointing left; chevron notch at rear
+    case 0: // WEDGE — hard mechanical fighter; arrowhead + chevron notch (all lineTo)
       ctx.moveTo(cx - R,        cy);
       ctx.lineTo(cx + R * 0.65, cy - R * 0.85);
       ctx.lineTo(cx + R * 0.28, cy);
       ctx.lineTo(cx + R * 0.65, cy + R * 0.85);
       break;
 
-    case 1: // STRIKER — slim horizontal diamond; elongated nose, flat flanks
-      ctx.moveTo(cx - R,        cy);
-      ctx.lineTo(cx - R * 0.05, cy - R * 0.38);
-      ctx.lineTo(cx + R * 0.85, cy);
-      ctx.lineTo(cx - R * 0.05, cy + R * 0.38);
+    case 1: // STRIKER — streamlined biomechanical hunter; curved fuselage belly
+      ctx.moveTo(cx - R,         cy);                                          // sharp nose
+      ctx.quadraticCurveTo(cx - R * 0.22, cy - R * 0.52, cx + R * 0.88, cy - R * 0.07); // upper hull arc
+      ctx.lineTo(cx + R * 0.88,  cy + R * 0.07);                              // narrow tail edge
+      ctx.quadraticCurveTo(cx - R * 0.22, cy + R * 0.52, cx - R,         cy); // lower hull arc
       break;
 
-    case 2: // TANK — tall trapezoid; flat frontal face, angled rear
+    case 2: // TANK — hard armor fortress; all hard edges
       ctx.moveTo(cx - R * 0.50, cy - R * 1.0);
       ctx.lineTo(cx - R * 0.50, cy + R * 1.0);
       ctx.lineTo(cx + R * 0.88, cy + R * 0.68);
       ctx.lineTo(cx + R * 0.88, cy - R * 0.68);
       break;
 
-    case 3: // ARTILLERY — long thin bar; narrow vertical profile
+    case 3: // ARTILLERY — hard mechanical weapon bar; all hard edges
       ctx.moveTo(cx - R * 1.05, cy - R * 0.24);
       ctx.lineTo(cx - R * 1.05, cy + R * 0.24);
       ctx.lineTo(cx + R * 0.90, cy + R * 0.30);
       ctx.lineTo(cx + R * 0.90, cy - R * 0.30);
       break;
 
-    case 4: // CRAWLER — low wide trapezoid; slung below center
-      ctx.moveTo(cx - R * 0.46, cy - R * 0.46);
-      ctx.lineTo(cx - R * 0.72, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.72, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.46, cy - R * 0.46);
+    case 4: // CRAWLER — organic ground creature; hard dorsal, curved underbelly
+      ctx.moveTo(cx - R * 0.46, cy - R * 0.46);   // top-left  (hard dorsal)
+      ctx.lineTo(cx + R * 0.46, cy - R * 0.46);   // top-right (hard dorsal edge)
+      ctx.lineTo(cx + R * 0.70, cy + R * 0.28);   // right side angling down
+      // Organic underbelly — convex belly membrane sags downward
+      ctx.quadraticCurveTo(cx, cy + R * 1.08, cx - R * 0.70, cy + R * 0.28);
       break;
 
-    case 5: // BRUISER — irregular pentagon; wide frontage, offset mass
-      ctx.moveTo(cx - R * 0.68, cy - R * 0.92);
-      ctx.lineTo(cx - R * 1.0,  cy + R * 0.08);
-      ctx.lineTo(cx - R * 0.60, cy + R * 0.92);
-      ctx.lineTo(cx + R * 0.88, cy + R * 0.58);
-      ctx.lineTo(cx + R * 0.88, cy - R * 0.80);
+    case 5: // BRUISER — biomechanical brute; convex muscle-bulge on front face
+      ctx.moveTo(cx - R * 0.68, cy - R * 0.92);   // top-front corner
+      // Convex muscle belly on the front (left) face — control point pushes outward
+      ctx.quadraticCurveTo(cx - R * 1.22, cy, cx - R * 0.60, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.88, cy + R * 0.58);   // bottom-right
+      ctx.lineTo(cx + R * 0.88, cy - R * 0.80);   // top-right
       break;
 
-    case 6: // SPECTER — tilted parallelogram; body reads as diagonal
+    case 6: // SPECTER — hard crystalline diagonal blade; all hard edges
       ctx.moveTo(cx - R * 0.82, cy - R * 0.55);
       ctx.lineTo(cx - R * 0.08, cy - R * 1.0);
       ctx.lineTo(cx + R * 0.82, cy + R * 0.55);
       ctx.lineTo(cx + R * 0.08, cy + R * 1.0);
       break;
 
-    default: // STALKER (7) — irregular hexagon; no axis of symmetry
-      ctx.moveTo(cx - R * 0.78, cy);
-      ctx.lineTo(cx - R * 0.28, cy - R * 0.95);
-      ctx.lineTo(cx + R * 0.55, cy - R * 0.78);
-      ctx.lineTo(cx + R * 0.92, cy + R * 0.18);
-      ctx.lineTo(cx + R * 0.32, cy + R * 0.90);
-      ctx.lineTo(cx - R * 0.42, cy + R * 0.58);
+    default: // STALKER (7) — organic predator carapace; curved upper shell + hard beak
+      ctx.moveTo(cx - R * 0.78, cy);              // left rear point (hard)
+      ctx.lineTo(cx - R * 0.28, cy - R * 0.95);  // upper beak tip (hard strike point)
+      // Smooth carapace shell arc across the upper back
+      ctx.quadraticCurveTo(cx + R * 0.22, cy - R * 0.94, cx + R * 0.55, cy - R * 0.78);
+      ctx.lineTo(cx + R * 0.92, cy + R * 0.18);  // hard right claw tip
+      // Curved lower shell — organic tail transition
+      ctx.quadraticCurveTo(cx + R * 0.65, cy + R * 0.78, cx + R * 0.32, cy + R * 0.90);
+      ctx.lineTo(cx - R * 0.42, cy + R * 0.58);  // hard lower-rear edge
       break;
   }
 
@@ -325,9 +332,15 @@ function buildChassisPath(
 // ═══════════════════════════════════════════════════════════════════════════════
 // § 7b  Secondary chassis anatomy  (structural sub-shapes per chassis type)
 //
-//  Draws 1–3 filled structural masses that extend/overlap the primary chassis
-//  to build a compound multi-part silhouette.  Colors use the same class fill
-//  at reduced globalAlpha so they read as integral anatomy, not decoration.
+//  Draws 2–3 filled structural masses that extend / overlap the primary chassis
+//  to build a compound multi-part silhouette.
+//
+//  Curve philosophy (mirrors primary):
+//   • Mechanical / armor (WEDGE, TANK, ARTILLERY, SPECTER) — hard lineTo only
+//   • Organic / hybrid   (CRAWLER, BRUISER, STALKER, STRIKER) — selective
+//     quadraticCurveTo / bezierCurveTo for muscle masses, membrane joints,
+//     tapered appendages, and shell transitions
+//
 //  Call AFTER primary chassis fill+stroke; BEFORE archetype overlays.
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -342,27 +355,50 @@ function drawChassisSecondary(
   const chassis = getChassisType(n);
   ctx.save();
 
-  // Helper — fill a closed polygon then stroke with a thin separation line
+  const sep  = flash ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)';
+  const blur = flash ? 3 : 6;
+
+  /** Fill a hard-edged polygon path then stroke a thin separation line. */
   const poly = (pts: [number, number][], alpha: number) => {
     ctx.globalAlpha = alpha;
     ctx.fillStyle   = fill;
     ctx.shadowColor = glow;
-    ctx.shadowBlur  = flash ? 3 : 6;
+    ctx.shadowBlur  = blur;
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.closePath();
     ctx.fill();
     ctx.shadowBlur  = 0;
-    ctx.strokeStyle = flash ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.18)';
+    ctx.strokeStyle = sep;
+    ctx.lineWidth   = 0.8;
+    ctx.stroke();
+  };
+
+  /**
+   * Fill a shape whose path is built by the caller-supplied function.
+   * Use for any shape that needs curves (quadratic, bezier, arcs).
+   */
+  const curved = (pathFn: () => void, alpha: number) => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle   = fill;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur  = blur;
+    ctx.beginPath();
+    pathFn();
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+    ctx.strokeStyle = sep;
     ctx.lineWidth   = 0.8;
     ctx.stroke();
   };
 
   switch (chassis) {
 
-    case 0: { // WEDGE — rear engine block + swept upper/lower strakes
-      // Rear engine block (filling the chevron notch behind cx+R*0.28)
+    // ── 0  WEDGE  (mechanical — all hard edges) ───────────────────────────────
+    case 0: {
+      // Rear engine block fills the chevron notch
       poly([
         [cx + R * 0.28, cy - R * 0.22],
         [cx + R * 0.65, cy - R * 0.38],
@@ -371,94 +407,95 @@ function drawChassisSecondary(
         [cx + R * 0.65, cy + R * 0.38],
         [cx + R * 0.28, cy + R * 0.22],
       ], 0.70);
-      // Upper swept strake fin
-      poly([
-        [cx - R * 0.20, cy - R * 0.42],
-        [cx + R * 0.08, cy - R * 0.82],
-        [cx + R * 0.55, cy - R * 0.85],
-        [cx + R * 0.45, cy - R * 0.58],
-        [cx - R * 0.05, cy - R * 0.46],
-      ], 0.56);
-      // Lower swept strake fin (mirrored)
-      poly([
-        [cx - R * 0.20, cy + R * 0.42],
-        [cx + R * 0.08, cy + R * 0.82],
-        [cx + R * 0.55, cy + R * 0.85],
-        [cx + R * 0.45, cy + R * 0.58],
-        [cx - R * 0.05, cy + R * 0.46],
-      ], 0.56);
+      // Upper delta fin — swept hard leading edge, curved swept trailing edge
+      curved(() => {
+        ctx.moveTo(cx - R * 0.20, cy - R * 0.44);
+        ctx.lineTo(cx + R * 0.55, cy - R * 0.86);   // hard leading edge
+        ctx.lineTo(cx + R * 0.48, cy - R * 0.60);
+        ctx.quadraticCurveTo(cx + R * 0.10, cy - R * 0.50, cx - R * 0.08, cy - R * 0.47);
+      }, 0.56);
+      // Lower delta fin (mirrored)
+      curved(() => {
+        ctx.moveTo(cx - R * 0.20, cy + R * 0.44);
+        ctx.lineTo(cx + R * 0.55, cy + R * 0.86);
+        ctx.lineTo(cx + R * 0.48, cy + R * 0.60);
+        ctx.quadraticCurveTo(cx + R * 0.10, cy + R * 0.50, cx - R * 0.08, cy + R * 0.47);
+      }, 0.56);
       break;
     }
 
-    case 1: { // STRIKER — rear twin thruster pods + lateral canard fins
-      // Rear thruster block (right end of diamond)
-      poly([
-        [cx + R * 0.62, cy - R * 0.30],
-        [cx + R * 0.85, cy - R * 0.22],
-        [cx + R * 1.12, cy - R * 0.30],
-        [cx + R * 1.12, cy + R * 0.30],
-        [cx + R * 0.85, cy + R * 0.22],
-        [cx + R * 0.62, cy + R * 0.30],
-      ], 0.72);
-      // Upper canard fin
-      poly([
-        [cx - R * 0.18, cy - R * 0.38],
-        [cx + R * 0.22, cy - R * 0.38],
-        [cx + R * 0.12, cy - R * 0.70],
-        [cx - R * 0.28, cy - R * 0.60],
-      ], 0.56);
-      // Lower canard fin (mirrored)
-      poly([
-        [cx - R * 0.18, cy + R * 0.38],
-        [cx + R * 0.22, cy + R * 0.38],
-        [cx + R * 0.12, cy + R * 0.70],
-        [cx - R * 0.28, cy + R * 0.60],
-      ], 0.56);
+    // ── 1  STRIKER  (biomech hybrid — curved thruster pods, hard canards) ─────
+    case 1: {
+      // Rear organic thruster pod — rounded exhaust bladder shape
+      curved(() => {
+        ctx.moveTo(cx + R * 0.88, cy - R * 0.07);
+        ctx.lineTo(cx + R * 0.88, cy - R * 0.28);
+        ctx.quadraticCurveTo(cx + R * 1.18, cy - R * 0.28, cx + R * 1.18, cy); // rounded cap
+        ctx.quadraticCurveTo(cx + R * 1.18, cy + R * 0.28, cx + R * 0.88, cy + R * 0.28);
+        ctx.lineTo(cx + R * 0.88, cy + R * 0.07);
+      }, 0.72);
+      // Upper swept canard — hard leading edge, curved taper to tip
+      curved(() => {
+        ctx.moveTo(cx - R * 0.15, cy - R * 0.07);
+        ctx.lineTo(cx - R * 0.25, cy - R * 0.62);   // hard leading edge
+        ctx.lineTo(cx + R * 0.12, cy - R * 0.72);   // tip
+        ctx.quadraticCurveTo(cx + R * 0.24, cy - R * 0.40, cx + R * 0.22, cy - R * 0.07); // soft trailing
+      }, 0.56);
+      // Lower canard (mirrored)
+      curved(() => {
+        ctx.moveTo(cx - R * 0.15, cy + R * 0.07);
+        ctx.lineTo(cx - R * 0.25, cy + R * 0.62);
+        ctx.lineTo(cx + R * 0.12, cy + R * 0.72);
+        ctx.quadraticCurveTo(cx + R * 0.24, cy + R * 0.40, cx + R * 0.22, cy + R * 0.07);
+      }, 0.56);
       break;
     }
 
-    case 2: { // TANK — front armor slab + rear command tower + central turret
-      // Front armor plate (protrudes left from the flat frontal face)
+    // ── 2  TANK  (armor — all hard edges) ────────────────────────────────────
+    case 2: {
+      // Front reactive armor slab
       poly([
         [cx - R * 0.82, cy - R * 0.52],
         [cx - R * 0.50, cy - R * 0.52],
         [cx - R * 0.50, cy + R * 0.52],
         [cx - R * 0.82, cy + R * 0.52],
       ], 0.72);
-      // Rear command tower (right side)
+      // Rear command tower
       poly([
         [cx + R * 0.62, cy - R * 0.88],
         [cx + R * 0.88, cy - R * 0.68],
         [cx + R * 0.88, cy + R * 0.68],
         [cx + R * 0.62, cy + R * 0.88],
       ], 0.62);
-      // Central turret mass
+      // Central turret ring — hard angled hex shape (rotary joint is mechanical)
       poly([
         [cx - R * 0.08, cy - R * 0.38],
-        [cx + R * 0.32, cy - R * 0.44],
+        [cx + R * 0.28, cy - R * 0.44],
         [cx + R * 0.48, cy],
-        [cx + R * 0.32, cy + R * 0.44],
+        [cx + R * 0.28, cy + R * 0.44],
         [cx - R * 0.08, cy + R * 0.38],
       ], 0.58);
       break;
     }
 
-    case 3: { // ARTILLERY — barrel extension + rear recoil block + mount bracket
-      // Barrel tip cap (extends left beyond the chassis nose)
-      poly([
-        [cx - R * 1.05, cy - R * 0.14],
-        [cx - R * 1.05, cy + R * 0.14],
-        [cx - R * 1.50, cy + R * 0.10],
-        [cx - R * 1.50, cy - R * 0.10],
-      ], 0.76);
-      // Rear recoil block (right end, taller and wider)
+    // ── 3  ARTILLERY  (weapon platform — hard edges; rounded muzzle only) ────
+    case 3: {
+      // Barrel extension with rounded muzzle cap (gun barrels taper to round)
+      curved(() => {
+        ctx.moveTo(cx - R * 1.05, cy - R * 0.14);
+        ctx.lineTo(cx - R * 1.05, cy + R * 0.14);
+        ctx.lineTo(cx - R * 1.42, cy + R * 0.10);
+        ctx.arc(cx - R * 1.42, cy, R * 0.10, Math.PI * 0.5, -Math.PI * 0.5, true);
+        ctx.lineTo(cx - R * 1.42, cy - R * 0.10);
+      }, 0.76);
+      // Rear recoil block — hard
       poly([
         [cx + R * 0.88, cy - R * 0.52],
         [cx + R * 1.22, cy - R * 0.44],
         [cx + R * 1.22, cy + R * 0.44],
         [cx + R * 0.88, cy + R * 0.52],
       ], 0.68);
-      // Mid mounting bracket (above the barrel)
+      // Mounting bracket above the barrel — hard
       poly([
         [cx - R * 0.08, cy - R * 0.30],
         [cx + R * 0.22, cy - R * 0.30],
@@ -468,75 +505,89 @@ function drawChassisSecondary(
       break;
     }
 
-    case 4: { // CRAWLER — side leg masses + forward plow wedge
-      // Left leg mass
-      poly([
-        [cx - R * 0.46, cy - R * 0.42],
-        [cx - R * 0.46, cy + R * 0.42],
-        [cx - R * 0.92, cy + R * 0.58],
-        [cx - R * 0.92, cy - R * 0.32],
-      ], 0.70);
-      // Right leg mass
-      poly([
-        [cx + R * 0.46, cy - R * 0.42],
-        [cx + R * 0.92, cy - R * 0.32],
-        [cx + R * 0.92, cy + R * 0.58],
-        [cx + R * 0.46, cy + R * 0.42],
-      ], 0.70);
-      // Forward plow (above center, narrows toward top)
-      poly([
-        [cx - R * 0.28, cy - R * 0.46],
-        [cx + R * 0.28, cy - R * 0.46],
-        [cx + R * 0.12, cy - R * 0.90],
-        [cx - R * 0.12, cy - R * 0.90],
-      ], 0.58);
+    // ── 4  CRAWLER  (biological — all secondary masses are curved) ────────────
+    case 4: {
+      // Left leg mass — organic muscle bulge, rounded outer contour
+      curved(() => {
+        ctx.moveTo(cx - R * 0.46, cy - R * 0.38);
+        ctx.lineTo(cx - R * 0.46, cy + R * 0.22);
+        ctx.quadraticCurveTo(cx - R * 0.55, cy + R * 0.55, cx - R * 0.72, cy + R * 0.38);
+        ctx.bezierCurveTo(
+          cx - R * 1.02, cy + R * 0.20,
+          cx - R * 1.02, cy - R * 0.22,
+          cx - R * 0.70, cy - R * 0.32,
+        );
+      }, 0.70);
+      // Right leg mass — mirrored
+      curved(() => {
+        ctx.moveTo(cx + R * 0.46, cy - R * 0.38);
+        ctx.lineTo(cx + R * 0.70, cy - R * 0.32);
+        ctx.bezierCurveTo(
+          cx + R * 1.02, cy - R * 0.22,
+          cx + R * 1.02, cy + R * 0.20,
+          cx + R * 0.72, cy + R * 0.38,
+        );
+        ctx.quadraticCurveTo(cx + R * 0.55, cy + R * 0.55, cx + R * 0.46, cy + R * 0.22);
+      }, 0.70);
+      // Forward head crest — tapered dome rising from the dorsal flat
+      curved(() => {
+        ctx.moveTo(cx - R * 0.24, cy - R * 0.46);
+        ctx.lineTo(cx + R * 0.24, cy - R * 0.46);
+        ctx.quadraticCurveTo(cx + R * 0.18, cy - R * 0.95, cx, cy - R * 1.0);
+        ctx.quadraticCurveTo(cx - R * 0.18, cy - R * 0.95, cx - R * 0.24, cy - R * 0.46);
+      }, 0.58);
       break;
     }
 
-    case 5: { // BRUISER — face plate + upper shoulder armor + lower counter-mass
-      // Broad face plate on the wide left frontage
-      poly([
-        [cx - R * 1.02, cy - R * 0.40],
-        [cx - R * 0.68, cy - R * 0.70],
-        [cx - R * 0.50, cy - R * 0.50],
-        [cx - R * 0.50, cy + R * 0.50],
-        [cx - R * 0.68, cy + R * 0.70],
-        [cx - R * 1.02, cy + R * 0.40],
-      ], 0.72);
-      // Upper shoulder armor slab
+    // ── 5  BRUISER  (biomechanical — curved muscle plate, hard shoulders) ─────
+    case 5: {
+      // Front muscle plate — convex arc face, same outward bulge as primary
+      curved(() => {
+        ctx.moveTo(cx - R * 0.68, cy - R * 0.70);
+        ctx.quadraticCurveTo(cx - R * 1.30, cy, cx - R * 0.60, cy + R * 0.70);
+        ctx.lineTo(cx - R * 0.50, cy + R * 0.50);
+        ctx.lineTo(cx - R * 0.50, cy - R * 0.50);
+      }, 0.72);
+      // Upper shoulder armor — hard angular slab
       poly([
         [cx - R * 0.68, cy - R * 0.92],
         [cx + R * 0.12, cy - R * 0.90],
         [cx + R * 0.32, cy - R * 0.58],
         [cx - R * 0.42, cy - R * 0.52],
       ], 0.62);
-      // Lower counter-mass
-      poly([
-        [cx - R * 0.28, cy + R * 0.58],
-        [cx + R * 0.55, cy + R * 0.55],
-        [cx + R * 0.88, cy + R * 0.58],
-        [cx + R * 0.58, cy + R * 0.90],
-        [cx - R * 0.18, cy + R * 0.92],
-      ], 0.58);
+      // Lower counter-mass — hard base with curved posterior edge
+      curved(() => {
+        ctx.moveTo(cx - R * 0.28, cy + R * 0.58);
+        ctx.lineTo(cx + R * 0.88, cy + R * 0.58);
+        ctx.lineTo(cx + R * 0.58, cy + R * 0.90);
+        ctx.quadraticCurveTo(cx + R * 0.12, cy + R * 1.02, cx - R * 0.18, cy + R * 0.92);
+      }, 0.58);
       break;
     }
 
-    case 6: { // SPECTER — angled booster pods + central spine blade
-      // Upper booster pod (at the upper-right vertex)
-      poly([
-        [cx - R * 0.08, cy - R * 1.0],
-        [cx + R * 0.30, cy - R * 0.85],
-        [cx + R * 0.58, cy - R * 0.40],
-        [cx + R * 0.26, cy - R * 0.50],
-      ], 0.68);
-      // Lower booster pod (at the lower-left vertex, mirrored)
-      poly([
-        [cx + R * 0.08, cy + R * 1.0],
-        [cx - R * 0.30, cy + R * 0.85],
-        [cx - R * 0.58, cy + R * 0.40],
-        [cx - R * 0.26, cy + R * 0.50],
-      ], 0.68);
-      // Central spine blade along the long diagonal
+    // ── 6  SPECTER  (crystalline/energy — hard chassis; organic bladder pods) ─
+    case 6: {
+      // Upper energy bladder — lens/teardrop shape (organic membrane mass)
+      curved(() => {
+        ctx.moveTo(cx - R * 0.08, cy - R * 1.0);
+        ctx.bezierCurveTo(
+          cx + R * 0.40, cy - R * 1.05,
+          cx + R * 0.62, cy - R * 0.60,
+          cx + R * 0.28, cy - R * 0.48,
+        );
+        ctx.quadraticCurveTo(cx + R * 0.02, cy - R * 0.56, cx - R * 0.08, cy - R * 1.0);
+      }, 0.68);
+      // Lower energy bladder (mirrored)
+      curved(() => {
+        ctx.moveTo(cx + R * 0.08, cy + R * 1.0);
+        ctx.bezierCurveTo(
+          cx - R * 0.40, cy + R * 1.05,
+          cx - R * 0.62, cy + R * 0.60,
+          cx - R * 0.28, cy + R * 0.48,
+        );
+        ctx.quadraticCurveTo(cx - R * 0.02, cy + R * 0.56, cx + R * 0.08, cy + R * 1.0);
+      }, 0.68);
+      // Spine blade along long diagonal — hard-edged crystal ridge
       poly([
         [cx - R * 0.58, cy - R * 0.28],
         [cx - R * 0.38, cy - R * 0.55],
@@ -546,22 +597,26 @@ function drawChassisSecondary(
       break;
     }
 
-    default: { // STALKER (7) — dorsal spine slab + lower anchor mass + rear flange
-      // Dorsal spine slab (upper-left to upper-right edge)
-      poly([
-        [cx - R * 0.28, cy - R * 0.95],
-        [cx + R * 0.55, cy - R * 0.78],
-        [cx + R * 0.45, cy - R * 0.46],
-        [cx - R * 0.18, cy - R * 0.58],
-      ], 0.68);
-      // Lower anchor mass (heavy block at lower-right)
-      poly([
-        [cx + R * 0.32, cy + R * 0.90],
-        [cx + R * 0.92, cy + R * 0.45],
-        [cx + R * 1.12, cy + R * 0.65],
-        [cx + R * 0.72, cy + R * 1.08],
-      ], 0.62);
-      // Rear lateral flange (lower-left quadrant)
+    // ── 7  STALKER  (organic predator — curved spine, bezier anchor, hard flange)
+    default: {
+      // Dorsal spine — convex arch following the carapace upper shell
+      curved(() => {
+        ctx.moveTo(cx - R * 0.28, cy - R * 0.95);
+        ctx.quadraticCurveTo(cx + R * 0.14, cy - R * 1.12, cx + R * 0.55, cy - R * 0.78);
+        ctx.lineTo(cx + R * 0.45, cy - R * 0.50);
+        ctx.quadraticCurveTo(cx + R * 0.10, cy - R * 0.80, cx - R * 0.18, cy - R * 0.60);
+      }, 0.68);
+      // Lower anchor mass — organic rounded bulk (bezier muscle curves)
+      curved(() => {
+        ctx.moveTo(cx + R * 0.32, cy + R * 0.90);
+        ctx.bezierCurveTo(
+          cx + R * 0.60, cy + R * 1.15,
+          cx + R * 1.10, cy + R * 0.80,
+          cx + R * 0.92, cy + R * 0.45,
+        );
+        ctx.quadraticCurveTo(cx + R * 0.78, cy + R * 0.60, cx + R * 0.50, cy + R * 0.78);
+      }, 0.62);
+      // Rear lateral flange — hard angular plate (exoskeletal, not organic)
       poly([
         [cx - R * 0.78, cy],
         [cx - R * 0.42, cy + R * 0.58],
