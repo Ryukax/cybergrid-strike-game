@@ -87,7 +87,7 @@ canvas#canvas {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 14px;
+  bottom: 50px;
   padding: 8px 12px;
   border-radius: 999px;
   background: rgba(2, 6, 23, 0.7);
