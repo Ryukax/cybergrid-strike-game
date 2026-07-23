@@ -280,7 +280,7 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         const urls = playerSkin === 'rocket'
-          ? Array.from({ length: 13 }, (_, i) => `${base}skins/rocket_frame_${i}.png`)
+          ? Array.from({ length: 14 }, (_, i) => `${base}skins/rocket_frame_${i}.png`)
           : playerSkin === 'dots'
           ? [
               `${base}skins/dots_frame_0.png`,
