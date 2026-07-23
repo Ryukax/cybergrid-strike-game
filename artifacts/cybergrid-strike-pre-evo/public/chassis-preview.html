@@ -2,24 +2,21 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Chassis Preview — Silhouette Composition Pass</title>
+<title>Chassis Preview — Structural Coherence Pass</title>
 <style>
   body { background: #06101e; margin: 0; display: flex; flex-direction: column;
          align-items: center; padding: 20px; font-family: monospace; gap: 8px; }
   h2   { color: #38bdf8; margin: 0; letter-spacing: 0.1em; font-size: 13px; }
-  p    { color: rgba(219,234,254,0.4); font-size: 10px; margin: 0 0 10px;
-         letter-spacing: 0.08em; }
+  p    { color: rgba(219,234,254,0.4); font-size: 10px; margin: 0 0 10px; letter-spacing: 0.08em; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .cell { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-  .label { color: rgba(219,234,254,0.55); font-size: 9px; letter-spacing: 0.12em;
-           text-transform: uppercase; }
-  canvas { border: 1px solid rgba(56,189,248,0.14); border-radius: 3px;
-           background: #0a1628; }
+  .label { color: rgba(219,234,254,0.55); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
+  canvas { border: 1px solid rgba(56,189,248,0.14); border-radius: 3px; background: #0a1628; }
 </style>
 </head>
 <body>
-<h2>⬡ PRE-EVOLUTION — SILHOUETTE COMPOSITION PASS ⬡</h2>
-<p>40–60 % of footprint from secondary/tertiary anatomy · 3–4 substantial regions each</p>
+<h2>⬡ PRE-EVOLUTION — STRUCTURAL COHERENCE PASS ⬡</h2>
+<p>Appendage roots anchored to exact primary body vertices · phenotype-correct joints</p>
 <div class="row" id="row"></div>
 <script>
 const CHASSIS = [
@@ -32,275 +29,232 @@ const CHASSIS = [
   { id:6, name:'SPECTER',   color:'#e879f9', glow:'rgba(232,121,249,0.65)', note:'crystal-energy' },
   { id:7, name:'STALKER',   color:'#22d3ee', glow:'rgba(34,211,238,0.65)',  note:'organic-predator' },
 ];
-
-// R is sized so anatomy fits within each 220×220 canvas
 const R = 26;
 
-/* ── Primary silhouette paths ─────────────────────────────────────────── */
 function buildPrimary(ctx, cx, cy, id, R) {
   ctx.beginPath();
   switch (id) {
-    case 0: // WEDGE
-      ctx.moveTo(cx-R,       cy);
-      ctx.lineTo(cx+R*.65,   cy-R*.85);
-      ctx.lineTo(cx+R*.28,   cy);
-      ctx.lineTo(cx+R*.65,   cy+R*.85);
-      break;
-    case 1: // STRIKER
+    case 0:
+      ctx.moveTo(cx-R, cy); ctx.lineTo(cx+R*.65, cy-R*.85);
+      ctx.lineTo(cx+R*.28, cy); ctx.lineTo(cx+R*.65, cy+R*.85); break;
+    case 1:
       ctx.moveTo(cx-R, cy);
       ctx.quadraticCurveTo(cx-R*.22, cy-R*.52, cx+R*.88, cy-R*.07);
       ctx.lineTo(cx+R*.88, cy+R*.07);
-      ctx.quadraticCurveTo(cx-R*.22, cy+R*.52, cx-R, cy);
-      break;
-    case 2: // TANK
-      ctx.moveTo(cx-R*.50, cy-R);
-      ctx.lineTo(cx-R*.50, cy+R);
-      ctx.lineTo(cx+R*.88, cy+R*.68);
-      ctx.lineTo(cx+R*.88, cy-R*.68);
-      break;
-    case 3: // ARTILLERY
-      ctx.moveTo(cx-R*1.05, cy-R*.24);
-      ctx.lineTo(cx-R*1.05, cy+R*.24);
-      ctx.lineTo(cx+R*.90,  cy+R*.30);
-      ctx.lineTo(cx+R*.90,  cy-R*.30);
-      break;
-    case 4: // CRAWLER
-      ctx.moveTo(cx-R*.46, cy-R*.46);
-      ctx.lineTo(cx+R*.46, cy-R*.46);
+      ctx.quadraticCurveTo(cx-R*.22, cy+R*.52, cx-R, cy); break;
+    case 2:
+      ctx.moveTo(cx-R*.50, cy-R); ctx.lineTo(cx-R*.50, cy+R);
+      ctx.lineTo(cx+R*.88, cy+R*.68); ctx.lineTo(cx+R*.88, cy-R*.68); break;
+    case 3:
+      ctx.moveTo(cx-R*1.05, cy-R*.24); ctx.lineTo(cx-R*1.05, cy+R*.24);
+      ctx.lineTo(cx+R*.90, cy+R*.30); ctx.lineTo(cx+R*.90, cy-R*.30); break;
+    case 4:
+      ctx.moveTo(cx-R*.46, cy-R*.46); ctx.lineTo(cx+R*.46, cy-R*.46);
       ctx.lineTo(cx+R*.70, cy+R*.28);
-      ctx.quadraticCurveTo(cx, cy+R*1.08, cx-R*.70, cy+R*.28);
-      break;
-    case 5: // BRUISER
+      ctx.quadraticCurveTo(cx, cy+R*1.08, cx-R*.70, cy+R*.28); break;
+    case 5:
       ctx.moveTo(cx-R*.68, cy-R*.92);
       ctx.quadraticCurveTo(cx-R*1.22, cy, cx-R*.60, cy+R*.92);
-      ctx.lineTo(cx+R*.88, cy+R*.58);
-      ctx.lineTo(cx+R*.88, cy-R*.80);
-      break;
-    case 6: // SPECTER
-      ctx.moveTo(cx-R*.82, cy-R*.55);
-      ctx.lineTo(cx-R*.08, cy-R);
-      ctx.lineTo(cx+R*.82, cy+R*.55);
-      ctx.lineTo(cx+R*.08, cy+R);
-      break;
-    default: // STALKER
-      ctx.moveTo(cx-R*.78, cy);
-      ctx.lineTo(cx-R*.28, cy-R*.95);
+      ctx.lineTo(cx+R*.88, cy+R*.58); ctx.lineTo(cx+R*.88, cy-R*.80); break;
+    case 6:
+      ctx.moveTo(cx-R*.82, cy-R*.55); ctx.lineTo(cx-R*.08, cy-R);
+      ctx.lineTo(cx+R*.82, cy+R*.55); ctx.lineTo(cx+R*.08, cy+R); break;
+    default:
+      ctx.moveTo(cx-R*.78, cy); ctx.lineTo(cx-R*.28, cy-R*.95);
       ctx.quadraticCurveTo(cx+R*.22, cy-R*.94, cx+R*.55, cy-R*.78);
       ctx.lineTo(cx+R*.92, cy+R*.18);
       ctx.quadraticCurveTo(cx+R*.65, cy+R*.78, cx+R*.32, cy+R*.90);
-      ctx.lineTo(cx-R*.42, cy+R*.58);
-      break;
+      ctx.lineTo(cx-R*.42, cy+R*.58); break;
   }
   ctx.closePath();
 }
 
-/* ── Secondary anatomy ────────────────────────────────────────────────── */
 function drawSecondary(ctx, cx, cy, id, R, fill, glow) {
   const sep = 'rgba(255,255,255,0.20)';
-  const blur = 7;
-
-  function poly(pts, alpha) {
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = fill;
-    ctx.shadowColor = glow; ctx.shadowBlur = blur;
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  function poly(pts, a) {
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
+    ctx.shadowColor=glow; ctx.shadowBlur=7;
+    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
     ctx.closePath(); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = sep; ctx.lineWidth = 0.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.9; ctx.stroke();
     ctx.restore();
   }
-
-  function curved(fn, alpha) {
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = fill;
-    ctx.shadowColor = glow; ctx.shadowBlur = blur;
+  function curved(fn, a) {
+    ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
+    ctx.shadowColor=glow; ctx.shadowBlur=7;
     ctx.beginPath(); fn(); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = sep; ctx.lineWidth = 0.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.9; ctx.stroke();
     ctx.restore();
   }
 
-  switch (id) {
-
-    case 0: // WEDGE — delta wings + engine nacelles + sensor pod
-      poly([[cx-R*.08,cy-R*.28],[cx-R*.55,cy-R*1.85],[cx+R*.82,cy-R*1.62],[cx+R*.70,cy-R*.65],[cx+R*.15,cy-R*.38]], 0.74);
-      poly([[cx-R*.08,cy+R*.28],[cx-R*.55,cy+R*1.85],[cx+R*.82,cy+R*1.62],[cx+R*.70,cy+R*.65],[cx+R*.15,cy+R*.38]], 0.74);
-      poly([[cx+R*.28,cy-R*.20],[cx+R*.65,cy-R*.34],[cx+R*1.55,cy-R*.34],[cx+R*1.55,cy+R*.34],[cx+R*.65,cy+R*.34],[cx+R*.28,cy+R*.20]], 0.80);
-      poly([[cx-R*1.0,cy-R*.11],[cx-R*1.0,cy+R*.11],[cx-R*1.65,cy+R*.07],[cx-R*1.65,cy-R*.07]], 0.70);
+  switch(id) {
+    case 0: // WEDGE — wings on body surface; nacelles from body vertices; pod from nose
+      poly([[cx-R*.42,cy-R*.30],[cx-R*.55,cy-R*1.85],[cx+R*.82,cy-R*1.62],[cx+R*.60,cy-R*.82]], 0.74);
+      poly([[cx-R*.42,cy+R*.30],[cx-R*.55,cy+R*1.85],[cx+R*.82,cy+R*1.62],[cx+R*.60,cy+R*.82]], 0.74);
+      poly([[cx+R*.28,cy-R*.18],[cx+R*.65,cy-R*.85],[cx+R*1.55,cy-R*.85],[cx+R*1.55,cy+R*.85],[cx+R*.65,cy+R*.85],[cx+R*.28,cy+R*.18]], 0.80);
+      poly([[cx-R*1.0,cy-R*.12],[cx-R*1.0,cy+R*.12],[cx-R*1.68,cy+R*.05],[cx-R*1.68,cy-R*.05]], 0.70);
       break;
 
-    case 1: // STRIKER — dorsal fin + pectoral fins + thruster bloom
+    case 1: // STRIKER — fin/wings close along hull; thruster from tail edge
       curved(()=>{
-        ctx.moveTo(cx-R*.25, cy-R*.50);
-        ctx.bezierCurveTo(cx-R*.55,cy-R*1.55, cx+R*.30,cy-R*1.85, cx+R*.62,cy-R*1.20);
-        ctx.lineTo(cx+R*.52, cy-R*.52);
-        ctx.quadraticCurveTo(cx+R*.18,cy-R*.50, cx-R*.02,cy-R*.50);
+        ctx.moveTo(cx-R*.50, cy-R*.22);
+        ctx.bezierCurveTo(cx-R*.68,cy-R*1.55, cx+R*.25,cy-R*1.85, cx+R*.62,cy-R*1.20);
+        ctx.quadraticCurveTo(cx+R*.50,cy-R*.50, cx+R*.40,cy-R*.21);
+        ctx.quadraticCurveTo(cx-R*.05,cy-R*.25, cx-R*.50,cy-R*.22);
       }, 0.72);
       curved(()=>{
-        ctx.moveTo(cx-R*.18, cy-R*.08);
-        ctx.quadraticCurveTo(cx-R*.58,cy-R*.85, cx-R*.15,cy-R*1.58);
+        ctx.moveTo(cx-R*.38, cy-R*.22);
+        ctx.quadraticCurveTo(cx-R*.65,cy-R*.88, cx-R*.18,cy-R*1.58);
         ctx.lineTo(cx+R*.28, cy-R*1.15);
-        ctx.quadraticCurveTo(cx+R*.42,cy-R*.50, cx+R*.22,cy-R*.08);
+        ctx.quadraticCurveTo(cx+R*.38,cy-R*.46, cx+R*.20,cy-R*.20);
+        ctx.quadraticCurveTo(cx-R*.08,cy-R*.22, cx-R*.38,cy-R*.22);
       }, 0.60);
       curved(()=>{
-        ctx.moveTo(cx-R*.18, cy+R*.08);
-        ctx.quadraticCurveTo(cx-R*.58,cy+R*.85, cx-R*.15,cy+R*1.58);
+        ctx.moveTo(cx-R*.38, cy+R*.22);
+        ctx.quadraticCurveTo(cx-R*.65,cy+R*.88, cx-R*.18,cy+R*1.58);
         ctx.lineTo(cx+R*.28, cy+R*1.15);
-        ctx.quadraticCurveTo(cx+R*.42,cy+R*.50, cx+R*.22,cy+R*.08);
+        ctx.quadraticCurveTo(cx+R*.38,cy+R*.46, cx+R*.20,cy+R*.20);
+        ctx.quadraticCurveTo(cx-R*.08,cy+R*.22, cx-R*.38,cy+R*.22);
       }, 0.60);
       curved(()=>{
         ctx.moveTo(cx+R*.88, cy-R*.07);
-        ctx.lineTo(cx+R*.88, cy-R*.52);
+        ctx.lineTo(cx+R*.88, cy-R*.50);
         ctx.quadraticCurveTo(cx+R*1.65,cy-R*.48, cx+R*1.80,cy);
-        ctx.quadraticCurveTo(cx+R*1.65,cy+R*.48, cx+R*.88,cy+R*.52);
+        ctx.quadraticCurveTo(cx+R*1.65,cy+R*.48, cx+R*.88,cy+R*.50);
         ctx.lineTo(cx+R*.88, cy+R*.07);
       }, 0.76);
       break;
 
-    case 2: // TANK — track skirts + siege shield + turret
+    case 2: // TANK — skirts share exact top/bottom edges; shield from full left face
       poly([[cx-R*.50,cy-R],[cx+R*.88,cy-R*.68],[cx+R*1.0,cy-R*1.42],[cx+R*.22,cy-R*1.68],[cx-R*.28,cy-R*1.48]], 0.72);
       poly([[cx-R*.50,cy+R],[cx+R*.88,cy+R*.68],[cx+R*1.0,cy+R*1.42],[cx+R*.22,cy+R*1.68],[cx-R*.28,cy+R*1.48]], 0.72);
-      poly([[cx-R*.50,cy-R*.72],[cx-R*.50,cy+R*.72],[cx-R*1.75,cy+R*.55],[cx-R*1.90,cy],[cx-R*1.75,cy-R*.55]], 0.80);
-      poly([[cx-R*.18,cy-R*.40],[cx+R*.38,cy-R*.45],[cx+R*.60,cy-R*.18],[cx+R*.38,cy+R*.45],[cx-R*.18,cy+R*.40],[cx-R*.38,cy]], 0.64);
+      poly([[cx-R*.50,cy-R],[cx-R*.50,cy+R],[cx-R*1.75,cy+R*.55],[cx-R*1.90,cy],[cx-R*1.75,cy-R*.55]], 0.80);
+      poly([[cx-R*.18,cy-R*.38],[cx+R*.38,cy-R*.42],[cx+R*.58,cy-R*.16],[cx+R*.38,cy+R*.42],[cx-R*.18,cy+R*.38],[cx-R*.36,cy]], 0.64);
       break;
 
-    case 3: // ARTILLERY — barrel + breach + bipod legs
+    case 3: // ARTILLERY — barrel from left face; breach from right face; legs on bottom
       curved(()=>{
-        ctx.moveTo(cx-R*1.05, cy-R*.22);
-        ctx.lineTo(cx-R*1.05, cy+R*.22);
+        ctx.moveTo(cx-R*1.05, cy-R*.24);
+        ctx.lineTo(cx-R*1.05, cy+R*.24);
         ctx.lineTo(cx-R*2.65, cy+R*.11);
         ctx.arc(cx-R*2.65, cy, R*.11, Math.PI*.5, -Math.PI*.5, true);
         ctx.lineTo(cx-R*2.65, cy-R*.11);
       }, 0.82);
-      poly([[cx+R*.90,cy-R*.95],[cx+R*2.05,cy-R*.80],[cx+R*2.05,cy+R*.80],[cx+R*.90,cy+R*.95]], 0.76);
-      poly([[cx-R*.28,cy+R*.30],[cx+R*.12,cy+R*.30],[cx-R*.22,cy+R*1.85],[cx-R*.62,cy+R*1.85]], 0.68);
-      poly([[cx+R*.55,cy+R*.30],[cx+R*.90,cy+R*.30],[cx+R*1.05,cy+R*1.68],[cx+R*.68,cy+R*1.68]], 0.68);
+      poly([[cx+R*.90,cy-R*.30],[cx+R*2.05,cy-R*.80],[cx+R*2.05,cy+R*.80],[cx+R*.90,cy+R*.30]], 0.76);
+      poly([[cx-R*.28,cy+R*.26],[cx+R*.10,cy+R*.27],[cx-R*.22,cy+R*1.85],[cx-R*.62,cy+R*1.85]], 0.68);
+      poly([[cx+R*.55,cy+R*.29],[cx+R*.90,cy+R*.30],[cx+R*1.05,cy+R*1.68],[cx+R*.68,cy+R*1.68]], 0.68);
       break;
 
-    case 4: // CRAWLER — claw arms + head dome + haunches
+    case 4: // CRAWLER — arms from exact body corners; dome spans dorsal flat; haunches from rear
       curved(()=>{
-        ctx.moveTo(cx-R*.32, cy-R*.25);
-        ctx.bezierCurveTo(cx-R*.90,cy-R*.42, cx-R*1.48,cy-R*.55, cx-R*1.85,cy-R*1.18);
+        ctx.moveTo(cx-R*.46, cy-R*.46);
+        ctx.bezierCurveTo(cx-R*.90,cy-R*.46, cx-R*1.40,cy-R*.58, cx-R*1.85,cy-R*1.18);
         ctx.lineTo(cx-R*1.60, cy-R*1.32);
-        ctx.bezierCurveTo(cx-R*1.38,cy-R*.82, cx-R*.82,cy-R*.55, cx-R*.28,cy-R*.38);
+        ctx.bezierCurveTo(cx-R*1.38,cy-R*.82, cx-R*.88,cy-R*.60, cx-R*.46,cy-R*.65);
       }, 0.72);
       curved(()=>{
-        ctx.moveTo(cx-R*.32, cy+R*.25);
-        ctx.bezierCurveTo(cx-R*.90,cy+R*.42, cx-R*1.48,cy+R*.55, cx-R*1.85,cy+R*1.18);
+        ctx.moveTo(cx-R*.70, cy+R*.28);
+        ctx.bezierCurveTo(cx-R*1.10,cy+R*.36, cx-R*1.48,cy+R*.55, cx-R*1.85,cy+R*1.18);
         ctx.lineTo(cx-R*1.60, cy+R*1.32);
-        ctx.bezierCurveTo(cx-R*1.38,cy+R*.82, cx-R*.82,cy+R*.55, cx-R*.28,cy+R*.38);
+        ctx.bezierCurveTo(cx-R*1.38,cy+R*.82, cx-R*1.02,cy+R*.52, cx-R*.70,cy+R*.50);
       }, 0.72);
       curved(()=>{
-        ctx.moveTo(cx-R*.42, cy-R*.46);
-        ctx.lineTo(cx+R*.42, cy-R*.46);
+        ctx.moveTo(cx-R*.46, cy-R*.46);
+        ctx.lineTo(cx+R*.46, cy-R*.46);
         ctx.quadraticCurveTo(cx+R*.58,cy-R*1.28, cx,cy-R*1.65);
-        ctx.quadraticCurveTo(cx-R*.58,cy-R*1.28, cx-R*.42,cy-R*.46);
+        ctx.quadraticCurveTo(cx-R*.58,cy-R*1.28, cx-R*.46,cy-R*.46);
       }, 0.66);
       curved(()=>{
-        ctx.moveTo(cx+R*.46, cy-R*.22);
-        ctx.bezierCurveTo(cx+R*1.35,cy-R*.35, cx+R*1.55,cy+R*.35, cx+R*.70,cy+R*.30);
-        ctx.lineTo(cx+R*.46, cy+R*.22);
+        ctx.moveTo(cx+R*.46, cy-R*.30);
+        ctx.bezierCurveTo(cx+R*1.35,cy-R*.35, cx+R*1.55,cy+R*.32, cx+R*.70,cy+R*.28);
       }, 0.64);
       break;
 
-    case 5: // BRUISER — pauldrons + haunches + battering ram
+    case 5: // BRUISER — pauldrons span body corner-to-corner; ram tangent to front curve
       curved(()=>{
-        ctx.moveTo(cx-R*.45, cy-R*.72);
-        ctx.lineTo(cx+R*.42, cy-R*.78);
-        ctx.lineTo(cx+R*.52, cy-R*1.22);
-        ctx.bezierCurveTo(cx+R*.22,cy-R*1.95, cx-R*.65,cy-R*1.88, cx-R*.95,cy-R*1.25);
-        ctx.quadraticCurveTo(cx-R*.88,cy-R*.88, cx-R*.55,cy-R*.78);
+        ctx.moveTo(cx+R*.88, cy-R*.80);
+        ctx.lineTo(cx-R*.68, cy-R*.92);
+        ctx.bezierCurveTo(cx-R*.88,cy-R*1.60, cx-R*.20,cy-R*1.95, cx+R*.35,cy-R*1.55);
+        ctx.bezierCurveTo(cx+R*.55,cy-R*1.20, cx+R*.60,cy-R*.95, cx+R*.52,cy-R*.80);
       }, 0.74);
       curved(()=>{
-        ctx.moveTo(cx-R*.38, cy+R*.72);
-        ctx.lineTo(cx+R*.55, cy+R*.78);
-        ctx.lineTo(cx+R*.60, cy+R*1.28);
-        ctx.bezierCurveTo(cx+R*.25,cy+R*1.92, cx-R*.58,cy+R*1.85, cx-R*.85,cy+R*1.22);
-        ctx.quadraticCurveTo(cx-R*.78,cy+R*.85, cx-R*.48,cy+R*.75);
+        ctx.moveTo(cx-R*.60, cy+R*.92);
+        ctx.lineTo(cx+R*.88, cy+R*.58);
+        ctx.lineTo(cx+R*.55, cy+R*.80);
+        ctx.bezierCurveTo(cx+R*.28,cy+R*1.92, cx-R*.55,cy+R*1.88, cx-R*.80,cy+R*1.22);
+        ctx.bezierCurveTo(cx-R*.78,cy+R*.95, cx-R*.65,cy+R*.88, cx-R*.60,cy+R*.92);
       }, 0.74);
-      poly([[cx-R*.68,cy-R*.48],[cx-R*.68,cy+R*.48],[cx-R*1.28,cy+R*.38],[cx-R*1.85,cy+R*.16],[cx-R*1.85,cy-R*.16],[cx-R*1.28,cy-R*.38]], 0.78);
+      poly([[cx-R*.86,cy-R*.38],[cx-R*.82,cy+R*.38],[cx-R*1.28,cy+R*.38],[cx-R*1.85,cy+R*.16],[cx-R*1.85,cy-R*.16],[cx-R*1.28,cy-R*.38]], 0.78);
       break;
 
-    case 6: // SPECTER — upper/lower energy wings + spine + cross shard
+    case 6: // SPECTER — wings root on body edges; spine/shard on diagonals
       curved(()=>{
-        ctx.moveTo(cx-R*.08, cy-R);
+        ctx.moveTo(cx-R*.82, cy-R*.55);
+        ctx.lineTo(cx-R*.08, cy-R);
         ctx.bezierCurveTo(cx+R*.62,cy-R*1.45, cx+R*1.65,cy-R*1.25, cx+R*1.85,cy-R*.52);
         ctx.lineTo(cx+R*1.42, cy-R*.28);
-        ctx.bezierCurveTo(cx+R*1.05,cy-R*.72, cx+R*.38,cy-R*.82, cx+R*.12,cy-R*.52);
+        ctx.bezierCurveTo(cx+R*1.05,cy-R*.72, cx+R*.38,cy-R*.80, cx+R*.12,cy-R*.50);
       }, 0.72);
       curved(()=>{
-        ctx.moveTo(cx+R*.08, cy+R);
+        ctx.moveTo(cx+R*.82, cy+R*.55);
+        ctx.lineTo(cx+R*.08, cy+R);
         ctx.bezierCurveTo(cx-R*.62,cy+R*1.45, cx-R*1.65,cy+R*1.25, cx-R*1.85,cy+R*.52);
         ctx.lineTo(cx-R*1.42, cy+R*.28);
-        ctx.bezierCurveTo(cx-R*1.05,cy+R*.72, cx-R*.38,cy+R*.82, cx-R*.12,cy+R*.52);
+        ctx.bezierCurveTo(cx-R*1.05,cy+R*.72, cx-R*.38,cy+R*.80, cx-R*.12,cy+R*.50);
       }, 0.72);
-      poly([[cx-R*.78,cy-R*.20],[cx-R*.52,cy-R*.62],[cx+R*.78,cy+R*.20],[cx+R*.52,cy+R*.62]], 0.60);
-      poly([[cx+R*.08,cy-R],[cx+R*.30,cy-R*.52],[cx-R*.08,cy+R],[cx-R*.30,cy+R*.52]], 0.50);
+      poly([[cx-R*.82,cy-R*.55],[cx-R*.50,cy-R*.68],[cx+R*.82,cy+R*.55],[cx+R*.50,cy+R*.68]], 0.60);
+      poly([[cx-R*.08,cy-R],[cx+R*.28,cy-R*.52],[cx+R*.08,cy+R],[cx-R*.28,cy+R*.52]], 0.50);
       break;
 
-    default: // STALKER — dorsal fin + 2 raptorial limbs + tail
+    default: // STALKER — fin on carapace arc; limbs from body vertices; tail sweeps rear
       curved(()=>{
         ctx.moveTo(cx-R*.28, cy-R*.95);
-        ctx.bezierCurveTo(cx-R*.72,cy-R*1.82, cx+R*.22,cy-R*2.15, cx+R*.55,cy-R*1.62);
-        ctx.lineTo(cx+R*.50, cy-R*1.00);
-        ctx.quadraticCurveTo(cx+R*.22,cy-R*.94, cx+R*.10,cy-R*.88);
+        ctx.bezierCurveTo(cx-R*.65,cy-R*1.82, cx+R*.22,cy-R*2.15, cx+R*.55,cy-R*1.62);
+        ctx.quadraticCurveTo(cx+R*.55,cy-R*1.12, cx+R*.55,cy-R*.78);
+        ctx.quadraticCurveTo(cx+R*.22,cy-R*.94, cx-R*.28,cy-R*.95);
       }, 0.74);
       curved(()=>{
-        ctx.moveTo(cx-R*.38, cy-R*.45);
-        ctx.bezierCurveTo(cx-R*.98,cy-R*.58, cx-R*1.58,cy-R*.28, cx-R*2.02,cy-R*.82);
+        ctx.moveTo(cx-R*.28, cy-R*.95);
+        ctx.bezierCurveTo(cx-R*.82,cy-R*.75, cx-R*1.48,cy-R*.42, cx-R*2.02,cy-R*.82);
         ctx.lineTo(cx-R*1.78, cy-R*1.02);
-        ctx.bezierCurveTo(cx-R*1.52,cy-R*.60, cx-R*.92,cy-R*.75, cx-R*.32,cy-R*.68);
+        ctx.bezierCurveTo(cx-R*1.52,cy-R*.65, cx-R*.90,cy-R*.80, cx-R*.55,cy-R*.98);
       }, 0.70);
       curved(()=>{
-        ctx.moveTo(cx+R*.20, cy+R*.55);
-        ctx.bezierCurveTo(cx-R*.30,cy+R*.68, cx-R*1.18,cy+R*.42, cx-R*1.82,cy+R*.92);
+        ctx.moveTo(cx-R*.78, cy);
+        ctx.bezierCurveTo(cx-R*1.10,cy+R*.22, cx-R*1.55,cy+R*.38, cx-R*1.82,cy+R*.92);
         ctx.lineTo(cx-R*1.62, cy+R*1.12);
-        ctx.bezierCurveTo(cx-R*1.12,cy+R*.75, cx-R*.22,cy+R*.88, cx+R*.32,cy+R*.78);
+        ctx.bezierCurveTo(cx-R*1.22,cy+R*.68, cx-R*.68,cy+R*.48, cx-R*.42,cy+R*.58);
       }, 0.64);
       curved(()=>{
-        ctx.moveTo(cx-R*.42, cy+R*.58);
-        ctx.bezierCurveTo(cx-R*.82,cy+R*.82, cx-R*1.28,cy+R*.62, cx-R*1.55,cy+R*.18);
-        ctx.quadraticCurveTo(cx-R*1.45,cy-R*.12, cx-R*.78,cy);
-      }, 0.58);
+        ctx.moveTo(cx+R*.55, cy-R*.78);
+        ctx.bezierCurveTo(cx+R*.95,cy-R*.20, cx+R*.92,cy+R*.18, cx+R*.80,cy+R*.55);
+        ctx.quadraticCurveTo(cx+R*.55,cy+R*.80, cx+R*.32,cy+R*.90);
+      }, 0.56);
       break;
   }
 }
 
-/* ── Render ─────────────────────────────────────────────────────────────── */
 const row = document.getElementById('row');
 CHASSIS.forEach(({ id, name, color, glow, note }) => {
-  const SIZE = 220;
-  const cx = SIZE / 2, cy = SIZE / 2;
+  const SIZE = 220, cx = SIZE/2, cy = SIZE/2;
   const canvas = document.createElement('canvas');
   canvas.width = SIZE; canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0a1628'; ctx.fillRect(0,0,SIZE,SIZE);
 
-  ctx.fillStyle = '#0a1628';
-  ctx.fillRect(0, 0, SIZE, SIZE);
-
-  // Draw secondary first (behind primary)
+  // Secondary behind primary
   drawSecondary(ctx, cx, cy, id, R, color, glow);
 
-  // Draw primary on top
+  // Primary on top
   buildPrimary(ctx, cx, cy, id, R);
-  ctx.shadowColor = glow; ctx.shadowBlur = 16;
-  ctx.fillStyle = color; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.shadowColor=glow; ctx.shadowBlur=16; ctx.fillStyle=color; ctx.fill();
+  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.lineWidth=1.2; ctx.stroke();
 
-  const cell = document.createElement('div');
-  cell.className = 'cell';
-  const lbl = document.createElement('div');
-  lbl.className = 'label';
+  const cell = document.createElement('div'); cell.className='cell';
+  const lbl  = document.createElement('div'); lbl.className='label';
   lbl.textContent = `${id} · ${name} [${note}]`;
-  cell.appendChild(canvas);
-  cell.appendChild(lbl);
-  row.appendChild(cell);
+  cell.appendChild(canvas); cell.appendChild(lbl); row.appendChild(cell);
 });
 </script>
 </body>
