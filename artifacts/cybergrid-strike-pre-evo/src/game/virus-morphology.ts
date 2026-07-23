@@ -235,9 +235,38 @@ export function getVirusColors(n: number, flash: boolean): { fill: string; glow:
 //  All shapes face LEFT (direction of travel toward the player).
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ── Distribution ──────────────────────────────────────────────────────────────
+// 12-slot weighted sequence; each slot maps n % 12 → chassis 0-7.
+//
+// Goals vs n%8 baseline:
+//  • Y-shapes (3 ARTILLERY + 6 SPECTER): 2/12 = 17% (was 25%)
+//  • Segmented-chain (5 BRUISER):        2/12 = 17% (was 13%)
+//  • Crescent (4 CRAWLER):               2/12 = 17% (was 13%)
+//  • D-lobe bilateral (1 STRIKER):       2/12 = 17% (was 13%)
+//  • Elongated-serial (7 STALKER):       2/12 = 17% (was 13%)
+//  • Axial-wing (0 WEDGE):               1/12 =  8% (was 13%)
+//  • Compact-shell (2 TANK):             1/12 =  8% (was 13%)
+//
+// Sequence ordered so no two adjacent entries share the same chassis or
+// the same broad family (Y-shapes never touch, etc.).
+const CHASSIS_SEQ = [0, 4, 1, 5, 2, 7, 4, 3, 1, 6, 5, 7] as const;
+
 /** Returns chassis index 0–7 from n. */
 function getChassisType(n: number): number {
-  return n % 8;
+  return CHASSIS_SEQ[n % CHASSIS_SEQ.length];
+}
+
+/**
+ * Returns variant index 0–2 for a given n.
+ *
+ * Within each 12-slot cycle, the same chassis appears at two different
+ * positions (4+ slots apart), so floor((n%12)/4) gives different thirds
+ * of the cycle.  Adding the cycle count rotates which variant is "first"
+ * each cycle, ensuring consecutive encounters of the same chassis type
+ * across waves look visually distinct.
+ */
+function getChassisVariant(n: number): number {
+  return (Math.floor(n / CHASSIS_SEQ.length) + Math.floor((n % CHASSIS_SEQ.length) / 4)) % 3;
 }
 
 /**
@@ -501,49 +530,75 @@ function drawChassisSecondary(
     // Primary: FL(cx-R*.82,cy+R*.24), FU(cx-R*.82,cy-R*.24), dorsal arc peaks
     //          ~(cx,cy-R*1.52), RU(cx+R*.90,cy-R*.35), RL(cx+R*.90,cy+R*.24).
     //          Flat ventral baseline at cy+R*.24 (closePath line FL→RL).
-    // Grammar: ALL secondary anatomy is ABOVE the ventral baseline.
-    //          The bare flat underside is the asymmetry signal — do not violate it.
-    //          Organic bezier joints (biomechanical phenotype).
+    // Grammar: ALL anatomy ABOVE the ventral baseline; the bare underside is
+    //          the asymmetry signal — never violated.
+    // Variants — v=getChassisVariant(n):
+    //   v=0  tall narrow dorsal fin + large forward head lobe + rear thorn
+    //   v=1  wide swept-back dorsal crest + compact snout + two rear spines
+    //   v=2  split dorsal (two lobes with gap) + wide forward head mass
     case 1: {
-      // Dorsal fin — rises from mid-dorsal hull, sweeps further above the body arc
-      // Hull apex ≈ (cx, cy−R*1.52); fin base spans (cx−R*.28,cy−R*1.38)→(cx+R*.28,cy−R*1.38)
-      curved(() => {
-        ctx.moveTo(cx - R * 0.28, cy - R * 1.38);   // root front on dorsal arc
-        ctx.bezierCurveTo(
-          cx - R * 0.58, cy - R * 1.82,
-          cx - R * 0.52, cy - R * 2.28,
-          cx - R * 0.15, cy - R * 2.32,             // fin apex (extends above body)
-        );
-        ctx.bezierCurveTo(
-          cx + R * 0.18, cy - R * 2.12,
-          cx + R * 0.35, cy - R * 1.68,
-          cx + R * 0.28, cy - R * 1.38,             // root rear on dorsal arc
-        );
-        ctx.quadraticCurveTo(cx, cy - R * 1.50, cx - R * 0.28, cy - R * 1.38);
-      }, 0.74);
-      // Forward head lobe — grows from FU vertex (cx-R*.82,cy-R*.24), the organism's snout
-      curved(() => {
-        ctx.moveTo(cx - R * 0.82, cy - R * 0.24);   // ← exact FU vertex
-        ctx.bezierCurveTo(
-          cx - R * 1.12, cy - R * 0.42,
-          cx - R * 1.52, cy - R * 1.08,
-          cx - R * 1.22, cy - R * 1.58,             // head lobe apex
-        );
-        ctx.bezierCurveTo(
-          cx - R * 0.88, cy - R * 1.62,
-          cx - R * 0.62, cy - R * 1.28,
-          cx - R * 0.52, cy - R * 0.82,             // merges back to hull near FU
-        );
-        ctx.quadraticCurveTo(cx - R * 0.62, cy - R * 0.42, cx - R * 0.82, cy - R * 0.24);
-      }, 0.68);
-      // Rear dorsal thorn — hard mechanical spike from RU vertex; organic body,
-      // mechanical detail (biomechanical hybrid rule).
-      poly([
-        [cx + R * 0.90, cy - R * 0.35],   // ← exact RU vertex
-        [cx + R * 1.18, cy - R * 0.28],   // base spread
-        [cx + R * 1.30, cy - R * 0.90],   // thorn tip
-        [cx + R * 1.05, cy - R * 0.95],
-      ], 0.72);
+      const v = getChassisVariant(n);
+      if (v === 0) {
+        // Tall narrow dorsal fin
+        curved(() => {
+          ctx.moveTo(cx-R*.28, cy-R*1.38);
+          ctx.bezierCurveTo(cx-R*.58,cy-R*1.82, cx-R*.52,cy-R*2.28, cx-R*.15,cy-R*2.32);
+          ctx.bezierCurveTo(cx+R*.18,cy-R*2.12, cx+R*.35,cy-R*1.68, cx+R*.28,cy-R*1.38);
+          ctx.quadraticCurveTo(cx,cy-R*1.50, cx-R*.28,cy-R*1.38);
+        }, 0.74);
+        // Large forward head lobe from FU vertex
+        curved(() => {
+          ctx.moveTo(cx-R*.82,cy-R*.24);
+          ctx.bezierCurveTo(cx-R*1.12,cy-R*.42, cx-R*1.52,cy-R*1.08, cx-R*1.22,cy-R*1.58);
+          ctx.bezierCurveTo(cx-R*.88,cy-R*1.62, cx-R*.62,cy-R*1.28, cx-R*.52,cy-R*.82);
+          ctx.quadraticCurveTo(cx-R*.62,cy-R*.42, cx-R*.82,cy-R*.24);
+        }, 0.68);
+        // Rear dorsal thorn from RU vertex
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.18,cy-R*.28],[cx+R*1.30,cy-R*.90],[cx+R*1.05,cy-R*.95]], 0.72);
+
+      } else if (v === 1) {
+        // Wide swept-back dorsal crest (broader base, apex shifted rearward vs V0)
+        curved(() => {
+          ctx.moveTo(cx-R*.52,cy-R*1.22);
+          ctx.bezierCurveTo(cx-R*.72,cy-R*1.58, cx-R*.20,cy-R*1.98, cx+R*.35,cy-R*1.80);
+          ctx.bezierCurveTo(cx+R*.65,cy-R*1.55, cx+R*.62,cy-R*1.20, cx+R*.48,cy-R*1.18);
+          ctx.quadraticCurveTo(cx+R*.05,cy-R*1.32, cx-R*.52,cy-R*1.22);
+        }, 0.74);
+        // Compact forward snout (smaller apex than V0)
+        curved(() => {
+          ctx.moveTo(cx-R*.82,cy-R*.24);
+          ctx.bezierCurveTo(cx-R*1.08,cy-R*.38, cx-R*1.40,cy-R*.80, cx-R*1.12,cy-R*1.25);
+          ctx.bezierCurveTo(cx-R*.88,cy-R*1.30, cx-R*.68,cy-R*1.00, cx-R*.58,cy-R*.68);
+          ctx.quadraticCurveTo(cx-R*.66,cy-R*.38, cx-R*.82,cy-R*.24);
+        }, 0.68);
+        // Two rear spines instead of one thorn
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.12,cy-R*.30],[cx+R*1.22,cy-R*.82],[cx+R*1.02,cy-R*.85]], 0.72);
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.20,cy-R*.28],[cx+R*1.35,cy-R*.58],[cx+R*1.12,cy-R*.62]], 0.60);
+
+      } else {
+        // Split dorsal — two separate lobes with a visible gap between them
+        // Upper lobe
+        curved(() => {
+          ctx.moveTo(cx-R*.30,cy-R*1.35);
+          ctx.bezierCurveTo(cx-R*.52,cy-R*1.78, cx-R*.42,cy-R*2.22, cx-R*.12,cy-R*2.24);
+          ctx.bezierCurveTo(cx+R*.10,cy-R*2.08, cx+R*.20,cy-R*1.72, cx+R*.08,cy-R*1.38);
+          ctx.quadraticCurveTo(cx-R*.10,cy-R*1.42, cx-R*.30,cy-R*1.35);
+        }, 0.74);
+        // Lower lobe (gap visible between lobe pair)
+        curved(() => {
+          ctx.moveTo(cx+R*.18,cy-R*1.25);
+          ctx.bezierCurveTo(cx+R*.05,cy-R*1.48, cx+R*.18,cy-R*1.88, cx+R*.50,cy-R*1.85);
+          ctx.bezierCurveTo(cx+R*.75,cy-R*1.68, cx+R*.75,cy-R*1.38, cx+R*.52,cy-R*1.25);
+          ctx.quadraticCurveTo(cx+R*.35,cy-R*1.22, cx+R*.18,cy-R*1.25);
+        }, 0.68);
+        // Wide forward head mass — no rear thorn in V2
+        curved(() => {
+          ctx.moveTo(cx-R*.82,cy-R*.24);
+          ctx.bezierCurveTo(cx-R*1.05,cy-R*.55, cx-R*1.62,cy-R*.95, cx-R*1.52,cy-R*1.45);
+          ctx.bezierCurveTo(cx-R*1.22,cy-R*1.60, cx-R*.88,cy-R*1.28, cx-R*.68,cy-R*.85);
+          ctx.quadraticCurveTo(cx-R*.72,cy-R*.45, cx-R*.82,cy-R*.24);
+        }, 0.68);
+      }
       break;
     }
 
@@ -590,230 +645,236 @@ function drawChassisSecondary(
       break;
     }
 
-    // ── 3  ARTILLERY — radial 3-spoke weapons platform ────────────────────────
-    // Primary: small hexagon hub; vertices at radius R*0.42.
-    //   top(cx,cy-R*.42), TR(cx+R*.36,cy-R*.21), BR(cx+R*.36,cy+R*.21),
-    //   bottom(cx,cy+R*.42), BL(cx-R*.36,cy+R*.21), TL(cx-R*.36,cy-R*.21)
-    // Topology: 3-fold radial.  Forward barrel (0°/left), upper-rear (315° canvas),
-    // lower-rear (45° canvas) — Y-arrangement.  No bilateral axis, no legs.
-    // All hard edges; tapered barrels computed from perpendicular geometry.
+    // ── 3  ARTILLERY — radial weapons platform ────────────────────────────────
+    // Primary: small hexagon hub (unchanged).
+    // Variants — v=getChassisVariant(n):
+    //   v=0  Y-arrangement: forward + upper-right + lower-right (120° spacing, current)
+    //   v=1  T-arrangement: forward + straight-up + straight-down (90° spacing)
+    //   v=2  L-arrangement: long forward + one steep lateral + short rear stub
     case 3: {
-      // Forward barrel — from left hex face (TL→BL), tapers to muzzle (longest arm)
-      curved(() => {
-        ctx.moveTo(cx - R * 0.36, cy - R * 0.21);   // ← exact TL hex vertex
-        ctx.lineTo(cx - R * 0.36, cy + R * 0.21);   // ← exact BL hex vertex
-        ctx.lineTo(cx - R * 2.55, cy + R * 0.12);   // barrel narrows
-        ctx.arc(cx - R * 2.55, cy, R * 0.12, Math.PI * 0.5, -Math.PI * 0.5, true);
-        ctx.lineTo(cx - R * 2.55, cy - R * 0.12);
-      }, 0.82);
-      // Upper-rear barrel — root perpendicular to 315° direction from top-right hex area
-      // Root computed from hex top/TR vertices with ⊥ offset; tapers to narrow tip.
-      poly([
-        [cx + R * 0.40, cy - R * 0.18],   // root edge A (perpendicular offset)
-        [cx + R * 0.14, cy - R * 0.44],   // root edge B
-        [cx + R * 1.62, cy - R * 1.78],   // tip B
-        [cx + R * 1.74, cy - R * 1.66],   // tip A
-      ], 0.80);
-      // Lower-rear barrel — mirror of upper-rear about the horizontal axis (45° direction)
-      poly([
-        [cx + R * 0.40, cy + R * 0.18],
-        [cx + R * 0.14, cy + R * 0.44],
-        [cx + R * 1.62, cy + R * 1.78],
-        [cx + R * 1.74, cy + R * 1.66],
-      ], 0.80);
+      const v = getChassisVariant(n);
+      if (v === 0) {
+        // V0: Y-triskelion (current)
+        curved(() => {
+          ctx.moveTo(cx-R*.36,cy-R*.21);
+          ctx.lineTo(cx-R*.36,cy+R*.21);
+          ctx.lineTo(cx-R*2.55,cy+R*.12);
+          ctx.arc(cx-R*2.55,cy, R*.12, Math.PI*.5,-Math.PI*.5,true);
+          ctx.lineTo(cx-R*2.55,cy-R*.12);
+        }, 0.82);
+        poly([[cx+R*.40,cy-R*.18],[cx+R*.14,cy-R*.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]], 0.80);
+        poly([[cx+R*.40,cy+R*.18],[cx+R*.14,cy+R*.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]], 0.80);
+
+      } else if (v === 1) {
+        // V1: T-arrangement — forward barrel + straight-up + straight-down (90° apart)
+        // Reads as a + / T cross-weapon, NOT a Y.
+        curved(() => {
+          ctx.moveTo(cx-R*.36,cy-R*.21);
+          ctx.lineTo(cx-R*.36,cy+R*.21);
+          ctx.lineTo(cx-R*2.45,cy+R*.12);
+          ctx.arc(cx-R*2.45,cy, R*.12, Math.PI*.5,-Math.PI*.5,true);
+          ctx.lineTo(cx-R*2.45,cy-R*.12);
+        }, 0.82);
+        poly([[cx-R*.16,cy-R*.42],[cx+R*.16,cy-R*.42],[cx+R*.10,cy-R*2.30],[cx-R*.10,cy-R*2.30]], 0.80);
+        poly([[cx-R*.16,cy+R*.42],[cx+R*.16,cy+R*.42],[cx+R*.10,cy+R*2.30],[cx-R*.10,cy+R*2.30]], 0.80);
+
+      } else {
+        // V2: L-arrangement — long forward + one steep-angled lateral + short rear stub
+        // No bilateral mirroring at all — reads as an L, not a Y.
+        curved(() => {
+          ctx.moveTo(cx-R*.36,cy-R*.21);
+          ctx.lineTo(cx-R*.36,cy+R*.21);
+          ctx.lineTo(cx-R*2.75,cy+R*.11);
+          ctx.arc(cx-R*2.75,cy, R*.11, Math.PI*.5,-Math.PI*.5,true);
+          ctx.lineTo(cx-R*2.75,cy-R*.11);
+        }, 0.82);
+        // Single steep lateral barrel (~70° upward, no mirror)
+        poly([[cx+R*.35,cy-R*.20],[cx+R*.08,cy-R*.42],[cx+R*.78,cy-R*2.08],[cx+R*.96,cy-R*1.92]], 0.80);
+        // Short rear stub (asymmetric counterbalance, NOT a third full barrel)
+        poly([[cx+R*.36,cy-R*.10],[cx+R*.36,cy+R*.10],[cx+R*1.08,cy+R*.06],[cx+R*1.08,cy-R*.06]], 0.68);
+      }
       break;
     }
 
     // ── 4  CRAWLER — thin boomerang crescent ──────────────────────────────────
     // Primary: upper horn(cx-R*.68,cy-R*1.08), outer apex(cx+R*1.55,cy),
     //          lower horn(cx-R*.68,cy+R*1.08), inner apex(cx+R*.98,cy).
-    //          Band ≈ 0.57R thick; span ≈ 2.16R — clearly a thin crescent.
-    // Grammar: secondary anatomy grows FROM horn tips (not a separate body segment).
-    // Web membrane spans the concave forward opening.  Organic bezier.
+    // Variants — v=getChassisVariant(n):
+    //   v=0  membrane + dominant upper claw + shorter lower claw (asymmetric)
+    //   v=1  membrane + equal-length bilateral claws (symmetric crescent)
+    //   v=2  dense membrane + single mega-claw upper + lower horn stub only (extreme)
     case 4: {
-      // Web membrane — spans the crescent's concave opening (forward-facing gap)
-      // Translucent; reads as biological membrane stretched between the horns.
+      const v = getChassisVariant(n);
+      // Web membrane is drawn in all variants (alpha varies)
       curved(() => {
-        ctx.moveTo(cx - R * 0.68, cy - R * 1.08);   // ← upper horn
-        ctx.bezierCurveTo(
-          cx - R * 1.08, cy - R * 0.55,
-          cx - R * 1.08, cy + R * 0.55,
-          cx - R * 0.68, cy + R * 1.08,             // ← lower horn
-        );
-        ctx.bezierCurveTo(                           // inner arc (closes membrane)
-          cx - R * 0.30, cy + R * 0.88,
-          cx + R * 0.55, cy + R * 0.56,
-          cx + R * 0.98, cy,                         // ← inner apex
-        );
-        ctx.bezierCurveTo(
-          cx + R * 0.55, cy - R * 0.56,
-          cx - R * 0.30, cy - R * 0.88,
-          cx - R * 0.68, cy - R * 1.08,
-        );
-      }, 0.35);
-      // Upper scythe-claw — dominant arm, long reach from upper horn
-      // Root is EXACTLY the upper horn tip; no gap between body and claw.
-      curved(() => {
-        ctx.moveTo(cx - R * 0.68, cy - R * 1.08);   // ← exact upper horn tip
-        ctx.bezierCurveTo(
-          cx - R * 1.05, cy - R * 1.20,
-          cx - R * 1.60, cy - R * 0.88,
-          cx - R * 2.08, cy - R * 1.38,             // upper claw tip (long reach)
-        );
-        ctx.lineTo(cx - R * 1.82, cy - R * 1.60);
-        ctx.bezierCurveTo(
-          cx - R * 1.45, cy - R * 1.08,
-          cx - R * 0.98, cy - R * 1.30,
-          cx - R * 0.82, cy - R * 1.18,             // returns near horn
-        );
-      }, 0.76);
-      // Lower scythe-claw — shorter reach from lower horn (asymmetry signal)
-      curved(() => {
-        ctx.moveTo(cx - R * 0.68, cy + R * 1.08);   // ← exact lower horn tip
-        ctx.bezierCurveTo(
-          cx - R * 1.00, cy + R * 1.18,
-          cx - R * 1.45, cy + R * 0.82,
-          cx - R * 1.75, cy + R * 1.18,             // lower claw tip (shorter than upper)
-        );
-        ctx.lineTo(cx - R * 1.52, cy + R * 1.38);
-        ctx.bezierCurveTo(
-          cx - R * 1.28, cy + R * 0.98,
-          cx - R * 0.92, cy + R * 1.22,
-          cx - R * 0.80, cy + R * 1.15,
-        );
-      }, 0.68);
+        ctx.moveTo(cx-R*.68,cy-R*1.08);
+        ctx.bezierCurveTo(cx-R*1.08,cy-R*.55, cx-R*1.08,cy+R*.55, cx-R*.68,cy+R*1.08);
+        ctx.bezierCurveTo(cx-R*.30,cy+R*.88, cx+R*.55,cy+R*.56, cx+R*.98,cy);
+        ctx.bezierCurveTo(cx+R*.55,cy-R*.56, cx-R*.30,cy-R*.88, cx-R*.68,cy-R*1.08);
+      }, v === 2 ? 0.42 : 0.35);
+
+      if (v === 0) {
+        // Dominant upper claw + shorter lower claw (asymmetric bilateral)
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy-R*1.08);
+          ctx.bezierCurveTo(cx-R*1.05,cy-R*1.20, cx-R*1.60,cy-R*.88, cx-R*2.08,cy-R*1.38);
+          ctx.lineTo(cx-R*1.82,cy-R*1.60);
+          ctx.bezierCurveTo(cx-R*1.45,cy-R*1.08, cx-R*.98,cy-R*1.30, cx-R*.82,cy-R*1.18);
+        }, 0.76);
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy+R*1.08);
+          ctx.bezierCurveTo(cx-R*1.00,cy+R*1.18, cx-R*1.45,cy+R*.82, cx-R*1.75,cy+R*1.18);
+          ctx.lineTo(cx-R*1.52,cy+R*1.38);
+          ctx.bezierCurveTo(cx-R*1.28,cy+R*.98, cx-R*.92,cy+R*1.22, cx-R*.80,cy+R*1.15);
+        }, 0.68);
+
+      } else if (v === 1) {
+        // Equal-length bilateral claws — crescent reads as bilateral, not asymmetric
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy-R*1.08);
+          ctx.bezierCurveTo(cx-R*1.02,cy-R*1.15, cx-R*1.52,cy-R*.82, cx-R*1.88,cy-R*1.18);
+          ctx.lineTo(cx-R*1.65,cy-R*1.38);
+          ctx.bezierCurveTo(cx-R*1.32,cy-R*.98, cx-R*.90,cy-R*1.24, cx-R*.78,cy-R*1.16);
+        }, 0.74);
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy+R*1.08);
+          ctx.bezierCurveTo(cx-R*1.02,cy+R*1.15, cx-R*1.52,cy+R*.82, cx-R*1.88,cy+R*1.18);
+          ctx.lineTo(cx-R*1.65,cy+R*1.38);
+          ctx.bezierCurveTo(cx-R*1.32,cy+R*.98, cx-R*.90,cy+R*1.24, cx-R*.78,cy+R*1.16);
+        }, 0.74);
+
+      } else {
+        // Single mega-claw upper + lower horn stub (extreme asymmetry)
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy-R*1.08);
+          ctx.bezierCurveTo(cx-R*1.08,cy-R*1.22, cx-R*1.72,cy-R*.92, cx-R*2.30,cy-R*1.62);
+          ctx.lineTo(cx-R*2.05,cy-R*1.88);
+          ctx.bezierCurveTo(cx-R*1.58,cy-R*1.18, cx-R*1.05,cy-R*1.38, cx-R*.85,cy-R*1.22);
+        }, 0.80);
+        // Lower horn stub — no claw; its absence is the asymmetry signal
+        curved(() => {
+          ctx.moveTo(cx-R*.68,cy+R*1.08);
+          ctx.bezierCurveTo(cx-R*.95,cy+R*1.12, cx-R*1.08,cy+R*1.02, cx-R*.95,cy+R*.88);
+          ctx.bezierCurveTo(cx-R*.80,cy+R*.78, cx-R*.68,cy+R*.85, cx-R*.68,cy+R*1.08);
+        }, 0.52);
+      }
       break;
     }
 
     // ── 5  BRUISER — segmented chain (trilobite) ──────────────────────────────
-    // Primary: front thorax segment.
-    //   TF(cx-R*.65,cy-R*.72), TR(cx+R*.62,cy-R*.72), RP(cx+R*.80,cy),
-    //   BR(cx+R*.62,cy+R*.72), BF(cx-R*.65,cy+R*.72), front curve back to TF.
-    // Topology: secondary IS the next two body segments (abdomen + tail), not
-    // decorations — three discrete masses overlapping in sequence like a trilobite.
-    // Hard segment edges; organic connector curves at joints (biomechanical).
+    // Primary: front thorax segment (unchanged).
+    // Variants — v=getChassisVariant(n):
+    //   v=0  abdomen + pointed tail (3-segment — current)
+    //   v=1  single wide abdomen, no tail (2-segment, broader mass)
+    //   v=2  narrow abdomen + mid abdomen + small tail cap (4-segment cascade)
     case 5: {
-      // Abdomen — second segment, roots overlap the rear of the thorax (TR/BR/RP)
-      poly([
-        [cx + R * 0.48, cy - R * 0.60],   // ← roots near TR vertex
-        [cx + R * 1.42, cy - R * 0.50],   // abdomen upper-front
-        [cx + R * 1.62, cy],              // abdomen widest point
-        [cx + R * 1.42, cy + R * 0.50],   // abdomen lower-front
-        [cx + R * 0.48, cy + R * 0.60],   // ← roots near BR vertex
-        [cx + R * 0.80, cy],              // back through RP — visible joint seam
-      ], 0.80);
-      // Tail — third segment, overlaps rear of abdomen, tapers to point
-      poly([
-        [cx + R * 1.30, cy - R * 0.36],   // overlaps abdomen rear upper
-        [cx + R * 1.90, cy - R * 0.22],
-        [cx + R * 2.08, cy],              // tail tip
-        [cx + R * 1.90, cy + R * 0.22],
-        [cx + R * 1.30, cy + R * 0.36],   // overlaps abdomen rear lower
-        [cx + R * 1.62, cy],              // back through abdomen widest — joint seam
-      ], 0.72);
+      const v = getChassisVariant(n);
+      if (v === 0) {
+        // V0: thorax → abdomen → pointed tail (3-segment)
+        poly([[cx+R*.48,cy-R*.60],[cx+R*1.42,cy-R*.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*.50],[cx+R*.48,cy+R*.60],[cx+R*.80,cy]], 0.80);
+        poly([[cx+R*1.30,cy-R*.36],[cx+R*1.90,cy-R*.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*.22],[cx+R*1.30,cy+R*.36],[cx+R*1.62,cy]], 0.72);
+
+      } else if (v === 1) {
+        // V1: thorax → single wide abdomen, no tail (2-segment; broader silhouette)
+        poly([
+          [cx+R*.42,cy-R*.68],   // near TR, wider root
+          [cx+R*1.58,cy-R*.60],
+          [cx+R*2.02,cy-R*.18],
+          [cx+R*2.08,cy],        // blunt rear (no pointed tail)
+          [cx+R*2.02,cy+R*.18],
+          [cx+R*1.58,cy+R*.60],
+          [cx+R*.42,cy+R*.68],   // near BR
+          [cx+R*.80,cy],
+        ], 0.82);
+
+      } else {
+        // V2: thorax → narrow abdomen → mid abdomen → small tail cap (4-segment)
+        poly([[cx+R*.50,cy-R*.55],[cx+R*1.22,cy-R*.42],[cx+R*1.38,cy],[cx+R*1.22,cy+R*.42],[cx+R*.50,cy+R*.55],[cx+R*.80,cy]], 0.82);
+        poly([[cx+R*1.18,cy-R*.30],[cx+R*1.82,cy-R*.25],[cx+R*1.98,cy],[cx+R*1.82,cy+R*.25],[cx+R*1.18,cy+R*.30],[cx+R*1.38,cy]], 0.74);
+        poly([[cx+R*1.72,cy-R*.16],[cx+R*2.28,cy-R*.12],[cx+R*2.38,cy],[cx+R*2.28,cy+R*.12],[cx+R*1.72,cy+R*.16],[cx+R*1.98,cy]], 0.62);
+      }
       break;
     }
 
     // ── 6  SPECTER — asymmetric dendritic crystal ─────────────────────────────
-    // Primary: diamond node; top(cx,cy-R*.52), right(cx+R*.50,cy),
-    //          bottom(cx,cy+R*.52), left(cx-R*.50,cy).
-    // Grammar: THREE UNEQUAL arms at NON-120° angles — NO rotational symmetry.
-    //   • Forward arm (0°, leftward):    longest, 2.60R, has lateral sub-shard
-    //   • Upper-right arm (~45° up-right): medium,  ~1.95R from center
-    //   • Straight-down arm (90°, downward): shortest, ~1.80R from center
-    // Contrast with Artillery: forward(0°) + upper-right(120°) + lower-right(240°)
-    // at EQUAL length — pure 3-fold rotational symmetry, no branching.
-    // All hard edges (energy/crystalline material).
+    // Primary: diamond node (unchanged).
+    // Variants — v=getChassisVariant(n):
+    //   v=0  3 asymmetric arms: forward+sub-shard, upper-right, straight-down
+    //   v=1  bifurcating trunk: forward trunk → two fork sub-arms + short upper arm
+    //   v=2  4-arm unequal cross: 0°/90°/180°/270° — clearly NOT a Y
     case 6: {
-      // Forward arm — dominant, longest; points leftward from left diamond vertex
-      poly([
-        [cx - R * 0.50, cy - R * 0.14],   // ← left vertex, upper shoulder
-        [cx - R * 0.50, cy + R * 0.14],   // ← left vertex, lower shoulder
-        [cx - R * 2.45, cy + R * 0.12],   // arm narrows toward tip
-        [cx - R * 2.60, cy],              // arm tip
-        [cx - R * 2.45, cy - R * 0.12],
-      ], 0.84);
-      // Forward arm lateral sub-shard — branches off at ~58% along forward arm, ~40° upward
-      // This branching is the key structural difference from Artillery's barrels.
-      poly([
-        [cx - R * 1.52, cy - R * 0.10],   // branch root A (on forward arm upper face)
-        [cx - R * 1.52, cy + R * 0.08],   // branch root B (slightly lower)
-        [cx - R * 2.05, cy - R * 0.60],   // sub-shard tip, inner
-        [cx - R * 1.88, cy - R * 0.75],   // sub-shard tip, outer
-      ], 0.72);
-      // Upper-right arm — ~45° upward from horizontal (NOT 120° from forward)
-      // Clearly non-symmetric placement vs Artillery's 120° spacing.
-      poly([
-        [cx + R * 0.30, cy - R * 0.24],   // root edge A (near top-right diamond face)
-        [cx + R * 0.05, cy - R * 0.50],   // root edge B (near top diamond vertex)
-        [cx + R * 1.55, cy - R * 1.85],   // tip B
-        [cx + R * 1.70, cy - R * 1.68],   // tip A
-      ], 0.82);
-      // Straight-down arm — 90° downward from bottom vertex; NOT going lower-right
-      // This is the most asymmetric placement vs Artillery's lower-right (240°) arm.
-      poly([
-        [cx - R * 0.14, cy + R * 0.52],   // ← near bottom vertex, left
-        [cx + R * 0.14, cy + R * 0.52],   // ← near bottom vertex, right
-        [cx + R * 0.10, cy + R * 2.12],   // tip right
-        [cx - R * 0.10, cy + R * 2.12],   // tip left
-      ], 0.82);
+      const v = getChassisVariant(n);
+      if (v === 0) {
+        // V0: 3 asymmetric arms at non-120° spacing (current)
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]], 0.84);
+        // Sub-shard branches off forward arm at ~58%
+        poly([[cx-R*1.52,cy-R*.10],[cx-R*1.52,cy+R*.08],[cx-R*2.05,cy-R*.60],[cx-R*1.88,cy-R*.75]], 0.72);
+        poly([[cx+R*.30,cy-R*.24],[cx+R*.05,cy-R*.50],[cx+R*1.55,cy-R*1.85],[cx+R*1.70,cy-R*1.68]], 0.82);
+        poly([[cx-R*.14,cy+R*.52],[cx+R*.14,cy+R*.52],[cx+R*.10,cy+R*2.12],[cx-R*.10,cy+R*2.12]], 0.82);
+
+      } else if (v === 1) {
+        // V1: bifurcating trunk — short forward trunk splits into two sub-arms (tree-fork)
+        // Trunk (shorter than V0's forward arm)
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*1.78,cy+R*.12],[cx-R*1.78,cy-R*.12]], 0.84);
+        // Upper fork branch from trunk end
+        poly([[cx-R*1.78,cy-R*.12],[cx-R*1.78,cy+R*.06],[cx-R*2.62,cy-R*.68],[cx-R*2.48,cy-R*.82]], 0.78);
+        // Lower fork branch from trunk end
+        poly([[cx-R*1.78,cy-R*.06],[cx-R*1.78,cy+R*.12],[cx-R*2.62,cy+R*.68],[cx-R*2.48,cy+R*.82]], 0.78);
+        // Short upper arm (no symmetric counterpart — asymmetry preserved)
+        poly([[cx+R*.28,cy-R*.22],[cx+R*.05,cy-R*.50],[cx+R*.82,cy-R*1.32],[cx+R*.98,cy-R*1.18]], 0.75);
+
+      } else {
+        // V2: 4-arm unequal cross — 0°/90°/180°/270° at DIFFERENT lengths
+        // Nothing is symmetric: forward ≠ backward, up ≠ down → NOT a Y, NOT radial
+        // Forward arm — longest
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]], 0.84);
+        // Upward arm — second longest
+        poly([[cx-R*.14,cy-R*.52],[cx+R*.14,cy-R*.52],[cx+R*.10,cy-R*2.02],[cx-R*.10,cy-R*2.02]], 0.82);
+        // Rightward arm — shortest (opposing forward; short stub reads as asymmetric)
+        poly([[cx+R*.50,cy-R*.13],[cx+R*.50,cy+R*.13],[cx+R*1.22,cy+R*.09],[cx+R*1.22,cy-R*.09]], 0.72);
+        // Downward arm — medium (not equal to upward arm)
+        poly([[cx-R*.13,cy+R*.52],[cx+R*.13,cy+R*.52],[cx+R*.09,cy+R*1.72],[cx-R*.09,cy+R*1.72]], 0.80);
+      }
       break;
     }
 
     // ── 7  STALKER — elongated spine series ───────────────────────────────────
-    // Primary: horizontal rod; FL(cx-R*1.15,cy-R*.30), BL(cx-R*1.15,cy+R*.30),
-    //          BR(cx+R*1.35,cy+R*.18), tip(cx+R*1.52,cy), TR(cx+R*1.35,cy-R*.18)
-    // Topology: sequential axial — features are distributed along the length,
-    // NOT clustered at a central body.  Three dorsal spines at intervals; jaw at
-    // head; tail fan at rear.  No bilateral mirroring in secondary anatomy.
+    // Primary: horizontal rod (unchanged).
+    // Variants — v=getChassisVariant(n):
+    //   v=0  jaw + 3 dorsal spines diminuendo + bilateral tail fan (current)
+    //   v=1  enlarged jaw + 2 taller spines + single upper-only tail fan
+    //   v=2  4 spines crescendo (small→tall) + no jaw + tail cross
     default: {
-      // Forward jaw — V-shaped predatory head structure rooted at front face FL/BL
-      poly([
-        [cx - R * 1.15, cy - R * 0.30],   // ← FL front-top (exact)
-        [cx - R * 1.15, cy + R * 0.30],   // ← BL front-bottom (exact)
-        [cx - R * 1.48, cy + R * 0.48],
-        [cx - R * 2.02, cy + R * 0.18],
-        [cx - R * 2.15, cy],              // jaw tip
-        [cx - R * 2.02, cy - R * 0.18],
-        [cx - R * 1.48, cy - R * 0.48],
-      ], 0.80);
-      // Front dorsal spine — positioned at x≈cx−R*0.80, tallest
-      poly([
-        [cx - R * 0.92, cy - R * 0.30],   // base left, on rod top edge
-        [cx - R * 0.68, cy - R * 0.30],
-        [cx - R * 0.75, cy - R * 1.45],   // apex
-        [cx - R * 0.85, cy - R * 1.45],
-      ], 0.76);
-      // Mid dorsal spine — at x≈cx+R*0.08, mid height
-      poly([
-        [cx - R * 0.02, cy - R * 0.29],
-        [cx + R * 0.18, cy - R * 0.28],
-        [cx + R * 0.12, cy - R * 1.05],
-        [cx - R * 0.02, cy - R * 1.05],
-      ], 0.68);
-      // Rear dorsal spine — at x≈cx+R*0.88, shortest (sequential diminuendo)
-      poly([
-        [cx + R * 0.76, cy - R * 0.24],
-        [cx + R * 0.96, cy - R * 0.22],
-        [cx + R * 0.88, cy - R * 0.80],
-        [cx + R * 0.78, cy - R * 0.80],
-      ], 0.60);
-      // Tail fan upper — delta lobe from TR/tip body vertices
-      poly([
-        [cx + R * 1.35, cy - R * 0.18],   // ← exact TR vertex
-        [cx + R * 1.52, cy],              // ← exact tail tip
-        [cx + R * 1.78, cy - R * 0.62],
-        [cx + R * 1.52, cy - R * 0.82],
-        [cx + R * 1.28, cy - R * 0.55],
-      ], 0.72);
-      // Tail fan lower — from BR/tip body vertices
-      poly([
-        [cx + R * 1.35, cy + R * 0.18],   // ← exact BR vertex
-        [cx + R * 1.52, cy],              // ← exact tail tip
-        [cx + R * 1.78, cy + R * 0.62],
-        [cx + R * 1.52, cy + R * 0.82],
-        [cx + R * 1.28, cy + R * 0.55],
-      ], 0.72);
+      const v = getChassisVariant(n);
+      if (v === 0) {
+        // V0: standard jaw + 3-spine diminuendo + bilateral tail fan
+        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.48,cy+R*.48],[cx-R*2.02,cy+R*.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*.18],[cx-R*1.48,cy-R*.48]], 0.80);
+        poly([[cx-R*.92,cy-R*.30],[cx-R*.68,cy-R*.30],[cx-R*.75,cy-R*1.45],[cx-R*.85,cy-R*1.45]], 0.76);
+        poly([[cx-R*.02,cy-R*.29],[cx+R*.18,cy-R*.28],[cx+R*.12,cy-R*1.05],[cx-R*.02,cy-R*1.05]], 0.68);
+        poly([[cx+R*.76,cy-R*.24],[cx+R*.96,cy-R*.22],[cx+R*.88,cy-R*.80],[cx+R*.78,cy-R*.80]], 0.60);
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy-R*.62],[cx+R*1.52,cy-R*.82],[cx+R*1.28,cy-R*.55]], 0.72);
+        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy+R*.62],[cx+R*1.52,cy+R*.82],[cx+R*1.28,cy+R*.55]], 0.72);
+
+      } else if (v === 1) {
+        // V1: enlarged jaw + 2 taller spines + upper-only tail fan (no bilateral)
+        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.55,cy+R*.52],[cx-R*2.18,cy+R*.20],[cx-R*2.35,cy],[cx-R*2.18,cy-R*.20],[cx-R*1.55,cy-R*.52]], 0.82);
+        // Two taller spines (different widths; fewer but more prominent)
+        poly([[cx-R*.82,cy-R*.30],[cx-R*.52,cy-R*.30],[cx-R*.62,cy-R*1.68],[cx-R*.75,cy-R*1.68]], 0.78);
+        poly([[cx+R*.12,cy-R*.28],[cx+R*.40,cy-R*.28],[cx+R*.28,cy-R*1.20],[cx+R*.10,cy-R*1.20]], 0.68);
+        // Upper-only tail fan (single lobe — not bilateral; reads as dorsal fin)
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy-R*.72],[cx+R*1.60,cy-R*.92],[cx+R*1.28,cy-R*.58]], 0.76);
+
+      } else {
+        // V2: 4-spine crescendo (smallest front → tallest rear) + no jaw + tail cross
+        // Crescendo reversal of V0's diminuendo — distinct read even at small scale
+        poly([[cx-R*1.05,cy-R*.29],[cx-R*.88,cy-R*.29],[cx-R*.92,cy-R*.65],[cx-R*1.00,cy-R*.65]], 0.55);
+        poly([[cx-R*.50,cy-R*.29],[cx-R*.28,cy-R*.28],[cx-R*.35,cy-R*.95],[cx-R*.50,cy-R*.95]], 0.64);
+        poly([[cx+R*.02,cy-R*.28],[cx+R*.25,cy-R*.28],[cx+R*.15,cy-R*1.22],[cx-R*.02,cy-R*1.22]], 0.72);
+        poly([[cx+R*.72,cy-R*.24],[cx+R*.98,cy-R*.24],[cx+R*.88,cy-R*1.55],[cx+R*.75,cy-R*1.55]], 0.82);
+        // Tail cross — dorsal + ventral lobes (T-cross tail differs from V0 bilateral fan)
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.80,cy-R*.55],[cx+R*1.55,cy-R*.75],[cx+R*1.25,cy-R*.52]], 0.72);
+        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.80,cy+R*.55],[cx+R*1.55,cy+R*.75],[cx+R*1.25,cy+R*.52]], 0.60);
+      }
       break;
     }
   }

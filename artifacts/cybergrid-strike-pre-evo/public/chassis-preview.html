@@ -2,271 +2,301 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Chassis Preview — Body-Plan Grammar Diversity Pass</title>
+<title>Chassis Preview — Distribution + Uniqueness Pass</title>
 <style>
   body { background:#06101e; margin:0; display:flex; flex-direction:column;
-         align-items:center; padding:20px; font-family:monospace; gap:8px; }
-  h2   { color:#38bdf8; margin:0; letter-spacing:.1em; font-size:13px; }
-  p    { color:rgba(219,234,254,.4); font-size:10px; margin:0 0 10px; letter-spacing:.08em; }
-  .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
-  .cell{ display:flex; flex-direction:column; align-items:center; gap:5px; }
-  .lbl { color:rgba(219,234,254,.60); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
-  .sub { color:rgba(219,234,254,.30); font-size:8px; letter-spacing:.06em; }
-  canvas { border:1px solid rgba(56,189,248,.14); border-radius:3px; background:#0a1628; }
+         align-items:center; padding:20px; font-family:monospace; gap:10px; }
+  h2   { color:#38bdf8; margin:0; letter-spacing:.1em; font-size:12px; }
+  .note { color:rgba(219,234,254,.35); font-size:9px; letter-spacing:.06em; margin:0; text-align:center; line-height:1.6; }
+  .section { display:flex; flex-direction:column; align-items:center; gap:6px; width:100%; }
+  .section-label { color:rgba(219,234,254,.45); font-size:9px; letter-spacing:.12em; text-transform:uppercase; border-bottom:1px solid rgba(56,189,248,.15); padding-bottom:3px; width:100%; text-align:center; }
+  .row  { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .cell { display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .lbl  { color:rgba(219,234,254,.60); font-size:8px; letter-spacing:.10em; text-transform:uppercase; }
+  .sub  { color:rgba(219,234,254,.30); font-size:7px; letter-spacing:.05em; }
+  canvas { border:1px solid rgba(56,189,248,.12); border-radius:3px; background:#0a1628; }
 </style>
 </head>
 <body>
-<h2>⬡ PRE-EVOLUTION — BODY-PLAN GRAMMAR DIVERSITY ⬡</h2>
-<p>Global architecture committed first · secondary/tertiary anatomy inherits topology · symmetry is a phenotype variable</p>
-<div class="row" id="row"></div>
+<h2>⬡ DISTRIBUTION + UNIQUENESS PASS — ALL CONFIGURATIONS ⬡</h2>
+<p class="note">
+  12-slot weighted sequence · Y-shapes (ARTILLERY + SPECTER) reduced to 17% · underused topologies boosted<br>
+  Each chassis has 3 visual variants · variant cycles so same-chassis consecutive encounters differ
+</p>
+
+<div class="section">
+  <div class="section-label">Distribution sequence · n % 12 → chassis · (repeats with variant rotation)</div>
+  <div class="row" id="dist-row"></div>
+</div>
+
+<div class="section">
+  <div class="section-label">All 24 configurations — 8 chassis × 3 variants (columns = chassis, rows = variant 0/1/2)</div>
+  <div class="row" id="variant-row"></div>
+</div>
+
 <script>
-// ── Chassis catalogue ────────────────────────────────────────────────────────
-const CHASSIS = [
-  { id:0, name:'WEDGE',     topo:'AXIAL — wide delta wing',              symm:'bilateral',          color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
-  { id:1, name:'STRIKER',   topo:'D-LOBE — flat ventral / dorsal arc',  symm:'asymmetric bilateral',color:'#e879f9', glow:'rgba(232,121,249,.65)' },
-  { id:2, name:'TANK',      topo:'COMPACT SHELL — hexagonal fortress',  symm:'bilateral',           color:'#fb7185', glow:'rgba(251,113,133,.55)' },
-  { id:3, name:'ARTILLERY', topo:'RADIAL 3-SPOKE — symmetric triskelion',symm:'3-fold radial',      color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
-  { id:4, name:'CRAWLER',   topo:'CRESCENT — thin boomerang arc',        symm:'near-asymm bilateral',color:'#fbbf24', glow:'rgba(251,191,36,.65)'  },
-  { id:5, name:'BRUISER',   topo:'SEGMENTED CHAIN — trilobite',          symm:'segmented bilateral', color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
-  { id:6, name:'SPECTER',   topo:'DENDRITIC — asymm, non-120° arms',     symm:'none (asymmetric)',   color:'#e879f9', glow:'rgba(232,121,249,.65)' },
-  { id:7, name:'STALKER',   topo:'ELONGATED SPINE — serial features',    symm:'none (serial axial)', color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
+// ── Mirror the TypeScript constants ──────────────────────────────────────────
+const CHASSIS_SEQ = [0, 4, 1, 5, 2, 7, 4, 3, 1, 6, 5, 7];
+
+const CHASSIS_META = [
+  { name:'WEDGE',     topo:'axial delta wing',          color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
+  { name:'STRIKER',   topo:'D-lobe asymmetric',         color:'#e879f9', glow:'rgba(232,121,249,.65)' },
+  { name:'TANK',      topo:'compact hex shell',         color:'#fb7185', glow:'rgba(251,113,133,.55)' },
+  { name:'ARTILLERY', topo:'radial 3-spoke',            color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
+  { name:'CRAWLER',   topo:'crescent / boomerang',      color:'#fbbf24', glow:'rgba(251,191,36,.65)'  },
+  { name:'BRUISER',   topo:'segmented chain',           color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
+  { name:'SPECTER',   topo:'dendritic crystal',         color:'#e879f9', glow:'rgba(232,121,249,.65)' },
+  { name:'STALKER',   topo:'elongated spine rod',       color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
 ];
-const R = 26;
 
-/* ─────────────────────────── Primary chassis paths ───────────────────────── */
-function buildPrimary(ctx, cx, cy, id, R) {
+const R = 24;
+
+function getChassisVariant(n) {
+  const LEN = CHASSIS_SEQ.length;
+  return (Math.floor(n / LEN) + Math.floor((n % LEN) / 4)) % 3;
+}
+
+// ── Primary path ─────────────────────────────────────────────────────────────
+function buildPrimary(ctx, cx, cy, id) {
   ctx.beginPath();
-  switch (id) {
-
-    case 0: // WEDGE — wide delta wing; span≈4.1R, chord≈1.57R
-      ctx.moveTo(cx - R*.52, cy);
-      ctx.lineTo(cx - R*.02, cy - R*2.05);
-      ctx.lineTo(cx + R*1.05, cy - R*.12);
-      ctx.lineTo(cx + R*1.05, cy + R*.12);
-      ctx.lineTo(cx - R*.02, cy + R*2.05);
+  switch(id) {
+    case 0: // WEDGE — wide delta wing
+      ctx.moveTo(cx-R*.52,cy);
+      ctx.lineTo(cx-R*.02,cy-R*2.05); ctx.lineTo(cx+R*1.05,cy-R*.12);
+      ctx.lineTo(cx+R*1.05,cy+R*.12); ctx.lineTo(cx-R*.02,cy+R*2.05);
       break;
-
-    case 1: // STRIKER — D-lobe; flat ventral (closePath) + large dorsal arc
-      ctx.moveTo(cx - R*.82, cy + R*.24);      // FL
-      ctx.bezierCurveTo(cx-R*1.10,cy+R*.10, cx-R*1.10,cy-R*.10, cx-R*.82,cy-R*.24); // front face
-      ctx.bezierCurveTo(cx-R*.40,cy-R*1.55, cx+R*.55,cy-R*1.52, cx+R*.90,cy-R*.35); // dorsal arc
-      ctx.lineTo(cx + R*.90, cy + R*.24);      // RL
-      // closePath → RL→FL = flat ventral baseline
+    case 1: // STRIKER — D-lobe
+      ctx.moveTo(cx-R*.82,cy+R*.24);
+      ctx.bezierCurveTo(cx-R*1.10,cy+R*.10, cx-R*1.10,cy-R*.10, cx-R*.82,cy-R*.24);
+      ctx.bezierCurveTo(cx-R*.40,cy-R*1.55, cx+R*.55,cy-R*1.52, cx+R*.90,cy-R*.35);
+      ctx.lineTo(cx+R*.90,cy+R*.24);
       break;
-
-    case 2: // TANK — compact hexagonal shell
-      ctx.moveTo(cx - R*.85, cy);              // L forward
-      ctx.lineTo(cx - R*.45, cy - R*.95);      // TL
-      ctx.lineTo(cx + R*.45, cy - R*.95);      // TR
-      ctx.lineTo(cx + R*.85, cy);              // R rear
-      ctx.lineTo(cx + R*.45, cy + R*.95);      // BR
-      ctx.lineTo(cx - R*.45, cy + R*.95);      // BL
+    case 2: // TANK — compact hex
+      ctx.moveTo(cx-R*.85,cy); ctx.lineTo(cx-R*.45,cy-R*.95); ctx.lineTo(cx+R*.45,cy-R*.95);
+      ctx.lineTo(cx+R*.85,cy); ctx.lineTo(cx+R*.45,cy+R*.95); ctx.lineTo(cx-R*.45,cy+R*.95);
       break;
-
-    case 3: // ARTILLERY — small hexagonal hub (unchanged)
-      ctx.moveTo(cx,          cy - R*.42);
-      ctx.lineTo(cx + R*.36,  cy - R*.21);
-      ctx.lineTo(cx + R*.36,  cy + R*.21);
-      ctx.lineTo(cx,          cy + R*.42);
-      ctx.lineTo(cx - R*.36,  cy + R*.21);
-      ctx.lineTo(cx - R*.36,  cy - R*.21);
+    case 3: // ARTILLERY — small hex hub
+      ctx.moveTo(cx,cy-R*.42); ctx.lineTo(cx+R*.36,cy-R*.21); ctx.lineTo(cx+R*.36,cy+R*.21);
+      ctx.lineTo(cx,cy+R*.42); ctx.lineTo(cx-R*.36,cy+R*.21); ctx.lineTo(cx-R*.36,cy-R*.21);
       break;
-
-    case 4: // CRAWLER — thin boomerang crescent; span≈2.16R, band≈0.57R
-      ctx.moveTo(cx - R*.68, cy - R*1.08);     // upper horn
+    case 4: // CRAWLER — thin crescent
+      ctx.moveTo(cx-R*.68,cy-R*1.08);
       ctx.bezierCurveTo(cx+R*.05,cy-R*1.58, cx+R*1.55,cy-R*.62, cx+R*1.55,cy);
       ctx.bezierCurveTo(cx+R*1.55,cy+R*.62, cx+R*.05,cy+R*1.58, cx-R*.68,cy+R*1.08);
       ctx.bezierCurveTo(cx-R*.30,cy+R*.88, cx+R*.55,cy+R*.56, cx+R*.98,cy);
       ctx.bezierCurveTo(cx+R*.55,cy-R*.56, cx-R*.30,cy-R*.88, cx-R*.68,cy-R*1.08);
       break;
-
-    case 5: // BRUISER — front thorax segment (unchanged)
-      ctx.moveTo(cx - R*.65, cy - R*.72);
-      ctx.lineTo(cx + R*.62, cy - R*.72);
-      ctx.lineTo(cx + R*.80, cy);
-      ctx.lineTo(cx + R*.62, cy + R*.72);
-      ctx.lineTo(cx - R*.65, cy + R*.72);
-      ctx.quadraticCurveTo(cx - R*1.12, cy, cx - R*.65, cy - R*.72);
+    case 5: // BRUISER — thorax
+      ctx.moveTo(cx-R*.65,cy-R*.72); ctx.lineTo(cx+R*.62,cy-R*.72); ctx.lineTo(cx+R*.80,cy);
+      ctx.lineTo(cx+R*.62,cy+R*.72); ctx.lineTo(cx-R*.65,cy+R*.72);
+      ctx.quadraticCurveTo(cx-R*1.12,cy, cx-R*.65,cy-R*.72);
       break;
-
-    case 6: // SPECTER — diamond node (rhombus, NOT hexagon)
-      ctx.moveTo(cx,          cy - R*.52);
-      ctx.lineTo(cx + R*.50,  cy);
-      ctx.lineTo(cx,          cy + R*.52);
-      ctx.lineTo(cx - R*.50,  cy);
+    case 6: // SPECTER — diamond node
+      ctx.moveTo(cx,cy-R*.52); ctx.lineTo(cx+R*.50,cy); ctx.lineTo(cx,cy+R*.52); ctx.lineTo(cx-R*.50,cy);
       break;
-
-    default: // STALKER — elongated rod (unchanged)
-      ctx.moveTo(cx - R*1.15, cy - R*.30);
-      ctx.lineTo(cx - R*1.15, cy + R*.30);
-      ctx.lineTo(cx + R*1.35, cy + R*.18);
-      ctx.lineTo(cx + R*1.52, cy);
-      ctx.lineTo(cx + R*1.35, cy - R*.18);
-      break;
+    default: // STALKER — rod
+      ctx.moveTo(cx-R*1.15,cy-R*.30); ctx.lineTo(cx-R*1.15,cy+R*.30);
+      ctx.lineTo(cx+R*1.35,cy+R*.18); ctx.lineTo(cx+R*1.52,cy); ctx.lineTo(cx+R*1.35,cy-R*.18);
   }
   ctx.closePath();
 }
 
-/* ────────────────────────── Secondary anatomy ─────────────────────────────── */
-function drawSecondary(ctx, cx, cy, id, R, fill, glow) {
-  const sep = 'rgba(255,255,255,.20)';
+// ── Secondary anatomy ─────────────────────────────────────────────────────────
+function drawSecondary(ctx, cx, cy, id, v, fill, glow) {
+  const sep = 'rgba(255,255,255,.18)';
   function poly(pts, a) {
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
-    ctx.shadowColor=glow; ctx.shadowBlur=8;
+    ctx.shadowColor=glow; ctx.shadowBlur=7;
     ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
     for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
     ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.8; ctx.stroke();
     ctx.restore();
   }
   function curved(fn, a) {
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
-    ctx.shadowColor=glow; ctx.shadowBlur=8;
+    ctx.shadowColor=glow; ctx.shadowBlur=7;
     ctx.beginPath(); fn(); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.8; ctx.stroke();
     ctx.restore();
   }
 
   switch(id) {
-
-    // ── 0  WEDGE — axial wing grammar ─────────────────────────────────────
+    // ── 0  WEDGE (no variant branching — single config) ──────────────────
     case 0:
-      // Upper cranked outer panel — wingtip extension
-      poly([[cx-R*.02,cy-R*2.05],[cx-R*.42,cy-R*2.58],[cx+R*.38,cy-R*2.52],[cx+R*.52,cy-R*2.02],[cx+R*.22,cy-R*1.95]], .76);
-      // Lower cranked outer panel (mirrored)
-      poly([[cx-R*.02,cy+R*2.05],[cx-R*.42,cy+R*2.58],[cx+R*.38,cy+R*2.52],[cx+R*.52,cy+R*2.02],[cx+R*.22,cy+R*1.95]], .76);
-      // Wing-root fairing (nose junction)
-      poly([[cx-R*.52,cy-R*.08],[cx-R*.52,cy+R*.08],[cx-R*.22,cy+R*.60],[cx-R*.22,cy-R*.60]], .72);
-      // Trailing-edge elevons
-      poly([[cx+R*.55,cy-R*.12],[cx+R*1.05,cy-R*.12],[cx+R*1.38,cy-R*.62],[cx+R*1.02,cy-R*.58]], .70);
-      poly([[cx+R*.55,cy+R*.12],[cx+R*1.05,cy+R*.12],[cx+R*1.38,cy+R*.62],[cx+R*1.02,cy+R*.58]], .70);
+      poly([[cx-R*.02,cy-R*2.05],[cx-R*.42,cy-R*2.58],[cx+R*.38,cy-R*2.52],[cx+R*.52,cy-R*2.02],[cx+R*.22,cy-R*1.95]],.76);
+      poly([[cx-R*.02,cy+R*2.05],[cx-R*.42,cy+R*2.58],[cx+R*.38,cy+R*2.52],[cx+R*.52,cy+R*2.02],[cx+R*.22,cy+R*1.95]],.76);
+      poly([[cx-R*.52,cy-R*.08],[cx-R*.52,cy+R*.08],[cx-R*.22,cy+R*.60],[cx-R*.22,cy-R*.60]],.72);
+      poly([[cx+R*.55,cy-R*.12],[cx+R*1.05,cy-R*.12],[cx+R*1.38,cy-R*.62],[cx+R*1.02,cy-R*.58]],.70);
+      poly([[cx+R*.55,cy+R*.12],[cx+R*1.05,cy+R*.12],[cx+R*1.38,cy+R*.62],[cx+R*1.02,cy+R*.58]],.70);
       break;
 
-    // ── 1  STRIKER — D-lobe; all dorsal, nothing ventral ─────────────────
+    // ── 1  STRIKER — 3 variants ───────────────────────────────────────────
     case 1:
-      // Dorsal fin
-      curved(()=>{
-        ctx.moveTo(cx-R*.28,cy-R*1.38);
-        ctx.bezierCurveTo(cx-R*.58,cy-R*1.82, cx-R*.52,cy-R*2.28, cx-R*.15,cy-R*2.32);
-        ctx.bezierCurveTo(cx+R*.18,cy-R*2.12, cx+R*.35,cy-R*1.68, cx+R*.28,cy-R*1.38);
-        ctx.quadraticCurveTo(cx,cy-R*1.50, cx-R*.28,cy-R*1.38);
-      }, .74);
-      // Forward head lobe (from FU vertex)
-      curved(()=>{
-        ctx.moveTo(cx-R*.82, cy-R*.24);
-        ctx.bezierCurveTo(cx-R*1.12,cy-R*.42, cx-R*1.52,cy-R*1.08, cx-R*1.22,cy-R*1.58);
-        ctx.bezierCurveTo(cx-R*.88,cy-R*1.62, cx-R*.62,cy-R*1.28, cx-R*.52,cy-R*.82);
-        ctx.quadraticCurveTo(cx-R*.62,cy-R*.42, cx-R*.82,cy-R*.24);
-      }, .68);
-      // Rear dorsal thorn (hard spike from RU vertex)
-      poly([[cx+R*.90,cy-R*.35],[cx+R*1.18,cy-R*.28],[cx+R*1.30,cy-R*.90],[cx+R*1.05,cy-R*.95]], .72);
+      if(v===0){
+        curved(()=>{ ctx.moveTo(cx-R*.28,cy-R*1.38); ctx.bezierCurveTo(cx-R*.58,cy-R*1.82,cx-R*.52,cy-R*2.28,cx-R*.15,cy-R*2.32); ctx.bezierCurveTo(cx+R*.18,cy-R*2.12,cx+R*.35,cy-R*1.68,cx+R*.28,cy-R*1.38); ctx.quadraticCurveTo(cx,cy-R*1.50,cx-R*.28,cy-R*1.38); },.74);
+        curved(()=>{ ctx.moveTo(cx-R*.82,cy-R*.24); ctx.bezierCurveTo(cx-R*1.12,cy-R*.42,cx-R*1.52,cy-R*1.08,cx-R*1.22,cy-R*1.58); ctx.bezierCurveTo(cx-R*.88,cy-R*1.62,cx-R*.62,cy-R*1.28,cx-R*.52,cy-R*.82); ctx.quadraticCurveTo(cx-R*.62,cy-R*.42,cx-R*.82,cy-R*.24); },.68);
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.18,cy-R*.28],[cx+R*1.30,cy-R*.90],[cx+R*1.05,cy-R*.95]],.72);
+      } else if(v===1){
+        curved(()=>{ ctx.moveTo(cx-R*.52,cy-R*1.22); ctx.bezierCurveTo(cx-R*.72,cy-R*1.58,cx-R*.20,cy-R*1.98,cx+R*.35,cy-R*1.80); ctx.bezierCurveTo(cx+R*.65,cy-R*1.55,cx+R*.62,cy-R*1.20,cx+R*.48,cy-R*1.18); ctx.quadraticCurveTo(cx+R*.05,cy-R*1.32,cx-R*.52,cy-R*1.22); },.74);
+        curved(()=>{ ctx.moveTo(cx-R*.82,cy-R*.24); ctx.bezierCurveTo(cx-R*1.08,cy-R*.38,cx-R*1.40,cy-R*.80,cx-R*1.12,cy-R*1.25); ctx.bezierCurveTo(cx-R*.88,cy-R*1.30,cx-R*.68,cy-R*1.00,cx-R*.58,cy-R*.68); ctx.quadraticCurveTo(cx-R*.66,cy-R*.38,cx-R*.82,cy-R*.24); },.68);
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.12,cy-R*.30],[cx+R*1.22,cy-R*.82],[cx+R*1.02,cy-R*.85]],.72);
+        poly([[cx+R*.90,cy-R*.35],[cx+R*1.20,cy-R*.28],[cx+R*1.35,cy-R*.58],[cx+R*1.12,cy-R*.62]],.60);
+      } else {
+        curved(()=>{ ctx.moveTo(cx-R*.30,cy-R*1.35); ctx.bezierCurveTo(cx-R*.52,cy-R*1.78,cx-R*.42,cy-R*2.22,cx-R*.12,cy-R*2.24); ctx.bezierCurveTo(cx+R*.10,cy-R*2.08,cx+R*.20,cy-R*1.72,cx+R*.08,cy-R*1.38); ctx.quadraticCurveTo(cx-R*.10,cy-R*1.42,cx-R*.30,cy-R*1.35); },.74);
+        curved(()=>{ ctx.moveTo(cx+R*.18,cy-R*1.25); ctx.bezierCurveTo(cx+R*.05,cy-R*1.48,cx+R*.18,cy-R*1.88,cx+R*.50,cy-R*1.85); ctx.bezierCurveTo(cx+R*.75,cy-R*1.68,cx+R*.75,cy-R*1.38,cx+R*.52,cy-R*1.25); ctx.quadraticCurveTo(cx+R*.35,cy-R*1.22,cx+R*.18,cy-R*1.25); },.68);
+        curved(()=>{ ctx.moveTo(cx-R*.82,cy-R*.24); ctx.bezierCurveTo(cx-R*1.05,cy-R*.55,cx-R*1.62,cy-R*.95,cx-R*1.52,cy-R*1.45); ctx.bezierCurveTo(cx-R*1.22,cy-R*1.60,cx-R*.88,cy-R*1.28,cx-R*.68,cy-R*.85); ctx.quadraticCurveTo(cx-R*.72,cy-R*.45,cx-R*.82,cy-R*.24); },.68);
+      }
       break;
 
-    // ── 2  TANK — compact shell anatomy ───────────────────────────────────
+    // ── 2  TANK (no variant branching — single config) ────────────────────
     case 2:
-      // Forward V-plow from L vertex
-      poly([[cx-R*.85,cy-R*.22],[cx-R*.85,cy+R*.22],[cx-R*1.38,cy+R*.40],[cx-R*1.90,cy],[cx-R*1.38,cy-R*.40]], .84);
-      // Upper armor batter (TL→TR edge)
-      poly([[cx-R*.45,cy-R*.95],[cx+R*.45,cy-R*.95],[cx+R*.60,cy-R*1.68],[cx,cy-R*1.82],[cx-R*.60,cy-R*1.68]], .72);
-      // Lower armor batter (BL→BR edge)
-      poly([[cx-R*.45,cy+R*.95],[cx+R*.45,cy+R*.95],[cx+R*.60,cy+R*1.68],[cx,cy+R*1.82],[cx-R*.60,cy+R*1.68]], .72);
-      // Rear command pod from R vertex
-      poly([[cx+R*.85,cy-R*.20],[cx+R*.85,cy+R*.20],[cx+R*1.48,cy+R*.12],[cx+R*1.60,cy],[cx+R*1.48,cy-R*.12]], .70);
+      poly([[cx-R*.85,cy-R*.22],[cx-R*.85,cy+R*.22],[cx-R*1.38,cy+R*.40],[cx-R*1.90,cy],[cx-R*1.38,cy-R*.40]],.84);
+      poly([[cx-R*.45,cy-R*.95],[cx+R*.45,cy-R*.95],[cx+R*.60,cy-R*1.68],[cx,cy-R*1.82],[cx-R*.60,cy-R*1.68]],.72);
+      poly([[cx-R*.45,cy+R*.95],[cx+R*.45,cy+R*.95],[cx+R*.60,cy+R*1.68],[cx,cy+R*1.82],[cx-R*.60,cy+R*1.68]],.72);
+      poly([[cx+R*.85,cy-R*.20],[cx+R*.85,cy+R*.20],[cx+R*1.48,cy+R*.12],[cx+R*1.60,cy],[cx+R*1.48,cy-R*.12]],.70);
       break;
 
-    // ── 3  ARTILLERY — symmetric 3-fold triskelion (unchanged) ───────────
+    // ── 3  ARTILLERY — 3 variants ─────────────────────────────────────────
     case 3:
-      curved(()=>{
-        ctx.moveTo(cx-R*.36,cy-R*.21);
-        ctx.lineTo(cx-R*.36,cy+R*.21);
-        ctx.lineTo(cx-R*2.55,cy+R*.12);
-        ctx.arc(cx-R*2.55,cy,R*.12,Math.PI*.5,-Math.PI*.5,true);
-        ctx.lineTo(cx-R*2.55,cy-R*.12);
-      }, .82);
-      poly([[cx+R*.40,cy-R*.18],[cx+R*.14,cy-R*.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]], .80);
-      poly([[cx+R*.40,cy+R*.18],[cx+R*.14,cy+R*.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]], .80);
+      if(v===0){
+        curved(()=>{ ctx.moveTo(cx-R*.36,cy-R*.21); ctx.lineTo(cx-R*.36,cy+R*.21); ctx.lineTo(cx-R*2.55,cy+R*.12); ctx.arc(cx-R*2.55,cy,R*.12,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.55,cy-R*.12); },.82);
+        poly([[cx+R*.40,cy-R*.18],[cx+R*.14,cy-R*.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]],.80);
+        poly([[cx+R*.40,cy+R*.18],[cx+R*.14,cy+R*.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]],.80);
+      } else if(v===1){
+        curved(()=>{ ctx.moveTo(cx-R*.36,cy-R*.21); ctx.lineTo(cx-R*.36,cy+R*.21); ctx.lineTo(cx-R*2.45,cy+R*.12); ctx.arc(cx-R*2.45,cy,R*.12,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.45,cy-R*.12); },.82);
+        poly([[cx-R*.16,cy-R*.42],[cx+R*.16,cy-R*.42],[cx+R*.10,cy-R*2.30],[cx-R*.10,cy-R*2.30]],.80);
+        poly([[cx-R*.16,cy+R*.42],[cx+R*.16,cy+R*.42],[cx+R*.10,cy+R*2.30],[cx-R*.10,cy+R*2.30]],.80);
+      } else {
+        curved(()=>{ ctx.moveTo(cx-R*.36,cy-R*.21); ctx.lineTo(cx-R*.36,cy+R*.21); ctx.lineTo(cx-R*2.75,cy+R*.11); ctx.arc(cx-R*2.75,cy,R*.11,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.75,cy-R*.11); },.82);
+        poly([[cx+R*.35,cy-R*.20],[cx+R*.08,cy-R*.42],[cx+R*.78,cy-R*2.08],[cx+R*.96,cy-R*1.92]],.80);
+        poly([[cx+R*.36,cy-R*.10],[cx+R*.36,cy+R*.10],[cx+R*1.08,cy+R*.06],[cx+R*1.08,cy-R*.06]],.68);
+      }
       break;
 
-    // ── 4  CRAWLER — crescent: web membrane + asymmetric claws ───────────
+    // ── 4  CRAWLER — 3 variants ───────────────────────────────────────────
     case 4:
-      // Web membrane (translucent)
-      curved(()=>{
-        ctx.moveTo(cx-R*.68,cy-R*1.08);
-        ctx.bezierCurveTo(cx-R*1.08,cy-R*.55, cx-R*1.08,cy+R*.55, cx-R*.68,cy+R*1.08);
-        ctx.bezierCurveTo(cx-R*.30,cy+R*.88, cx+R*.55,cy+R*.56, cx+R*.98,cy);
-        ctx.bezierCurveTo(cx+R*.55,cy-R*.56, cx-R*.30,cy-R*.88, cx-R*.68,cy-R*1.08);
-      }, .35);
-      // Upper scythe-claw (dominant, longer reach)
-      curved(()=>{
-        ctx.moveTo(cx-R*.68,cy-R*1.08);
-        ctx.bezierCurveTo(cx-R*1.05,cy-R*1.20, cx-R*1.60,cy-R*.88, cx-R*2.08,cy-R*1.38);
-        ctx.lineTo(cx-R*1.82,cy-R*1.60);
-        ctx.bezierCurveTo(cx-R*1.45,cy-R*1.08, cx-R*.98,cy-R*1.30, cx-R*.82,cy-R*1.18);
-      }, .76);
-      // Lower scythe-claw (shorter reach — asymmetry signal)
-      curved(()=>{
-        ctx.moveTo(cx-R*.68,cy+R*1.08);
-        ctx.bezierCurveTo(cx-R*1.00,cy+R*1.18, cx-R*1.45,cy+R*.82, cx-R*1.75,cy+R*1.18);
-        ctx.lineTo(cx-R*1.52,cy+R*1.38);
-        ctx.bezierCurveTo(cx-R*1.28,cy+R*.98, cx-R*.92,cy+R*1.22, cx-R*.80,cy+R*1.15);
-      }, .68);
+      curved(()=>{ ctx.moveTo(cx-R*.68,cy-R*1.08); ctx.bezierCurveTo(cx-R*1.08,cy-R*.55,cx-R*1.08,cy+R*.55,cx-R*.68,cy+R*1.08); ctx.bezierCurveTo(cx-R*.30,cy+R*.88,cx+R*.55,cy+R*.56,cx+R*.98,cy); ctx.bezierCurveTo(cx+R*.55,cy-R*.56,cx-R*.30,cy-R*.88,cx-R*.68,cy-R*1.08); }, v===2?.42:.35);
+      if(v===0){
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy-R*1.08); ctx.bezierCurveTo(cx-R*1.05,cy-R*1.20,cx-R*1.60,cy-R*.88,cx-R*2.08,cy-R*1.38); ctx.lineTo(cx-R*1.82,cy-R*1.60); ctx.bezierCurveTo(cx-R*1.45,cy-R*1.08,cx-R*.98,cy-R*1.30,cx-R*.82,cy-R*1.18); },.76);
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy+R*1.08); ctx.bezierCurveTo(cx-R*1.00,cy+R*1.18,cx-R*1.45,cy+R*.82,cx-R*1.75,cy+R*1.18); ctx.lineTo(cx-R*1.52,cy+R*1.38); ctx.bezierCurveTo(cx-R*1.28,cy+R*.98,cx-R*.92,cy+R*1.22,cx-R*.80,cy+R*1.15); },.68);
+      } else if(v===1){
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy-R*1.08); ctx.bezierCurveTo(cx-R*1.02,cy-R*1.15,cx-R*1.52,cy-R*.82,cx-R*1.88,cy-R*1.18); ctx.lineTo(cx-R*1.65,cy-R*1.38); ctx.bezierCurveTo(cx-R*1.32,cy-R*.98,cx-R*.90,cy-R*1.24,cx-R*.78,cy-R*1.16); },.74);
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy+R*1.08); ctx.bezierCurveTo(cx-R*1.02,cy+R*1.15,cx-R*1.52,cy+R*.82,cx-R*1.88,cy+R*1.18); ctx.lineTo(cx-R*1.65,cy+R*1.38); ctx.bezierCurveTo(cx-R*1.32,cy+R*.98,cx-R*.90,cy+R*1.24,cx-R*.78,cy+R*1.16); },.74);
+      } else {
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy-R*1.08); ctx.bezierCurveTo(cx-R*1.08,cy-R*1.22,cx-R*1.72,cy-R*.92,cx-R*2.30,cy-R*1.62); ctx.lineTo(cx-R*2.05,cy-R*1.88); ctx.bezierCurveTo(cx-R*1.58,cy-R*1.18,cx-R*1.05,cy-R*1.38,cx-R*.85,cy-R*1.22); },.80);
+        curved(()=>{ ctx.moveTo(cx-R*.68,cy+R*1.08); ctx.bezierCurveTo(cx-R*.95,cy+R*1.12,cx-R*1.08,cy+R*1.02,cx-R*.95,cy+R*.88); ctx.bezierCurveTo(cx-R*.80,cy+R*.78,cx-R*.68,cy+R*.85,cx-R*.68,cy+R*1.08); },.52);
+      }
       break;
 
-    // ── 5  BRUISER — segmented chain (unchanged) ──────────────────────────
+    // ── 5  BRUISER — 3 variants ───────────────────────────────────────────
     case 5:
-      poly([[cx+R*.48,cy-R*.60],[cx+R*1.42,cy-R*.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*.50],[cx+R*.48,cy+R*.60],[cx+R*.80,cy]], .80);
-      poly([[cx+R*1.30,cy-R*.36],[cx+R*1.90,cy-R*.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*.22],[cx+R*1.30,cy+R*.36],[cx+R*1.62,cy]], .72);
+      if(v===0){
+        poly([[cx+R*.48,cy-R*.60],[cx+R*1.42,cy-R*.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*.50],[cx+R*.48,cy+R*.60],[cx+R*.80,cy]],.80);
+        poly([[cx+R*1.30,cy-R*.36],[cx+R*1.90,cy-R*.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*.22],[cx+R*1.30,cy+R*.36],[cx+R*1.62,cy]],.72);
+      } else if(v===1){
+        poly([[cx+R*.42,cy-R*.68],[cx+R*1.58,cy-R*.60],[cx+R*2.02,cy-R*.18],[cx+R*2.08,cy],[cx+R*2.02,cy+R*.18],[cx+R*1.58,cy+R*.60],[cx+R*.42,cy+R*.68],[cx+R*.80,cy]],.82);
+      } else {
+        poly([[cx+R*.50,cy-R*.55],[cx+R*1.22,cy-R*.42],[cx+R*1.38,cy],[cx+R*1.22,cy+R*.42],[cx+R*.50,cy+R*.55],[cx+R*.80,cy]],.82);
+        poly([[cx+R*1.18,cy-R*.30],[cx+R*1.82,cy-R*.25],[cx+R*1.98,cy],[cx+R*1.82,cy+R*.25],[cx+R*1.18,cy+R*.30],[cx+R*1.38,cy]],.74);
+        poly([[cx+R*1.72,cy-R*.16],[cx+R*2.28,cy-R*.12],[cx+R*2.38,cy],[cx+R*2.28,cy+R*.12],[cx+R*1.72,cy+R*.16],[cx+R*1.98,cy]],.62);
+      }
       break;
 
-    // ── 6  SPECTER — asymmetric dendritic; NON-120° arms ─────────────────
+    // ── 6  SPECTER — 3 variants ───────────────────────────────────────────
     case 6:
-      // Forward arm (dominant, longest) + lateral sub-shard
-      poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]], .84);
-      // Sub-shard branching off forward arm at ~58% length
-      poly([[cx-R*1.52,cy-R*.10],[cx-R*1.52,cy+R*.08],[cx-R*2.05,cy-R*.60],[cx-R*1.88,cy-R*.75]], .72);
-      // Upper-right arm (~45°, NOT 120° from forward)
-      poly([[cx+R*.30,cy-R*.24],[cx+R*.05,cy-R*.50],[cx+R*1.55,cy-R*1.85],[cx+R*1.70,cy-R*1.68]], .82);
-      // Straight-down arm (90°, NOT 240° lower-right like Artillery)
-      poly([[cx-R*.14,cy+R*.52],[cx+R*.14,cy+R*.52],[cx+R*.10,cy+R*2.12],[cx-R*.10,cy+R*2.12]], .82);
+      if(v===0){
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]],.84);
+        poly([[cx-R*1.52,cy-R*.10],[cx-R*1.52,cy+R*.08],[cx-R*2.05,cy-R*.60],[cx-R*1.88,cy-R*.75]],.72);
+        poly([[cx+R*.30,cy-R*.24],[cx+R*.05,cy-R*.50],[cx+R*1.55,cy-R*1.85],[cx+R*1.70,cy-R*1.68]],.82);
+        poly([[cx-R*.14,cy+R*.52],[cx+R*.14,cy+R*.52],[cx+R*.10,cy+R*2.12],[cx-R*.10,cy+R*2.12]],.82);
+      } else if(v===1){
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*1.78,cy+R*.12],[cx-R*1.78,cy-R*.12]],.84);
+        poly([[cx-R*1.78,cy-R*.12],[cx-R*1.78,cy+R*.06],[cx-R*2.62,cy-R*.68],[cx-R*2.48,cy-R*.82]],.78);
+        poly([[cx-R*1.78,cy-R*.06],[cx-R*1.78,cy+R*.12],[cx-R*2.62,cy+R*.68],[cx-R*2.48,cy+R*.82]],.78);
+        poly([[cx+R*.28,cy-R*.22],[cx+R*.05,cy-R*.50],[cx+R*.82,cy-R*1.32],[cx+R*.98,cy-R*1.18]],.75);
+      } else {
+        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]],.84);
+        poly([[cx-R*.14,cy-R*.52],[cx+R*.14,cy-R*.52],[cx+R*.10,cy-R*2.02],[cx-R*.10,cy-R*2.02]],.82);
+        poly([[cx+R*.50,cy-R*.13],[cx+R*.50,cy+R*.13],[cx+R*1.22,cy+R*.09],[cx+R*1.22,cy-R*.09]],.72);
+        poly([[cx-R*.13,cy+R*.52],[cx+R*.13,cy+R*.52],[cx+R*.09,cy+R*1.72],[cx-R*.09,cy+R*1.72]],.80);
+      }
       break;
 
-    // ── 7  STALKER — elongated spine series (unchanged) ───────────────────
+    // ── 7  STALKER — 3 variants ───────────────────────────────────────────
     default:
-      poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.48,cy+R*.48],[cx-R*2.02,cy+R*.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*.18],[cx-R*1.48,cy-R*.48]], .80);
-      poly([[cx-R*.92,cy-R*.30],[cx-R*.68,cy-R*.30],[cx-R*.75,cy-R*1.45],[cx-R*.85,cy-R*1.45]], .76);
-      poly([[cx-R*.02,cy-R*.29],[cx+R*.18,cy-R*.28],[cx+R*.12,cy-R*1.05],[cx-R*.02,cy-R*1.05]], .68);
-      poly([[cx+R*.76,cy-R*.24],[cx+R*.96,cy-R*.22],[cx+R*.88,cy-R*.80],[cx+R*.78,cy-R*.80]], .60);
-      poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy-R*.62],[cx+R*1.52,cy-R*.82],[cx+R*1.28,cy-R*.55]], .72);
-      poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy+R*.62],[cx+R*1.52,cy+R*.82],[cx+R*1.28,cy+R*.55]], .72);
-      break;
+      if(v===0){
+        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.48,cy+R*.48],[cx-R*2.02,cy+R*.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*.18],[cx-R*1.48,cy-R*.48]],.80);
+        poly([[cx-R*.92,cy-R*.30],[cx-R*.68,cy-R*.30],[cx-R*.75,cy-R*1.45],[cx-R*.85,cy-R*1.45]],.76);
+        poly([[cx-R*.02,cy-R*.29],[cx+R*.18,cy-R*.28],[cx+R*.12,cy-R*1.05],[cx-R*.02,cy-R*1.05]],.68);
+        poly([[cx+R*.76,cy-R*.24],[cx+R*.96,cy-R*.22],[cx+R*.88,cy-R*.80],[cx+R*.78,cy-R*.80]],.60);
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy-R*.62],[cx+R*1.52,cy-R*.82],[cx+R*1.28,cy-R*.55]],.72);
+        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy+R*.62],[cx+R*1.52,cy+R*.82],[cx+R*1.28,cy+R*.55]],.72);
+      } else if(v===1){
+        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.55,cy+R*.52],[cx-R*2.18,cy+R*.20],[cx-R*2.35,cy],[cx-R*2.18,cy-R*.20],[cx-R*1.55,cy-R*.52]],.82);
+        poly([[cx-R*.82,cy-R*.30],[cx-R*.52,cy-R*.30],[cx-R*.62,cy-R*1.68],[cx-R*.75,cy-R*1.68]],.78);
+        poly([[cx+R*.12,cy-R*.28],[cx+R*.40,cy-R*.28],[cx+R*.28,cy-R*1.20],[cx+R*.10,cy-R*1.20]],.68);
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy-R*.72],[cx+R*1.60,cy-R*.92],[cx+R*1.28,cy-R*.58]],.76);
+      } else {
+        poly([[cx-R*1.05,cy-R*.29],[cx-R*.88,cy-R*.29],[cx-R*.92,cy-R*.65],[cx-R*1.00,cy-R*.65]],.55);
+        poly([[cx-R*.50,cy-R*.29],[cx-R*.28,cy-R*.28],[cx-R*.35,cy-R*.95],[cx-R*.50,cy-R*.95]],.64);
+        poly([[cx+R*.02,cy-R*.28],[cx+R*.25,cy-R*.28],[cx+R*.15,cy-R*1.22],[cx-R*.02,cy-R*1.22]],.72);
+        poly([[cx+R*.72,cy-R*.24],[cx+R*.98,cy-R*.24],[cx+R*.88,cy-R*1.55],[cx+R*.75,cy-R*1.55]],.82);
+        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.80,cy-R*.55],[cx+R*1.55,cy-R*.75],[cx+R*1.25,cy-R*.52]],.72);
+        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.80,cy+R*.55],[cx+R*1.55,cy+R*.75],[cx+R*1.25,cy+R*.52]],.60);
+      }
   }
 }
 
-/* ─────────────────────────────── Render ────────────────────────────────────── */
-const row = document.getElementById('row');
-CHASSIS.forEach(({ id, name, topo, symm, color, glow }) => {
-  const SIZE = 230, cx = SIZE/2, cy = SIZE/2;
+// ── Render helpers ────────────────────────────────────────────────────────────
+function renderCell(id, v, size) {
+  const meta = CHASSIS_META[id];
   const canvas = document.createElement('canvas');
-  canvas.width = SIZE; canvas.height = SIZE;
+  canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0a1628'; ctx.fillRect(0, 0, SIZE, SIZE);
+  const cx = size/2, cy = size/2;
+  ctx.fillStyle='#0a1628'; ctx.fillRect(0,0,size,size);
+  drawSecondary(ctx,cx,cy,id,v,meta.color,meta.glow);
+  buildPrimary(ctx,cx,cy,id);
+  ctx.shadowColor=meta.glow; ctx.shadowBlur=16;
+  ctx.fillStyle=meta.color; ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,.28)'; ctx.lineWidth=1.1; ctx.stroke();
+  return canvas;
+}
 
-  drawSecondary(ctx, cx, cy, id, R, color, glow);
+// ── Distribution row: first 12 n values showing sequence + variant ────────────
+const distRow = document.getElementById('dist-row');
+for(let n=0; n<12; n++){
+  const id = CHASSIS_SEQ[n % CHASSIS_SEQ.length];
+  const v  = (Math.floor(n/CHASSIS_SEQ.length) + Math.floor((n%CHASSIS_SEQ.length)/4)) % 3;
+  const meta = CHASSIS_META[id];
+  const cell = document.createElement('div'); cell.className='cell';
+  cell.appendChild(renderCell(id,v,150));
+  const lbl=document.createElement('div'); lbl.className='lbl';
+  lbl.textContent=`n=${n} → ${id}·${meta.name.slice(0,3)} v${v}`;
+  cell.appendChild(lbl);
+  distRow.appendChild(cell);
+}
 
-  buildPrimary(ctx, cx, cy, id, R);
-  ctx.shadowColor = glow; ctx.shadowBlur = 18;
-  ctx.fillStyle = color; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1.2; ctx.stroke();
-
-  const cell = document.createElement('div'); cell.className = 'cell';
-  const lbl  = document.createElement('div'); lbl.className  = 'lbl';
-  const sub  = document.createElement('div'); sub.className  = 'sub';
-  lbl.textContent = `${id} · ${name}`;
-  sub.textContent = `${topo} · [${symm}]`;
-  cell.appendChild(canvas); cell.appendChild(lbl); cell.appendChild(sub);
-  row.appendChild(cell);
-});
+// ── Variant grid: all 8 chassis × 3 variants ─────────────────────────────────
+const varRow = document.getElementById('variant-row');
+for(let id=0; id<8; id++){
+  const meta = CHASSIS_META[id];
+  const col = document.createElement('div');
+  col.className='cell'; col.style.gap='5px';
+  for(let v=0; v<3; v++){
+    const sub = document.createElement('div'); sub.className='cell';
+    sub.appendChild(renderCell(id,v,160));
+    const lbl=document.createElement('div'); lbl.className='lbl';
+    lbl.textContent=`${id}·${meta.name} v${v}`;
+    const sub2=document.createElement('div'); sub2.className='sub';
+    sub2.textContent=meta.topo;
+    sub.appendChild(lbl); sub.appendChild(sub2);
+    col.appendChild(sub);
+  }
+  varRow.appendChild(col);
+}
 </script>
 </body>
 </html>
