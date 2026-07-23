@@ -2,237 +2,268 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Chassis Preview — Body-Plan Topology Pass</title>
+<title>Chassis Preview — Body-Plan Grammar Diversity Pass</title>
 <style>
-  body { background: #06101e; margin: 0; display: flex; flex-direction: column;
-         align-items: center; padding: 20px; font-family: monospace; gap: 8px; }
-  h2   { color: #38bdf8; margin: 0; letter-spacing: 0.1em; font-size: 13px; }
-  p    { color: rgba(219,234,254,0.4); font-size: 10px; margin: 0 0 10px; letter-spacing: 0.08em; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
-  .cell { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-  .label { color: rgba(219,234,254,0.55); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
-  .sub   { color: rgba(219,234,254,0.30); font-size: 8px; letter-spacing: 0.06em; }
-  canvas { border: 1px solid rgba(56,189,248,0.14); border-radius: 3px; background: #0a1628; }
+  body { background:#06101e; margin:0; display:flex; flex-direction:column;
+         align-items:center; padding:20px; font-family:monospace; gap:8px; }
+  h2   { color:#38bdf8; margin:0; letter-spacing:.1em; font-size:13px; }
+  p    { color:rgba(219,234,254,.4); font-size:10px; margin:0 0 10px; letter-spacing:.08em; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .cell{ display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .lbl { color:rgba(219,234,254,.60); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+  .sub { color:rgba(219,234,254,.30); font-size:8px; letter-spacing:.06em; }
+  canvas { border:1px solid rgba(56,189,248,.14); border-radius:3px; background:#0a1628; }
 </style>
 </head>
 <body>
-<h2>⬡ PRE-EVOLUTION — BODY-PLAN TOPOLOGY PASS ⬡</h2>
-<p>Each chassis commits to a distinct body-plan topology · secondary anatomy reinforces, not decorates, the topology</p>
+<h2>⬡ PRE-EVOLUTION — BODY-PLAN GRAMMAR DIVERSITY ⬡</h2>
+<p>Global architecture committed first · secondary/tertiary anatomy inherits topology · symmetry is a phenotype variable</p>
 <div class="row" id="row"></div>
 <script>
+// ── Chassis catalogue ────────────────────────────────────────────────────────
 const CHASSIS = [
-  { id:0, name:'WEDGE',     topo:'AXIAL SWEPT WING',       color:'#fb923c', glow:'rgba(251,146,60,0.65)'  },
-  { id:1, name:'STRIKER',   topo:'BILATERAL ASYMMETRIC',   color:'#e879f9', glow:'rgba(232,121,249,0.65)' },
-  { id:2, name:'TANK',      topo:'FRONTAL MASS DOMINANT',  color:'#fb7185', glow:'rgba(251,113,133,0.55)' },
-  { id:3, name:'ARTILLERY', topo:'RADIAL 3-SPOKE',         color:'#22d3ee', glow:'rgba(34,211,238,0.65)'  },
-  { id:4, name:'CRAWLER',   topo:'CRESCENT / ARC',         color:'#fbbf24', glow:'rgba(251,191,36,0.65)'  },
-  { id:5, name:'BRUISER',   topo:'SEGMENTED CHAIN',        color:'#fb923c', glow:'rgba(251,146,60,0.65)'  },
-  { id:6, name:'SPECTER',   topo:'BRANCHING CRYSTAL',      color:'#e879f9', glow:'rgba(232,121,249,0.65)' },
-  { id:7, name:'STALKER',   topo:'ELONGATED SPINE SERIES', color:'#22d3ee', glow:'rgba(34,211,238,0.65)'  },
+  { id:0, name:'WEDGE',     topo:'AXIAL — wide delta wing',              symm:'bilateral',          color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
+  { id:1, name:'STRIKER',   topo:'D-LOBE — flat ventral / dorsal arc',  symm:'asymmetric bilateral',color:'#e879f9', glow:'rgba(232,121,249,.65)' },
+  { id:2, name:'TANK',      topo:'COMPACT SHELL — hexagonal fortress',  symm:'bilateral',           color:'#fb7185', glow:'rgba(251,113,133,.55)' },
+  { id:3, name:'ARTILLERY', topo:'RADIAL 3-SPOKE — symmetric triskelion',symm:'3-fold radial',      color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
+  { id:4, name:'CRAWLER',   topo:'CRESCENT — thin boomerang arc',        symm:'near-asymm bilateral',color:'#fbbf24', glow:'rgba(251,191,36,.65)'  },
+  { id:5, name:'BRUISER',   topo:'SEGMENTED CHAIN — trilobite',          symm:'segmented bilateral', color:'#fb923c', glow:'rgba(251,146,60,.65)'  },
+  { id:6, name:'SPECTER',   topo:'DENDRITIC — asymm, non-120° arms',     symm:'none (asymmetric)',   color:'#e879f9', glow:'rgba(232,121,249,.65)' },
+  { id:7, name:'STALKER',   topo:'ELONGATED SPINE — serial features',    symm:'none (serial axial)', color:'#22d3ee', glow:'rgba(34,211,238,.65)'  },
 ];
 const R = 26;
 
-/* ── Primary chassis paths ──────────────────────────────────────────────── */
+/* ─────────────────────────── Primary chassis paths ───────────────────────── */
 function buildPrimary(ctx, cx, cy, id, R) {
   ctx.beginPath();
   switch (id) {
-    case 0: // AXIAL SWEPT WING
-      ctx.moveTo(cx - R, cy);
-      ctx.lineTo(cx + R*0.42, cy - R*1.60);
-      ctx.lineTo(cx + R*1.08, cy - R*0.20);
-      ctx.lineTo(cx + R*1.08, cy + R*0.20);
-      ctx.lineTo(cx + R*0.42, cy + R*1.60);
+
+    case 0: // WEDGE — wide delta wing; span≈4.1R, chord≈1.57R
+      ctx.moveTo(cx - R*.52, cy);
+      ctx.lineTo(cx - R*.02, cy - R*2.05);
+      ctx.lineTo(cx + R*1.05, cy - R*.12);
+      ctx.lineTo(cx + R*1.05, cy + R*.12);
+      ctx.lineTo(cx - R*.02, cy + R*2.05);
       break;
-    case 1: // BILATERAL ASYMMETRIC (dominant dorsal)
-      ctx.moveTo(cx - R*0.90, cy - R*0.32);
-      ctx.bezierCurveTo(cx - R*0.15, cy - R*0.68, cx + R*0.50, cy - R*0.65, cx + R*0.90, cy - R*0.36);
-      ctx.lineTo(cx + R*0.90, cy + R*0.18);
-      ctx.quadraticCurveTo(cx, cy + R*0.42, cx - R*0.90, cy + R*0.20);
+
+    case 1: // STRIKER — D-lobe; flat ventral (closePath) + large dorsal arc
+      ctx.moveTo(cx - R*.82, cy + R*.24);      // FL
+      ctx.bezierCurveTo(cx-R*1.10,cy+R*.10, cx-R*1.10,cy-R*.10, cx-R*.82,cy-R*.24); // front face
+      ctx.bezierCurveTo(cx-R*.40,cy-R*1.55, cx+R*.55,cy-R*1.52, cx+R*.90,cy-R*.35); // dorsal arc
+      ctx.lineTo(cx + R*.90, cy + R*.24);      // RL
+      // closePath → RL→FL = flat ventral baseline
       break;
-    case 2: // FRONTAL MASS DOMINANT (trapezoid, unchanged)
-      ctx.moveTo(cx - R*0.50, cy - R);
-      ctx.lineTo(cx - R*0.50, cy + R);
-      ctx.lineTo(cx + R*0.88, cy + R*0.68);
-      ctx.lineTo(cx + R*0.88, cy - R*0.68);
+
+    case 2: // TANK — compact hexagonal shell
+      ctx.moveTo(cx - R*.85, cy);              // L forward
+      ctx.lineTo(cx - R*.45, cy - R*.95);      // TL
+      ctx.lineTo(cx + R*.45, cy - R*.95);      // TR
+      ctx.lineTo(cx + R*.85, cy);              // R rear
+      ctx.lineTo(cx + R*.45, cy + R*.95);      // BR
+      ctx.lineTo(cx - R*.45, cy + R*.95);      // BL
       break;
-    case 3: // RADIAL 3-SPOKE (small hexagonal hub)
-      ctx.moveTo(cx,          cy - R*0.42);
-      ctx.lineTo(cx + R*0.36, cy - R*0.21);
-      ctx.lineTo(cx + R*0.36, cy + R*0.21);
-      ctx.lineTo(cx,          cy + R*0.42);
-      ctx.lineTo(cx - R*0.36, cy + R*0.21);
-      ctx.lineTo(cx - R*0.36, cy - R*0.21);
+
+    case 3: // ARTILLERY — small hexagonal hub (unchanged)
+      ctx.moveTo(cx,          cy - R*.42);
+      ctx.lineTo(cx + R*.36,  cy - R*.21);
+      ctx.lineTo(cx + R*.36,  cy + R*.21);
+      ctx.lineTo(cx,          cy + R*.42);
+      ctx.lineTo(cx - R*.36,  cy + R*.21);
+      ctx.lineTo(cx - R*.36,  cy - R*.21);
       break;
-    case 4: // CRESCENT / ARC (C-shape, opening faces left/forward)
-      ctx.moveTo(cx - R*0.52, cy - R*0.62);
-      ctx.bezierCurveTo(cx + R*0.20, cy - R*1.05, cx + R*0.95, cy - R*0.55, cx + R*0.95, cy);
-      ctx.bezierCurveTo(cx + R*0.95, cy + R*0.55, cx + R*0.20, cy + R*1.05, cx - R*0.52, cy + R*0.62);
-      ctx.quadraticCurveTo(cx - R*0.42, cy, cx - R*0.52, cy - R*0.62);
+
+    case 4: // CRAWLER — thin boomerang crescent; span≈2.16R, band≈0.57R
+      ctx.moveTo(cx - R*.68, cy - R*1.08);     // upper horn
+      ctx.bezierCurveTo(cx+R*.05,cy-R*1.58, cx+R*1.55,cy-R*.62, cx+R*1.55,cy);
+      ctx.bezierCurveTo(cx+R*1.55,cy+R*.62, cx+R*.05,cy+R*1.58, cx-R*.68,cy+R*1.08);
+      ctx.bezierCurveTo(cx-R*.30,cy+R*.88, cx+R*.55,cy+R*.56, cx+R*.98,cy);
+      ctx.bezierCurveTo(cx+R*.55,cy-R*.56, cx-R*.30,cy-R*.88, cx-R*.68,cy-R*1.08);
       break;
-    case 5: // SEGMENTED CHAIN — front thorax
-      ctx.moveTo(cx - R*0.65, cy - R*0.72);
-      ctx.lineTo(cx + R*0.62, cy - R*0.72);
-      ctx.lineTo(cx + R*0.80, cy);
-      ctx.lineTo(cx + R*0.62, cy + R*0.72);
-      ctx.lineTo(cx - R*0.65, cy + R*0.72);
-      ctx.quadraticCurveTo(cx - R*1.12, cy, cx - R*0.65, cy - R*0.72);
+
+    case 5: // BRUISER — front thorax segment (unchanged)
+      ctx.moveTo(cx - R*.65, cy - R*.72);
+      ctx.lineTo(cx + R*.62, cy - R*.72);
+      ctx.lineTo(cx + R*.80, cy);
+      ctx.lineTo(cx + R*.62, cy + R*.72);
+      ctx.lineTo(cx - R*.65, cy + R*.72);
+      ctx.quadraticCurveTo(cx - R*1.12, cy, cx - R*.65, cy - R*.72);
       break;
-    case 6: // BRANCHING CRYSTAL (small hexagonal node)
-      ctx.moveTo(cx,          cy - R*0.50);
-      ctx.lineTo(cx + R*0.43, cy - R*0.25);
-      ctx.lineTo(cx + R*0.43, cy + R*0.25);
-      ctx.lineTo(cx,          cy + R*0.50);
-      ctx.lineTo(cx - R*0.43, cy + R*0.25);
-      ctx.lineTo(cx - R*0.43, cy - R*0.25);
+
+    case 6: // SPECTER — diamond node (rhombus, NOT hexagon)
+      ctx.moveTo(cx,          cy - R*.52);
+      ctx.lineTo(cx + R*.50,  cy);
+      ctx.lineTo(cx,          cy + R*.52);
+      ctx.lineTo(cx - R*.50,  cy);
       break;
-    default: // ELONGATED SPINE (horizontal rod)
-      ctx.moveTo(cx - R*1.15, cy - R*0.30);
-      ctx.lineTo(cx - R*1.15, cy + R*0.30);
-      ctx.lineTo(cx + R*1.35, cy + R*0.18);
+
+    default: // STALKER — elongated rod (unchanged)
+      ctx.moveTo(cx - R*1.15, cy - R*.30);
+      ctx.lineTo(cx - R*1.15, cy + R*.30);
+      ctx.lineTo(cx + R*1.35, cy + R*.18);
       ctx.lineTo(cx + R*1.52, cy);
-      ctx.lineTo(cx + R*1.35, cy - R*0.18);
+      ctx.lineTo(cx + R*1.35, cy - R*.18);
       break;
   }
   ctx.closePath();
 }
 
-/* ── Secondary anatomy ──────────────────────────────────────────────────── */
+/* ────────────────────────── Secondary anatomy ─────────────────────────────── */
 function drawSecondary(ctx, cx, cy, id, R, fill, glow) {
-  const sep = 'rgba(255,255,255,0.20)';
+  const sep = 'rgba(255,255,255,.20)';
   function poly(pts, a) {
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
     ctx.shadowColor=glow; ctx.shadowBlur=8;
     ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
     for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
     ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.9; ctx.stroke();
     ctx.restore();
   }
   function curved(fn, a) {
     ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=fill;
     ctx.shadowColor=glow; ctx.shadowBlur=8;
     ctx.beginPath(); fn(); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=0.9; ctx.stroke();
+    ctx.shadowBlur=0; ctx.strokeStyle=sep; ctx.lineWidth=.9; ctx.stroke();
     ctx.restore();
   }
 
   switch(id) {
 
-    case 0: // WEDGE — axial: wing-box panels + centerline keel
-      poly([[cx-R*0.45,cy-R*0.65],[cx-R*0.15,cy-R*1.32],[cx+R*0.42,cy-R*1.60],[cx+R*0.28,cy-R*1.38],[cx-R*0.02,cy-R*1.05],[cx-R*0.30,cy-R*0.52]], 0.70);
-      poly([[cx-R*0.45,cy+R*0.65],[cx-R*0.15,cy+R*1.32],[cx+R*0.42,cy+R*1.60],[cx+R*0.28,cy+R*1.38],[cx-R*0.02,cy+R*1.05],[cx-R*0.30,cy+R*0.52]], 0.70);
-      poly([[cx-R*1.02,cy-R*0.10],[cx-R*1.02,cy+R*0.10],[cx+R*1.08,cy+R*0.06],[cx+R*1.08,cy-R*0.06]], 0.80);
+    // ── 0  WEDGE — axial wing grammar ─────────────────────────────────────
+    case 0:
+      // Upper cranked outer panel — wingtip extension
+      poly([[cx-R*.02,cy-R*2.05],[cx-R*.42,cy-R*2.58],[cx+R*.38,cy-R*2.52],[cx+R*.52,cy-R*2.02],[cx+R*.22,cy-R*1.95]], .76);
+      // Lower cranked outer panel (mirrored)
+      poly([[cx-R*.02,cy+R*2.05],[cx-R*.42,cy+R*2.58],[cx+R*.38,cy+R*2.52],[cx+R*.52,cy+R*2.02],[cx+R*.22,cy+R*1.95]], .76);
+      // Wing-root fairing (nose junction)
+      poly([[cx-R*.52,cy-R*.08],[cx-R*.52,cy+R*.08],[cx-R*.22,cy+R*.60],[cx-R*.22,cy-R*.60]], .72);
+      // Trailing-edge elevons
+      poly([[cx+R*.55,cy-R*.12],[cx+R*1.05,cy-R*.12],[cx+R*1.38,cy-R*.62],[cx+R*1.02,cy-R*.58]], .70);
+      poly([[cx+R*.55,cy+R*.12],[cx+R*1.05,cy+R*.12],[cx+R*1.38,cy+R*.62],[cx+R*1.02,cy+R*.58]], .70);
       break;
 
-    case 1: // STRIKER — asymmetric: all dorsal, vestigial ventral
+    // ── 1  STRIKER — D-lobe; all dorsal, nothing ventral ─────────────────
+    case 1:
+      // Dorsal fin
       curved(()=>{
-        ctx.moveTo(cx-R*0.90, cy-R*0.32);
-        ctx.bezierCurveTo(cx-R*0.35,cy-R*1.35, cx+R*0.28,cy-R*1.68, cx+R*0.65,cy-R*1.25);
-        ctx.bezierCurveTo(cx+R*0.90,cy-R*0.88, cx+R*0.90,cy-R*0.58, cx+R*0.90,cy-R*0.36);
-        ctx.bezierCurveTo(cx+R*0.45,cy-R*0.55, cx-R*0.15,cy-R*0.52, cx-R*0.90,cy-R*0.32);
-      }, 0.75);
+        ctx.moveTo(cx-R*.28,cy-R*1.38);
+        ctx.bezierCurveTo(cx-R*.58,cy-R*1.82, cx-R*.52,cy-R*2.28, cx-R*.15,cy-R*2.32);
+        ctx.bezierCurveTo(cx+R*.18,cy-R*2.12, cx+R*.35,cy-R*1.68, cx+R*.28,cy-R*1.38);
+        ctx.quadraticCurveTo(cx,cy-R*1.50, cx-R*.28,cy-R*1.38);
+      }, .74);
+      // Forward head lobe (from FU vertex)
       curved(()=>{
-        ctx.moveTo(cx-R*0.25, cy-R*0.52);
-        ctx.bezierCurveTo(cx-R*0.55,cy-R*1.05, cx-R*0.28,cy-R*1.82, cx+R*0.08,cy-R*1.78);
-        ctx.bezierCurveTo(cx+R*0.45,cy-R*1.52, cx+R*0.55,cy-R*1.08, cx+R*0.45,cy-R*0.70);
-        ctx.quadraticCurveTo(cx+R*0.15,cy-R*0.58, cx-R*0.25,cy-R*0.52);
-      }, 0.62);
-      curved(()=>{
-        ctx.moveTo(cx+R*0.05, cy+R*0.38);
-        ctx.quadraticCurveTo(cx+R*0.50,cy+R*0.72, cx+R*0.72,cy+R*0.35);
-        ctx.lineTo(cx+R*0.72,cy+R*0.18);
-        ctx.quadraticCurveTo(cx+R*0.42,cy+R*0.46, cx+R*0.05,cy+R*0.26);
-      }, 0.50);
-      curved(()=>{
-        ctx.moveTo(cx+R*0.90, cy-R*0.36);
-        ctx.lineTo(cx+R*0.90, cy-R*0.52);
-        ctx.quadraticCurveTo(cx+R*1.70,cy-R*0.45, cx+R*1.82,cy-R*0.10);
-        ctx.quadraticCurveTo(cx+R*1.80,cy+R*0.22, cx+R*0.90,cy+R*0.18);
-      }, 0.76);
+        ctx.moveTo(cx-R*.82, cy-R*.24);
+        ctx.bezierCurveTo(cx-R*1.12,cy-R*.42, cx-R*1.52,cy-R*1.08, cx-R*1.22,cy-R*1.58);
+        ctx.bezierCurveTo(cx-R*.88,cy-R*1.62, cx-R*.62,cy-R*1.28, cx-R*.52,cy-R*.82);
+        ctx.quadraticCurveTo(cx-R*.62,cy-R*.42, cx-R*.82,cy-R*.24);
+      }, .68);
+      // Rear dorsal thorn (hard spike from RU vertex)
+      poly([[cx+R*.90,cy-R*.35],[cx+R*1.18,cy-R*.28],[cx+R*1.30,cy-R*.90],[cx+R*1.05,cy-R*.95]], .72);
       break;
 
-    case 2: // TANK — frontal mass: V-plow + side batters + mantlet
-      poly([[cx-R*0.50,cy-R*0.90],[cx-R*0.50,cy+R*0.90],[cx-R*1.20,cy+R*0.42],[cx-R*1.78,cy],[cx-R*1.20,cy-R*0.42]], 0.82);
-      poly([[cx-R*0.50,cy-R],[cx+R*0.88,cy-R*0.68],[cx+R*1.05,cy-R*1.45],[cx+R*0.25,cy-R*1.68],[cx-R*0.22,cy-R*1.52]], 0.72);
-      poly([[cx-R*0.50,cy+R],[cx+R*0.88,cy+R*0.68],[cx+R*1.05,cy+R*1.45],[cx+R*0.25,cy+R*1.68],[cx-R*0.22,cy+R*1.52]], 0.72);
-      poly([[cx-R*0.08,cy-R*0.30],[cx+R*0.45,cy-R*0.36],[cx+R*0.62,cy],[cx+R*0.45,cy+R*0.36],[cx-R*0.08,cy+R*0.30],[cx-R*0.28,cy]], 0.65);
+    // ── 2  TANK — compact shell anatomy ───────────────────────────────────
+    case 2:
+      // Forward V-plow from L vertex
+      poly([[cx-R*.85,cy-R*.22],[cx-R*.85,cy+R*.22],[cx-R*1.38,cy+R*.40],[cx-R*1.90,cy],[cx-R*1.38,cy-R*.40]], .84);
+      // Upper armor batter (TL→TR edge)
+      poly([[cx-R*.45,cy-R*.95],[cx+R*.45,cy-R*.95],[cx+R*.60,cy-R*1.68],[cx,cy-R*1.82],[cx-R*.60,cy-R*1.68]], .72);
+      // Lower armor batter (BL→BR edge)
+      poly([[cx-R*.45,cy+R*.95],[cx+R*.45,cy+R*.95],[cx+R*.60,cy+R*1.68],[cx,cy+R*1.82],[cx-R*.60,cy+R*1.68]], .72);
+      // Rear command pod from R vertex
+      poly([[cx+R*.85,cy-R*.20],[cx+R*.85,cy+R*.20],[cx+R*1.48,cy+R*.12],[cx+R*1.60,cy],[cx+R*1.48,cy-R*.12]], .70);
       break;
 
-    case 3: // ARTILLERY — radial 3-spoke: forward barrel + two diagonal barrels
+    // ── 3  ARTILLERY — symmetric 3-fold triskelion (unchanged) ───────────
+    case 3:
       curved(()=>{
-        ctx.moveTo(cx-R*0.36, cy-R*0.21);
-        ctx.lineTo(cx-R*0.36, cy+R*0.21);
-        ctx.lineTo(cx-R*2.55, cy+R*0.12);
-        ctx.arc(cx-R*2.55, cy, R*0.12, Math.PI*0.5, -Math.PI*0.5, true);
-        ctx.lineTo(cx-R*2.55, cy-R*0.12);
-      }, 0.82);
-      poly([[cx+R*0.40,cy-R*0.18],[cx+R*0.14,cy-R*0.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]], 0.80);
-      poly([[cx+R*0.40,cy+R*0.18],[cx+R*0.14,cy+R*0.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]], 0.80);
+        ctx.moveTo(cx-R*.36,cy-R*.21);
+        ctx.lineTo(cx-R*.36,cy+R*.21);
+        ctx.lineTo(cx-R*2.55,cy+R*.12);
+        ctx.arc(cx-R*2.55,cy,R*.12,Math.PI*.5,-Math.PI*.5,true);
+        ctx.lineTo(cx-R*2.55,cy-R*.12);
+      }, .82);
+      poly([[cx+R*.40,cy-R*.18],[cx+R*.14,cy-R*.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]], .80);
+      poly([[cx+R*.40,cy+R*.18],[cx+R*.14,cy+R*.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]], .80);
       break;
 
-    case 4: // CRAWLER — crescent: membrane + dominant upper claw + lesser lower claw
+    // ── 4  CRAWLER — crescent: web membrane + asymmetric claws ───────────
+    case 4:
+      // Web membrane (translucent)
       curved(()=>{
-        ctx.moveTo(cx-R*0.52, cy-R*0.62);
-        ctx.quadraticCurveTo(cx-R*0.82,cy, cx-R*0.52,cy+R*0.62);
-        ctx.quadraticCurveTo(cx-R*0.22,cy, cx-R*0.52,cy-R*0.62);
-      }, 0.42);
+        ctx.moveTo(cx-R*.68,cy-R*1.08);
+        ctx.bezierCurveTo(cx-R*1.08,cy-R*.55, cx-R*1.08,cy+R*.55, cx-R*.68,cy+R*1.08);
+        ctx.bezierCurveTo(cx-R*.30,cy+R*.88, cx+R*.55,cy+R*.56, cx+R*.98,cy);
+        ctx.bezierCurveTo(cx+R*.55,cy-R*.56, cx-R*.30,cy-R*.88, cx-R*.68,cy-R*1.08);
+      }, .35);
+      // Upper scythe-claw (dominant, longer reach)
       curved(()=>{
-        ctx.moveTo(cx-R*0.52, cy-R*0.62);
-        ctx.bezierCurveTo(cx-R*0.90,cy-R*0.72, cx-R*1.42,cy-R*0.50, cx-R*1.82,cy-R*1.05);
-        ctx.lineTo(cx-R*1.58, cy-R*1.25);
-        ctx.bezierCurveTo(cx-R*1.32,cy-R*0.75, cx-R*0.85,cy-R*0.85, cx-R*0.62,cy-R*0.72);
-      }, 0.74);
+        ctx.moveTo(cx-R*.68,cy-R*1.08);
+        ctx.bezierCurveTo(cx-R*1.05,cy-R*1.20, cx-R*1.60,cy-R*.88, cx-R*2.08,cy-R*1.38);
+        ctx.lineTo(cx-R*1.82,cy-R*1.60);
+        ctx.bezierCurveTo(cx-R*1.45,cy-R*1.08, cx-R*.98,cy-R*1.30, cx-R*.82,cy-R*1.18);
+      }, .76);
+      // Lower scythe-claw (shorter reach — asymmetry signal)
       curved(()=>{
-        ctx.moveTo(cx-R*0.52, cy+R*0.62);
-        ctx.bezierCurveTo(cx-R*0.85,cy+R*0.68, cx-R*1.25,cy+R*0.42, cx-R*1.52,cy+R*0.85);
-        ctx.lineTo(cx-R*1.32, cy+R*1.02);
-        ctx.bezierCurveTo(cx-R*1.12,cy+R*0.65, cx-R*0.80,cy+R*0.75, cx-R*0.62,cy+R*0.70);
-      }, 0.68);
+        ctx.moveTo(cx-R*.68,cy+R*1.08);
+        ctx.bezierCurveTo(cx-R*1.00,cy+R*1.18, cx-R*1.45,cy+R*.82, cx-R*1.75,cy+R*1.18);
+        ctx.lineTo(cx-R*1.52,cy+R*1.38);
+        ctx.bezierCurveTo(cx-R*1.28,cy+R*.98, cx-R*.92,cy+R*1.22, cx-R*.80,cy+R*1.15);
+      }, .68);
       break;
 
-    case 5: // BRUISER — segmented chain: abdomen + tail segments
-      poly([[cx+R*0.48,cy-R*0.60],[cx+R*1.42,cy-R*0.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*0.50],[cx+R*0.48,cy+R*0.60],[cx+R*0.80,cy]], 0.80);
-      poly([[cx+R*1.30,cy-R*0.36],[cx+R*1.90,cy-R*0.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*0.22],[cx+R*1.30,cy+R*0.36],[cx+R*1.62,cy]], 0.72);
+    // ── 5  BRUISER — segmented chain (unchanged) ──────────────────────────
+    case 5:
+      poly([[cx+R*.48,cy-R*.60],[cx+R*1.42,cy-R*.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*.50],[cx+R*.48,cy+R*.60],[cx+R*.80,cy]], .80);
+      poly([[cx+R*1.30,cy-R*.36],[cx+R*1.90,cy-R*.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*.22],[cx+R*1.30,cy+R*.36],[cx+R*1.62,cy]], .72);
       break;
 
-    case 6: // SPECTER — branching crystal: forward arm + upper-rear arm + lower-rear arm
-      poly([[cx-R*0.43,cy-R*0.25],[cx-R*0.43,cy+R*0.25],[cx-R*1.85,cy+R*0.18],[cx-R*2.45,cy],[cx-R*1.85,cy-R*0.18]], 0.82);
-      poly([[cx-R*2.10,cy-R*0.28],[cx-R*2.45,cy],[cx-R*2.10,cy+R*0.28],[cx-R*1.78,cy]], 0.68);
-      poly([[cx+R*0.40,cy-R*0.18],[cx+R*0.14,cy-R*0.44],[cx+R*1.62,cy-R*1.78],[cx+R*1.74,cy-R*1.66]], 0.80);
-      poly([[cx+R*0.40,cy+R*0.18],[cx+R*0.14,cy+R*0.44],[cx+R*1.62,cy+R*1.78],[cx+R*1.74,cy+R*1.66]], 0.80);
+    // ── 6  SPECTER — asymmetric dendritic; NON-120° arms ─────────────────
+    case 6:
+      // Forward arm (dominant, longest) + lateral sub-shard
+      poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.45,cy+R*.12],[cx-R*2.60,cy],[cx-R*2.45,cy-R*.12]], .84);
+      // Sub-shard branching off forward arm at ~58% length
+      poly([[cx-R*1.52,cy-R*.10],[cx-R*1.52,cy+R*.08],[cx-R*2.05,cy-R*.60],[cx-R*1.88,cy-R*.75]], .72);
+      // Upper-right arm (~45°, NOT 120° from forward)
+      poly([[cx+R*.30,cy-R*.24],[cx+R*.05,cy-R*.50],[cx+R*1.55,cy-R*1.85],[cx+R*1.70,cy-R*1.68]], .82);
+      // Straight-down arm (90°, NOT 240° lower-right like Artillery)
+      poly([[cx-R*.14,cy+R*.52],[cx+R*.14,cy+R*.52],[cx+R*.10,cy+R*2.12],[cx-R*.10,cy+R*2.12]], .82);
       break;
 
-    default: // STALKER — spine series: jaw + 3 dorsal spines + tail fan
-      poly([[cx-R*1.15,cy-R*0.30],[cx-R*1.15,cy+R*0.30],[cx-R*1.48,cy+R*0.48],[cx-R*2.02,cy+R*0.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*0.18],[cx-R*1.48,cy-R*0.48]], 0.80);
-      poly([[cx-R*0.92,cy-R*0.30],[cx-R*0.68,cy-R*0.30],[cx-R*0.75,cy-R*1.45],[cx-R*0.85,cy-R*1.45]], 0.76);
-      poly([[cx-R*0.02,cy-R*0.29],[cx+R*0.18,cy-R*0.28],[cx+R*0.12,cy-R*1.05],[cx-R*0.02,cy-R*1.05]], 0.68);
-      poly([[cx+R*0.76,cy-R*0.24],[cx+R*0.96,cy-R*0.22],[cx+R*0.88,cy-R*0.80],[cx+R*0.78,cy-R*0.80]], 0.60);
-      poly([[cx+R*1.35,cy-R*0.18],[cx+R*1.52,cy],[cx+R*1.78,cy-R*0.62],[cx+R*1.52,cy-R*0.82],[cx+R*1.28,cy-R*0.55]], 0.72);
-      poly([[cx+R*1.35,cy+R*0.18],[cx+R*1.52,cy],[cx+R*1.78,cy+R*0.62],[cx+R*1.52,cy+R*0.82],[cx+R*1.28,cy+R*0.55]], 0.72);
+    // ── 7  STALKER — elongated spine series (unchanged) ───────────────────
+    default:
+      poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.48,cy+R*.48],[cx-R*2.02,cy+R*.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*.18],[cx-R*1.48,cy-R*.48]], .80);
+      poly([[cx-R*.92,cy-R*.30],[cx-R*.68,cy-R*.30],[cx-R*.75,cy-R*1.45],[cx-R*.85,cy-R*1.45]], .76);
+      poly([[cx-R*.02,cy-R*.29],[cx+R*.18,cy-R*.28],[cx+R*.12,cy-R*1.05],[cx-R*.02,cy-R*1.05]], .68);
+      poly([[cx+R*.76,cy-R*.24],[cx+R*.96,cy-R*.22],[cx+R*.88,cy-R*.80],[cx+R*.78,cy-R*.80]], .60);
+      poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy-R*.62],[cx+R*1.52,cy-R*.82],[cx+R*1.28,cy-R*.55]], .72);
+      poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.78,cy+R*.62],[cx+R*1.52,cy+R*.82],[cx+R*1.28,cy+R*.55]], .72);
       break;
   }
 }
 
-/* ── Render ─────────────────────────────────────────────────────────────── */
+/* ─────────────────────────────── Render ────────────────────────────────────── */
 const row = document.getElementById('row');
-CHASSIS.forEach(({ id, name, topo, color, glow }) => {
+CHASSIS.forEach(({ id, name, topo, symm, color, glow }) => {
   const SIZE = 230, cx = SIZE/2, cy = SIZE/2;
   const canvas = document.createElement('canvas');
   canvas.width = SIZE; canvas.height = SIZE;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0a1628'; ctx.fillRect(0,0,SIZE,SIZE);
+  ctx.fillStyle = '#0a1628'; ctx.fillRect(0, 0, SIZE, SIZE);
 
   drawSecondary(ctx, cx, cy, id, R, color, glow);
 
   buildPrimary(ctx, cx, cy, id, R);
-  ctx.shadowColor=glow; ctx.shadowBlur=18; ctx.fillStyle=color; ctx.fill();
-  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=1.2; ctx.stroke();
+  ctx.shadowColor = glow; ctx.shadowBlur = 18;
+  ctx.fillStyle = color; ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1.2; ctx.stroke();
 
-  const cell = document.createElement('div'); cell.className='cell';
-  const lbl  = document.createElement('div'); lbl.className='label';
-  const sub  = document.createElement('div'); sub.className='sub';
+  const cell = document.createElement('div'); cell.className = 'cell';
+  const lbl  = document.createElement('div'); lbl.className  = 'lbl';
+  const sub  = document.createElement('div'); sub.className  = 'sub';
   lbl.textContent = `${id} · ${name}`;
-  sub.textContent = topo;
+  sub.textContent = `${topo} · [${symm}]`;
   cell.appendChild(canvas); cell.appendChild(lbl); cell.appendChild(sub);
   row.appendChild(cell);
 });

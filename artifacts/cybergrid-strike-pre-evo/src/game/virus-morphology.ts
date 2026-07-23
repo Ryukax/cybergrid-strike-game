@@ -266,38 +266,48 @@ function buildChassisPath(
 
   switch (chassis) {
 
-    case 0: // WEDGE — axial swept flying wing; the wing IS the body, no separate fuselage
-      // Bilateral axial topology: everything flows along the forward axis; secondary
-      // anatomy reinforces span-wise structure, never adds a perpendicular rear block.
-      ctx.moveTo(cx - R,              cy);             // nose tip
-      ctx.lineTo(cx + R * 0.42, cy - R * 1.60);       // upper wingtip
-      ctx.lineTo(cx + R * 1.08, cy - R * 0.20);       // upper trailing edge
-      ctx.lineTo(cx + R * 1.08, cy + R * 0.20);       // lower trailing edge
-      ctx.lineTo(cx + R * 0.42, cy + R * 1.60);       // lower wingtip
+    case 0: // WEDGE — true wide delta wing; span >> chord; the wing IS the body
+      // Axial topology: wingspan (Y) ≈ 2.7× chord length (X).
+      // No separate fuselage, no rear block, no detached pods.  All hard lineTo.
+      // Primary silhouette is an unmistakably wing-shaped polygon.
+      ctx.moveTo(cx - R * 0.52, cy);                  // nose tip
+      ctx.lineTo(cx - R * 0.02, cy - R * 2.05);       // upper wingtip (far span)
+      ctx.lineTo(cx + R * 1.05, cy - R * 0.12);       // upper trailing corner
+      ctx.lineTo(cx + R * 1.05, cy + R * 0.12);       // lower trailing corner
+      ctx.lineTo(cx - R * 0.02, cy + R * 2.05);       // lower wingtip (far span)
+      // closePath draws lower wingtip → nose: the swept leading edge
       break;
 
-    case 1: // STRIKER — bilateral asymmetric; dominant dorsal mass, vestigial ventral
-      // Asymmetric bilateral topology: top half ≈ 3× the mass of the bottom half.
-      // Secondary anatomy lives exclusively on the dorsal side; ventral is a stub.
-      ctx.moveTo(cx - R * 0.90, cy - R * 0.32);       // UF — upper-front corner
-      ctx.bezierCurveTo(                               // large dorsal curve
-        cx - R * 0.15, cy - R * 0.68,
-        cx + R * 0.50, cy - R * 0.65,
-        cx + R * 0.90, cy - R * 0.36,                 // UT — upper-tail
+    case 1: // STRIKER — D-lobe asymmetric; the BODY ITSELF is a D-shape
+      // True asymmetric bilateral: flat ventral underside (closePath line) +
+      // large convex dorsal arc.  No bilateral axis; no symmetric secondary.
+      // The organism IS the asymmetry at the primary silhouette level (biomech).
+      ctx.moveTo(cx - R * 0.82, cy + R * 0.24);       // FL — front-lower (ventral)
+      ctx.bezierCurveTo(                               // front face: slight concave curve
+        cx - R * 1.10, cy + R * 0.10,
+        cx - R * 1.10, cy - R * 0.10,
+        cx - R * 0.82, cy - R * 0.24,                 // FU — front-upper
       );
-      ctx.lineTo(cx + R * 0.90, cy + R * 0.18);       // LT — lower-tail (narrow)
-      ctx.quadraticCurveTo(                            // flat ventral
-        cx, cy + R * 0.42,
-        cx - R * 0.90, cy + R * 0.20,                 // LF — lower-front
+      ctx.bezierCurveTo(                               // large dorsal D-arc
+        cx - R * 0.40, cy - R * 1.55,
+        cx + R * 0.55, cy - R * 1.52,
+        cx + R * 0.90, cy - R * 0.35,                 // RU — rear-upper
       );
+      ctx.lineTo(cx + R * 0.90, cy + R * 0.24);       // RL — rear-lower
+      // closePath: RL → FL = flat ventral baseline (no curves, no decorations)
       break;
 
-    case 2: // TANK — frontal-mass-dominant; hard trapezoid (unchanged)
-      // Bilateral topology focused on forward mass and layered armor.
-      ctx.moveTo(cx - R * 0.50, cy - R * 1.0);
-      ctx.lineTo(cx - R * 0.50, cy + R * 1.0);
-      ctx.lineTo(cx + R * 0.88, cy + R * 0.68);
-      ctx.lineTo(cx + R * 0.88, cy - R * 0.68);
+    case 2: // TANK — compact hexagonal shell; width ≈ height; not a wedge
+      // Compact shell topology: roughly-square hexagon with one forward point (L)
+      // and one rear point (R).  The shell IS the organism — mass is in the walls.
+      // Secondary anatomy attaches FLUSH to hex edges, never overrides the shell read.
+      ctx.moveTo(cx - R * 0.85, cy);                  // L — forward point
+      ctx.lineTo(cx - R * 0.45, cy - R * 0.95);       // TL
+      ctx.lineTo(cx + R * 0.45, cy - R * 0.95);       // TR
+      ctx.lineTo(cx + R * 0.85, cy);                  // R — rear point
+      ctx.lineTo(cx + R * 0.45, cy + R * 0.95);       // BR
+      ctx.lineTo(cx - R * 0.45, cy + R * 0.95);       // BL
+      // closePath: BL → L (lower-left diagonal face)
       break;
 
     case 3: // ARTILLERY — radial 3-spoke; small hexagonal hub, all hard edges
@@ -311,22 +321,30 @@ function buildChassisPath(
       ctx.lineTo(cx - R * 0.36, cy - R * 0.21);       // TL
       break;
 
-    case 4: // CRAWLER — crescent / arc body; C-shape, opening faces forward (left)
-      // Arc topology: the body IS the crescent arc; secondary claws grow from horn tips.
-      ctx.moveTo(cx - R * 0.52, cy - R * 0.62);       // upper horn tip
-      ctx.bezierCurveTo(                               // outer arc sweeping right
-        cx + R * 0.20, cy - R * 1.05,
-        cx + R * 0.95, cy - R * 0.55,
-        cx + R * 0.95, cy,                            // outer apex
+    case 4: // CRAWLER — thin boomerang crescent; band width ≈ 0.55R; span ≈ 2.2R
+      // Crescent topology: body IS the thin arc.  The hollow interior must read
+      // clearly at in-game scale.  Horn tips are the attachment roots for claws.
+      // Concave opening faces forward-left (toward player).  Organic bezier curves.
+      ctx.moveTo(cx - R * 0.68, cy - R * 1.08);       // upper horn (sharp tip)
+      ctx.bezierCurveTo(                               // outer arc — wide sweep rightward
+        cx + R * 0.05, cy - R * 1.58,
+        cx + R * 1.55, cy - R * 0.62,
+        cx + R * 1.55, cy,                            // outer apex (rightmost)
       );
       ctx.bezierCurveTo(
-        cx + R * 0.95, cy + R * 0.55,
-        cx + R * 0.20, cy + R * 1.05,
-        cx - R * 0.52, cy + R * 0.62,                 // lower horn tip
+        cx + R * 1.55, cy + R * 0.62,
+        cx + R * 0.05, cy + R * 1.58,
+        cx - R * 0.68, cy + R * 1.08,                 // lower horn (sharp tip)
       );
-      ctx.quadraticCurveTo(                            // inner arc — concave opening
-        cx - R * 0.42, cy,
-        cx - R * 0.52, cy - R * 0.62,
+      ctx.bezierCurveTo(                               // inner arc — tight, concave
+        cx - R * 0.30, cy + R * 0.88,
+        cx + R * 0.55, cy + R * 0.56,
+        cx + R * 0.98, cy,                            // inner apex (≈ 0.57R inside outer)
+      );
+      ctx.bezierCurveTo(
+        cx + R * 0.55, cy - R * 0.56,
+        cx - R * 0.30, cy - R * 0.88,
+        cx - R * 0.68, cy - R * 1.08,                 // back to upper horn
       );
       break;
 
@@ -341,15 +359,14 @@ function buildChassisPath(
       ctx.quadraticCurveTo(cx - R * 1.12, cy, cx - R * 0.65, cy - R * 0.72); // front muscle curve
       break;
 
-    case 6: // SPECTER — branching crystal; small hexagonal node, all hard edges
-      // Radial branching topology: three crystal arms radiate from the node.
-      // Secondary anatomy is the arms; the node is intentionally small.
-      ctx.moveTo(cx,             cy - R * 0.50);       // top vertex
-      ctx.lineTo(cx + R * 0.43, cy - R * 0.25);       // TR
-      ctx.lineTo(cx + R * 0.43, cy + R * 0.25);       // BR
-      ctx.lineTo(cx,             cy + R * 0.50);       // bottom
-      ctx.lineTo(cx - R * 0.43, cy + R * 0.25);       // BL
-      ctx.lineTo(cx - R * 0.43, cy - R * 0.25);       // TL
+    case 6: // SPECTER — asymmetric dendritic crystal; diamond node (NOT hexagon)
+      // Dendritic branching topology.  Node is a rhombus/diamond — visually distinct
+      // from Artillery's hexagon hub.  Arms are UNEQUAL and at non-120° angles.
+      // This organism has NO rotational symmetry (contrast: Artillery has 3-fold).
+      ctx.moveTo(cx,             cy - R * 0.52);       // top
+      ctx.lineTo(cx + R * 0.50, cy);                  // right
+      ctx.lineTo(cx,             cy + R * 0.52);       // bottom
+      ctx.lineTo(cx - R * 0.50, cy);                  // left
       break;
 
     default: // STALKER (7) — elongated spine; horizontal rod, flat head, tapered tail
@@ -433,139 +450,143 @@ function drawChassisSecondary(
 
   switch (chassis) {
 
-    // ── 0  WEDGE — axial swept flying wing ────────────────────────────────────
-    // Primary: nose(cx-R,cy), wingtips(cx+R*.42,cy±R*1.60), trailing(cx+R*1.08,cy±R*.20)
-    // Topology: everything spans along the forward axis.  Secondary reinforces
-    // span-wise structure — wing-box panels on inner wing + centerline keel spine.
-    // No rear block, no detached pods.  All hard edges.
+    // ── 0  WEDGE — true wide delta wing ─────────────────────────────────────────
+    // Primary: nose(cx-R*.52,cy), wingtips(cx-R*.02,cy±R*2.05),
+    //          trailing corners(cx+R*1.05,cy±R*.12).  Span≈4.1R, chord≈1.57R.
+    // Grammar: everything in the plane of the wing; all spanwise; all hard edges.
+    // Secondary anatomy = structural wing members, NOT pods or appendages.
     case 0: {
-      // Upper inner wing-box panel — structural mass spanning inner upper surface
-      // Inner wing surface from nose to wingtip (upper side).
+      // Upper cranked outer-wing panel — extends wingtip into a swept crank, adds
+      // apparent wingspan beyond the primary polygon edge.
       poly([
-        [cx - R * 0.45, cy - R * 0.65],   // inner root on upper surface (~40% chord)
-        [cx - R * 0.15, cy - R * 1.32],   // outer root on upper surface (~80% chord)
-        [cx + R * 0.42, cy - R * 1.60],   // ← exact wingtip vertex
-        [cx + R * 0.28, cy - R * 1.38],   // just inboard of wingtip
-        [cx - R * 0.02, cy - R * 1.05],
-        [cx - R * 0.30, cy - R * 0.52],
+        [cx - R * 0.02, cy - R * 2.05],   // ← exact upper wingtip vertex
+        [cx - R * 0.42, cy - R * 2.58],   // outboard crank tip
+        [cx + R * 0.38, cy - R * 2.52],   // swept crank trailing
+        [cx + R * 0.52, cy - R * 2.02],   // re-entry on wingtip chord
+        [cx + R * 0.22, cy - R * 1.95],
+      ], 0.76);
+      // Lower cranked outer-wing panel — mirrored
+      poly([
+        [cx - R * 0.02, cy + R * 2.05],   // ← exact lower wingtip vertex
+        [cx - R * 0.42, cy + R * 2.58],
+        [cx + R * 0.38, cy + R * 2.52],
+        [cx + R * 0.52, cy + R * 2.02],
+        [cx + R * 0.22, cy + R * 1.95],
+      ], 0.76);
+      // Wing-root fairing — hard polygon bridging nose into upper/lower leading edges
+      // Roots from nose(cx-R*.52,cy) and projects along the inner leading edge.
+      poly([
+        [cx - R * 0.52, cy - R * 0.08],   // ← near nose, upper
+        [cx - R * 0.52, cy + R * 0.08],   // ← near nose, lower
+        [cx - R * 0.22, cy + R * 0.60],   // lower leading-edge merge
+        [cx - R * 0.22, cy - R * 0.60],   // upper leading-edge merge
+      ], 0.72);
+      // Trailing-edge elevons — two hard tabs at trailing corners
+      poly([
+        [cx + R * 0.55, cy - R * 0.12],
+        [cx + R * 1.05, cy - R * 0.12],   // ← exact upper trailing corner
+        [cx + R * 1.38, cy - R * 0.62],
+        [cx + R * 1.02, cy - R * 0.58],
       ], 0.70);
-      // Lower inner wing-box panel (mirrored)
       poly([
-        [cx - R * 0.45, cy + R * 0.65],
-        [cx - R * 0.15, cy + R * 1.32],
-        [cx + R * 0.42, cy + R * 1.60],   // ← exact wingtip vertex
-        [cx + R * 0.28, cy + R * 1.38],
-        [cx - R * 0.02, cy + R * 1.05],
-        [cx - R * 0.30, cy + R * 0.52],
+        [cx + R * 0.55, cy + R * 0.12],
+        [cx + R * 1.05, cy + R * 0.12],   // ← exact lower trailing corner
+        [cx + R * 1.38, cy + R * 0.62],
+        [cx + R * 1.02, cy + R * 0.58],
       ], 0.70);
-      // Centerline keel — hard axial spine running full chord, nose to trailing edge
-      poly([
-        [cx - R * 1.02, cy - R * 0.10],   // near nose
-        [cx - R * 1.02, cy + R * 0.10],
-        [cx + R * 1.08, cy + R * 0.06],   // ← span to exact trailing edge
-        [cx + R * 1.08, cy - R * 0.06],
-      ], 0.80);
       break;
     }
 
-    // ── 1  STRIKER — bilateral asymmetric, dominant dorsal ────────────────────
-    // Primary: UF(cx-R*.90,cy-R*.32), UT(cx+R*.90,cy-R*.36),
-    //          LT(cx+R*.90,cy+R*.18), LF(cx-R*.90,cy+R*.20)
-    // Topology: all secondary mass is on the dorsal side.  Ventral has only a
-    // vestigial stub — reinforcing the asymmetric bilateral phenotype.
-    // Organic bezier joints throughout (biomechanical material).
+    // ── 1  STRIKER — D-lobe asymmetric body ──────────────────────────────────────
+    // Primary: FL(cx-R*.82,cy+R*.24), FU(cx-R*.82,cy-R*.24), dorsal arc peaks
+    //          ~(cx,cy-R*1.52), RU(cx+R*.90,cy-R*.35), RL(cx+R*.90,cy+R*.24).
+    //          Flat ventral baseline at cy+R*.24 (closePath line FL→RL).
+    // Grammar: ALL secondary anatomy is ABOVE the ventral baseline.
+    //          The bare flat underside is the asymmetry signal — do not violate it.
+    //          Organic bezier joints (biomechanical phenotype).
     case 1: {
-      // Dominant dorsal mass — large organic lobe spanning UF→UT, sweeps high above
+      // Dorsal fin — rises from mid-dorsal hull, sweeps further above the body arc
+      // Hull apex ≈ (cx, cy−R*1.52); fin base spans (cx−R*.28,cy−R*1.38)→(cx+R*.28,cy−R*1.38)
       curved(() => {
-        ctx.moveTo(cx - R * 0.90, cy - R * 0.32);   // ← exact UF vertex
+        ctx.moveTo(cx - R * 0.28, cy - R * 1.38);   // root front on dorsal arc
         ctx.bezierCurveTo(
-          cx - R * 0.35, cy - R * 1.35,
-          cx + R * 0.28, cy - R * 1.68,
-          cx + R * 0.65, cy - R * 1.25,             // dorsal peak
-        );
-        ctx.bezierCurveTo(
-          cx + R * 0.90, cy - R * 0.88,
-          cx + R * 0.90, cy - R * 0.58,
-          cx + R * 0.90, cy - R * 0.36,             // ← exact UT vertex
-        );
-        ctx.bezierCurveTo(                           // close along dorsal hull
-          cx + R * 0.45, cy - R * 0.55,
-          cx - R * 0.15, cy - R * 0.52,
-          cx - R * 0.90, cy - R * 0.32,
-        );
-      }, 0.75);
-      // Upper pectoral wing — dorsal side only, membrane closes along dorsal hull
-      curved(() => {
-        ctx.moveTo(cx - R * 0.25, cy - R * 0.52);   // root on dorsal hull
-        ctx.bezierCurveTo(
-          cx - R * 0.55, cy - R * 1.05,
-          cx - R * 0.28, cy - R * 1.82,
-          cx + R * 0.08, cy - R * 1.78,             // wing apex
+          cx - R * 0.58, cy - R * 1.82,
+          cx - R * 0.52, cy - R * 2.28,
+          cx - R * 0.15, cy - R * 2.32,             // fin apex (extends above body)
         );
         ctx.bezierCurveTo(
-          cx + R * 0.45, cy - R * 1.52,
-          cx + R * 0.55, cy - R * 1.08,
-          cx + R * 0.45, cy - R * 0.70,             // rear root on hull
+          cx + R * 0.18, cy - R * 2.12,
+          cx + R * 0.35, cy - R * 1.68,
+          cx + R * 0.28, cy - R * 1.38,             // root rear on dorsal arc
         );
-        ctx.quadraticCurveTo(cx + R * 0.15, cy - R * 0.58, cx - R * 0.25, cy - R * 0.52);
-      }, 0.62);
-      // Vestigial ventral stub — tiny; its smallness is the point (asymmetry signal)
+        ctx.quadraticCurveTo(cx, cy - R * 1.50, cx - R * 0.28, cy - R * 1.38);
+      }, 0.74);
+      // Forward head lobe — grows from FU vertex (cx-R*.82,cy-R*.24), the organism's snout
       curved(() => {
-        ctx.moveTo(cx + R * 0.05, cy + R * 0.38);
-        ctx.quadraticCurveTo(cx + R * 0.50, cy + R * 0.72, cx + R * 0.72, cy + R * 0.35);
-        ctx.lineTo(cx + R * 0.72, cy + R * 0.18);
-        ctx.quadraticCurveTo(cx + R * 0.42, cy + R * 0.46, cx + R * 0.05, cy + R * 0.26);
-      }, 0.50);
-      // Thruster — root from exact tail edge UT→LT
-      curved(() => {
-        ctx.moveTo(cx + R * 0.90, cy - R * 0.36);   // ← exact UT vertex
-        ctx.lineTo(cx + R * 0.90, cy - R * 0.52);
-        ctx.quadraticCurveTo(cx + R * 1.70, cy - R * 0.45, cx + R * 1.82, cy - R * 0.10);
-        ctx.quadraticCurveTo(cx + R * 1.80, cy + R * 0.22, cx + R * 0.90, cy + R * 0.18); // ← exact LT
-      }, 0.76);
+        ctx.moveTo(cx - R * 0.82, cy - R * 0.24);   // ← exact FU vertex
+        ctx.bezierCurveTo(
+          cx - R * 1.12, cy - R * 0.42,
+          cx - R * 1.52, cy - R * 1.08,
+          cx - R * 1.22, cy - R * 1.58,             // head lobe apex
+        );
+        ctx.bezierCurveTo(
+          cx - R * 0.88, cy - R * 1.62,
+          cx - R * 0.62, cy - R * 1.28,
+          cx - R * 0.52, cy - R * 0.82,             // merges back to hull near FU
+        );
+        ctx.quadraticCurveTo(cx - R * 0.62, cy - R * 0.42, cx - R * 0.82, cy - R * 0.24);
+      }, 0.68);
+      // Rear dorsal thorn — hard mechanical spike from RU vertex; organic body,
+      // mechanical detail (biomechanical hybrid rule).
+      poly([
+        [cx + R * 0.90, cy - R * 0.35],   // ← exact RU vertex
+        [cx + R * 1.18, cy - R * 0.28],   // base spread
+        [cx + R * 1.30, cy - R * 0.90],   // thorn tip
+        [cx + R * 1.05, cy - R * 0.95],
+      ], 0.72);
       break;
     }
 
-    // ── 2  TANK — frontal-mass-dominant, layered forward armor ────────────────
-    // Primary: TL(cx-R*.50,cy-R*1.0), BL(cx-R*.50,cy+R*1.0),
-    //          BR(cx+R*.88,cy+R*.68), TR(cx+R*.88,cy-R*.68)
-    // Topology: all mass and secondary anatomy oriented FORWARD (left).
-    // Forward plow is the dominant piece.  Side batters angle forward, not outward.
-    // No rear block, no perpendicular skirts.  All hard edges.
+    // ── 2  TANK — compact hexagonal shell ────────────────────────────────────────
+    // Primary: L(cx-R*.85,cy), TL(cx-R*.45,cy-R*.95), TR(cx+R*.45,cy-R*.95),
+    //          R(cx+R*.85,cy), BR(cx+R*.45,cy+R*.95), BL(cx-R*.45,cy+R*.95).
+    // Grammar: compact SHELL — width≈height; mass lives in shell walls, not shape.
+    // Secondary anatomy attaches FLUSH to hex edges; no detached pods.  Hard edges.
     case 2: {
-      // Forward V-plow — mass-dominant frontal weapon, roots from full front face TL→BL
+      // Forward V-plow — roots from L vertex (forward point of hex, exact)
+      // Fills the structural role of a forward weapon without changing shell topology.
       poly([
-        [cx - R * 0.50, cy - R * 0.90],   // ← near TL vertex
-        [cx - R * 0.50, cy + R * 0.90],   // ← near BL vertex
-        [cx - R * 1.20, cy + R * 0.42],
-        [cx - R * 1.78, cy],              // plow tip
-        [cx - R * 1.20, cy - R * 0.42],
-      ], 0.82);
-      // Upper side batter — armor plate angled forward from TL→TR, not perpendicular
+        [cx - R * 0.85, cy - R * 0.22],   // ← near L vertex, upper
+        [cx - R * 0.85, cy + R * 0.22],   // ← near L vertex, lower
+        [cx - R * 1.38, cy + R * 0.40],
+        [cx - R * 1.90, cy],              // plow tip
+        [cx - R * 1.38, cy - R * 0.40],
+      ], 0.84);
+      // Upper armor batter — extends from TL→TR top edge, perpendicular to shell face
+      // Hard plates reading as lateral fortification of the shell's top face.
       poly([
-        [cx - R * 0.50, cy - R * 1.00],   // ← exact TL vertex
-        [cx + R * 0.88, cy - R * 0.68],   // ← exact TR vertex
-        [cx + R * 1.05, cy - R * 1.45],
-        [cx + R * 0.25, cy - R * 1.68],
-        [cx - R * 0.22, cy - R * 1.52],
+        [cx - R * 0.45, cy - R * 0.95],   // ← exact TL vertex
+        [cx + R * 0.45, cy - R * 0.95],   // ← exact TR vertex
+        [cx + R * 0.60, cy - R * 1.68],
+        [cx,             cy - R * 1.82],
+        [cx - R * 0.60, cy - R * 1.68],
       ], 0.72);
-      // Lower side batter (mirrored)
+      // Lower armor batter — mirrors top batter from BL→BR bottom edge
       poly([
-        [cx - R * 0.50, cy + R * 1.00],   // ← exact BL vertex
-        [cx + R * 0.88, cy + R * 0.68],   // ← exact BR vertex
-        [cx + R * 1.05, cy + R * 1.45],
-        [cx + R * 0.25, cy + R * 1.68],
-        [cx - R * 0.22, cy + R * 1.52],
+        [cx - R * 0.45, cy + R * 0.95],   // ← exact BL vertex
+        [cx + R * 0.45, cy + R * 0.95],   // ← exact BR vertex
+        [cx + R * 0.60, cy + R * 1.68],
+        [cx,             cy + R * 1.82],
+        [cx - R * 0.60, cy + R * 1.68],
       ], 0.72);
-      // Central mantlet — armor plate covering the fighting compartment interior
+      // Rear command pod — hard blunt protrusion from R vertex (rear point)
       poly([
-        [cx - R * 0.08, cy - R * 0.30],
-        [cx + R * 0.45, cy - R * 0.36],
-        [cx + R * 0.62, cy],
-        [cx + R * 0.45, cy + R * 0.36],
-        [cx - R * 0.08, cy + R * 0.30],
-        [cx - R * 0.28, cy],
-      ], 0.65);
+        [cx + R * 0.85, cy - R * 0.20],   // ← near R vertex, upper
+        [cx + R * 0.85, cy + R * 0.20],   // ← near R vertex, lower
+        [cx + R * 1.48, cy + R * 0.12],
+        [cx + R * 1.60, cy],
+        [cx + R * 1.48, cy - R * 0.12],
+      ], 0.70);
       break;
     }
 
@@ -603,48 +624,62 @@ function drawChassisSecondary(
       break;
     }
 
-    // ── 4  CRAWLER — crescent / arc body ──────────────────────────────────────
-    // Primary: crescent C-shape; upper horn(cx-R*.52,cy-R*.62),
-    //          outer apex(cx+R*.95,cy), lower horn(cx-R*.52,cy+R*.62).
-    // Topology: the arc IS the body.  Secondary anatomy grows from horn tips
-    // (claws) and spans the interior opening (membrane).
-    // Upper claw is dominant over lower (near-asymmetric bilateral).
-    // Organic bezier joints for bio material.
+    // ── 4  CRAWLER — thin boomerang crescent ──────────────────────────────────
+    // Primary: upper horn(cx-R*.68,cy-R*1.08), outer apex(cx+R*1.55,cy),
+    //          lower horn(cx-R*.68,cy+R*1.08), inner apex(cx+R*.98,cy).
+    //          Band ≈ 0.57R thick; span ≈ 2.16R — clearly a thin crescent.
+    // Grammar: secondary anatomy grows FROM horn tips (not a separate body segment).
+    // Web membrane spans the concave forward opening.  Organic bezier.
     case 4: {
-      // Interior membrane — translucent arc stretched across the C opening
+      // Web membrane — spans the crescent's concave opening (forward-facing gap)
+      // Translucent; reads as biological membrane stretched between the horns.
       curved(() => {
-        ctx.moveTo(cx - R * 0.52, cy - R * 0.62);   // ← upper horn tip
-        ctx.quadraticCurveTo(cx - R * 0.82, cy, cx - R * 0.52, cy + R * 0.62);
-        ctx.quadraticCurveTo(cx - R * 0.22, cy, cx - R * 0.52, cy - R * 0.62);
-      }, 0.42);
-      // Upper claw — dominant arm, grows from upper horn, extended reach
+        ctx.moveTo(cx - R * 0.68, cy - R * 1.08);   // ← upper horn
+        ctx.bezierCurveTo(
+          cx - R * 1.08, cy - R * 0.55,
+          cx - R * 1.08, cy + R * 0.55,
+          cx - R * 0.68, cy + R * 1.08,             // ← lower horn
+        );
+        ctx.bezierCurveTo(                           // inner arc (closes membrane)
+          cx - R * 0.30, cy + R * 0.88,
+          cx + R * 0.55, cy + R * 0.56,
+          cx + R * 0.98, cy,                         // ← inner apex
+        );
+        ctx.bezierCurveTo(
+          cx + R * 0.55, cy - R * 0.56,
+          cx - R * 0.30, cy - R * 0.88,
+          cx - R * 0.68, cy - R * 1.08,
+        );
+      }, 0.35);
+      // Upper scythe-claw — dominant arm, long reach from upper horn
+      // Root is EXACTLY the upper horn tip; no gap between body and claw.
       curved(() => {
-        ctx.moveTo(cx - R * 0.52, cy - R * 0.62);   // ← exact upper horn tip
+        ctx.moveTo(cx - R * 0.68, cy - R * 1.08);   // ← exact upper horn tip
         ctx.bezierCurveTo(
-          cx - R * 0.90, cy - R * 0.72,
-          cx - R * 1.42, cy - R * 0.50,
-          cx - R * 1.82, cy - R * 1.05,             // claw tip (longer reach)
+          cx - R * 1.05, cy - R * 1.20,
+          cx - R * 1.60, cy - R * 0.88,
+          cx - R * 2.08, cy - R * 1.38,             // upper claw tip (long reach)
         );
-        ctx.lineTo(cx - R * 1.58, cy - R * 1.25);
+        ctx.lineTo(cx - R * 1.82, cy - R * 1.60);
         ctx.bezierCurveTo(
-          cx - R * 1.32, cy - R * 0.75,
-          cx - R * 0.85, cy - R * 0.85,
-          cx - R * 0.62, cy - R * 0.72,
+          cx - R * 1.45, cy - R * 1.08,
+          cx - R * 0.98, cy - R * 1.30,
+          cx - R * 0.82, cy - R * 1.18,             // returns near horn
         );
-      }, 0.74);
-      // Lower claw — subordinate arm, shorter reach (asymmetry signal)
+      }, 0.76);
+      // Lower scythe-claw — shorter reach from lower horn (asymmetry signal)
       curved(() => {
-        ctx.moveTo(cx - R * 0.52, cy + R * 0.62);   // ← exact lower horn tip
+        ctx.moveTo(cx - R * 0.68, cy + R * 1.08);   // ← exact lower horn tip
         ctx.bezierCurveTo(
-          cx - R * 0.85, cy + R * 0.68,
-          cx - R * 1.25, cy + R * 0.42,
-          cx - R * 1.52, cy + R * 0.85,             // claw tip (shorter than upper)
+          cx - R * 1.00, cy + R * 1.18,
+          cx - R * 1.45, cy + R * 0.82,
+          cx - R * 1.75, cy + R * 1.18,             // lower claw tip (shorter than upper)
         );
-        ctx.lineTo(cx - R * 1.32, cy + R * 1.02);
+        ctx.lineTo(cx - R * 1.52, cy + R * 1.38);
         ctx.bezierCurveTo(
-          cx - R * 1.12, cy + R * 0.65,
-          cx - R * 0.80, cy + R * 0.75,
-          cx - R * 0.62, cy + R * 0.70,
+          cx - R * 1.28, cy + R * 0.98,
+          cx - R * 0.92, cy + R * 1.22,
+          cx - R * 0.80, cy + R * 1.15,
         );
       }, 0.68);
       break;
@@ -679,44 +714,49 @@ function drawChassisSecondary(
       break;
     }
 
-    // ── 6  SPECTER — branching crystal (Y-radial dendrite) ────────────────────
-    // Primary: small hexagonal node; vertices at radius R*0.50.
-    //   top(cx,cy-R*.50), TR(cx+R*.43,cy-R*.25), BR(cx+R*.43,cy+R*.25),
-    //   bottom(cx,cy+R*.50), BL(cx-R*.43,cy+R*.25), TL(cx-R*.43,cy-R*.25)
-    // Topology: 3-fold radial branching.  Three arms radiate from the node at
-    // 0°(forward/left), ~315°(upper-right), ~45°(lower-right).  The arms are the
-    // organism; the node is the nexus.  All hard edges.
+    // ── 6  SPECTER — asymmetric dendritic crystal ─────────────────────────────
+    // Primary: diamond node; top(cx,cy-R*.52), right(cx+R*.50,cy),
+    //          bottom(cx,cy+R*.52), left(cx-R*.50,cy).
+    // Grammar: THREE UNEQUAL arms at NON-120° angles — NO rotational symmetry.
+    //   • Forward arm (0°, leftward):    longest, 2.60R, has lateral sub-shard
+    //   • Upper-right arm (~45° up-right): medium,  ~1.95R from center
+    //   • Straight-down arm (90°, downward): shortest, ~1.80R from center
+    // Contrast with Artillery: forward(0°) + upper-right(120°) + lower-right(240°)
+    // at EQUAL length — pure 3-fold rotational symmetry, no branching.
+    // All hard edges (energy/crystalline material).
     case 6: {
-      // Forward crystal arm — longest, points left (forward); from left hex face BL→TL
+      // Forward arm — dominant, longest; points leftward from left diamond vertex
       poly([
-        [cx - R * 0.43, cy - R * 0.25],   // ← exact TL hex vertex
-        [cx - R * 0.43, cy + R * 0.25],   // ← exact BL hex vertex
-        [cx - R * 1.85, cy + R * 0.18],   // arm narrows
-        [cx - R * 2.45, cy],              // arm tip
-        [cx - R * 1.85, cy - R * 0.18],
+        [cx - R * 0.50, cy - R * 0.14],   // ← left vertex, upper shoulder
+        [cx - R * 0.50, cy + R * 0.14],   // ← left vertex, lower shoulder
+        [cx - R * 2.45, cy + R * 0.12],   // arm narrows toward tip
+        [cx - R * 2.60, cy],              // arm tip
+        [cx - R * 2.45, cy - R * 0.12],
+      ], 0.84);
+      // Forward arm lateral sub-shard — branches off at ~58% along forward arm, ~40° upward
+      // This branching is the key structural difference from Artillery's barrels.
+      poly([
+        [cx - R * 1.52, cy - R * 0.10],   // branch root A (on forward arm upper face)
+        [cx - R * 1.52, cy + R * 0.08],   // branch root B (slightly lower)
+        [cx - R * 2.05, cy - R * 0.60],   // sub-shard tip, inner
+        [cx - R * 1.88, cy - R * 0.75],   // sub-shard tip, outer
+      ], 0.72);
+      // Upper-right arm — ~45° upward from horizontal (NOT 120° from forward)
+      // Clearly non-symmetric placement vs Artillery's 120° spacing.
+      poly([
+        [cx + R * 0.30, cy - R * 0.24],   // root edge A (near top-right diamond face)
+        [cx + R * 0.05, cy - R * 0.50],   // root edge B (near top diamond vertex)
+        [cx + R * 1.55, cy - R * 1.85],   // tip B
+        [cx + R * 1.70, cy - R * 1.68],   // tip A
       ], 0.82);
-      // Forward tip shard — secondary crystal at arm tip (branching reinforcement)
+      // Straight-down arm — 90° downward from bottom vertex; NOT going lower-right
+      // This is the most asymmetric placement vs Artillery's lower-right (240°) arm.
       poly([
-        [cx - R * 2.10, cy - R * 0.28],
-        [cx - R * 2.45, cy],
-        [cx - R * 2.10, cy + R * 0.28],
-        [cx - R * 1.78, cy],
-      ], 0.68);
-      // Upper-rear arm — 315° (upper-right); root perpendicular to arm direction
-      // Geometry: direction(0.707,−0.707); root from top/TR hex area; tapers to tip.
-      poly([
-        [cx + R * 0.40, cy - R * 0.18],   // root edge A
-        [cx + R * 0.14, cy - R * 0.44],   // root edge B
-        [cx + R * 1.62, cy - R * 1.78],   // tip B
-        [cx + R * 1.74, cy - R * 1.66],   // tip A
-      ], 0.80);
-      // Lower-rear arm — 45° (lower-right); mirror of upper-rear arm
-      poly([
-        [cx + R * 0.40, cy + R * 0.18],
-        [cx + R * 0.14, cy + R * 0.44],
-        [cx + R * 1.62, cy + R * 1.78],
-        [cx + R * 1.74, cy + R * 1.66],
-      ], 0.80);
+        [cx - R * 0.14, cy + R * 0.52],   // ← near bottom vertex, left
+        [cx + R * 0.14, cy + R * 0.52],   // ← near bottom vertex, right
+        [cx + R * 0.10, cy + R * 2.12],   // tip right
+        [cx - R * 0.10, cy + R * 2.12],   // tip left
+      ], 0.82);
       break;
     }
 
