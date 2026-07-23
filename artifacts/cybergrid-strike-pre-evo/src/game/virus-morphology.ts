@@ -223,42 +223,102 @@ export function getVirusColors(n: number, flash: boolean): { fill: string; glow:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// § 7  Polar outline  (authoritative shape — never modified by archetype layer)
+// § 7  Chassis silhouettes  (hard-edged polygonal outer shapes)
+//
+//  8 chassis templates derived from n % 8.  Each is a distinct non-radially-
+//  symmetric polygon — no sine oscillators, no rose curves.
+//  R is a scalar that sizes the chassis; chassis type controls topology.
+//  All shapes face LEFT (direction of travel toward the player).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function virusRadius(theta: number, n: number, R: number): number {
-  const L      = getVirusLobes(n);
-  const spikes = getVirusSpikes(n);
-
-  const lobeFactor  = 0.78 + 0.22 * Math.cos(L * theta);
-  const sectorWidth = (Math.PI * 2) / 8;
-  const normTheta   = ((theta % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  const sector      = Math.floor(normTheta / sectorWidth);
-  const sectorCenter = (sector + 0.5) * sectorWidth;
-
-  let diff = normTheta - sectorCenter;
-  if (diff >  Math.PI) diff -= Math.PI * 2;
-  if (diff < -Math.PI) diff += Math.PI * 2;
-  const blend = Math.max(0, Math.cos((diff / sectorWidth) * Math.PI * 0.5));
-
-  const binaryOffset = spikes[sector] ? R * 0.30 * blend : -R * 0.16 * blend;
-  return R * lobeFactor + binaryOffset;
+/** Returns chassis index 0–7 from n. */
+function getChassisType(n: number): number {
+  return n % 8;
 }
 
-function buildBodyPath(
+/**
+ * Builds the chassis outer-silhouette path.
+ * Vertices are absolute canvas coordinates centered on (cx, cy).
+ *
+ * Chassis catalogue:
+ *   0  WEDGE      — forward arrowhead with rear notch
+ *   1  STRIKER    — slim elongated horizontal diamond
+ *   2  TANK       — tall wide trapezoid (fortress front)
+ *   3  ARTILLERY  — long narrow bar (thin profile)
+ *   4  CRAWLER    — low wide trapezoid (hugs ground)
+ *   5  BRUISER    — heavy irregular pentagon (broad front face)
+ *   6  SPECTER    — tilted parallelogram (diagonal slant)
+ *   7  STALKER    — irregular asymmetric hexagon (no symmetry axis)
+ */
+function buildChassisPath(
   ctx: CanvasRenderingContext2D,
   cx: number, cy: number,
   n: number, R: number,
-  steps = 192,
 ): void {
+  const chassis = getChassisType(n);
   ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const t = (i / steps) * Math.PI * 2;
-    const r = virusRadius(t, n, R);
-    const x = cx + r * Math.cos(t - Math.PI / 2);
-    const y = cy + r * Math.sin(t - Math.PI / 2);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+
+  switch (chassis) {
+    case 0: // WEDGE — arrowhead pointing left; chevron notch at rear
+      ctx.moveTo(cx - R,        cy);
+      ctx.lineTo(cx + R * 0.65, cy - R * 0.85);
+      ctx.lineTo(cx + R * 0.28, cy);
+      ctx.lineTo(cx + R * 0.65, cy + R * 0.85);
+      break;
+
+    case 1: // STRIKER — slim horizontal diamond; elongated nose, flat flanks
+      ctx.moveTo(cx - R,        cy);
+      ctx.lineTo(cx - R * 0.05, cy - R * 0.38);
+      ctx.lineTo(cx + R * 0.85, cy);
+      ctx.lineTo(cx - R * 0.05, cy + R * 0.38);
+      break;
+
+    case 2: // TANK — tall trapezoid; flat frontal face, angled rear
+      ctx.moveTo(cx - R * 0.50, cy - R * 1.0);
+      ctx.lineTo(cx - R * 0.50, cy + R * 1.0);
+      ctx.lineTo(cx + R * 0.88, cy + R * 0.68);
+      ctx.lineTo(cx + R * 0.88, cy - R * 0.68);
+      break;
+
+    case 3: // ARTILLERY — long thin bar; narrow vertical profile
+      ctx.moveTo(cx - R * 1.05, cy - R * 0.24);
+      ctx.lineTo(cx - R * 1.05, cy + R * 0.24);
+      ctx.lineTo(cx + R * 0.90, cy + R * 0.30);
+      ctx.lineTo(cx + R * 0.90, cy - R * 0.30);
+      break;
+
+    case 4: // CRAWLER — low wide trapezoid; slung below center
+      ctx.moveTo(cx - R * 0.46, cy - R * 0.46);
+      ctx.lineTo(cx - R * 0.72, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.72, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.46, cy - R * 0.46);
+      break;
+
+    case 5: // BRUISER — irregular pentagon; wide frontage, offset mass
+      ctx.moveTo(cx - R * 0.68, cy - R * 0.92);
+      ctx.lineTo(cx - R * 1.0,  cy + R * 0.08);
+      ctx.lineTo(cx - R * 0.60, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.88, cy + R * 0.58);
+      ctx.lineTo(cx + R * 0.88, cy - R * 0.80);
+      break;
+
+    case 6: // SPECTER — tilted parallelogram; body reads as diagonal
+      ctx.moveTo(cx - R * 0.82, cy - R * 0.55);
+      ctx.lineTo(cx - R * 0.08, cy - R * 1.0);
+      ctx.lineTo(cx + R * 0.82, cy + R * 0.55);
+      ctx.lineTo(cx + R * 0.08, cy + R * 1.0);
+      break;
+
+    default: // STALKER (7) — irregular hexagon; no axis of symmetry
+      ctx.moveTo(cx - R * 0.78, cy);
+      ctx.lineTo(cx - R * 0.28, cy - R * 0.95);
+      ctx.lineTo(cx + R * 0.55, cy - R * 0.78);
+      ctx.lineTo(cx + R * 0.92, cy + R * 0.18);
+      ctx.lineTo(cx + R * 0.32, cy + R * 0.90);
+      ctx.lineTo(cx - R * 0.42, cy + R * 0.58);
+      break;
   }
+
   ctx.closePath();
 }
 
@@ -819,12 +879,12 @@ export function drawVirus(
 
   const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
 
-  const R0 = cell * 0.30;
-  const k  = cell * 0.032;
+  const R0 = cell * 0.22;
+  const k  = cell * 0.016;
   const R  = getVirusRadius(n, R0, k);
 
   // ── 1. Base shape ──
-  buildBodyPath(ctx, cx, cy, n, R);
+  buildChassisPath(ctx, cx, cy, n, R);
   ctx.shadowColor = glow;
   ctx.shadowBlur  = flash ? 4 : 10;
   ctx.fillStyle   = fill;

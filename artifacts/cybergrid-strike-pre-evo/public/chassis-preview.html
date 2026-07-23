@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Chassis Preview</title>
+<style>
+  body { background: #06101e; margin: 0; display: flex; flex-direction: column; align-items: center; padding: 24px; font-family: monospace; }
+  h2 { color: #38bdf8; margin: 0 0 16px; letter-spacing: 0.1em; font-size: 14px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .label { color: rgba(219,234,254,0.6); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+  canvas { border: 1px solid rgba(56,189,248,0.18); border-radius: 4px; }
+</style>
+</head>
+<body>
+<h2>⬡ PRE-EVOLUTION — CHASSIS SILHOUETTES ⬡</h2>
+<div class="row" id="row"></div>
+<script>
+const CHASSIS = [
+  { id: 0, name: 'WEDGE',      color: '#fb923c', glow: 'rgba(251,146,60,0.6)'  },
+  { id: 1, name: 'STRIKER',    color: '#e879f9', glow: 'rgba(232,121,249,0.6)' },
+  { id: 2, name: 'TANK',       color: '#fb7185', glow: 'rgba(251,113,133,0.5)' },
+  { id: 3, name: 'ARTILLERY',  color: '#22d3ee', glow: 'rgba(34,211,238,0.6)'  },
+  { id: 4, name: 'CRAWLER',    color: '#fbbf24', glow: 'rgba(251,191,36,0.6)'  },
+  { id: 5, name: 'BRUISER',    color: '#fb923c', glow: 'rgba(251,146,60,0.6)'  },
+  { id: 6, name: 'SPECTER',    color: '#e879f9', glow: 'rgba(232,121,249,0.6)' },
+  { id: 7, name: 'STALKER',    color: '#22d3ee', glow: 'rgba(34,211,238,0.6)'  },
+];
+
+const CELL = 80;
+const R = CELL * 0.34; // representative mid-range radius
+
+function buildChassisPath(ctx, cx, cy, chassis, R) {
+  ctx.beginPath();
+  switch (chassis) {
+    case 0: // WEDGE
+      ctx.moveTo(cx - R,        cy);
+      ctx.lineTo(cx + R * 0.65, cy - R * 0.85);
+      ctx.lineTo(cx + R * 0.28, cy);
+      ctx.lineTo(cx + R * 0.65, cy + R * 0.85);
+      break;
+    case 1: // STRIKER
+      ctx.moveTo(cx - R,        cy);
+      ctx.lineTo(cx - R * 0.05, cy - R * 0.38);
+      ctx.lineTo(cx + R * 0.85, cy);
+      ctx.lineTo(cx - R * 0.05, cy + R * 0.38);
+      break;
+    case 2: // TANK
+      ctx.moveTo(cx - R * 0.50, cy - R * 1.0);
+      ctx.lineTo(cx - R * 0.50, cy + R * 1.0);
+      ctx.lineTo(cx + R * 0.88, cy + R * 0.68);
+      ctx.lineTo(cx + R * 0.88, cy - R * 0.68);
+      break;
+    case 3: // ARTILLERY
+      ctx.moveTo(cx - R * 1.05, cy - R * 0.24);
+      ctx.lineTo(cx - R * 1.05, cy + R * 0.24);
+      ctx.lineTo(cx + R * 0.90, cy + R * 0.30);
+      ctx.lineTo(cx + R * 0.90, cy - R * 0.30);
+      break;
+    case 4: // CRAWLER
+      ctx.moveTo(cx - R * 0.46, cy - R * 0.46);
+      ctx.lineTo(cx - R * 0.72, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.72, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.46, cy - R * 0.46);
+      break;
+    case 5: // BRUISER
+      ctx.moveTo(cx - R * 0.68, cy - R * 0.92);
+      ctx.lineTo(cx - R * 1.0,  cy + R * 0.08);
+      ctx.lineTo(cx - R * 0.60, cy + R * 0.92);
+      ctx.lineTo(cx + R * 0.88, cy + R * 0.58);
+      ctx.lineTo(cx + R * 0.88, cy - R * 0.80);
+      break;
+    case 6: // SPECTER
+      ctx.moveTo(cx - R * 0.82, cy - R * 0.55);
+      ctx.lineTo(cx - R * 0.08, cy - R * 1.0);
+      ctx.lineTo(cx + R * 0.82, cy + R * 0.55);
+      ctx.lineTo(cx + R * 0.08, cy + R * 1.0);
+      break;
+    default: // STALKER
+      ctx.moveTo(cx - R * 0.78, cy);
+      ctx.lineTo(cx - R * 0.28, cy - R * 0.95);
+      ctx.lineTo(cx + R * 0.55, cy - R * 0.78);
+      ctx.lineTo(cx + R * 0.92, cy + R * 0.18);
+      ctx.lineTo(cx + R * 0.32, cy + R * 0.90);
+      ctx.lineTo(cx - R * 0.42, cy + R * 0.58);
+      break;
+  }
+  ctx.closePath();
+}
+
+const row = document.getElementById('row');
+CHASSIS.forEach(({ id, name, color, glow }) => {
+  const SIZE = 120;
+  const cx = SIZE / 2, cy = SIZE / 2;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SIZE; canvas.height = SIZE;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0a1628';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  buildChassisPath(ctx, cx, cy, id, R);
+  ctx.shadowColor = glow;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const lbl = document.createElement('div');
+  lbl.className = 'label';
+  lbl.textContent = `${id} · ${name}`;
+  cell.appendChild(canvas);
+  cell.appendChild(lbl);
+  row.appendChild(cell);
+});
+</script>
+</body>
+</html>
