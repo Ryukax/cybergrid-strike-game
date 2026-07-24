@@ -1,25 +1,17 @@
 /**
- * CyberGrid Strike — Entity Morphology v8 — LIVING ECOSYSTEM
+ * CyberGrid Strike — Entity Morphology v9 — STRUCTURAL COHERENCE
  *
- * Six evolutionary phyla replace the sixteen isolated topologies.
- * Every entity belongs to a lineage with inherited anatomy,
- * four developmental stages, and stateless time-based animation.
+ * 24 distinct silhouette families (6 phyla × 4 clades).
+ * Every body is a coherent whole: parts anchor to computed surface points,
+ * animations are typed to locomotion, no fish-heads, no rectangular torsos.
  *
  * Phyla:
- *   0  CEPHALOPODA   soft bilateral — mantle, tentacles, chromatophores, siphon
- *   1  ARTHROPODA    segmented exoskeletal — jointed gait, compound eye, chelicerae
- *   2  FUNGI         colonial mycelial — hyphae network, fruiting bodies, spores
- *   3  VASCULAR      motile plant-like — trunk, fronds, traps, energy circulation
- *   4  CRYSTALLINE   inorganic mineralizing — facets, resonance, dissolution scars
- *   5  CHIMERA       cross-phylum hybrid — legible anatomical seam
- *
- * Clades (4 per phylum): evolutionary branches that share core anatomy.
- * Stages: 0=juvenile  1=subadult  2=adult  3=ancient
- * All animation: stateless, seeded by n, driven by performance.now().
- *
- * External API (all signatures backward compatible):
- *   drawVirus(ctx, cx, cy, n, cell, flash, green?, t?, ectx?)
- *   getVirusColors, getTopology, getMorphSig, pickDiverseSeed, etc.
+ *   0  CEPHALOPODA   0=Bell Medusa  1=Flat Disc  2=Ammonite Coil  3=Hook Parasite
+ *   1  ARTHROPODA    0=Bilobate Spider  1=Shield Crab  2=Chain Centipede  3=Barnacle
+ *   2  FUNGI         0=Mushroom  1=Zombie Burst  2=Directional Amoeba  3=Node Web
+ *   3  VASCULAR      0=Snap Trap  1=Root Walker  2=Polyp Colony  3=Tendril Star
+ *   4  CRYSTALLINE   0=Spire Cluster  1=Geode Bowl  2=Lattice Bubble  3=Bone Cage
+ *   5  CHIMERA       0=Tentacle-Legged  1=Fungal Root-Ball  2=Crystal-Wrapped Ceph  3=Armored Crystal Growth
  */
 
 // ═══════════════════════════════════════════════════════════
@@ -45,11 +37,11 @@ export interface VirusVisualModel {
 
 /** Passed from renderer each frame — all fields optional for backward compat. */
 export interface EntityDrawContext {
-  hpFrac:     number;  // 0–1; 1 = full health
-  row:        number;  // grid row 0–2
-  colPos:     number;  // current column position (may be fractional)
-  playerRow:  number;  // player row
-  playerDist: number;  // column distance to player (cells, 0 = same)
+  hpFrac:     number;
+  row:        number;
+  colPos:     number;
+  playerRow:  number;
+  playerDist: number;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -72,7 +64,6 @@ export function getVirusClass(n: number): VirusClass {
 export function getVirusLobes(n: number): number { return 3 + (n % 6); }
 export function getVirusSpikes(n: number): boolean[] { return Array.from({length:8},(_,i)=>Boolean((n>>i)&1)); }
 
-// Legacy class colors — getVirusColors signature preserved
 const FILL_C: Record<VirusClass,string> = {
   prime:'#e879f9','power-of-two':'#22d3ee','perfect-square':'#fbbf24','even-composite':'#fb7185','odd-composite':'#fb923c',
 };
@@ -90,33 +81,31 @@ export function getVirusColors(n: number, flash: boolean): {fill:string;glow:str
 // ═══════════════════════════════════════════════════════════
 // §2  LINEAGE SELECTORS
 // ═══════════════════════════════════════════════════════════
-// PHYLUM  0=Cephalopoda 1=Arthropoda 2=Fungi 3=Vascular 4=Crystalline 5=Chimera
-// CLADE   0–3, evolutionary branch within phylum
-// STAGE   0=juvenile 1=subadult 2=adult 3=ancient (biased by n, jittered)
-// MICRO   0–2, fine variant within clade
 export const PHYLUM = (n: number): number => Math.floor(nh(n, 0xF00D) * 6);
 export const CLADE  = (n: number): number => Math.floor(nh(n, 0xC1AD) * 4);
 export const STAGE  = (n: number): number => {
-  const base = Math.min(3, Math.floor(n / 64));          // 0–3 from n quartile
-  const jitter = Math.floor(nh(n, 0x5715) * 2.99) - 1;  // ±1 jitter
+  const base = Math.min(3, Math.floor(n / 64));
+  const jitter = Math.floor(nh(n, 0x5715) * 2.99) - 1;
   return Math.max(0, Math.min(3, base + jitter));
 };
 export const MICRO  = (n: number): number => Math.floor(nh(n, 0xBABE) * 3);
-
-// getTopology: backward compat — maps phylum×clade to 0–23
 const N_TOPO = 24;
 export function getTopology(n: number): number { return Math.min(N_TOPO-1, PHYLUM(n)*4+CLADE(n)); }
+
+// Silhouette family (0-15) — used for substrate-avoidance
+export function getSilhouetteFamily(n: number): number {
+  return PHYLUM(n) * 4 + CLADE(n);
+}
 
 // ═══════════════════════════════════════════════════════════
 // §3  LINEAGE COLOR SYSTEM
 // ═══════════════════════════════════════════════════════════
-// Each phylum owns a hue range; clade shifts within it; stage adjusts saturation+lightness.
-const PH_HUE  = [285,  38, 205, 120, 183,   0]; // base hue per phylum (deg)
-const PH_SAT  = [ 72,  68,  58,  70,  55,  65]; // base saturation %
-const PH_LIT  = [ 60,  50,  65,  45,  63,  58]; // base lightness %
-const CL_HUE_S = [-18, -6,   6,  18];           // clade hue shift (deg)
-const ST_SAT_M = [0.70, 0.85, 1.00, 0.92];      // stage saturation multiplier
-const ST_LIT_M = [1.14, 1.05, 1.00, 0.88];      // stage lightness multiplier
+const PH_HUE  = [285,  38, 205, 120, 183,   0];
+const PH_SAT  = [ 72,  68,  58,  70,  55,  65];
+const PH_LIT  = [ 60,  50,  65,  45,  63,  58];
+const CL_HUE_S = [-18, -6,   6,  18];
+const ST_SAT_M = [0.70, 0.85, 1.00, 0.92];
+const ST_LIT_M = [1.14, 1.05, 1.00, 0.88];
 
 type LColor = { f: string; g: string; acc: string };
 
@@ -142,8 +131,7 @@ function lineageColors(n: number, flash: boolean, green?: boolean): LColor {
 }
 
 // ═══════════════════════════════════════════════════════════
-// §4  ANIMATION UTILITIES
-// All stateless: phase seeded by n to prevent entity synchrony.
+// §4  ANIMATION UTILITIES — locomotion-typed
 // ═══════════════════════════════════════════════════════════
 function wave(t: number, n: number, freq: number, amp: number): number {
   return Math.sin(t * 0.001 * freq * Math.PI * 2 + nh(n, 0xA1A1) * Math.PI * 2) * amp;
@@ -151,16 +139,34 @@ function wave(t: number, n: number, freq: number, amp: number): number {
 function pulse(t: number, n: number, freq: number): number {
   return (Math.sin(t * 0.001 * freq * Math.PI * 2 + nh(n, 0xB2B2) * Math.PI * 2) + 1) * 0.5;
 }
+// Gait: returns 0-1 lift for a given leg index
 function stepGait(t: number, n: number, leg: number, totalLegs: number, freq: number): number {
   const phase = nh(n, 0xC3C3) * Math.PI * 2 + (leg / totalLegs) * Math.PI * 2;
   return Math.max(0, Math.sin(t * 0.001 * freq * Math.PI * 2 + phase));
 }
-function alertLean(colPos: number, playerDist: number): number {
-  return Math.max(0, 1 - playerDist / 3) * 0.18;
+// Serpentine wave angle for segment i of total at time t
+function serpentAngle(t: number, n: number, segI: number, total: number, amp: number): number {
+  const phase = (segI / total) * Math.PI * 2;
+  return Math.sin(t * 0.001 * 2.2 * Math.PI * 2 - phase + nh(n, 0xD4D4) * Math.PI * 2) * amp;
 }
+// Bell contraction (medusa jet pulse): 0=relaxed, 1=max contract
+function bellContract(t: number, n: number): number {
+  return Math.max(0, Math.sin(t * 0.001 * 1.6 * Math.PI * 2 + nh(n, 0xE5E5) * Math.PI * 2));
+}
+// Alert: lean toward player proportional to proximity
+function alertLean(playerDist: number): number {
+  return Math.max(0, 1 - playerDist / 3) * 0.20;
+}
+// Damage shake: erratic jitter at low HP
 function damageShake(t: number, hpFrac: number): number {
-  if (hpFrac > 0.6) return 0;
-  return Math.sin(t * 0.035) * ((0.6 - hpFrac) / 0.6) * 4;
+  if (hpFrac > 0.55) return 0;
+  return Math.sin(t * 0.038 + nh(Math.floor(t * 0.01), 0xF6F6) * 9) * ((0.55 - hpFrac) / 0.55) * 5;
+}
+// Trap snap: open when far, snap shut when player close
+function trapOpen(playerDist: number, t: number, n: number): number {
+  const base = Math.min(1, playerDist / 2);          // 0=player here, 1=far
+  const flutter = pulse(t, n, 0.35) * 0.12 * base;  // subtle idle flutter
+  return Math.max(0.04, base - 0.08 + flutter);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -182,11 +188,6 @@ function fell(ctx:Ctx,x:number,y:number,rx:number,ry:number,f:string,g:string,a:
   ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
 }
 function fcirc(ctx:Ctx,x:number,y:number,r:number,f:string,g:string,a:number,blur=5): void { fell(ctx,x,y,r,r,f,g,a,blur); }
-function frect(ctx:Ctx,x:number,y:number,w:number,h:number,f:string,g:string,a:number,blur=5): void {
-  ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=blur;
-  ctx.fillRect(x,y,w,h); ctx.shadowBlur=0;
-  ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.strokeRect(x,y,w,h); ctx.restore();
-}
 function sline(ctx:Ctx,x1:number,y1:number,x2:number,y2:number,col:string,a:number,lw=1.2): void {
   ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=lw;
   ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore();
@@ -195,11 +196,12 @@ function sarc(ctx:Ctx,cx:number,cy:number,r:number,a0:number,a1:number,col:strin
   ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.shadowColor=col; ctx.shadowBlur=blur;
   ctx.beginPath(); ctx.arc(cx,cy,Math.max(r,0.5),a0,a1); ctx.stroke(); ctx.restore();
 }
+// Organic blob with per-vertex noise
 function oblob(ctx:Ctx,cx:number,cy:number,rx:number,ry:number,f:string,g:string,a:number,n:number,salt:number): void {
-  const nV=10; const pts:P2[]=[];
+  const nV=12; const pts:P2[]=[];
   for (let i=0;i<nV;i++) {
     const ang=(i/nV)*Math.PI*2;
-    pts.push([cx+Math.cos(ang)*rx*(1+(nh(n,salt+i)-0.5)*0.28),cy+Math.sin(ang)*ry*(1+(nh(n,salt+i+nV)-0.5)*0.28)]);
+    pts.push([cx+Math.cos(ang)*rx*(1+(nh(n,salt+i)-0.5)*0.24),cy+Math.sin(ang)*ry*(1+(nh(n,salt+i+nV)-0.5)*0.24)]);
   }
   ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
   ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
@@ -210,6 +212,7 @@ function oblob(ctx:Ctx,cx:number,cy:number,rx:number,ry:number,f:string,g:string
   ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
   ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.75; ctx.stroke(); ctx.restore();
 }
+// Bezier tendril from (x0,y0) at angle, curling
 function rtend(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,f:string,g:string,a:number,n:number,salt:number): void {
   const c1x=x0+Math.cos(angle)*len*0.38+(nh(n,salt)-0.5)*len*0.28;
   const c1y=y0+Math.sin(angle)*len*0.38+(nh(n,salt+1)-0.5)*len*0.10;
@@ -220,6 +223,7 @@ function rtend(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,f:st
   ctx.lineCap='round';
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.bezierCurveTo(c1x,c1y,c2x,c2y,ex,ey); ctx.stroke(); ctx.restore();
 }
+// Crystal shard
 function cshard(ctx:Ctx,bx:number,by:number,angle:number,len:number,w:number,f:string,g:string,a:number): void {
   const tx=bx+Math.cos(angle)*len, ty=by+Math.sin(angle)*len;
   const px=-Math.sin(angle)*w, py=Math.cos(angle)*w;
@@ -227,201 +231,7 @@ function cshard(ctx:Ctx,bx:number,by:number,angle:number,len:number,w:number,f:s
   ctx.save(); ctx.globalAlpha=a*0.40; ctx.strokeStyle='rgba(255,255,255,0.82)'; ctx.lineWidth=0.8;
   ctx.beginPath(); ctx.moveTo(bx+px,by+py); ctx.lineTo(tx,ty); ctx.stroke(); ctx.restore();
 }
-
-// ═══════════════════════════════════════════════════════════
-// §6  BIOLOGICAL ANATOMICAL COMPONENT LIBRARY
-// ═══════════════════════════════════════════════════════════
-
-// ── Soft mantle body (cephalopod) — breathing scale animation ──
-function mantleBody(ctx:Ctx,cx:number,cy:number,rx:number,ry:number,n:number,t:number,f:string,g:string,A:number): void {
-  const br = pulse(t, n, 2.4) * 0.08;
-  oblob(ctx, cx, cy, rx*(1+br), ry*(1+br*0.5), f, g, A, n, 10);
-}
-
-// ── Tentacle arm with sucker rings and animated curl ──
-function tentacleArm(ctx:Ctx,ax:number,ay:number,tipX:number,tipY:number,w:number,suckers:boolean,baseCurl:number,t:number,n:number,salt:number,f:string,g:string,A:number): void {
-  const curl = baseCurl + wave(t, n+salt, 0.7 + nh(n,salt+50)*0.5, w*1.6);
-  const mx = (ax+tipX)/2 + curl;
-  const my = (ay+tipY)/2 + wave(t, n+salt+1, 0.5, w*0.5);
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w*2.2; ctx.shadowColor=g; ctx.shadowBlur=3;
-  ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo(mx,my,tipX,tipY); ctx.stroke();
-  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=0.55;
-  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo(mx,my,tipX,tipY); ctx.stroke();
-  ctx.restore();
-  if (suckers) {
-    for (let i=1;i<=4;i++) {
-      const sp=i/5;
-      // Approximate point on quadratic bezier
-      const bx=(1-sp)*(1-sp)*ax+2*(1-sp)*sp*mx+sp*sp*tipX;
-      const by=(1-sp)*(1-sp)*ay+2*(1-sp)*sp*my+sp*sp*tipY;
-      sarc(ctx,bx,by,w*0.55,0,Math.PI*2,f,A-0.28,0.65);
-    }
-  }
-}
-
-// ── Lateral eye with iris + tracking pupil ──
-function cephEye(ctx:Ctx,ex:number,ey:number,R:number,targetX:number,targetY:number,f:string,g:string,A:number): void {
-  const eR=R*0.14;
-  fcirc(ctx,ex,ey,eR,'rgba(240,235,218,0.92)',g,A-0.02,4);
-  fcirc(ctx,ex,ey,eR*0.72,f,g,A-0.04,3);
-  const dx=targetX-ex, dy=targetY-ey, dist=Math.hypot(dx,dy)||1;
-  const pOff=eR*0.30;
-  const px=ex+dx/dist*pOff, py=ey+dy/dist*pOff;
-  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle='rgba(5,4,8,0.96)';
-  ctx.beginPath(); ctx.ellipse(px,py,eR*0.46,eR*0.28,Math.atan2(dy,dx),0,Math.PI*2); ctx.fill(); ctx.restore();
-  fcirc(ctx,ex-eR*0.26,ey-eR*0.26,eR*0.17,'rgba(255,255,255,0.70)',g,A-0.12,0);
-}
-
-// ── Chromatophore patches (cephalopod pigment cells) ──
-function chromatophores(ctx:Ctx,cx:number,cy:number,R:number,n:number,t:number,acc:string,A:number): void {
-  const nP=6+Math.floor(nh(n,0xCC10)*4);
-  for (let i=0;i<nP;i++) {
-    const px=cx+(nh(n,200+i)-0.5)*R*1.5, py=cy+(nh(n,210+i)-0.5)*R*0.85;
-    const pr=R*(0.06+nh(n,220+i)*0.07);
-    const al=A*(0.48+pulse(t,n+i*7,1.8+nh(n,230+i)*1.2)*0.48);
-    fcirc(ctx,px,py,pr*pulse(t,n+i*3,2.5+nh(n,240+i)),acc,acc,al,3);
-  }
-}
-
-// ── Siphon (jet propulsion organ) ──
-function siphon(ctx:Ctx,sx:number,sy:number,angle:number,len:number,R:number,t:number,n:number,f:string,g:string,A:number): void {
-  const ex2=sx+Math.cos(angle)*len, ey2=sy+Math.sin(angle)*len;
-  const lw=R*(0.10+pulse(t,n,2.6)*0.04);
-  ctx.save(); ctx.globalAlpha=A-0.06; ctx.strokeStyle=f; ctx.lineWidth=lw*2; ctx.shadowColor=g; ctx.shadowBlur=4;
-  ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex2,ey2); ctx.stroke(); ctx.restore();
-  sarc(ctx,ex2,ey2,lw*0.90,angle+Math.PI*0.65,angle+Math.PI*1.35,f,A-0.18,lw*0.55,3);
-}
-
-// ── Ammonite shell (armored cephalopod) ──
-function ammoniteShell(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const nSegs=4+Math.floor(nh(n,0xA440)*2);
-  for (let i=0;i<nSegs;i++) {
-    const r1=R*(0.26+i*0.19), r2=R*(0.44+i*0.19);
-    const a0=Math.PI*0.28, a1=Math.PI*1.72;
-    ctx.save(); ctx.globalAlpha=A*(0.90-i*0.14); ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5-i;
-    ctx.beginPath(); ctx.arc(cx,cy,r2,a0,a1); ctx.arc(cx,cy,r1,a1,a0,true); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(0,0,0,0.52)'; ctx.lineWidth=0.8;
-    ctx.beginPath(); ctx.arc(cx,cy,r1,a0,a1); ctx.stroke(); ctx.restore();
-  }
-}
-
-// ── Gill slits (open/close with breathing) ──
-function gillSlits(ctx:Ctx,x:number,y:number,w:number,R:number,count:number,t:number,n:number,f:string,A:number): void {
-  const open = 0.50 + pulse(t, n, 2.3) * 0.50;
-  for (let i=0;i<count;i++) {
-    const gx=x+i*(w/(count-1));
-    const gh=R*0.11*open;
-    ctx.save(); ctx.globalAlpha=A-0.22; ctx.strokeStyle=f; ctx.lineWidth=1.1; ctx.lineCap='round';
-    ctx.beginPath(); ctx.moveTo(gx,y-gh); ctx.lineTo(gx,y+gh); ctx.stroke(); ctx.restore();
-  }
-}
-
-// ── Compound eye (arthropod) — faceted cluster ──
-function compoundEye(ctx:Ctx,ex:number,ey:number,ew:number,eh:number,n:number,f:string,g:string,A:number): void {
-  fell(ctx,ex,ey,ew,eh,f,g,A-0.02,4);
-  ctx.save(); ctx.globalAlpha=A-0.16; ctx.fillStyle='rgba(0,0,0,0.65)';
-  for (let i=0;i<7;i++) {
-    const fx=ex+(nh(n,300+i)-0.5)*ew*1.2, fy=ey+(nh(n,310+i)-0.5)*eh*1.2;
-    ctx.beginPath(); ctx.arc(fx,fy,ew*0.18,0,Math.PI*2); ctx.fill();
-  }
-  ctx.restore();
-  fcirc(ctx,ex-ew*0.28,ey-eh*0.28,ew*0.20,'rgba(255,255,255,0.30)',g,A-0.22,0);
-}
-
-// ── Chelicera pair (arthropod mouthparts) ──
-function chelicera(ctx:Ctx,cx:number,cy:number,R:number,openFrac:number,f:string,g:string,A:number): void {
-  const gap = Math.PI*0.15 + openFrac*Math.PI*0.30;
-  for (const s of [-1,1] as const) {
-    const a0 = s > 0 ? gap : Math.PI-gap;
-    const a1 = s > 0 ? Math.PI*0.80 : Math.PI*0.20;
-    ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=f; ctx.lineWidth=R*0.10; ctx.shadowColor=g; ctx.shadowBlur=4;
-    ctx.lineCap='round';
-    ctx.beginPath(); ctx.arc(cx,cy+s*R*0.04,R*0.26,Math.min(a0,a1),Math.max(a0,a1),s<0); ctx.stroke(); ctx.restore();
-    const tipX=cx+Math.cos(a0)*R*0.26, tipY=cy+s*R*0.04+Math.sin(a0)*R*0.26;
-    fcirc(ctx,tipX,tipY,R*0.036,f,g,A,3);
-  }
-}
-
-// ── Arthropod jointed leg — femur + tibia + knee ──
-function arthLeg(ctx:Ctx,hx:number,hy:number,angle:number,femLen:number,tibLen:number,lift:number,f:string,g:string,A:number): void {
-  const kX=hx+Math.cos(angle)*femLen, kY=hy+Math.sin(angle)*femLen-lift*femLen*0.45;
-  const tibAngle=angle+Math.PI*0.30*(1+lift*0.38);
-  const tX=kX+Math.cos(tibAngle)*tibLen, tY=kY+Math.sin(tibAngle)*tibLen+lift*tibLen*0.30;
-  sline(ctx,hx,hy,kX,kY,f,A-0.07,femLen*0.11);
-  sline(ctx,kX,kY,tX,tY,f,A-0.12,tibLen*0.085);
-  fcirc(ctx,kX,kY,femLen*0.080,f,g,A-0.14,3);
-}
-
-// ── Segmentation suture (arthropod body joints) ──
-function segSuture(ctx:Ctx,x:number,y0:number,y1:number,A:number): void {
-  ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(0,0,0,0.58)'; ctx.lineWidth=1.0;
-  ctx.beginPath(); ctx.moveTo(x,y0); ctx.lineTo(x,y1); ctx.stroke();
-  ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(x+0.6,y0); ctx.lineTo(x+0.6,y1); ctx.stroke(); ctx.restore();
-}
-
-// ── Spiracle (breathing pore on arthropod segment) ──
-function spiracle(ctx:Ctx,x:number,y:number,R:number,A:number): void {
-  sarc(ctx,x,y,R*0.038,0,Math.PI*2,'rgba(0,0,0,0.68)',A-0.24,0.75);
-}
-
-// ── Fungal hypha (recursive branching thread) ──
-function hypha(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,depth:number,t:number,n:number,salt:number,f:string,A:number): void {
-  if (depth<=0||len<2) return;
-  const sway=wave(t,n+salt,0.4+nh(n,salt)*0.3,len*0.07);
-  const x1=x0+Math.cos(angle)*len+sway, y1=y0+Math.sin(angle)*len;
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.lineCap='round';
-  ctx.shadowColor=f; ctx.shadowBlur=depth*1.2;
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
-  if (depth>1) {
-    hypha(ctx,x1,y1,angle-0.55+nh(n,salt+10)*0.42,len*0.65,w*0.68,depth-1,t,n,salt+20,f,A-0.06);
-    if (w>0.65) hypha(ctx,x1,y1,angle+0.55-nh(n,salt+11)*0.42,len*0.52,w*0.57,depth-1,t,n,salt+30,f,A-0.10);
-  }
-}
-
-// ── Fungal cap + stalk ──
-function fruitingBody(ctx:Ctx,sx:number,sy:number,R:number,st:number,t:number,n:number,f:string,g:string,A:number): void {
-  const stH=R*(0.46+nh(n,0xFF10)*0.22);
-  const capR=R*(0.36+nh(n,0xFF11)*0.14);
-  const droop=wave(t,n,0.7,stH*0.04);
-  sline(ctx,sx,sy,sx+nh(n,0xFF12)*R*0.10,sy-stH,f,A-0.12,R*0.085);
-  const cX=sx+nh(n,0xFF12)*R*0.10+droop, cY=sy-stH;
-  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
-  ctx.beginPath(); ctx.ellipse(cX,cY,capR,capR*0.44,0,Math.PI,0,true); ctx.closePath(); ctx.fill();
-  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
-  if (st>=1) {
-    const nG=7+Math.floor(nh(n,0xFF13)*5);
-    for (let i=0;i<nG;i++) {
-      const ga=(i/(nG-1)-0.5)*Math.PI*0.86;
-      const gx2=cX+Math.sin(ga)*capR;
-      sline(ctx,gx2,cY,gx2+(nh(n,0xFF14+i)-0.5)*R*0.04,cY+capR*0.40,f,A-0.30,0.52);
-    }
-  }
-  if (st>=2) sarc(ctx,sx+nh(n,0xFF12)*R*0.10,sy-stH*0.40,R*0.095,0,Math.PI*2,f,A-0.22,R*0.055,3);
-}
-
-// ── Spore puff (discrete timed event) ──
-function sporePuff(ctx:Ctx,cx:number,cy:number,R:number,t:number,n:number,f:string,A:number): void {
-  const cycle=(t*0.001*0.75+nh(n,0x5010))%1.0;
-  const sz=R*0.25*cycle;
-  const al=A*(1-cycle)*0.50;
-  if (al<0.02) return;
-  fcirc(ctx,cx+(nh(n,0x5011)-0.5)*R*0.55,cy-(R*0.18+sz),sz,f,f,al,sz*0.5);
-}
-
-// ── Vascular trunk with animated flow pulse ──
-function vascTrunk(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,w:number,t:number,n:number,f:string,acc:string,A:number): void {
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.lineCap='round';
-  ctx.shadowColor=f; ctx.shadowBlur=3;
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
-  const pt=(t*0.001*1.5+nh(n,0x7A10))%1.0;
-  const px2=x0+(x1-x0)*pt, py2=y0+(y1-y0)*pt;
-  fcirc(ctx,px2,py2,w*0.55,acc,acc,A*0.62*(1-Math.abs(pt-0.5)*1.8),4);
-}
-
-// ── Crystal face with specular highlight edge ──
+// Crystal face (filled polygon + specular edge)
 function crystFace(ctx:Ctx,pts:P2[],f:string,g:string,A:number): void {
   fpoly(ctx,pts,f,g,A,5);
   if (pts.length>=2) {
@@ -430,7 +240,295 @@ function crystFace(ctx:Ctx,pts:P2[],f:string,g:string,A:number): void {
   }
 }
 
-// ── Healed scar tissue ──
+// ═══════════════════════════════════════════════════════════
+// §6  ANATOMICAL COMPONENT LIBRARY
+// ═══════════════════════════════════════════════════════════
+
+// ── Bell dome (for medusa): dome arc + flared margin ──
+function bellDome(ctx:Ctx,cx:number,cy:number,bW:number,bH:number,f:string,g:string,A:number,contract:number): void {
+  const cW=bW*(1-contract*0.28), cH=bH*(1+contract*0.38);
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
+  ctx.beginPath();
+  ctx.moveTo(cx-cW,cy);
+  ctx.bezierCurveTo(cx-cW,cy-cH*1.10, cx+cW,cy-cH*1.10, cx+cW,cy);
+  ctx.bezierCurveTo(cx+cW*1.14,cy+cH*0.18, cx-cW*1.14,cy+cH*0.18, cx-cW,cy);
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.8; ctx.stroke(); ctx.restore();
+  // Subsurface sheen
+  ctx.save(); ctx.globalAlpha=A*0.22; ctx.strokeStyle='rgba(255,255,255,0.60)'; ctx.lineWidth=1.2;
+  ctx.beginPath();
+  ctx.ellipse(cx-cW*0.08,cy-cH*0.42,cW*0.52,cH*0.24,0,Math.PI*1.08,Math.PI*1.92); ctx.stroke(); ctx.restore();
+}
+
+// ── Bell medusa tentacle (trailing, undulating) ──
+function bellTentacle(ctx:Ctx,x0:number,y0:number,len:number,w:number,curl:number,t:number,n:number,salt:number,f:string,g:string,A:number): void {
+  const c1x=x0+curl+wave(t,n+salt,0.4,w*3.5);
+  const c1y=y0+len*0.42+wave(t,n+salt+1,0.6,len*0.08);
+  const ex=x0+curl*0.6+wave(t,n+salt+2,0.5,w*2.0), ey=y0+len;
+  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.shadowColor=g; ctx.shadowBlur=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.quadraticCurveTo(c1x,c1y,ex,ey); ctx.stroke(); ctx.restore();
+  // Nematocyst battery dots
+  for (let i=1;i<=3;i++) {
+    const sp=i*0.22;
+    const bx=(1-sp)*(1-sp)*x0+2*(1-sp)*sp*c1x+sp*sp*ex;
+    const by=(1-sp)*(1-sp)*y0+2*(1-sp)*sp*c1y+sp*sp*ey;
+    sarc(ctx,bx,by,w*0.60,0,Math.PI*2,A<0.5?f:A+'',A-0.30,0.55);
+  }
+}
+
+// ── Eyestalk + eye (for benthic disc) ──
+function eyeStalk(ctx:Ctx,bx:number,by:number,stalkLen:number,eyeR:number,lean:number,t:number,n:number,salt:number,f:string,g:string,A:number): void {
+  const sway=wave(t,n+salt,0.7,stalkLen*0.09);
+  const ex=bx+sway+lean*stalkLen*0.25, ey=by-stalkLen;
+  sline(ctx,bx,by,ex,ey,f,A-0.08,eyeR*0.30);
+  fcirc(ctx,ex,ey,eyeR,'rgba(232,228,210,0.94)',g,A,4);
+  fcirc(ctx,ex,ey,eyeR*0.60,f,g,A-0.04,3);
+  fcirc(ctx,ex-eyeR*0.28,ey-eyeR*0.28,eyeR*0.20,'rgba(255,255,255,0.72)',g,A-0.12,0);
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle='rgba(5,4,8,0.95)';
+  ctx.beginPath(); ctx.ellipse(ex+eyeR*0.16,ey,eyeR*0.34,eyeR*0.28,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+}
+
+// ── Ammonite coil — filled spiral cross-section ──
+function ammoniteCoil(ctx:Ctx,cx:number,cy:number,R:number,n:number,t:number,f:string,g:string,acc:string,A:number): void {
+  const rot=t*0.001*0.18+nh(n,0xA201)*Math.PI*2;
+  const nRings=3+Math.floor(nh(n,0xA202)*2);
+  for (let ring=nRings;ring>=0;ring--) {
+    const r0=R*(0.14+ring*0.17), r1=R*(0.28+ring*0.17);
+    const alpha=A*(0.88-ring*0.10);
+    const fillC=ring%2===0?f:g;
+    ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=fillC; ctx.shadowColor=g; ctx.shadowBlur=ring===0?6:2;
+    ctx.beginPath();
+    ctx.arc(cx,cy,r1,rot+Math.PI*0.18,rot+Math.PI*1.82);
+    ctx.arc(cx,cy,r0,rot+Math.PI*1.82,rot+Math.PI*0.18,true);
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.55; ctx.stroke(); ctx.restore();
+    // Suture line
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(0,0,0,0.52)'; ctx.lineWidth=0.7;
+    ctx.beginPath();
+    const sx=cx+Math.cos(rot+Math.PI*0.18)*r0*1.05, sy=cy+Math.sin(rot+Math.PI*0.18)*r0*1.05;
+    ctx.moveTo(sx,sy); ctx.arc(cx,cy,(r0+r1)*0.5,rot+Math.PI*0.18,rot+Math.PI*0.26); ctx.stroke(); ctx.restore();
+  }
+  // Aperture highlight
+  const aX=cx+Math.cos(rot+Math.PI)*R*0.62, aY=cy+Math.sin(rot+Math.PI)*R*0.62;
+  sarc(ctx,aX,aY,R*0.11,rot+Math.PI*0.55,rot+Math.PI*1.45,acc,A-0.10,R*0.052,4);
+}
+
+// ── Tentacle arm (cephalopod) with sucker detail ──
+function tentArm(ctx:Ctx,ax:number,ay:number,tipX:number,tipY:number,w:number,suckers:boolean,curl:number,t:number,n:number,salt:number,f:string,g:string,A:number): void {
+  const mx=(ax+tipX)/2+curl+wave(t,n+salt,0.5,w*2.2);
+  const my=(ay+tipY)/2+wave(t,n+salt+1,0.4,w*0.8);
+  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w*2.0; ctx.shadowColor=g; ctx.shadowBlur=3; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo(mx,my,tipX,tipY); ctx.stroke();
+  ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=0.50;
+  ctx.beginPath(); ctx.moveTo(ax,ay); ctx.quadraticCurveTo(mx,my,tipX,tipY); ctx.stroke(); ctx.restore();
+  if (suckers) {
+    for (let i=1;i<=4;i++) {
+      const sp=i/5;
+      const bx=(1-sp)*(1-sp)*ax+2*(1-sp)*sp*mx+sp*sp*tipX;
+      const by=(1-sp)*(1-sp)*ay+2*(1-sp)*sp*my+sp*sp*tipY;
+      sarc(ctx,bx,by,w*0.52,0,Math.PI*2,f,A-0.26,0.60);
+    }
+  }
+}
+
+// ── Hook body (C-shaped parasite grip) ──
+function hookBody(ctx:Ctx,cx:number,cy:number,R:number,openFrac:number,f:string,g:string,A:number): void {
+  // C-shape: arc from top-right clockwise to bottom-right
+  const a0=-Math.PI*0.25, a1=Math.PI*1.25*(1-openFrac*0.18);
+  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=R*0.26; ctx.shadowColor=g; ctx.shadowBlur=7; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.68,a0,a1); ctx.stroke(); ctx.restore();
+  // Inner edge (narrower arc for body thickness)
+  ctx.save(); ctx.globalAlpha=A-0.18; ctx.strokeStyle=g; ctx.lineWidth=R*0.09; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.50,a0+0.14,a1-0.14); ctx.stroke(); ctx.restore();
+  // Gripping spines at tips
+  for (const tipA of [a0, a1]) {
+    const tx=cx+Math.cos(tipA)*R*0.68, ty=cy+Math.sin(tipA)*R*0.68;
+    const spA=tipA + (tipA===a0 ? -Math.PI*0.35 : Math.PI*0.35);
+    cshard(ctx,tx,ty,spA,R*0.28,R*0.055,f,g,A-0.06);
+  }
+}
+
+// ── Spider bilobate body: teardrop prosoma + round opisthosoma ──
+function spiderBody(ctx:Ctx,cx:number,cy:number,proW:number,proH:number,opR:number,waistGap:number,n:number,f:string,g:string,A:number): void {
+  // Opisthosoma (rear, round)
+  const opX=cx+proW*0.48+waistGap+opR;
+  oblob(ctx,opX,cy,opR,opR*0.94,f,g,A-0.02,n,70);
+  // Pedicel (waist connector)
+  ctx.save(); ctx.globalAlpha=A-0.12; ctx.strokeStyle=f; ctx.lineWidth=proW*0.10; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx+proW*0.48,cy); ctx.lineTo(opX-opR,cy); ctx.stroke(); ctx.restore();
+  // Prosoma (front, teardrop: wider at front, tapers to rear)
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
+  ctx.beginPath();
+  ctx.moveTo(cx-proW,cy);  // front tip
+  ctx.bezierCurveTo(cx-proW*0.92,cy-proH,cx+proW*0.38,cy-proH*0.72,cx+proW*0.48,cy);
+  ctx.bezierCurveTo(cx+proW*0.38,cy+proH*0.72,cx-proW*0.92,cy+proH,cx-proW,cy);
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
+  // Carapace ridge
+  ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.38)'; ctx.lineWidth=0.70;
+  ctx.beginPath(); ctx.moveTo(cx-proW*0.68,cy); ctx.bezierCurveTo(cx-proW*0.20,cy-proH*0.44,cx+proW*0.18,cy-proH*0.28,cx+proW*0.40,cy); ctx.stroke(); ctx.restore();
+}
+
+// ── Spider jointed leg (femur+patella+tibia+tarsus) ──
+function spiderLeg(ctx:Ctx,hx:number,hy:number,angle:number,R:number,lift:number,f:string,g:string,A:number): void {
+  const femL=R*0.54, patL=R*0.12, tibL=R*0.50, tarL=R*0.28;
+  const kAngle=angle+Math.PI*(0.20+lift*0.14);
+  const kX=hx+Math.cos(angle)*femL, kY=hy+Math.sin(angle)*femL-lift*femL*0.55;
+  const pX=kX+Math.cos(kAngle)*patL, pY=kY+Math.sin(kAngle)*patL;
+  const tAngle=kAngle+Math.PI*(0.25-lift*0.10);
+  const tX=pX+Math.cos(tAngle)*tibL, tY=pY+Math.sin(tAngle)*tibL+lift*tibL*0.22;
+  const aX=tX+Math.cos(tAngle+Math.PI*0.15)*tarL, aY=tY+Math.sin(tAngle+Math.PI*0.15)*tarL;
+  const lw=R*0.072;
+  sline(ctx,hx,hy,kX,kY,f,A-0.06,lw);
+  sline(ctx,kX,kY,pX,pY,f,A-0.08,lw*0.85);
+  sline(ctx,pX,pY,tX,tY,f,A-0.10,lw*0.72);
+  sline(ctx,tX,tY,aX,aY,f,A-0.16,lw*0.52);
+  fcirc(ctx,kX,kY,lw*0.85,f,g,A-0.18,2);
+  fcirc(ctx,pX,pY,lw*0.72,f,g,A-0.22,2);
+}
+
+// ── Crab wide hexagonal carapace ──
+function crabCarapace(ctx:Ctx,cx:number,cy:number,cW:number,cH:number,n:number,f:string,g:string,A:number): void {
+  const pts:P2[]=[
+    [cx-cW*0.54,cy-cH*0.24],[cx-cW*0.20,cy-cH],
+    [cx+cW*0.20,cy-cH],[cx+cW*0.54,cy-cH*0.24],
+    [cx+cW*0.54,cy+cH*0.24],[cx+cW*0.20,cy+cH],
+    [cx-cW*0.20,cy+cH],[cx-cW*0.54,cy+cH*0.24],
+  ];
+  fpoly(ctx,pts,f,g,A,7);
+  // Scute lines
+  ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.58;
+  ctx.beginPath(); ctx.moveTo(cx,cy-cH); ctx.lineTo(cx,cy+cH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-cW*0.52,cy); ctx.lineTo(cx+cW*0.52,cy); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(cx,cy,cW*0.30,cH*0.55,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+  // Rostrum (front projection)
+  fpoly(ctx,[[cx-cW*0.20,cy-cH],[cx,cy-cH*1.28],[cx+cW*0.20,cy-cH]],f,g,A-0.08,4);
+  // Gastric groove marks
+  for (let i=0;i<3;i++) {
+    const gx=cx+(i-1)*cW*0.22, gy=cy-cH*0.28;
+    ctx.save(); ctx.globalAlpha=A-0.36; ctx.strokeStyle='rgba(0,0,0,0.48)'; ctx.lineWidth=0.52;
+    ctx.beginPath(); ctx.moveTo(gx,gy); ctx.bezierCurveTo(gx-cW*0.04,gy-cH*0.22,gx+cW*0.04,gy-cH*0.22,gx,gy-cH*0.42); ctx.stroke(); ctx.restore();
+  }
+}
+
+// ── Crab cheliped (large claw) ──
+function crabClaw(ctx:Ctx,bx:number,by:number,R:number,openFrac:number,side:number,f:string,g:string,A:number): void {
+  // Merus arm
+  const mX=bx+side*R*0.62, mY=by;
+  sline(ctx,bx,by,mX,mY,f,A-0.05,R*0.15);
+  fcirc(ctx,mX,mY,R*0.11,f,g,A-0.08,3);
+  // Fixed finger (propodus)
+  const gapA=Math.PI*(0.14+openFrac*0.34);
+  for (const s2 of [-1,1] as const) {
+    const fA=s2>0?(Math.PI*0.5+gapA):(-Math.PI*0.5+gapA);
+    ctx.save(); ctx.globalAlpha=A-0.06; ctx.strokeStyle=f; ctx.lineWidth=R*0.13; ctx.shadowColor=g; ctx.shadowBlur=4; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(mX,mY);
+    const tipA=side>0 ? -fA*s2 : Math.PI+fA*s2;
+    ctx.arc(mX,mY,R*0.44,tipA-Math.PI*0.48*s2,tipA,s2<0); ctx.stroke(); ctx.restore();
+    const tipX=mX+Math.cos(tipA)*R*0.44, tipY=mY+Math.sin(tipA)*R*0.44;
+    cshard(ctx,tipX,tipY,tipA+(side>0?0:Math.PI),R*0.14,R*0.038,f,g,A-0.10);
+  }
+}
+
+// ── Centipede oval segment ──
+function centSeg(ctx:Ctx,cx:number,cy:number,rx:number,ry:number,n:number,salt:number,f:string,g:string,A:number): void {
+  oblob(ctx,cx,cy,rx,ry,f,g,A,n,salt);
+  // Tergal suture line
+  sline(ctx,cx-rx*0.88,cy,cx+rx*0.88,cy,'rgba(0,0,0,0.35)',A-0.30,0.65);
+  ctx.save(); ctx.globalAlpha=A-0.38; ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.48;
+  ctx.beginPath(); ctx.moveTo(cx-rx*0.88,cy+0.6); ctx.lineTo(cx+rx*0.88,cy+0.6); ctx.stroke(); ctx.restore();
+}
+
+// ── Hypha (recursive branching fungal thread) ──
+function hypha(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,depth:number,t:number,n:number,salt:number,f:string,A:number): void {
+  if (depth<=0||len<1.8) return;
+  const sway=wave(t,n+salt,0.35+nh(n,salt)*0.28,len*0.06);
+  const x1=x0+Math.cos(angle)*len+sway, y1=y0+Math.sin(angle)*len;
+  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.lineCap='round';
+  ctx.shadowColor=f; ctx.shadowBlur=depth*1.1;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
+  if (depth>1) {
+    hypha(ctx,x1,y1,angle-0.52+nh(n,salt+10)*0.40,len*0.66,w*0.68,depth-1,t,n,salt+20,f,A-0.06);
+    if (w>0.60) hypha(ctx,x1,y1,angle+0.52-nh(n,salt+11)*0.40,len*0.54,w*0.58,depth-1,t,n,salt+30,f,A-0.10);
+  }
+}
+
+// ── Mushroom cap (flared, wider than stalk) ──
+function mushCap(ctx:Ctx,cx:number,cy:number,capW:number,capH:number,st:number,n:number,t:number,f:string,g:string,A:number): void {
+  const sway=wave(t,n,0.5,capW*0.03);
+  // Cap upper surface (dome)
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
+  ctx.beginPath();
+  ctx.moveTo(cx-capW+sway,cy);
+  ctx.bezierCurveTo(cx-capW*0.88+sway,cy-capH*1.05,cx+capW*0.88+sway,cy-capH*1.05,cx+capW+sway,cy);
+  ctx.bezierCurveTo(cx+capW*1.08+sway,cy+capH*0.22,cx-capW*1.08+sway,cy+capH*0.22,cx-capW+sway,cy);
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
+  // Gills on underside (stage 1+)
+  if (st>=1) {
+    const nG=9+Math.floor(nh(n,0xF130)*6);
+    ctx.save(); ctx.globalAlpha=A-0.24; ctx.strokeStyle=g; ctx.lineWidth=0.55;
+    for (let i=0;i<nG;i++) {
+      const ga=(i/(nG-1)-0.5)*Math.PI*0.92;
+      const gx1=cx+sway+Math.sin(ga)*capW*0.92;
+      const gx2=cx+sway+Math.sin(ga)*capW*(0.20+nh(n,0xF131+i)*0.28);
+      sline(ctx,gx1,cy,gx2,cy+capH*0.32,g,A-0.26,0.48);
+    }
+    ctx.restore();
+  }
+}
+
+// ── Vascular (flow) pulse on a trunk line ──
+function vascTrunk(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,w:number,t:number,n:number,f:string,acc:string,A:number): void {
+  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.lineCap='round';
+  ctx.shadowColor=f; ctx.shadowBlur=3;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
+  const pt=(t*0.001*1.5+nh(n,0x7A10))%1.0;
+  const px=x0+(x1-x0)*pt, py=y0+(y1-y0)*pt;
+  fcirc(ctx,px,py,w*0.52,acc,acc,A*0.60*(1-Math.abs(pt-0.5)*2.0),4);
+}
+
+// ── Snap-trap lobe (Venus flytrap jaw) ──
+function snapLobe(ctx:Ctx,cx:number,cy:number,lobeR:number,openFrac:number,side:number,teeth:number,f:string,g:string,acc:string,A:number): void {
+  // Each lobe is a semicircle, pivoting from center
+  const pivotA = side>0 ? -Math.PI*0.5 : Math.PI*0.5;
+  const swingA = side*openFrac*Math.PI*0.55;
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(swingA);
+  // Lobe fill
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
+  ctx.beginPath();
+  ctx.arc(0,0,lobeR,pivotA-Math.PI*0.5,pivotA+Math.PI*0.5);
+  ctx.lineTo(0,0); ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
+  // Trigger hairs on lobe face
+  ctx.save(); ctx.globalAlpha=A-0.15; ctx.strokeStyle=acc; ctx.lineWidth=0.55; ctx.lineCap='round';
+  for (let i=0;i<3+teeth;i++) {
+    const ha=pivotA+(i/(2+teeth)-0.5)*Math.PI*0.72;
+    const hr=lobeR*(0.34+nh(0,i*7)*0.28);
+    ctx.beginPath(); ctx.moveTo(Math.cos(ha)*hr,Math.sin(ha)*hr);
+    ctx.lineTo(Math.cos(ha)*(hr+lobeR*0.24),Math.sin(ha)*(hr+lobeR*0.24)); ctx.stroke();
+  }
+  ctx.restore();
+  // Teeth on lobe margin
+  ctx.save(); ctx.globalAlpha=A-0.06; ctx.fillStyle=acc;
+  for (let i=0;i<5+teeth;i++) {
+    const ta=pivotA-Math.PI*0.48+(i/(4+teeth))*Math.PI*0.96;
+    const tr=lobeR*0.97;
+    const tx=Math.cos(ta)*tr, ty=Math.sin(ta)*tr;
+    ctx.beginPath();
+    ctx.moveTo(tx,ty);
+    ctx.lineTo(tx+Math.cos(ta)*lobeR*0.18,ty+Math.sin(ta)*lobeR*0.18);
+    ctx.lineTo(tx+Math.cos(ta+0.25)*lobeR*0.04,ty+Math.sin(ta+0.25)*lobeR*0.04);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+// ── Scar tissue (healed damage) ──
 function drawScar(ctx:Ctx,cx:number,cy:number,R:number,n:number,salt:number): void {
   const sx=cx+(nh(n,salt+0)-0.5)*R*0.95, sy=cy+(nh(n,salt+1)-0.5)*R*0.65;
   const sr=R*(0.09+nh(n,salt+2)*0.08);
@@ -442,671 +540,888 @@ function drawScar(ctx:Ctx,cx:number,cy:number,R:number,n:number,salt:number): vo
   ctx.restore();
 }
 
-// ── Small parasite organism with its own slow pulse ──
+// ── Small parasite with slow pulse ──
 function drawParasite(ctx:Ctx,px:number,py:number,R:number,n:number,salt:number,t:number,A:number): void {
-  const pr=R*(0.056+nh(n,salt)*0.034);
-  const pbob=wave(t,n+salt,1.4,pr*0.24);
+  const pr=R*(0.052+nh(n,salt)*0.032);
+  const pbob=wave(t,n+salt,1.4,pr*0.22);
   fcirc(ctx,px,py+pbob,pr,'rgba(175,115,52,0.88)','rgba(95,48,0,0.55)',A-0.08,3);
   ctx.save(); ctx.globalAlpha=A-0.22; ctx.strokeStyle='rgba(145,82,28,0.82)'; ctx.lineWidth=0.65;
   ctx.beginPath(); ctx.arc(px+pr*0.78,py+pbob,pr*0.46,-Math.PI*0.5,Math.PI*0.45); ctx.stroke(); ctx.restore();
 }
 
-// ── Brood pouch with visible eggs ──
-function drawBroodPouch(ctx:Ctx,bx:number,by:number,R:number,n:number,t:number,f:string,g:string,A:number): void {
-  const br=R*(0.20+nh(n,0xBB10)*0.10);
-  ctx.save(); ctx.globalAlpha=A*0.35; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
-  ctx.beginPath(); ctx.ellipse(bx,by,br,br*0.70,0,0,Math.PI*2); ctx.fill(); ctx.restore();
-  const nE=3+Math.floor(nh(n,0xBB11)*3);
-  for (let i=0;i<nE;i++) {
-    const ex3=bx+(nh(n,0xBB12+i)-0.5)*br*0.72, ey3=by+(nh(n,0xBB13+i)-0.5)*br*0.48;
-    fcirc(ctx,ex3,ey3,R*0.044,'rgba(255,242,175,0.85)',g,A-0.12,2);
+// ── Compound eye (arthropod faceted cluster) ──
+function compoundEye(ctx:Ctx,ex:number,ey:number,ew:number,eh:number,n:number,f:string,g:string,A:number): void {
+  fell(ctx,ex,ey,ew,eh,f,g,A-0.02,4);
+  ctx.save(); ctx.globalAlpha=A-0.16; ctx.fillStyle='rgba(0,0,0,0.65)';
+  for (let i=0;i<7;i++) {
+    const fx=ex+(nh(n,300+i)-0.5)*ew*1.2, fy=ey+(nh(n,310+i)-0.5)*eh*1.2;
+    ctx.beginPath(); ctx.arc(fx,fy,ew*0.18,0,Math.PI*2); ctx.fill();
   }
+  ctx.restore();
+  fcirc(ctx,ex-ew*0.28,ey-eh*0.28,ew*0.20,'rgba(255,255,255,0.30)',g,A-0.22,0);
 }
 
 // ═══════════════════════════════════════════════════════════
-// §7  PHYLUM RENDERERS
+// §7  PHYLUM RENDERERS — 24 distinct silhouette families
 // ═══════════════════════════════════════════════════════════
 
-// ── PHYLUM 0: CEPHALOPODA ─────────────────────────────────────────────────
-// Clades: 0=Pelagic  1=Benthic  2=Armored  3=Parasitic
+// ── PHYLUM 0: CEPHALOPODA ─────────────────────────────────
+// Clade 0=Bell Medusa  1=Flat Disc  2=Ammonite Coil  3=Hook Parasite
 function drawCephalopoda(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const lean  = alertLean(ectx?.colPos??3, ectx?.playerDist??3);
-  const shk   = damageShake(t, ectx?.hpFrac??1);
-  const stageSz = [0.55, 0.72, 1.00, 1.08][st];
+  const sz=[0.55,0.72,1.00,1.08][st];
+  const shk=damageShake(t,ectx?.hpFrac??1);
+  const lean=alertLean(ectx?.playerDist??3);
+  const offX=shk-lean*R*0.18;
+  const hpFrac=ectx?.hpFrac??1;
 
-  // Mantle proportions per clade
-  const MRX_F = [1.05, 1.32, 0.98, 0.70];
-  const MRY_F = [0.54, 0.66, 0.50, 0.40];
-  const mrx = R * MRX_F[cl] * stageSz;
-  const mry = R * MRY_F[cl] * stageSz;
-  const offX = -lean * R * 0.22 + shk;
-
-  // ── Clade pre-mantle structures (behind mantle) ──
-  if (cl === 2) { // ARMORED: ammonite shell at rear
-    ammoniteShell(ctx, cx + offX + mrx*0.32, cy, R*stageSz*0.86, n, f, g, A-0.08);
-  }
-  if (cl === 3) { // PARASITIC: host mass being grasped
-    oblob(ctx, cx+offX+mrx*0.58, cy, R*stageSz*0.75, R*stageSz*0.58,
-          'rgba(55,38,28,0.58)', 'rgba(28,18,8,0.38)', A-0.32, n, 60);
-  }
-
-  // ── Mantle body ──
-  mantleBody(ctx, cx+offX, cy, mrx, mry, n, t, f, g, A);
-
-  // ── Siphon ──
-  const sipA = cl===1 ? Math.PI*0.10 : -Math.PI*0.07;
-  siphon(ctx, cx+offX+mrx*0.60, cy+mry*0.36, sipA, R*stageSz*0.55, R*stageSz, t, n, f, g, A-0.07);
-
-  // ── Tentacles ──
-  const nArms = st===0 ? 4 : 8;
-  const armBaseLen = R * stageSz * [1.35, 1.08, 0.92, 0.68][cl];
-  const armLongLen = R * stageSz * [2.15, 1.55, 1.35, 1.05][cl];
-  const aX = cx + offX + mrx * [0.38, -0.08, 0.12, 0.22][cl];
-  const aY = cy;
-
-  for (let i=0; i<nArms; i++) {
-    const isLong = (cl===0||cl===1) && (i===3||i===4);
-    const aLen = isLong ? armLongLen : armBaseLen;
-    let angle: number;
-    if (cl===0)      angle = Math.PI*0.55 + (i/(nArms-1)-0.5)*Math.PI*0.58;
-    else if (cl===1) angle = Math.PI*0.40 + (i/nArms)*Math.PI*0.88;
-    else if (cl===2) angle = -Math.PI*0.30 + (i/(nArms-1)-0.5)*Math.PI*0.70;
-    else             angle = -Math.PI*0.10 + (i/(nArms-1)-0.5)*Math.PI*0.52;
-    angle -= lean * 0.32;
-    const tipX = aX + Math.cos(angle)*aLen;
-    const tipY = aY + Math.sin(angle)*aLen;
-    const baseCurl = (nh(n,100+i)-0.5)*R*stageSz*0.52;
-    tentacleArm(ctx, aX, aY, tipX, tipY, R*stageSz*0.062, st>=1, baseCurl, t, n, i*17, f, g, A-0.04);
-    if (st>=2 && i%2===0) {
-      const mx2=(aX+tipX)/2, my2=(aY+tipY)/2;
-      sarc(ctx,mx2,my2,R*stageSz*0.046,0,Math.PI*2,acc,A-0.30,0.7,2);
-    }
-  }
-
-  // ── Eye (stage 1+) ──
-  if (st>=1) {
-    const eX = cx+offX - mrx*0.36 - lean*R*0.08;
-    const eY = cy - mry*0.30;
-    const targX = ectx ? cx - (ectx.playerDist||3)*R*0.82 : cx - R*2;
-    cephEye(ctx, eX, eY, R*stageSz, targX, eY, f, g, A);
-  }
-
-  // ── Gill slits (stage 1+) ──
-  if (st>=1) {
-    gillSlits(ctx, cx+offX-mrx*0.06, cy+mry*0.50, mrx*0.52, R*stageSz, 4, t, n, f, A);
-  }
-
-  // ── Chromatophores (stage 2+) ──
-  if (st>=2) chromatophores(ctx, cx+offX, cy, mrx, n, t, acc, A);
-
-  // ── Parasitic hooks ──
-  if (cl===3) {
-    for (let i=0; i<3+mi; i++) {
-      const ha = -Math.PI*0.17 + (i/(2+mi)-0.5)*Math.PI*0.48;
-      ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=f; ctx.lineWidth=R*stageSz*0.088;
-      ctx.lineCap='round';
-      ctx.beginPath();
-      ctx.arc(cx+offX-mrx*0.52, cy+Math.sin(ha)*mry*0.48, R*stageSz*0.40, ha-Math.PI*0.52, ha+Math.PI*0.52);
-      ctx.stroke(); ctx.restore();
-    }
-  }
-
-  // ── Stage 3: ancient features ──
-  if (st===3) {
-    drawScar(ctx, cx+offX, cy, R, n, 0x5C01);
-    drawBroodPouch(ctx, cx+offX+mrx*0.25, cy+mry*0.70, R, n, t, f, g, A);
-    drawParasite(ctx, cx+offX-mrx*0.58, cy-mry*0.52, R, n, 0x5C02, t, A);
-    // Shortened vestigial arm
-    const vX = aX + Math.cos(Math.PI*0.60)*armBaseLen*0.42;
-    const vY = aY + Math.sin(Math.PI*0.60)*armBaseLen*0.42;
-    tentacleArm(ctx, aX, aY, vX, vY, R*stageSz*0.038, false, 0, t, n, 77, f, g, A-0.30);
-  }
-}
-
-// ── PHYLUM 1: ARTHROPODA ──────────────────────────────────────────────────
-// Clades: 0=Arachnoid  1=Crustacea  2=Myriapod  3=Barnacle
-function drawArthropoda(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const lean    = alertLean(ectx?.colPos??3, ectx?.playerDist??3);
-  const shk     = damageShake(t, ectx?.hpFrac??1);
-  const stageSz = [0.52, 0.70, 1.00, 1.10][st];
-  const offX    = -lean*R*0.18 + shk;
-
-  if (cl===3) { // BARNACLE: sessile, filter plates
-    drawBarnacle(ctx, cx+offX, cy, R, n, st, mi, t, A, f, g, acc); return;
-  }
-
-  // Body proportions per clade
-  const BW_F = [1.02, 1.35, 2.72, 0];
-  const BH_F = [0.56, 0.46, 0.33, 0];
-  const NS_A = [2, 1, 5+mi, 0];
-  const NL_A = [8, 6, 6+mi*2, 0];
-
-  const BW = R * BW_F[cl] * stageSz;
-  const BH = R * BH_F[cl] * stageSz;
-  const NS = NS_A[cl];
-  const NL = st===0 ? Math.floor(NL_A[cl]/2) : NL_A[cl];
-
-  // ── Head capsule ──
-  const hX = cx + offX - BW - R*stageSz*0.20;
-  const hY = cy;
-  const hR = R*stageSz*(cl===0?0.28:cl===1?0.38:0.20);
-  fcirc(ctx, hX, hY, hR, f, g, A, 6);
-  compoundEye(ctx, hX-hR*0.36, hY-hR*0.26, hR*0.36, hR*0.25, n, f, g, A);
-  const openFrac = lean*4.5 + pulse(t,n,0.9)*0.18;
-  chelicera(ctx, hX-hR, hY, hR*0.62, Math.min(1,openFrac), f, g, A);
-
-  // ── Trunk segments ──
-  const segW = (BW*2) / NS;
-  for (let i=0; i<NS; i++) {
-    const sx2 = cx + offX - BW + i*segW;
-    frect(ctx, sx2, cy-BH, segW*0.96, BH*2, f, g, A, 5);
-    if (i>0) segSuture(ctx, sx2, cy-BH, cy+BH, A);
-    if (st>=1) {
-      spiracle(ctx, sx2+segW*0.5, cy-BH*0.58, R*stageSz, A);
-      spiracle(ctx, sx2+segW*0.5, cy+BH*0.58, R*stageSz, A);
-    }
-  }
-
-  // ── Arachnoid: abdomen + stinger ──
   if (cl===0) {
-    const abdR = R*stageSz*(0.36+mi*0.06);
-    oblob(ctx, cx+offX+BW*0.50, cy, abdR, abdR*1.08, f, g, A-0.04, n, 70);
-    const stL = R*stageSz*0.50;
-    fpoly(ctx, [[cx+offX+BW*0.50+abdR,cy-R*stageSz*0.07],[cx+offX+BW*0.50+abdR+stL,cy],[cx+offX+BW*0.50+abdR,cy+R*stageSz*0.07]], f, g, A, 5);
-  }
-
-  // ── Crustacea: large claw pair ──
-  if (cl===1) {
-    for (const s of [-1,1] as const) {
-      const cOpen = 0.28 + lean*0.68 + pulse(t,n+s*11,0.72)*0.18;
-      const cX2 = cx+offX-BW-hR*1.15, cY2 = cy + s*BH*1.45;
-      ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=f; ctx.lineWidth=R*stageSz*0.12;
-      ctx.shadowColor=g; ctx.shadowBlur=4; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(cX2,cY2);
-      ctx.arc(cX2, cY2, R*stageSz*0.42, -Math.PI*0.5*s, (-Math.PI*0.5+cOpen*Math.PI*0.62)*s, s<0);
-      ctx.stroke(); ctx.restore();
-      ctx.save(); ctx.globalAlpha=A-0.08; ctx.strokeStyle=f; ctx.lineWidth=R*stageSz*0.095; ctx.lineCap='round';
-      ctx.beginPath(); ctx.moveTo(cX2,cY2);
-      ctx.arc(cX2, cY2, R*stageSz*0.36, (-Math.PI*0.5+cOpen*Math.PI*0.52)*s, Math.PI*0.28*s, false);
-      ctx.stroke(); ctx.restore();
-    }
-  }
-
-  // ── Legs (gait cycle) ──
-  const freq = cl===2 ? 3.5 : 2.0;
-  for (let i=0; i<NL; i++) {
-    const side = i%2===0 ? -1 : 1;
-    const pair = Math.floor(i/2);
-    const pairs = Math.floor(NL/2);
-    const legX = cx + offX - BW*0.70 + pair*(BW*1.40/(pairs-1||1));
-    const legY = cy + side*BH;
-    const lift = stepGait(t, n, i, NL, freq)*R*stageSz*0.20;
-    const femL = R*stageSz*0.52, tibL = R*stageSz*0.45;
-    const legA = side>0 ? Math.PI*0.54 : Math.PI*0.46;
-    arthLeg(ctx, legX, legY, legA, femL, tibL, lift, f, g, A);
-  }
-
-  // ── Myriapod: additional wave-gait legs ──
-  if (cl===2) {
-    const extraL = 4+mi*2;
-    for (let i=0; i<extraL; i++) {
-      const s=(i%2===0)?-1:1;
-      const ex4=cx+offX-BW+i*(BW*2/(extraL-1||1));
-      const lift2=stepGait(t,n,NL+i,NL+extraL,3.5)*R*stageSz*0.18;
-      arthLeg(ctx, ex4, cy+s*BH, s>0?Math.PI*0.57:Math.PI*0.43, R*stageSz*0.40, R*stageSz*0.36, lift2, f, g, A-0.10);
-    }
-  }
-
-  // ── Damage: cracked sclerite ──
-  if ((ectx?.hpFrac??1) < 0.50) {
-    ctx.save(); ctx.globalAlpha=0.42; ctx.strokeStyle='rgba(218,198,158,0.80)'; ctx.lineWidth=0.64;
-    ctx.beginPath(); ctx.moveTo(cx+offX-R*0.11,cy-BH); ctx.lineTo(cx+offX+R*0.07,cy+R*0.18); ctx.lineTo(cx+offX+R*0.17,cy+R*0.09); ctx.stroke(); ctx.restore();
-  }
-
-  // ── Stage 3: ancient ──
-  if (st===3) {
-    drawScar(ctx, cx+offX-BW*0.28, cy, R, n, 0x5A01);
-    drawParasite(ctx, cx+offX+BW*0.58, cy-BH*1.05, R, n, 0x5A02, t, A);
-    sline(ctx,cx+offX-BW*0.42,cy-BH,cx+offX-BW*0.42-R*0.20,cy-BH-R*0.26,f,A-0.26,R*0.042);
-    fcirc(ctx,cx+offX-BW*0.42-R*0.20,cy-BH-R*0.26,R*0.038,f,g,A-0.28,2);
-  }
-}
-
-function drawBarnacle(ctx:Ctx,cx:number,cy:number,R:number,n:number,st:number,mi:number,t:number,A:number,f:string,g:string,acc:string): void {
-  const sz=[0.52,0.70,1.00,1.10][st];
-  const nP=6+mi;
-  for (let i=0; i<nP; i++) {
-    const a0=(i/nP)*Math.PI*2, a1=((i+0.82)/nP)*Math.PI*2;
-    const r1=R*sz*0.28, r2=R*sz*0.70;
-    ctx.save(); ctx.globalAlpha=A*(0.90-i*0.03); ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
-    ctx.beginPath(); ctx.arc(cx,cy,r2,a0,a1); ctx.arc(cx,cy,r1,a1,a0,true); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
-  }
-  fcirc(ctx,cx,cy,R*sz*0.22,g,g,A-0.14,5);
-  const fanOpen=0.38+pulse(t,n,1.2)*0.62;
-  if (st>=1) {
-    for (let i=0; i<4+mi; i++) {
-      const fa=-Math.PI*0.5+(i/(3+mi)-0.5)*Math.PI*0.58;
-      rtend(ctx,cx,cy,fa,R*sz*(0.30+nh(n,500+i)*0.16)*fanOpen,R*sz*0.040,acc,g,A-0.20,n,500+i*4);
-    }
-  }
-  for (let i=0; i<3; i++) {
-    const ha=Math.PI*(0.62+i*0.38);
-    sline(ctx,cx,cy,cx+Math.cos(ha)*R*sz*0.85,cy+Math.sin(ha)*R*sz*0.85,f,A-0.24,R*sz*0.058);
-    fcirc(ctx,cx+Math.cos(ha)*R*sz*0.85,cy+Math.sin(ha)*R*sz*0.85,R*sz*0.052,f,g,A-0.26,2);
-  }
-}
-
-// ── PHYLUM 2: FUNGI ───────────────────────────────────────────────────────
-// Clades: 0=Basidiomycete  1=Cordyceps  2=SlimeMold  3=BiolumNet
-function drawFungi(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const lean    = alertLean(ectx?.colPos??3, ectx?.playerDist??3);
-  const stageSz = [0.50, 0.68, 1.00, 1.12][st];
-  const offX    = -lean*R*0.10;
-
-  if (cl===2) { drawSlimeMold(ctx,cx+offX,cy,R,n,st,mi,t,lean,f,g,acc,A); return; }
-  if (cl===3) { drawBioLumNet(ctx,cx+offX,cy,R,n,st,mi,t,f,g,acc,A); return; }
-
-  // ── Central mycelial stroma ──
-  const stromaR=R*stageSz*0.28;
-  oblob(ctx,cx+offX,cy,stromaR,stromaR*0.80,f,g,A-0.04,n,20);
-
-  // ── Radiating hyphae ──
-  const nH=[3,5,8,12][Math.min(3,st)];
-  const hLen=R*stageSz*(1.05+nh(n,0x4410)*0.42);
-  const hDep=[1,2,3,4][Math.min(3,st)];
-  for (let i=0; i<nH; i++) {
-    const ha=(i/nH)*Math.PI*2+wave(t,n+i,0.3,0.14);
-    const alertD=i<nH/2 ? -lean*0.38 : lean*0.09;
-    hypha(ctx, cx+offX+Math.cos(ha)*stromaR, cy+Math.sin(ha)*stromaR,
-          ha+alertD, hLen, R*stageSz*0.058, hDep, t, n, i*31, f, A-0.08);
-  }
-
-  // ── Rhizomorphs (thick anchor cords) ──
-  if (st>=1) {
-    for (let i=0; i<3+mi; i++) {
-      const ra=Math.PI*0.46+(i/(2+mi)-0.5)*Math.PI*0.52;
-      rtend(ctx,cx+offX,cy,ra,R*stageSz*0.62,R*stageSz*0.076,f,g,A-0.20,n,600+i*5);
-    }
-  }
-
-  // ── Fruiting body (stage 1+) ──
-  if (st>=1) {
-    if (cl===0) { // BASIDIOMYCETE
-      fruitingBody(ctx, cx+offX-R*stageSz*0.20, cy-stromaR-R*stageSz*0.10, R*stageSz, st, t, n, f, g, A);
-      if (st>=2) fruitingBody(ctx, cx+offX+R*stageSz*0.36, cy-stromaR, R*stageSz*0.62, st-1, t, n+7, f, g, A-0.16);
-      if (st>=2) sporePuff(ctx, cx+offX-R*stageSz*0.20, cy-stromaR-R*stageSz*0.78, R*stageSz, t, n, f, A-0.06);
-    } else { // CORDYCEPS
-      oblob(ctx, cx+offX+R*stageSz*0.30, cy+R*stageSz*0.16, R*stageSz*0.60, R*stageSz*0.46,
-            'rgba(38,28,20,0.62)', 'rgba(18,13,8,0.32)', A-0.30, n, 80);
-      const nStr=3+mi;
-      for (let i=0; i<nStr; i++) {
-        const sOff=(i/(nStr-1)-0.5)*R*stageSz*0.50;
-        const sLen=R*stageSz*(0.52+nh(n,700+i)*0.32);
-        const tilt=wave(t,n+i,0.5,sLen*0.04);
-        sline(ctx, cx+offX+R*stageSz*0.30+sOff, cy, cx+offX+R*stageSz*0.16+sOff+tilt, cy-sLen, f, A-0.07, R*stageSz*0.076);
-        fcirc(ctx, cx+offX+R*stageSz*0.16+sOff+tilt, cy-sLen, R*stageSz*0.11, f, g, A-0.02, 5);
+    // ── BELL MEDUSA: dome + trailing tentacles ──
+    const bW=R*sz*(0.72+mi*0.06);
+    const bH=R*sz*0.52;
+    const contract=bellContract(t,n)*0.82;
+    // Position bell slightly above center
+    const bellCY=cy-bH*0.15;
+    bellDome(ctx,cx+offX,bellCY,bW,bH,f,g,A,contract);
+    // Oral arms (4, shorter, fringed) from bell underside center
+    if (st>=1) {
+      for (let i=0;i<4+mi;i++) {
+        const oa=(i/(3+mi)-0.5)*Math.PI*0.48;
+        const oaL=R*sz*(0.55+nh(n,400+i)*0.28);
+        rtend(ctx,cx+offX+(nh(n,401+i)-0.5)*bW*0.32,bellCY,Math.PI*0.5+oa,oaL,R*sz*0.058,acc,g,A-0.18,n,402+i*5);
+        fcirc(ctx,cx+offX+(nh(n,401+i)-0.5)*bW*0.32+Math.cos(Math.PI*0.5+oa)*oaL,bellCY+Math.sin(Math.PI*0.5+oa)*oaL,R*sz*0.07,acc,g,A-0.20,3);
       }
-      if (st>=2) sporePuff(ctx, cx+offX, cy-R*stageSz*0.58, R*stageSz, t, n, f, A-0.06);
     }
-  }
-
-  // ── Stage 3: ancient (old cap + new growth + parasitized pocket) ──
-  if (st===3) {
-    ctx.save(); ctx.globalAlpha=0.32; ctx.fillStyle='rgba(178,168,148,0.72)';
-    ctx.beginPath(); ctx.ellipse(cx+offX+R*0.52, cy-stromaR*0.52, R*0.28, R*0.17, -0.28, Math.PI, 0, true); ctx.closePath(); ctx.fill(); ctx.restore();
-    fruitingBody(ctx, cx+offX-R*0.28, cy-stromaR-R*0.07, R*0.68, 2, t, n+13, f, g, A-0.14);
-    if (cl===0) fcirc(ctx, cx+offX+R*0.07, cy-stromaR-R*0.60, R*0.11, 'rgba(28,18,13,0.88)', g, A-0.10, 2);
-  }
-}
-
-function drawSlimeMold(ctx:Ctx,cx:number,cy:number,R:number,n:number,st:number,mi:number,t:number,lean:number,f:string,g:string,acc:string,A:number): void {
-  const sz=[0.50,0.68,1.00,1.12][st];
-  const nL=2+mi+st;
-  for (let i=0; i<nL; i++) {
-    const flow=pulse(t,n+i*7,0.4+nh(n,800+i)*0.28);
-    const lX=cx+(nh(n,800+i)-0.5)*R*sz*1.50*flow;
-    const lY=cy+(nh(n,810+i)-0.5)*R*sz*0.72;
-    const lr=R*sz*(0.26+nh(n,820+i)*0.17);
-    const lA=i===0 ? A : A*(0.68+flow*0.24);
-    oblob(ctx,lX-lean*R*0.14,lY,lr,lr*0.70,f,g,lA,n,830+i*10);
-    if (i===0) {
-      ctx.save(); ctx.globalAlpha=A*0.38; ctx.strokeStyle=acc; ctx.lineWidth=1.2; ctx.shadowColor=acc; ctx.shadowBlur=8;
-      ctx.beginPath(); ctx.arc(lX-lean*R*0.14,lY,lr*0.86,-Math.PI*0.58,Math.PI*0.58); ctx.stroke(); ctx.restore();
+    // Trailing tentacles from bell margin
+    const nT=6+mi*2+st;
+    for (let i=0;i<nT;i++) {
+      const ta=Math.PI*0.10+(i/(nT-1))*Math.PI*0.80;
+      const tmx=cx+offX+Math.cos(ta)*bW*(0.88+contract*0.08);
+      const tmy=bellCY+Math.sin(ta)*bH*(0.12+contract*0.05);
+      const tLen=R*sz*(1.60+nh(n,500+i)*0.72);
+      const curl=(nh(n,510+i)-0.5)*R*sz*0.42+lean*R*sz*0.28;
+      const tW=R*sz*(0.040-i*0.001);
+      bellTentacle(ctx,tmx,tmy,tLen,Math.max(0.8,tW),curl,t,n,i*13,f,g,A*(0.88-i*0.022));
     }
-  }
-  if (st>=2) sporePuff(ctx,cx,cy-R*sz*0.58,R*sz,t,n,f,A-0.10);
-}
-
-function drawBioLumNet(ctx:Ctx,cx:number,cy:number,R:number,n:number,st:number,mi:number,t:number,f:string,g:string,acc:string,A:number): void {
-  const sz=[0.50,0.68,1.00,1.12][st];
-  const dep=[2,3,4,5][st];
-  const nM=4+mi*2;
-  for (let i=0; i<nM; i++) {
-    const ha=(i/nM)*Math.PI*2;
-    hypha(ctx,cx,cy,ha,R*sz*(0.82+nh(n,900+i)*0.43),R*sz*0.042,dep,t,n,900+i*20,acc,A-0.06);
-  }
-  if (st>=2) {
-    for (let i=0; i<5+mi; i++) {
-      const nx2=cx+(nh(n,950+i)-0.5)*R*sz*1.38, ny2=cy+(nh(n,960+i)-0.5)*R*sz*1.38;
-      const nr2=R*sz*(0.038+pulse(t,n+i*11,1.2+nh(n,970+i))*0.038);
-      fcirc(ctx,nx2,ny2,nr2,acc,acc,A*(0.52+pulse(t,n+i*5,0.8)*0.34),6);
+    // Radial canals on bell (stage 2+)
+    if (st>=2) {
+      const nC=4+mi;
+      for (let i=0;i<nC;i++) {
+        const ca=(i/(nC))*Math.PI+Math.PI*0.05;
+        sarc(ctx,cx+offX,bellCY-bH*0.24,bH*0.52,Math.PI+ca-Math.PI*0.5,Math.PI+ca+Math.PI*0.5,acc,A*0.22,0.42);
+      }
     }
-  }
-  const hubR2=R*sz*(0.13+pulse(t,n,1.0)*0.055);
-  fcirc(ctx,cx,cy,hubR2,acc,acc,A*0.78,8);
-}
-
-// ── PHYLUM 3: VASCULAR ────────────────────────────────────────────────────
-// Clades: 0=Predatory  1=Ambulatory  2=Colonial  3=Epiphytic
-function drawVascular(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const lean    = alertLean(ectx?.colPos??3, ectx?.playerDist??3);
-  const stageSz = [0.52, 0.70, 1.00, 1.10][st];
-  const offX    = -lean*R*0.13;
-
-  if (cl===2) { drawColonialVasc(ctx,cx+offX,cy,R,n,st,mi,t,lean,f,g,acc,A); return; }
-
-  // ── Root / anchor system ──
-  const rootY = cy + R*stageSz*0.52;
-  const nRoot = 3+mi;
-  if (cl===1) { // AMBULATORY: roots as jointed legs
-    const nRL = nRoot*2;
-    for (let i=0; i<nRL; i++) {
-      const s=(i%2===0)?-1:1;
-      const pi=Math.floor(i/2);
-      const lX=cx+offX+(pi-(nRoot-1)/2)*R*stageSz*0.40;
-      const lift=stepGait(t,n,i,nRL,2.2)*R*stageSz*0.25;
-      arthLeg(ctx,lX,rootY-R*stageSz*0.08,Math.PI*0.60+s*0.10,R*stageSz*0.40,R*stageSz*0.33,lift,f,g,A-0.12);
+    // Damage: bell tears
+    if (hpFrac<0.5) {
+      ctx.save(); ctx.globalAlpha=0.40; ctx.strokeStyle='rgba(220,200,160,0.72)'; ctx.lineWidth=0.60;
+      ctx.beginPath(); ctx.moveTo(cx+offX+bW*0.28,bellCY-bH*0.62); ctx.lineTo(cx+offX+bW*0.44,bellCY-bH*0.10); ctx.stroke(); ctx.restore();
     }
-  } else {
-    for (let i=0; i<nRoot; i++) {
-      const ra=Math.PI*0.40+(i/(nRoot-1))*Math.PI*0.20;
-      rtend(ctx,cx+offX,rootY,ra,R*stageSz*0.50,R*stageSz*0.068,f,g,A-0.24,n,400+i*5);
-    }
-  }
 
-  // ── Main vascular trunk ──
-  const tH=R*stageSz*(cl===0?0.92:cl===3?0.68:1.08);
-  const tLean=wave(t,n,0.5,tH*0.024);
-  const tTopX=cx+offX+tLean-lean*R*0.09, tTopY=cy-tH;
-  vascTrunk(ctx, cx+offX, rootY, tTopX, tTopY, R*stageSz*(0.095+st*0.020), t, n, f, acc, A);
-
-  // Bark texture (stage 1+)
-  if (st>=1) {
-    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.50;
-    for (let i=0; i<3+mi; i++) {
-      const bY=rootY-tH*(0.22+i*0.22);
-      const bX=cx+offX+(nh(n,1000+i)-0.5)*R*stageSz*0.10;
-      ctx.beginPath(); ctx.moveTo(bX-R*stageSz*0.055,bY); ctx.bezierCurveTo(bX,bY-R*0.055,bX+R*0.045,bY+R*0.045,bX+R*stageSz*0.065,bY+R*0.018); ctx.stroke();
+  } else if (cl===1) {
+    // ── FLAT DISC: wide oblate body + eyestalks + radiating arms ──
+    const dW=R*sz*1.82, dH=R*sz*0.36;
+    // Disc
+    oblob(ctx,cx+offX,cy,dW,dH,f,g,A,n,10);
+    // Pattern on top: mantle spots
+    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle=acc; ctx.lineWidth=0.45;
+    for (let i=0;i<5+mi;i++) {
+      const sx=cx+offX+(nh(n,600+i)-0.5)*dW*1.20, sy=cy+(nh(n,610+i)-0.5)*dH*0.55;
+      ctx.beginPath(); ctx.arc(sx,sy,dW*0.046,0,Math.PI*2); ctx.stroke();
     }
     ctx.restore();
-  }
-
-  // ── Branches + fronds ──
-  const nBr=[1,2,3,4][st];
-  for (let i=0; i<nBr; i++) {
-    const bF=0.24+(i/nBr)*0.64;
-    const bBX=cx+offX+tLean*bF, bBY=cy-tH*bF;
-    const bS=(nh(n,1100+i)>0.5?1:-1);
-    const bLen=R*stageSz*(0.36+nh(n,1110+i)*0.26);
-    const bA=bS>0 ? Math.PI*0.34 : -Math.PI*0.34;
-    const bTX=bBX+Math.cos(bA)*bLen+tLean*0.38, bTY=bBY+Math.sin(bA)*bLen;
-    vascTrunk(ctx,bBX,bBY,bTX,bTY,R*stageSz*0.055,t,n+i*7,f,acc,A-0.09);
-    fell(ctx,bTX,bTY,R*stageSz*(0.20+nh(n,1120+i)*0.09),R*stageSz*0.28+wave(t,n+i,0.80,R*stageSz*0.038),f,g,A-0.12,4);
-    if (st>=1) {
-      ctx.save(); ctx.globalAlpha=A-0.34; ctx.fillStyle='rgba(0,0,0,0.52)';
-      for (let j=0; j<3; j++) { ctx.beginPath(); ctx.arc(bTX+(nh(n,1130+i*10+j)-0.5)*R*stageSz*0.16,bTY+(nh(n,1140+i*10+j)-0.5)*R*stageSz*0.20,R*stageSz*0.016,0,Math.PI*2); ctx.fill(); }
-      ctx.restore();
+    // Two eyestalks projecting upward
+    const stalkLen=R*sz*(0.48+mi*0.08);
+    const eyeR=R*sz*0.12;
+    const e1x=cx+offX-dW*0.28, e2x=cx+offX+dW*0.28;
+    eyeStalk(ctx,e1x,cy-dH,stalkLen,eyeR,lean,t,n,20,f,g,A);
+    eyeStalk(ctx,e2x,cy-dH,stalkLen,eyeR,-lean,t,n,21,f,g,A);
+    // 8 short arms radiating from disc perimeter
+    const nA=8;
+    for (let i=0;i<nA;i++) {
+      const aa=(i/nA)*Math.PI*2;
+      const armX=cx+offX+Math.cos(aa)*dW*0.86;
+      const armY=cy+Math.sin(aa)*dH*0.78;
+      const aLen=R*sz*(0.48+nh(n,700+i)*0.22);
+      const tipX=armX+Math.cos(aa)*aLen;
+      const tipY=armY+Math.sin(aa)*aLen*0.55;
+      tentArm(ctx,armX,armY,tipX,tipY,R*sz*0.040,st>=1,(nh(n,701+i)-0.5)*R*sz*0.22,t,n,i*11,f,g,A-0.08);
     }
-  }
-  fcirc(ctx,tTopX,tTopY,R*stageSz*0.068,acc,acc,A*0.78,5);
+    // Ink cloud when badly damaged
+    if (hpFrac<0.35) {
+      ctx.save(); ctx.globalAlpha=(0.35-hpFrac)*0.8;
+      const grad=ctx.createRadialGradient(cx+offX,cy,0,cx+offX,cy,R*sz*1.10);
+      grad.addColorStop(0,'rgba(8,4,18,0.72)'); grad.addColorStop(1,'rgba(8,4,18,0)');
+      ctx.fillStyle=grad; ctx.beginPath(); ctx.ellipse(cx+offX,cy,R*sz*1.10,R*sz*0.78,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    }
 
-  // ── Clade-specific ──
-  if (cl===0) { // PREDATORY: snap-jaw trap
-    const trapOpen=lean*0.78+pulse(t,n,0.55)*0.24;
-    const tpX=cx+offX-R*stageSz*0.52, tpY=cy-R*stageSz*0.16;
+  } else if (cl===2) {
+    // ── AMMONITE COIL: the entire body is the spiral ──
+    ammoniteCoil(ctx,cx+offX,cy,R*sz,n,t,f,g,acc,A);
+    // Tentacles emerging from aperture (stage 1+)
+    if (st>=1) {
+      const rot=t*0.001*0.18+nh(n,0xA201)*Math.PI*2;
+      const apertX=cx+offX+Math.cos(rot+Math.PI)*R*sz*0.62;
+      const apertY=cy+Math.sin(rot+Math.PI)*R*sz*0.62;
+      const nTA=4+mi;
+      for (let i=0;i<nTA;i++) {
+        const ta=rot+Math.PI+(i/(nTA-1)-0.5)*Math.PI*0.48;
+        const tLen=R*sz*(0.62+nh(n,800+i)*0.40);
+        const tipX=apertX+Math.cos(ta)*tLen;
+        const tipY=apertY+Math.sin(ta)*tLen;
+        tentArm(ctx,apertX,apertY,tipX,tipY,R*sz*0.046,true,(nh(n,801+i)-0.5)*R*sz*0.28,t,n,i*9,acc,g,A-0.06);
+      }
+    }
+    if (st===3) drawScar(ctx,cx+offX+R*0.22,cy-R*0.28,R,n,0x5C01);
+
+  } else {
+    // ── HOOK PARASITE: C-shaped grip around a host mass ──
+    // Host (dim background mass)
+    oblob(ctx,cx+offX+R*sz*0.12,cy,R*sz*0.62,R*sz*0.54,'rgba(42,28,18,0.52)','rgba(18,10,4,0.30)',A-0.38,n,80);
+    // Hook body
+    const grip=1-lean*0.40;
+    hookBody(ctx,cx+offX,cy,R*sz,grip,f,g,A);
+    // Hooks at tips have suckers (stage 1+)
+    if (st>=1) {
+      const rot2=t*0.001*0.22;
+      for (let i=0;i<3+mi;i++) {
+        const ha=-Math.PI*0.22+(i/(2+mi))*Math.PI*1.50+rot2*0.05;
+        const px2=cx+offX+Math.cos(ha)*R*sz*0.66, py2=cy+Math.sin(ha)*R*sz*0.66;
+        sarc(ctx,px2,py2,R*sz*0.060,0,Math.PI*2,acc,A-0.24,0.65,2);
+      }
+    }
+    if (st===3) drawParasite(ctx,cx+offX-R*sz*0.58,cy-R*sz*0.42,R,n,0x5C02,t,A);
+  }
+}
+
+// ── PHYLUM 1: ARTHROPODA ─────────────────────────────────
+// Clade 0=Bilobate Spider  1=Shield Crab  2=Chain Centipede  3=Barnacle
+function drawArthropoda(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
+  const sz=[0.52,0.70,1.00,1.10][st];
+  const shk=damageShake(t,ectx?.hpFrac??1);
+  const lean=alertLean(ectx?.playerDist??3);
+  const offX=shk-lean*R*0.14;
+  const hpFrac=ectx?.hpFrac??1;
+
+  if (cl===0) {
+    // ── BILOBATE SPIDER: teardrop prosoma + round opisthosoma ──
+    const proW=R*sz*0.82, proH=R*sz*0.58;
+    const opR=R*sz*(0.44+mi*0.04);
+    const waistGap=R*sz*0.06;
+    // Body bob animation
+    const bob=wave(t,n,2.8,R*sz*0.028);
+    spiderBody(ctx,cx+offX,cy+bob,proW,proH,opR,waistGap,n,f,g,A);
+    // Spinneret at rear of opisthosoma
+    const spX=cx+offX+proW*0.48+waistGap+opR*1.92;
+    const spY=cy+bob;
+    fcirc(ctx,spX,spY,opR*0.13,acc,g,A-0.10,3);
+    if (st>=1) {
+      // Silk thread
+      ctx.save(); ctx.globalAlpha=A-0.36; ctx.strokeStyle='rgba(230,220,200,0.52)'; ctx.lineWidth=0.38; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(spX+opR*0.14,spY); ctx.lineTo(spX+R*sz*0.62,spY+R*sz*0.22); ctx.stroke(); ctx.restore();
+    }
+    // 8 legs from prosoma (4 per side)
+    const freq=2.4+lean*1.8;
+    for (let i=0;i<8;i++) {
+      const side=i<4?-1:1;
+      const pair=i%4;
+      const lX=cx+offX-proW*0.62+pair*(proW*1.24/3);
+      const lY=cy+bob+side*proH*0.72;
+      const legBase=i<4?Math.PI*0.52:Math.PI*0.48;
+      const lift=stepGait(t,n,i,8,freq)*R*sz*0.22;
+      spiderLeg(ctx,lX,lY,legBase,R*sz,lift,f,g,A-0.06);
+    }
+    // Pedipalps at prosoma front
     for (const s of [-1,1] as const) {
-      ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=acc; ctx.lineWidth=R*stageSz*0.086;
-      ctx.shadowColor=acc; ctx.shadowBlur=4; ctx.lineCap='round';
-      ctx.beginPath(); ctx.arc(tpX,tpY,R*stageSz*0.36,s*(Math.PI*0.18+trapOpen*Math.PI*0.44),s*Math.PI*0.76,s<0); ctx.stroke(); ctx.restore();
-      if (st>=2) {
-        for (let i=0; i<3; i++) {
-          const ha=s*(Math.PI*0.26+i*0.14);
-          sline(ctx,tpX+Math.cos(ha)*R*stageSz*0.33,tpY+Math.sin(ha)*R*stageSz*0.33,
-                    tpX+Math.cos(ha)*R*stageSz*0.52,tpY+Math.sin(ha)*R*stageSz*0.52,acc,A-0.22,0.62);
+      const ppX=cx+offX-proW*0.90, ppY=cy+bob+s*proH*0.28;
+      rtend(ctx,ppX,ppY,-Math.PI*0.18*s-Math.PI*0.05,R*sz*0.36,R*sz*0.052,f,g,A-0.14,n,900+s*3);
+      fcirc(ctx,ppX+Math.cos(-Math.PI*0.18*s-Math.PI*0.05)*R*sz*0.36,ppY+Math.sin(-Math.PI*0.18*s-Math.PI*0.05)*R*sz*0.36,R*sz*0.048,f,g,A-0.18,2);
+    }
+    // Eyes on prosoma front face
+    if (st>=1) {
+      const eyeRow=[{x:0.10,y:0.22},{x:-0.10,y:0.22},{x:0.26,y:0.08},{x:-0.26,y:0.08}];
+      for (const ep of eyeRow.slice(0,st>=2?4:2)) {
+        fcirc(ctx,cx+offX-proW*0.78+ep.x*R*sz,cy+bob+ep.y*R*sz,R*sz*0.062,'rgba(220,232,210,0.90)',g,A-0.04,2);
+        fcirc(ctx,cx+offX-proW*0.78+ep.x*R*sz,cy+bob+ep.y*R*sz,R*sz*0.034,'rgba(5,4,8,0.95)',g,A,0);
+      }
+    }
+    if (hpFrac<0.5) {
+      ctx.save(); ctx.globalAlpha=0.40; ctx.strokeStyle='rgba(218,198,158,0.80)'; ctx.lineWidth=0.62;
+      ctx.beginPath(); ctx.moveTo(cx+offX,cy+bob-proH*0.48); ctx.lineTo(cx+offX+R*0.14,cy+bob+R*0.16); ctx.stroke(); ctx.restore();
+    }
+    if (st===3) drawScar(ctx,cx+offX+proW*0.20,cy+bob,R,n,0x5A01);
+
+  } else if (cl===1) {
+    // ── SHIELD CRAB: wide carapace + lateral claws + fan tail ──
+    const cW=R*sz*1.82, cH=R*sz*0.50;
+    // Body sway (sideways shuffle)
+    const shuffle=wave(t,n,1.8,R*sz*0.038)*lean;
+    const cOffX=offX+shuffle;
+    crabCarapace(ctx,cx+cOffX,cy,cW,cH,n,f,g,A);
+    // Stalked eyes on top of carapace
+    const eyeStalkL=R*sz*(0.22+mi*0.04);
+    for (const s of [-1,1] as const) {
+      const eX=cx+cOffX+s*cW*0.18, eY=cy-cH;
+      sline(ctx,eX,eY,eX+s*eyeStalkL*0.18,eY-eyeStalkL,f,A-0.06,R*sz*0.052);
+      fcirc(ctx,eX+s*eyeStalkL*0.18,eY-eyeStalkL,R*sz*0.08,f,g,A,3);
+      fcirc(ctx,eX+s*eyeStalkL*0.18,eY-eyeStalkL,R*sz*0.046,'rgba(5,4,8,0.94)',g,A-0.02,0);
+    }
+    // Fan tail (uropods)
+    for (let i=0;i<3+mi;i++) {
+      const ta=Math.PI*0.36+(i/(2+mi))*Math.PI*0.28;
+      rtend(ctx,cx+cOffX+cW*0.44,cy,ta,R*sz*(0.24+nh(n,1000+i)*0.14),R*sz*0.048,f,g,A-0.20,n,1001+i*4);
+    }
+    // Two large chelipeds (claws) on front-lateral
+    const clawOpen=0.18+lean*0.88+pulse(t,n,0.80)*0.14;
+    crabClaw(ctx,cx+cOffX-cW*0.56,cy-cH*0.05,R*sz,Math.min(1,clawOpen),-1,f,g,A);
+    crabClaw(ctx,cx+cOffX+cW*0.56,cy-cH*0.05,R*sz,Math.min(1,clawOpen),1,f,g,A);
+    // Walking legs (4 per side)
+    for (let i=0;i<8;i++) {
+      const side=i<4?-1:1;
+      const pair=i%4;
+      const lX=cx+cOffX+(side<0?-cW*0.48:cW*0.48);
+      const lY=cy+cH*0.70+pair*cH*0.25;
+      const lift=stepGait(t,n,i,8,1.6)*R*sz*0.14;
+      const legA=side<0?Math.PI*0.68:Math.PI*0.32;
+      const femL=R*sz*0.36, tibL=R*sz*0.30;
+      const kX=lX+Math.cos(legA)*femL, kY=lY+Math.sin(legA)*femL-lift;
+      sline(ctx,lX,lY,kX,kY,f,A-0.08,R*sz*0.058);
+      sline(ctx,kX,kY,kX+Math.cos(legA+Math.PI*0.24)*tibL,kY+Math.sin(legA+Math.PI*0.24)*tibL+lift*0.44,f,A-0.14,R*sz*0.044);
+      fcirc(ctx,kX,kY,R*sz*0.048,f,g,A-0.20,2);
+    }
+    if (hpFrac<0.5) drawScar(ctx,cx+cOffX,cy,R,n,0x5B01);
+
+  } else if (cl===2) {
+    // ── CHAIN CENTIPEDE: tapering oval segments with serpentine wave ──
+    const nSeg=6+mi*2+(st>1?2:0);
+    const segW=R*sz*(2.0/nSeg)*0.82;  // each segment width
+    // Head slightly larger
+    const headW=segW*1.28, headH=headW*0.68;
+    // Serpentine: compute segment center positions
+    const totalLen=segW*nSeg*1.08;
+    const segPositions: {x:number,y:number,a:number}[]=[];
+    let sx=cx+offX-totalLen*0.48;
+    for (let i=0;i<nSeg;i++) {
+      const segAngle=serpentAngle(t,n,i,nSeg,0.22);
+      const sy=cy+segAngle*R*sz*1.20;
+      segPositions.push({x:sx,y:sy,a:segAngle});
+      sx+=segW*1.05;
+    }
+    // Draw segments back to front
+    for (let i=nSeg-1;i>=0;i--) {
+      const sp=segPositions[i];
+      const isHead=i===0;
+      const taper=(i/(nSeg-1));  // 0=head, 1=tail
+      const sW=isHead?headW:segW*(1-taper*0.32);
+      const sH=isHead?headH:sW*0.55*(1-taper*0.18);
+      centSeg(ctx,sp.x,sp.y,sW,sH,n,i*12,f,g,A);
+      // Legs (2 per segment, excluding head, from ventral edges)
+      if (!isHead && st>0) {
+        for (const s of [-1,1] as const) {
+          const lift=stepGait(t,n,i*2+(s>0?1:0),nSeg*2,3.2)*R*sz*0.14;
+          const lX=sp.x, lY=sp.y+s*sH;
+          sline(ctx,lX,lY,lX+(s>0?R*sz*0.02:-R*sz*0.02),lY+s*R*sz*(0.26-lift),f,A-0.16,R*sz*0.038);
         }
       }
     }
-    if (st>=2) {
-      for (let i=0; i<3+mi; i++) {
-        const gX=tpX+(nh(n,1200+i)-0.5)*R*stageSz*0.42, gY=tpY+(nh(n,1210+i)-0.5)*R*stageSz*0.28;
-        fcirc(ctx,gX,gY,R*stageSz*0.038,acc,g,A*(0.52+pulse(t,n+i*7,1.8)*0.34),3);
+    // Head features
+    const hd=segPositions[0];
+    // Antennae
+    for (const s of [-1,1] as const) {
+      rtend(ctx,hd.x-headW*0.88,hd.y+s*headH*0.38,-Math.PI*0.08+s*0.32,R*sz*0.68,R*sz*0.032,f,g,A-0.14,n,1100+s*5);
+      fcirc(ctx,hd.x-headW*0.88+Math.cos(-Math.PI*0.08+s*0.32)*R*sz*0.68,hd.y+s*headH*0.38+Math.sin(-Math.PI*0.08+s*0.32)*R*sz*0.68,R*sz*0.038,acc,g,A-0.18,2);
+    }
+    compoundEye(ctx,hd.x-headW*0.60,hd.y-headH*0.28,headW*0.30,headH*0.22,n,f,g,A);
+    // Cerci at tail
+    const tail=segPositions[nSeg-1];
+    for (const s of [-1,1] as const) {
+      sline(ctx,tail.x+segW*0.88,tail.y+s*segW*0.22,tail.x+segW*0.88+R*sz*0.38,tail.y+s*R*sz*0.32,f,A-0.18,R*sz*0.038);
+    }
+    if (st===3) drawScar(ctx,hd.x,hd.y-headH*0.55,R,n,0x5C01);
+
+  } else {
+    // ── BARNACLE: cone of plates + filter cirri ──
+    const bSz=[0.52,0.70,1.00,1.10][st];
+    const nP=6+mi;
+    for (let i=0;i<nP;i++) {
+      const a0=(i/nP)*Math.PI*2, a1=((i+0.80)/nP)*Math.PI*2;
+      const r1=R*bSz*0.25, r2=R*bSz*0.72;
+      ctx.save(); ctx.globalAlpha=A*(0.90-i*0.03); ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
+      ctx.beginPath(); ctx.arc(cx+offX,cy,r2,a0,a1); ctx.arc(cx+offX,cy,r1,a1,a0,true); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
+    }
+    fcirc(ctx,cx+offX,cy,R*bSz*0.22,g,g,A-0.14,5);
+    const fanOpen=0.38+pulse(t,n,1.2)*0.62;
+    if (st>=1) {
+      for (let i=0;i<4+mi;i++) {
+        const fa=-Math.PI*0.5+(i/(3+mi)-0.5)*Math.PI*0.56;
+        rtend(ctx,cx+offX,cy,fa,R*bSz*(0.30+nh(n,1200+i)*0.16)*fanOpen,R*bSz*0.038,acc,g,A-0.20,n,1200+i*4);
       }
     }
-  } else if (cl===3) { // EPIPHYTIC: grappling tendrils
-    for (let i=0; i<3+mi; i++) {
-      const ta=Math.PI*(0.68+i*0.34)+lean*0.38;
-      rtend(ctx,cx+offX,cy,ta,R*stageSz*(0.62+nh(n,1300+i)*0.36),R*stageSz*0.046,acc,g,A-0.20,n,1300+i*5);
-      const cEnd=[cx+offX+Math.cos(ta)*R*stageSz*0.78, cy+Math.sin(ta)*R*stageSz*0.78];
-      ctx.save(); ctx.globalAlpha=A*(0.33+pulse(t,n+i,1.2)*0.28); ctx.strokeStyle=acc; ctx.lineWidth=0.72; ctx.shadowColor=acc; ctx.shadowBlur=6;
-      ctx.beginPath(); ctx.moveTo(cx+offX,cy); ctx.lineTo(cEnd[0],cEnd[1]); ctx.stroke(); ctx.restore();
+    for (let i=0;i<3;i++) {
+      const ha=Math.PI*(0.60+i*0.38);
+      sline(ctx,cx+offX,cy,cx+offX+Math.cos(ha)*R*bSz*0.88,cy+Math.sin(ha)*R*bSz*0.88,f,A-0.24,R*bSz*0.058);
     }
   }
+}
 
-  // ── Stage 3: ancient ──
-  if (st===3) {
-    drawScar(ctx, cx+offX+R*0.18, cy-R*0.40, R, n, 0x5701);
-    for (let i=0; i<3+mi; i++) {
-      const gY2=rootY-tH*(0.28+nh(n,1400+i)*0.52);
-      const gX2=cx+offX+(nh(n,1410+i)-0.5)*R*stageSz*0.18;
-      fcirc(ctx,gX2,gY2,R*stageSz*(0.076+nh(n,1420+i)*0.055),f,g,A-0.20,3);
+// ── PHYLUM 2: FUNGI ──────────────────────────────────────
+// Clade 0=Mushroom  1=Zombie Burst  2=Directional Amoeba  3=Node Web
+function drawFungi(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
+  const sz=[0.50,0.68,1.00,1.12][st];
+  const lean=alertLean(ectx?.playerDist??3);
+  const offX=-lean*R*0.10;
+
+  if (cl===0) {
+    // ── PROPER MUSHROOM: cap + gills + tapered stalk + mycelial mat ──
+    const stalkH=R*sz*(0.72+nh(n,0xF120)*0.32);
+    const stalkW=R*sz*(0.10+mi*0.02);
+    const capW=R*sz*(0.82+nh(n,0xF121)*0.26);  // cap much wider than stalk
+    const capH=R*sz*(0.38+nh(n,0xF122)*0.14);
+    const sway=wave(t,n,0.45,stalkH*0.032);
+    const stalkBaseX=cx+offX, stalkBaseY=cy+R*sz*0.38;
+    const stalkTopX=stalkBaseX+sway, stalkTopY=stalkBaseY-stalkH;
+    // Mycelial mat at base
+    oblob(ctx,stalkBaseX,stalkBaseY+R*sz*0.08,R*sz*0.62,R*sz*0.14,g,g,A-0.28,n,20);
+    // Stalk (tapered: wider at base, narrower at cap)
+    ctx.save(); ctx.globalAlpha=A-0.06; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=3;
+    const stW0=stalkW*1.6, stW1=stalkW;
+    ctx.beginPath();
+    ctx.moveTo(stalkBaseX-stW0,stalkBaseY);
+    ctx.bezierCurveTo(stalkBaseX-stW0*0.85,stalkBaseY-stalkH*0.4,stalkTopX-stW1,stalkTopY+stalkH*0.4,stalkTopX-stW1,stalkTopY);
+    ctx.lineTo(stalkTopX+stW1,stalkTopY);
+    ctx.bezierCurveTo(stalkTopX+stW1,stalkTopY+stalkH*0.4,stalkBaseX+stW0*0.85,stalkBaseY-stalkH*0.4,stalkBaseX+stW0,stalkBaseY);
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
+    // Annulus ring (stage 2+)
+    if (st>=2) {
+      fell(ctx,stalkTopX,stalkTopY+stalkH*0.28,stW1*2.8,stW1*0.40,acc,g,A-0.18,2);
     }
-    ctx.save(); ctx.globalAlpha=A-0.34; ctx.strokeStyle='rgba(0,0,0,0.52)'; ctx.lineWidth=0.58;
-    for (let i=0; i<3; i++) {
-      const cY2=rootY-tH*(0.18+i*0.27);
-      ctx.beginPath(); ctx.moveTo(cx+offX-R*stageSz*0.076,cY2); ctx.lineTo(cx+offX+R*stageSz*(nh(n,1430+i)-0.5)*0.16,cY2+R*stageSz*0.11); ctx.stroke();
+    // Cap
+    mushCap(ctx,stalkTopX,stalkTopY,capW,capH,st,n,t,f,g,A);
+    // Spore puff from cap underside
+    if (st>=1) {
+      const pCycle=(t*0.001*0.62+nh(n,0xF123))%1.0;
+      const pSz=R*sz*0.22*pCycle;
+      const pA=A*(1-pCycle)*0.48;
+      if (pA>0.02) fcirc(ctx,stalkTopX+(nh(n,0xF124)-0.5)*capW*0.44,stalkTopY+capH*0.18+pSz,pSz,acc,acc,pA,pSz*0.5);
+    }
+
+  } else if (cl===1) {
+    // ── ZOMBIE BURST: lumpy host blob with erupting fungal stalks ──
+    // Host body (irregular 5-lobe blob)
+    const hR=R*sz*(0.64+mi*0.04);
+    oblob(ctx,cx+offX,cy,hR,hR*0.88,'rgba(42,35,26,0.72)','rgba(22,16,8,0.42)',A-0.08,n,40);
+    // Surface texture on host
+    ctx.save(); ctx.globalAlpha=A-0.30;
+    for (let i=0;i<6+mi;i++) {
+      const tx=cx+offX+(nh(n,1300+i)-0.5)*hR*1.40, ty=cy+(nh(n,1310+i)-0.5)*hR*1.10;
+      ctx.fillStyle=i%2===0?'rgba(58,44,28,0.65)':'rgba(28,20,10,0.55)';
+      ctx.beginPath(); ctx.ellipse(tx,ty,hR*(0.12+nh(n,1320+i)*0.10),hR*(0.08+nh(n,1321+i)*0.08),nh(n,1322+i)*Math.PI,0,Math.PI*2); ctx.fill();
     }
     ctx.restore();
-  }
-}
-
-function drawColonialVasc(ctx:Ctx,cx:number,cy:number,R:number,n:number,st:number,mi:number,t:number,lean:number,f:string,g:string,acc:string,A:number): void {
-  const sz=[0.52,0.70,1.00,1.10][st];
-  const nT=2+mi;
-  for (let i=0; i<nT; i++) {
-    const tOff=(i/(nT-1)-0.5)*R*sz*1.28;
-    const rootY2=cy+R*sz*0.48;
-    const tH2=R*sz*(0.88+nh(n,1500+i)*0.24);
-    const tTX=cx+tOff+wave(t,n+i,0.5,tH2*0.020)-lean*R*0.07;
-    const tTY=cy-tH2;
-    sline(ctx,cx+tOff,rootY2,cx,rootY2+R*sz*0.13,f,A-0.24,R*sz*0.062);
-    vascTrunk(ctx,cx+tOff,rootY2,tTX,tTY,R*sz*0.090,t,n+i*11,f,acc,A);
-    fell(ctx,tTX,tTY,R*sz*(0.20+nh(n,1510+i)*0.11),R*sz*0.26+wave(t,n+i,0.80,R*sz*0.038),f,g,A-0.12,4);
-    fcirc(ctx,tTX,tTY,R*sz*0.062,acc,acc,A*0.74,5);
-  }
-  oblob(ctx,cx,cy+R*sz*0.56,R*sz*0.52,R*sz*0.17,f,g,A-0.20,n,1520);
-}
-
-// ── PHYLUM 4: CRYSTALLINE ─────────────────────────────────────────────────
-// Clades: 0=Prismatic  1=Geode  2=LiquidCrystal  3=Ceramic
-function drawCrystalline(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const lean     = alertLean(ectx?.colPos??3, ectx?.playerDist??3);
-  const shk      = damageShake(t, ectx?.hpFrac??1);
-  const stageSz  = [0.50, 0.68, 1.00, 1.12][st];
-  const offX     = -lean*R*0.10 + shk;
-  const hpFrac   = ectx?.hpFrac??1;
-  const resPulse = pulse(t, n, 0.85);
-
-  if (cl===0) { // PRISMATIC: elongated crystal array
-    const nS=[2,3,5,7][st];
-    const mLen=R*stageSz*(1.45+nh(n,2000)*0.48);
-    for (let i=0; i<nS; i++) {
-      const fr=(i/(nS-1||1)-0.5);
-      const sLen=mLen*(1-Math.abs(fr)*0.50);
-      const sOff=fr*R*stageSz*0.75;
-      const sA2=-Math.PI*0.5+fr*Math.PI*0.14+wave(t,n+i,0.4,0.048)+lean*0.32;
-      const sw=R*stageSz*(0.092-Math.abs(fr)*0.032);
-      const sAlpha=A*(0.84+resPulse*0.16*(1-Math.abs(fr)));
-      cshard(ctx, cx+offX+sOff, cy, sA2, sLen, sw, f, g, sAlpha);
+    // Erupting fungal stalks (main feature)
+    const nSt=3+mi;
+    for (let i=0;i<nSt;i++) {
+      const sOff=(nh(n,1400+i)-0.5)*hR*1.10;
+      const sBase=[cx+offX+sOff, cy+(nh(n,1401+i)-0.5)*hR*0.60] as [number,number];
+      const sLen=R*sz*(0.54+nh(n,1402+i)*0.44);
+      const tilt=wave(t,n+i,0.52,sLen*0.06);
+      const stalkTopX2=sBase[0]+tilt, stalkTopY2=sBase[1]-sLen;
+      sline(ctx,sBase[0],sBase[1],stalkTopX2,stalkTopY2,f,A-0.04,R*sz*0.068);
+      // Sporangium (swollen tip)
+      const spR=R*sz*(0.10+nh(n,1403+i)*0.08);
+      fcirc(ctx,stalkTopX2,stalkTopY2,spR,f,g,A,6);
+      // Burst hole at stalk base
+      sarc(ctx,sBase[0],sBase[1],R*sz*0.072,0,Math.PI*2,'rgba(0,0,0,0.62)',A-0.20,0.58);
+      // Spore release (stage 2+)
       if (st>=2) {
-        fcirc(ctx, cx+offX+sOff+Math.cos(sA2)*sLen, cy+Math.sin(sA2)*sLen,
-              sw*(0.58+resPulse*0.38), acc, acc, sAlpha*0.62, 5);
+        const pC=(t*0.001*0.72+nh(n+i,0xF210))%1.0;
+        const pSz2=spR*1.6*pC;
+        if (pSz2>0.5) fcirc(ctx,stalkTopX2+(nh(n,1404+i)-0.5)*spR,stalkTopY2-pSz2,pSz2*0.6,acc,acc,A*(1-pC)*0.42,pSz2*0.4);
       }
     }
+
+  } else if (cl===2) {
+    // ── DIRECTIONAL AMOEBA: asymmetric pseudopod flow ──
+    // Main mass (trailing side)
+    const mR=R*sz*0.68;
+    const flowPhase=t*0.001*0.48+nh(n,0xF300)*Math.PI*2;
+    const massX=cx+offX+R*sz*0.22, massY=cy;  // mass slightly right (trailing)
+    oblob(ctx,massX,massY,mR,mR*0.72,f,g,A-0.04,n,50);
+    // Leading pseudopod toward left/player
+    const pLen=R*sz*(0.80+nh(n,0xF301)*0.38)*(0.78+Math.sin(flowPhase)*0.22);
+    const pTipX=massX-mR-pLen, pTipY=cy+wave(t,n,0.55,R*sz*0.18);
+    ctx.save(); ctx.globalAlpha=A-0.08; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+    ctx.beginPath();
+    ctx.moveTo(massX-mR*0.68,massY-mR*0.28);
+    ctx.bezierCurveTo(massX-mR*0.88-pLen*0.35,massY-R*sz*0.24,pTipX+pLen*0.22,pTipY-R*sz*0.16,pTipX,pTipY);
+    ctx.bezierCurveTo(pTipX+pLen*0.22,pTipY+R*sz*0.16,massX-mR*0.88-pLen*0.35,massY+R*sz*0.24,massX-mR*0.68,massY+mR*0.28);
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
+    // Secondary smaller pseudopods (lobopods)
+    for (let i=0;i<2+mi;i++) {
+      const la=-Math.PI*0.28+(i/(1+mi))*Math.PI*0.56;
+      const lLen=R*sz*(0.30+nh(n,1500+i)*0.22)*(0.68+Math.sin(flowPhase+i*1.4)*0.32);
+      const lx=massX+Math.cos(la)*mR*(0.68+nh(n,1501+i)*0.22);
+      const ly=massY+Math.sin(la)*mR*(0.58+nh(n,1502+i)*0.18);
+      const ltX=lx+Math.cos(la)*lLen, ltY=ly+Math.sin(la)*lLen;
+      ctx.save(); ctx.globalAlpha=A-0.14; ctx.fillStyle=g; ctx.beginPath();
+      ctx.moveTo(lx-R*sz*0.10,ly); ctx.quadraticCurveTo(ltX,ltY,lx+R*sz*0.10,ly); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+    // Trailing reticulopods (thin network behind)
     if (st>=1) {
-      ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle=acc; ctx.lineWidth=0.58;
-      for (let i=1; i<3; i++) {
-        const bY2=cy+Math.sin(-Math.PI*0.5)*mLen*(i/4);
-        ctx.beginPath(); ctx.moveTo(cx+offX-mLen*0.38,bY2); ctx.lineTo(cx+offX+mLen*0.38,bY2); ctx.stroke();
+      const nR2=3+mi;
+      for (let i=0;i<nR2;i++) {
+        const ra=Math.PI*0.82+(i/(nR2-1)-0.5)*Math.PI*0.48;
+        hypha(ctx,massX+mR*0.60,massY,ra,R*sz*(0.38+nh(n,1600+i)*0.28),R*sz*0.028,2,t,n,1600+i*18,acc,A-0.20);
+      }
+    }
+    // Contractile vacuole pulsing
+    const cvR=R*sz*(0.066+pulse(t,n,1.4)*0.044);
+    fcirc(ctx,massX+mR*0.18,massY-mR*0.24,cvR,acc,acc,A-0.24,5);
+
+  } else {
+    // ── NODE WEB: polygon of anchor nodes + bezier threads ──
+    const nNodes=5+mi;
+    const webR=R*sz*0.82;
+    // Node positions (irregular polygon)
+    const nodes:{x:number,y:number}[]=[];
+    for (let i=0;i<nNodes;i++) {
+      const na=(i/nNodes)*Math.PI*2+nh(n,1700+i)*0.42;
+      const nr=webR*(0.68+nh(n,1701+i)*0.32);
+      nodes.push({x:cx+offX+Math.cos(na)*nr, y:cy+Math.sin(na)*nr});
+    }
+    // Connecting threads (cubic bezier)
+    for (let i=0;i<nNodes;i++) {
+      for (let j=i+1;j<nNodes;j++) {
+        if (nh(n,1800+i*nNodes+j)<0.62) {
+          const ni=nodes[i], nj=nodes[j];
+          const mx=(ni.x+nj.x)/2+(nh(n,1802+i*j)-0.5)*webR*0.32;
+          const my=(ni.y+nj.y)/2+(nh(n,1803+i*j)-0.5)*webR*0.22;
+          const pulseMul=0.58+pulse(t,n+i*7+j*3,0.85+nh(n,1804+i+j)*0.55)*0.42;
+          ctx.save(); ctx.globalAlpha=A*pulseMul*0.60; ctx.strokeStyle=f; ctx.lineWidth=R*sz*0.030; ctx.lineCap='round';
+          ctx.shadowColor=acc; ctx.shadowBlur=3;
+          ctx.beginPath(); ctx.moveTo(ni.x,ni.y); ctx.quadraticCurveTo(mx,my,nj.x,nj.y); ctx.stroke(); ctx.restore();
+        }
+      }
+    }
+    // Glowing nodes
+    for (let i=0;i<nNodes;i++) {
+      const nd=nodes[i];
+      const nr2=R*sz*(0.058+pulse(t,n+i*11,0.8+nh(n,1900+i))*0.048);
+      fcirc(ctx,nd.x,nd.y,nr2,acc,acc,A*(0.68+pulse(t,n+i*5,0.72)*0.32),8);
+      if (st>=1) sarc(ctx,nd.x,nd.y,nr2*1.8,0,Math.PI*2,f,A-0.32,0.42);
+    }
+    // Central hub (stage 2+)
+    if (st>=2) {
+      const hubR=R*sz*(0.12+pulse(t,n,1.0)*0.055);
+      fcirc(ctx,cx+offX,cy,hubR,acc,acc,A*0.82,10);
+    }
+  }
+}
+
+// ── PHYLUM 3: VASCULAR ───────────────────────────────────
+// Clade 0=Snap Trap  1=Root Walker  2=Polyp Colony  3=Tendril Star
+function drawVascular(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
+  const sz=[0.52,0.70,1.00,1.10][st];
+  const lean=alertLean(ectx?.playerDist??3);
+  const playerDist=ectx?.playerDist??3;
+  const offX=-lean*R*0.08;
+  const shk=damageShake(t,ectx?.hpFrac??1);
+
+  if (cl===0) {
+    // ── SNAP TRAP: two large jaws ARE the body ──
+    const lobeR=R*sz*(0.68+mi*0.06);
+    const open=trapOpen(playerDist,t,n);
+    // Small supporting peduncle below
+    const pedH=R*sz*0.30;
+    const pedW=R*sz*0.10;
+    // Root at very bottom
+    for (let i=0;i<3+mi;i++) {
+      const ra=Math.PI*(0.32+i*0.20)+lean*0.28;
+      rtend(ctx,cx+offX+shk,cy+pedH+R*sz*0.10,ra,R*sz*(0.28+nh(n,2000+i)*0.18),R*sz*0.048,f,g,A-0.24,n,2000+i*5);
+    }
+    // Peduncle
+    sline(ctx,cx+offX+shk,cy+pedH,cx+offX+shk,cy-R*sz*0.04,f,A-0.10,pedW*2);
+    // Top and bottom lobe (above and below hinge)
+    snapLobe(ctx,cx+offX+shk,cy,lobeR,open,-1,2+mi,f,g,acc,A);
+    snapLobe(ctx,cx+offX+shk,cy,lobeR,open,1,2+mi,f,g,acc,A);
+    // Nectary gland (glowing dot at hinge)
+    fcirc(ctx,cx+offX+shk,cy,R*sz*0.072,acc,acc,A*(0.64+pulse(t,n,1.8)*0.36),6);
+    // Captured prey indicator (stage 3)
+    if (st===3) fcirc(ctx,cx+offX+shk,cy,R*sz*0.12,'rgba(55,35,18,0.78)',g,A*0.48*(1-open),3);
+
+  } else if (cl===1) {
+    // ── ROOT WALKER: round root-ball on root-stilt legs ──
+    const ballR=R*sz*(0.54+mi*0.04);
+    const bob=wave(t,n,2.0,R*sz*0.032);
+    // Root-ball (lumpy, not smooth sphere)
+    oblob(ctx,cx+offX+shk,cy+bob-R*sz*0.12,ballR,ballR*0.88,f,g,A,n,60);
+    // Leaf/frond cluster at top of root-ball
+    const nFrond=3+mi;
+    for (let i=0;i<nFrond;i++) {
+      const fa=-Math.PI*0.5+(i/(nFrond-1)-0.5)*Math.PI*0.72;
+      const fLen=R*sz*(0.38+nh(n,2100+i)*0.24);
+      const fSway=wave(t,n+i,0.6,fLen*0.06);
+      const frX=cx+offX+shk+Math.cos(fa)*ballR*0.82, frY=cy+bob-R*sz*0.12+Math.sin(fa)*ballR*0.82;
+      const ftX=frX+Math.cos(fa)*fLen+fSway, ftY=frY+Math.sin(fa)*fLen;
+      vascTrunk(ctx,frX,frY,ftX,ftY,R*sz*0.042,t,n+i*7,f,acc,A-0.08);
+      fell(ctx,ftX,ftY,R*sz*(0.14+nh(n,2101+i)*0.08),R*sz*(0.20+wave(t,n+i,0.72,R*sz*0.028)),f,g,A-0.14,3);
+    }
+    // Root-stilt legs (4-6 from underside of ball)
+    const nRoots=4+mi*2;
+    for (let i=0;i<nRoots;i++) {
+      const ra=Math.PI*(0.28+i*(0.44/(nRoots-1)));
+      const rlX=cx+offX+shk+Math.cos(ra)*ballR*0.72;
+      const rlY=cy+bob-R*sz*0.12+Math.sin(ra)*ballR*0.72;
+      const lift=stepGait(t,n,i,nRoots,2.0)*R*sz*0.18;
+      // Thick root-leg going down to ground
+      const groundY=cy+R*sz*0.52;
+      const midX=rlX+(nh(n,2200+i)-0.5)*R*sz*0.22, midY=(rlY+groundY)*0.5-lift;
+      ctx.save(); ctx.globalAlpha=A-0.08; ctx.strokeStyle=f; ctx.lineWidth=R*sz*(0.080-i*0.004); ctx.lineCap='round'; ctx.shadowColor=g; ctx.shadowBlur=2;
+      ctx.beginPath(); ctx.moveTo(rlX,rlY); ctx.quadraticCurveTo(midX,midY,rlX+(nh(n,2201+i)-0.5)*R*sz*0.14,groundY); ctx.stroke(); ctx.restore();
+      // Root tip (spreading fine rootlets)
+      if (st>=1) {
+        const tipX=rlX+(nh(n,2201+i)-0.5)*R*sz*0.14, tipY=groundY;
+        for (let r=0;r<2+mi;r++) {
+          const rta=Math.PI*(0.22+r*0.28);
+          sline(ctx,tipX,tipY,tipX+Math.cos(rta)*R*sz*0.12,tipY+Math.sin(rta)*R*sz*0.10,f,A-0.28,R*sz*0.028);
+        }
+      }
+    }
+    if ((ectx?.hpFrac??1)<0.5) drawScar(ctx,cx+offX+shk,cy+bob,R,n,0x5701);
+
+  } else if (cl===2) {
+    // ── POLYP COLONY: flat mat + multiple stalks + polyp tips ──
+    const matW=R*sz*(1.52+mi*0.14);
+    // Rhizome mat at base
+    oblob(ctx,cx+offX,cy+R*sz*0.44,matW,R*sz*0.18,g,g,A-0.22,n,80);
+    // Stolon connections
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle=g; ctx.lineWidth=R*sz*0.035; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(cx+offX-matW,cy+R*sz*0.44); ctx.lineTo(cx+offX+matW,cy+R*sz*0.44); ctx.stroke(); ctx.restore();
+    // Stalks of varied heights from mat
+    const nStalk=3+mi;
+    for (let i=0;i<nStalk;i++) {
+      const sOff=(i/(nStalk-1)-0.5)*matW*0.80;
+      const sBaseX=cx+offX+sOff, sBaseY=cy+R*sz*0.38;
+      const sH=R*sz*(0.58+nh(n,2300+i)*0.48);
+      const sSway=wave(t,n+i,0.5+nh(n,2301+i)*0.3,sH*0.032);
+      const sTX=sBaseX+sSway, sTY=sBaseY-sH;
+      vascTrunk(ctx,sBaseX,sBaseY,sTX,sTY,R*sz*0.055,t,n+i*9,f,acc,A-0.06);
+      // Polyp tip (open/close)
+      const polyOpen=0.40+pulse(t,n+i*7,0.90+nh(n,2302+i)*0.40)*0.60;
+      const polyR=R*sz*(0.10+nh(n,2303+i)*0.04);
+      fcirc(ctx,sTX,sTY,polyR*polyOpen,acc,acc,A*(0.70+polyOpen*0.30),5);
+      // Tentacles emerging from polyp (stage 1+)
+      if (st>=1) {
+        const nPT=4+mi;
+        for (let j=0;j<nPT;j++) {
+          const pta=(j/nPT)*Math.PI*2;
+          const ptLen=polyR*(0.80+polyOpen*0.60);
+          sline(ctx,sTX,sTY,sTX+Math.cos(pta)*ptLen,sTY+Math.sin(pta)*ptLen*0.68,acc,A-0.28,R*sz*0.022);
+        }
+      }
+    }
+
+  } else {
+    // ── TENDRIL STAR: central node + radiating grappling tendrils ──
+    const nodeR=R*sz*(0.18+mi*0.04);
+    // Central node (small — tendrils dominate)
+    oblob(ctx,cx+offX,cy,nodeR,nodeR*0.92,f,g,A,n,90);
+    // Radiating grappling tendrils (4-7, varied lengths)
+    const nTend=4+mi+st;
+    for (let i=0;i<nTend;i++) {
+      const ta=(i/nTend)*Math.PI*2+lean*0.28+nh(n,2400+i)*0.38;
+      const tLen=R*sz*(0.72+nh(n,2401+i)*0.62);
+      const alertCurl=(alertLean(playerDist)*6)*(i%2===0?1:-1);
+      const animCurl=wave(t,n+i,0.45+nh(n,2402+i)*0.38,R*sz*0.20)+alertCurl;
+      const c1x=cx+offX+Math.cos(ta)*tLen*0.38+animCurl;
+      const c1y=cy+Math.sin(ta)*tLen*0.38;
+      const c2x=cx+offX+Math.cos(ta)*tLen*0.72+(nh(n,2403+i)-0.5)*tLen*0.22;
+      const c2y=cy+Math.sin(ta)*tLen*0.72+(nh(n,2404+i)-0.5)*tLen*0.14;
+      const tx=cx+offX+Math.cos(ta)*tLen, ty=cy+Math.sin(ta)*tLen;
+      ctx.save(); ctx.globalAlpha=A-0.06; ctx.strokeStyle=f; ctx.lineWidth=nodeR*(0.42-i*0.028); ctx.shadowColor=g; ctx.shadowBlur=3; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(cx+offX,cy); ctx.bezierCurveTo(c1x,c1y,c2x,c2y,tx,ty); ctx.stroke(); ctx.restore();
+      // Curl tip (grappling hook)
+      sarc(ctx,tx,ty,nodeR*(0.60-i*0.04),ta+Math.PI*0.55,ta+Math.PI*1.45,acc,A-0.16,R*sz*0.048,3);
+      // Suckers along length (stage 1+)
+      if (st>=1 && i%2===0) {
+        for (let s=1;s<=3;s++) {
+          const sp=s/4;
+          const bx=(1-sp)*(1-sp)*(cx+offX)+2*(1-sp)*sp*c1x+sp*sp*tx;
+          const by=(1-sp)*(1-sp)*cy+2*(1-sp)*sp*c1y+sp*sp*ty;
+          sarc(ctx,bx,by,nodeR*0.28,0,Math.PI*2,acc,A-0.30,0.55);
+        }
+      }
+    }
+    if (st===3) drawScar(ctx,cx+offX+nodeR*0.88,cy-nodeR*0.62,R,n,0x5E01);
+  }
+}
+
+// ── PHYLUM 4: CRYSTALLINE ────────────────────────────────
+// Clade 0=Asymmetric Spire Cluster  1=Geode Bowl  2=Lattice Bubble  3=Bone Cage
+function drawCrystalline(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
+  const sz=[0.50,0.68,1.00,1.12][st];
+  const lean=alertLean(ectx?.playerDist??3);
+  const shk=damageShake(t,ectx?.hpFrac??1);
+  const offX=-lean*R*0.08+shk;
+  const hpFrac=ectx?.hpFrac??1;
+  const resPulse=pulse(t,n,0.82);
+
+  if (cl===0) {
+    // ── ASYMMETRIC SPIRE CLUSTER: tallest center, declining sides + laminae ──
+    const nS=[3,4,6,8][st];
+    const maxLen=R*sz*(1.38+nh(n,0xE001)*0.44);
+    // Base plate
+    ctx.save(); ctx.globalAlpha=A-0.18; ctx.fillStyle=g; ctx.shadowColor=g; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.ellipse(cx+offX,cy+R*sz*0.12,R*sz*(0.52+mi*0.08),R*sz*0.12,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    for (let i=0;i<nS;i++) {
+      const fr=(i/(nS-1)-0.5);
+      // Asymmetric height distribution (not symmetric about center)
+      const asym=nh(n,0xE002+i)*0.38-0.19;
+      const sLen=maxLen*(1-Math.abs(fr+asym)*0.72)*(0.80+resPulse*0.20);
+      const sOff=fr*R*sz*(0.82+mi*0.06)+(nh(n,0xE003+i)-0.5)*R*sz*0.12;
+      const stilt=-Math.PI*0.5+(fr+asym)*Math.PI*0.22+wave(t,n+i,0.32,0.040)+lean*0.22;
+      const sw=R*sz*(0.082-Math.abs(fr)*0.022);
+      cshard(ctx,cx+offX+sOff,cy+R*sz*0.10,stilt,sLen,sw,f,g,A*(0.82+resPulse*0.18));
+      if (st>=2) {
+        fcirc(ctx,cx+offX+sOff+Math.cos(stilt)*sLen,cy+R*sz*0.10+Math.sin(stilt)*sLen,sw*(0.55+resPulse*0.38),acc,acc,A*0.62*(0.72+resPulse*0.28),5);
+      }
+    }
+    // Horizontal laminae crossing cluster
+    if (st>=1) {
+      ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle=acc; ctx.lineWidth=0.55;
+      for (let i=0;i<2+mi;i++) {
+        const lY=cy-maxLen*(0.26+i*0.24);
+        ctx.beginPath(); ctx.moveTo(cx+offX-maxLen*0.44,lY); ctx.lineTo(cx+offX+maxLen*0.44,lY); ctx.stroke();
+        // Facet reflection
+        ctx.save(); ctx.globalAlpha*=0.40; ctx.strokeStyle='rgba(255,255,255,0.62)';
+        ctx.beginPath(); ctx.moveTo(cx+offX-maxLen*0.32,lY+1.0); ctx.lineTo(cx+offX+maxLen*0.18,lY+1.0); ctx.stroke(); ctx.restore();
       }
       ctx.restore();
     }
+    if (hpFrac<0.5) {
+      fcirc(ctx,cx+offX+R*sz*0.20,cy-R*sz*0.24,R*sz*(0.11+nh(n,0xE004)*0.08),`hsl(${(parseInt(acc.match(/\d+/)?.[0]||'185')+60)%360},52%,48%)`,g,A*(0.55-hpFrac)*0.9,4);
+    }
 
-  } else if (cl===1) { // GEODE: hollow shell with interior crystals
-    const shellR=R*stageSz*1.02;
-    const apert=(0.52+resPulse*0.17)*Math.PI;
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
+  } else if (cl===1) {
+    // ── GEODE BOWL: hollow shell facing player direction ──
+    const shellR=R*sz*0.96;
+    // Bowl faces toward player (left by default, tracked)
+    const faceAngle=Math.PI*(1.0+lean*0.18);
+    const apert=(0.54+resPulse*0.14)*Math.PI;
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
     ctx.beginPath();
-    ctx.arc(cx+offX,cy,shellR,-apert/2+Math.PI*0.5,apert/2+Math.PI*0.5);
+    ctx.arc(cx+offX,cy,shellR,faceAngle-apert/2,faceAngle+apert/2,true);
     ctx.lineTo(cx+offX,cy); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.70; ctx.stroke(); ctx.restore();
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.70; ctx.stroke(); ctx.restore();
+    // Rough exterior texture
+    if (st>=1) {
+      for (let i=0;i<4+mi;i++) {
+        const ba=faceAngle+Math.PI*0.52+i*(Math.PI*1.0/(3+mi));
+        cshard(ctx,cx+offX+Math.cos(ba)*shellR*0.82,cy+Math.sin(ba)*shellR*0.82,ba,R*sz*(0.06+nh(n,0xE110+i)*0.06),R*sz*0.028,g,g,A-0.20);
+      }
+    }
+    // Interior crystals
     const nInt=4+mi*2+st;
-    for (let i=0; i<nInt; i++) {
-      const ia=(i/nInt-0.5)*apert*0.80+Math.PI*0.5;
-      const iR=shellR*(0.26+nh(n,2100+i)*0.50);
-      const iLen=shellR*(0.28+nh(n,2110+i)*0.36);
-      cshard(ctx, cx+offX+Math.cos(ia)*iR*0.58, cy+Math.sin(ia)*iR*0.58, ia, iLen, R*stageSz*0.062, acc, acc, A*(0.68+resPulse*0.32));
+    for (let i=0;i<nInt;i++) {
+      const ia=faceAngle-apert*0.42+(i/nInt)*apert*0.84;
+      const iR=shellR*(0.22+nh(n,0xE111+i)*0.48);
+      const iLen=shellR*(0.24+nh(n,0xE112+i)*0.32);
+      cshard(ctx,cx+offX+Math.cos(ia)*iR*0.52,cy+Math.sin(ia)*iR*0.52,ia,iLen,R*sz*0.056,acc,acc,A*(0.68+resPulse*0.32));
     }
-    if (st>=1) {
-      for (let i=0; i<3+mi; i++) {
-        const mia=nh(n,2120+i)*Math.PI*2;
-        fcirc(ctx,cx+offX+Math.cos(mia)*shellR*0.80,cy+Math.sin(mia)*shellR*0.80,R*stageSz*0.052,'rgba(18,13,8,0.78)',g,A-0.16,2);
+    // Druzy sparkle (stage 2+)
+    if (st>=2) {
+      for (let i=0;i<6+mi;i++) {
+        const sa=faceAngle-apert*0.36+nh(n,0xE113+i)*apert*0.72;
+        const sr=shellR*(0.38+nh(n,0xE114+i)*0.42);
+        fcirc(ctx,cx+offX+Math.cos(sa)*sr,cy+Math.sin(sa)*sr,R*sz*0.026,acc,acc,A*(0.52+resPulse*0.38),4);
       }
     }
 
-  } else if (cl===2) { // LIQUID CRYSTAL: iridescent membrane over scaffold
-    const scR=R*stageSz*0.65;
-    for (let i=0; i<4+mi; i++) {
+  } else if (cl===2) {
+    // ── LATTICE BUBBLE: iridescent membrane + internal scaffold ──
+    const scR=R*sz*(0.62+mi*0.04);
+    // Internal scaffold ribs
+    for (let i=0;i<4+mi;i++) {
       const sa=(i/(3+mi))*Math.PI*2;
-      sline(ctx,cx+offX,cy,cx+offX+Math.cos(sa)*scR,cy+Math.sin(sa)*scR,f,A-0.30,R*stageSz*0.062);
+      sline(ctx,cx+offX,cy,cx+offX+Math.cos(sa)*scR,cy+Math.sin(sa)*scR,f,A-0.28,R*sz*0.058);
     }
-    sarc(ctx,cx+offX,cy,scR,0,Math.PI*2,f,A-0.34,R*stageSz*0.052);
-    const mp=t*0.001*0.35;
-    ctx.save(); ctx.globalAlpha=A*0.28; ctx.shadowColor=acc; ctx.shadowBlur=6;
-    const grad=ctx.createRadialGradient(cx+offX,cy,scR*0.38,cx+offX,cy,scR*1.14);
-    grad.addColorStop(0,`hsla(${(200+Math.sin(mp)*42).toFixed(0)},78%,74%,0.0)`);
-    grad.addColorStop(0.62,`hsla(${(200+Math.cos(mp*1.3)*52).toFixed(0)},84%,68%,0.6)`);
-    grad.addColorStop(1.0,`hsla(${(200+Math.sin(mp*0.7)*32).toFixed(0)},88%,78%,0.0)`);
+    sarc(ctx,cx+offX,cy,scR,0,Math.PI*2,f,A-0.30,R*sz*0.048);
+    // Iridescent membrane (animated color gradient)
+    const mp=t*0.001*0.32;
+    ctx.save(); ctx.globalAlpha=A*0.32; ctx.shadowColor=acc; ctx.shadowBlur=7;
+    const grad=ctx.createRadialGradient(cx+offX,cy,scR*0.32,cx+offX,cy,scR*1.12);
+    grad.addColorStop(0,`hsla(${(200+Math.sin(mp)*44).toFixed(0)},80%,76%,0.0)`);
+    grad.addColorStop(0.58,`hsla(${(200+Math.cos(mp*1.4)*54).toFixed(0)},86%,70%,0.65)`);
+    grad.addColorStop(1.0,`hsla(${(200+Math.sin(mp*0.8)*34).toFixed(0)},90%,80%,0.0)`);
     ctx.fillStyle=grad;
-    ctx.beginPath(); ctx.arc(cx+offX,cy,scR*1.14,0,Math.PI*2); ctx.fill(); ctx.restore();
+    ctx.beginPath(); ctx.arc(cx+offX,cy,scR*1.12,0,Math.PI*2); ctx.fill(); ctx.restore();
+    // Outer shard cluster
     if (st>=1) {
-      for (let i=0; i<4+mi; i++) {
-        const sa=(i/(3+mi))*Math.PI*2;
-        cshard(ctx,cx+offX+Math.cos(sa)*scR,cy+Math.sin(sa)*scR,sa,R*stageSz*(0.20+resPulse*0.076),R*stageSz*0.055,acc,acc,A*(0.72+resPulse*0.28));
+      for (let i=0;i<4+mi;i++) {
+        const sa2=(i/(3+mi))*Math.PI*2+wave(t,n+i,0.28,0.14);
+        cshard(ctx,cx+offX+Math.cos(sa2)*scR,cy+Math.sin(sa2)*scR,sa2,R*sz*(0.18+resPulse*0.072),R*sz*0.050,acc,acc,A*(0.70+resPulse*0.30));
       }
     }
+    // Central resonance node
+    fcirc(ctx,cx+offX,cy,R*sz*(0.072+resPulse*0.036),acc,acc,A*0.82,8);
+    if (hpFrac<0.5) drawScar(ctx,cx+offX+R*sz*0.28,cy-R*sz*0.18,R,n,0x5801);
 
-  } else { // CERAMIC: bone-like struts and plates
-    const nStr=3+mi;
-    for (let i=0; i<nStr; i++) {
-      const sa=(i/nStr)*Math.PI*2+wave(t,n+i,0.22,0.038);
-      const sLen=R*stageSz*(0.60+nh(n,2200+i)*0.40);
-      sline(ctx,cx+offX,cy,cx+offX+Math.cos(sa)*sLen,cy+Math.sin(sa)*sLen,f,A-0.05,R*stageSz*0.11);
-      const pX=cx+offX+Math.cos(sa)*sLen*0.68, pY=cy+Math.sin(sa)*sLen*0.68;
-      const pSz=R*stageSz*(0.22+nh(n,2210+i)*0.11);
-      fpoly(ctx,[[pX-Math.sin(sa)*pSz,pY+Math.cos(sa)*pSz],[pX+Math.sin(sa)*pSz,pY-Math.cos(sa)*pSz],[pX+Math.cos(sa)*pSz,pY+Math.sin(sa)*pSz]],f,g,A-0.07,4);
-      if (st>=1) {
-        const fX=cx+offX+Math.cos(sa)*sLen*0.40, fY=cy+Math.sin(sa)*sLen*0.40;
-        ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(198,188,172,0.52)'; ctx.lineWidth=0.54;
-        ctx.beginPath(); ctx.moveTo(fX-Math.sin(sa)*R*0.048,fY+Math.cos(sa)*R*0.048); ctx.lineTo(fX+Math.sin(sa)*R*0.048,fY-Math.cos(sa)*R*0.048); ctx.stroke(); ctx.restore();
+  } else {
+    // ── BONE CAGE: curved rib struts forming an ovoid cage ──
+    const cageW=R*sz*(0.78+mi*0.06), cageH=R*sz*(1.02+mi*0.04);
+    const nRibs=4+mi;
+    // Ribs (curved struts from top pole to bottom pole)
+    for (let i=0;i<nRibs;i++) {
+      const ra=(i/nRibs)*Math.PI*2+wave(t,n+i,0.22,0.036);
+      const cpX=cx+offX+Math.cos(ra)*cageW*1.22;
+      const cpY=cy;
+      const topX=cx+offX+Math.cos(ra)*cageW*0.28, topY=cy-cageH;
+      const botX=cx+offX+Math.cos(ra)*cageW*0.28, botY=cy+cageH;
+      ctx.save(); ctx.globalAlpha=A-0.06; ctx.strokeStyle=f; ctx.lineWidth=R*sz*(0.068-i*0.006); ctx.shadowColor=g; ctx.shadowBlur=3; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(topX,topY); ctx.quadraticCurveTo(cpX,cpY,botX,botY); ctx.stroke(); ctx.restore();
+      // Joint nodes at rib widest point
+      fcirc(ctx,cpX,cpY,R*sz*0.052,f,g,A-0.14,3);
+    }
+    // Horizontal hoop rings
+    if (st>=1) {
+      for (let i=0;i<2+mi;i++) {
+        const hy=cy-cageH*0.55+i*cageH*(1.1/(1+mi));
+        const hr=cageW*(0.68+nh(n,0xE200+i)*0.22);
+        sarc(ctx,cx+offX,hy,hr,0,Math.PI*2,acc,A-0.22,R*sz*0.042,2);
       }
     }
-    fcirc(ctx,cx+offX,cy,R*stageSz*0.20,f,g,A,6);
-  }
-
-  // Dissolution scar on damaged entities
-  if (hpFrac < 0.5) {
-    const dH=(parseFloat(acc.match(/\d+/)?.[0]||'185')+60)%360;
-    fcirc(ctx,cx+offX+R*stageSz*0.26,cy-R*stageSz*0.20,R*stageSz*(0.13+nh(n,2300)*0.09),
-          `hsl(${dH},52%,48%)`,`hsl(${dH},68%,38%)`,A*(0.58-hpFrac)*0.9,4);
-  }
-
-  // Stage 3: ancient (second growth axis + extra dissolution)
-  if (st===3) {
-    const sgA=-Math.PI*0.34+lean*0.38;
-    cshard(ctx,cx+offX+R*0.30,cy,sgA,R*0.88,R*0.095,acc,acc,A-0.14);
-    drawScar(ctx,cx+offX-R*0.22,cy+R*0.18,R,n,0x5801);
+    // Hollow interior glowing core
+    const coreR=R*sz*(0.14+resPulse*0.06);
+    fcirc(ctx,cx+offX,cy,coreR,acc,acc,A*0.52*(0.62+resPulse*0.38),8);
+    // Top and bottom poles
+    fcirc(ctx,cx+offX,cy-cageH,R*sz*0.062,f,g,A-0.10,4);
+    fcirc(ctx,cx+offX,cy+cageH,R*sz*0.062,f,g,A-0.10,4);
+    if (st===3) drawScar(ctx,cx+offX+cageW*0.60,cy,R,n,0x5F01);
   }
 }
 
-// ── PHYLUM 5: CHIMERA ─────────────────────────────────────────────────────
-// Cross-phylum hybrids with legible anatomical seam.
-// Clades: 0=Ceph×Arth  1=Fungi×Vasc  2=Xtal×Ceph  3=Arth×Xtal
+// ── PHYLUM 5: CHIMERA ────────────────────────────────────
+// Integrated composites — NOT clipped halves
+// Clade 0=Tentacle-Legged  1=Fungal Root-Ball  2=Crystal-Wrapped Ceph  3=Armored Crystal Growth
 function drawChimera(ctx:Ctx,cx:number,cy:number,R:number,n:number,cl:number,st:number,mi:number,t:number,ectx:EntityDrawContext|null,f:string,g:string,acc:string,A:number): void {
-  const stageSz = [0.55, 0.72, 1.00, 1.10][st];
-  const seamX   = cx + R*stageSz*0.04;
-  // Color for each parent phylum
-  const col1 = lineageColors(n, false, false);
-  // Shifted n to get the second phylum's color family
-  const col2 = lineageColors((n + 128) % 255 + 1, false, false);
+  const sz=[0.55,0.72,1.00,1.10][st];
+  const lean=alertLean(ectx?.playerDist??3);
+  const shk=damageShake(t,ectx?.hpFrac??1);
+  const offX=shk-lean*R*0.14;
+  // Dual colors from two parent phyla
+  const col1=lineageColors(n,false,false);
+  const col2=lineageColors(((n*97+113)%254)+1,false,false);
 
-  if (cl===0) { // CEPH × ARTH
-    ctx.save(); ctx.beginPath(); ctx.rect(cx-R*3.5,cy-R*3.5,R*3.5+seamX-cx,R*7); ctx.clip();
-    drawCephalopoda(ctx,cx,cy,R,n,0,st,mi,t,ectx,col1.f,col1.g,col1.acc,A);
-    ctx.restore();
-    ctx.save(); ctx.beginPath(); ctx.rect(seamX,cy-R*3.5,R*3.5,R*7); ctx.clip();
-    drawArthropoda(ctx,cx,cy,R,n,0,st,mi,t,ectx,col2.f,col2.g,col2.acc,A);
-    ctx.restore();
-    drawChimeraSeam(ctx,seamX,cy,R*stageSz,n,t,col1.f,col2.f,A);
-
-  } else if (cl===1) { // FUNGI × VASC
-    ctx.save(); ctx.beginPath(); ctx.rect(cx-R*3.5,cy-R*3.5,R*3.5+seamX-cx,R*7); ctx.clip();
-    drawFungi(ctx,cx,cy,R,n,0,st,mi,t,ectx,col1.f,col1.g,col1.acc,A);
-    ctx.restore();
-    ctx.save(); ctx.beginPath(); ctx.rect(seamX,cy-R*3.5,R*3.5,R*7); ctx.clip();
-    drawVascular(ctx,cx,cy,R,n,0,st,mi,t,ectx,col2.f,col2.g,col2.acc,A);
-    ctx.restore();
-    drawChimeraSeam(ctx,seamX,cy,R*stageSz,n,t,col1.f,col2.f,A);
-
-  } else if (cl===2) { // XTAL × CEPH
-    drawCrystalline(ctx,cx,cy,R,n,0,st,mi,t,ectx,col1.f,col1.g,col1.acc,A-0.09);
-    ctx.save(); ctx.beginPath(); ctx.rect(cx-R*3.5,cy-R*3.5,R*3.5+seamX-cx,R*7); ctx.clip();
-    drawCephalopoda(ctx,cx,cy,R,n,0,st,mi,t,ectx,col2.f,col2.g,col2.acc,A*0.78);
-    ctx.restore();
-    drawChimeraSeam(ctx,seamX,cy,R*stageSz,n,t,col2.f,col1.f,A);
-
-  } else { // ARTH × XTAL
-    ctx.save(); ctx.beginPath(); ctx.rect(cx-R*3.5,cy-R*3.5,R*3.5+seamX-cx,R*7); ctx.clip();
-    drawArthropoda(ctx,cx,cy,R,n,0,st,mi,t,ectx,col1.f,col1.g,col1.acc,A);
-    ctx.restore();
-    const nCr=3+mi+st;
-    for (let i=0; i<nCr; i++) {
-      const cx3=cx+(i/(nCr-1||1)-0.5)*R*stageSz*1.55+seamX-cx;
-      cshard(ctx,cx3,cy-R*stageSz*0.40,-Math.PI*0.5+wave(t,n+i,0.4,0.09),R*stageSz*(0.28+nh(n,3000+i)*0.28),R*stageSz*0.068,col2.f,col2.g,A-0.07);
+  if (cl===0) {
+    // ── TENTACLE-LEGGED: arthropod bilobate body + tentacle limbs + compound eye on stalk ──
+    const proW=R*sz*0.72, proH=R*sz*0.52;
+    const opR=R*sz*0.40;
+    // Prosoma (arthropod teardrop shape) in col1
+    spiderBody(ctx,cx+offX,cy,proW,proH,opR,R*sz*0.06,n,col1.f,col1.g,A);
+    // 6 tentacle limbs (cephalopod style, not jointed) from prosoma underside
+    for (let i=0;i<6;i++) {
+      const side=i<3?-1:1;
+      const pair=i%3;
+      const lX=cx+offX-proW*0.52+pair*(proW*1.04/2);
+      const lY=cy+side*proH*0.72;
+      const tLen=R*sz*(0.58+nh(n,3000+i)*0.28);
+      const tipX=lX+Math.cos(side>0?Math.PI*0.58:Math.PI*0.42)*tLen;
+      const tipY=lY+Math.sin(side>0?Math.PI*0.58:Math.PI*0.42)*tLen;
+      tentArm(ctx,lX,lY,tipX,tipY,R*sz*0.052,true,(nh(n,3001+i)-0.5)*R*sz*0.20,t,n,i*11,col2.f,col2.g,A-0.06);
     }
-    drawChimeraSeam(ctx,seamX,cy,R*stageSz,n,t,col1.f,col2.f,A);
+    // Compound eye on short stalk at prosoma front
+    const eSX=cx+offX-proW*0.80, eSY=cy;
+    sline(ctx,eSX,eSY,eSX-R*sz*0.20,eSY-R*sz*0.24,col2.f,A-0.06,R*sz*0.055);
+    compoundEye(ctx,eSX-R*sz*0.20,eSY-R*sz*0.24,R*sz*0.20,R*sz*0.14,n,col2.f,col2.g,A);
+
+  } else if (cl===1) {
+    // ── FUNGAL ROOT-BALL: vascular root-ball body + mushroom caps growing from it ──
+    const ballR=R*sz*(0.52+mi*0.04);
+    const bob=wave(t,n,1.8,R*sz*0.026);
+    // Root-ball (vascular col1)
+    oblob(ctx,cx+offX,cy+bob,ballR,ballR*0.88,col1.f,col1.g,A,n,60);
+    // Root-stilt legs
+    const nRL=4+mi;
+    for (let i=0;i<nRL;i++) {
+      const ra=Math.PI*(0.25+i*(0.50/(nRL-1)));
+      const rlX=cx+offX+Math.cos(ra)*ballR*0.72, rlY=cy+bob+Math.sin(ra)*ballR*0.72;
+      const lift=stepGait(t,n,i,nRL,2.0)*R*sz*0.18;
+      ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=col1.f; ctx.lineWidth=R*sz*0.072; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(rlX,rlY); ctx.quadraticCurveTo(rlX+(nh(n,3100+i)-0.5)*R*sz*0.18,rlY+R*sz*0.30-lift,rlX+(nh(n,3101+i)-0.5)*R*sz*0.12,cy+bob+R*sz*0.54); ctx.stroke(); ctx.restore();
+    }
+    // Mushroom caps growing from ball top (fungal col2)
+    const nCaps=2+mi;
+    for (let i=0;i<nCaps;i++) {
+      const capOff=(i/(nCaps-1)-0.5)*ballR*0.90;
+      const capBaseX=cx+offX+capOff, capBaseY=cy+bob-ballR*(0.68+nh(n,3200+i)*0.18);
+      const cW=R*sz*(0.28+nh(n,3201+i)*0.14), cH=R*sz*(0.15+nh(n,3202+i)*0.08);
+      const stH=R*sz*(0.18+nh(n,3203+i)*0.10);
+      sline(ctx,capBaseX,capBaseY,capBaseX,capBaseY-stH,col2.f,A-0.12,R*sz*0.038);
+      mushCap(ctx,capBaseX,capBaseY-stH,cW,cH,st,n+i*7,t,col2.f,col2.g,A-0.06);
+    }
+
+  } else if (cl===2) {
+    // ── CRYSTAL-WRAPPED CEPH: tall central spire + soft organic mantle wrapping lower half ──
+    const spireLen=R*sz*(1.28+mi*0.10);
+    const spireW=R*sz*(0.09+mi*0.02);
+    // Central crystal spire (crystalline col1)
+    cshard(ctx,cx+offX,cy+R*sz*0.14,-Math.PI*0.5,spireLen,spireW,col1.f,col1.g,A);
+    if (st>=2) {
+      // Flanking secondary spires
+      for (const s of [-1,1] as const) {
+        cshard(ctx,cx+offX+s*R*sz*0.22,cy+R*sz*0.10,-Math.PI*0.5+s*0.22,spireLen*0.62,spireW*0.68,col1.f,col1.g,A-0.12);
+      }
+    }
+    // Organic mantle wrapping lower half (cephalopod col2)
+    const mantleR=R*sz*0.52;
+    const contract=bellContract(t,n)*0.52;
+    ctx.save(); ctx.globalAlpha=A-0.12; ctx.fillStyle=col2.f; ctx.shadowColor=col2.g; ctx.shadowBlur=6;
+    ctx.beginPath();
+    ctx.moveTo(cx+offX-mantleR*(1-contract*0.20),cy);
+    ctx.bezierCurveTo(cx+offX-mantleR,cy+R*sz*0.08,cx+offX-mantleR*0.58,cy+R*sz*0.44,cx+offX,cy+R*sz*0.42);
+    ctx.bezierCurveTo(cx+offX+mantleR*0.58,cy+R*sz*0.44,cx+offX+mantleR,cy+R*sz*0.08,cx+offX+mantleR*(1-contract*0.20),cy);
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=0.65; ctx.stroke(); ctx.restore();
+    // Tentacles from mantle base
+    const nTA2=4+mi;
+    for (let i=0;i<nTA2;i++) {
+      const ta=-Math.PI*0.10+(i/(nTA2-1)-0.5)*Math.PI*0.72;
+      const tLen=R*sz*(0.52+nh(n,3300+i)*0.32);
+      tentArm(ctx,cx+offX+Math.cos(ta)*mantleR*0.78,cy+R*sz*0.32,cx+offX+Math.cos(ta)*tLen,cy+R*sz*0.32+Math.sin(ta)*tLen*0.62,R*sz*0.040,st>=2,(nh(n,3301+i)-0.5)*R*sz*0.22,t,n,i*9,col2.f,col2.g,A-0.10);
+    }
+    // Spire tip glow
+    fcirc(ctx,cx+offX,cy+R*sz*0.14-spireLen,R*sz*0.044,col1.acc,col1.acc,A*0.84,8);
+
+  } else {
+    // ── ARMORED CRYSTAL GROWTH: wide crab carapace with crystal eruptions from joints ──
+    const cW=R*sz*1.52, cH=R*sz*0.44;
+    // Carapace (arthropod col1)
+    crabCarapace(ctx,cx+offX,cy,cW,cH,n,col1.f,col1.g,A);
+    // Crystal spires erupting from carapace surface (col2)
+    const nSpires=3+mi+st;
+    for (let i=0;i<nSpires;i++) {
+      const sOff=(i/(nSpires-1)-0.5)*cW*0.88;
+      const sLen=R*sz*(0.32+nh(n,3400+i)*0.44)*(0.80+resPulseLocal(t,n+i)*0.20);
+      cshard(ctx,cx+offX+sOff,cy-cH*(0.60+nh(n,3401+i)*0.30),-Math.PI*0.5+(nh(n,3402+i)-0.5)*0.28,sLen,R*sz*0.055,col2.f,col2.g,A-0.06);
+    }
+    // Leg openings with semi-crystallized legs
+    for (let i=0;i<4;i++) {
+      const side=i<2?-1:1;
+      const pair=i%2;
+      const lX=cx+offX+(side<0?-cW*0.46:cW*0.46);
+      const lY=cy+cH*0.62+pair*cH*0.30;
+      // Upper segment: crystalline
+      const legA=side<0?Math.PI*0.68:Math.PI*0.32;
+      cshard(ctx,lX,lY,legA,R*sz*0.26,R*sz*0.052,col2.f,col2.g,A-0.14);
+      // Lower segment: organic
+      const kX=lX+Math.cos(legA)*R*sz*0.26, kY=lY+Math.sin(legA)*R*sz*0.26;
+      sline(ctx,kX,kY,kX+Math.cos(legA+Math.PI*0.22)*R*sz*0.22,kY+Math.sin(legA+Math.PI*0.22)*R*sz*0.22,col1.f,A-0.18,R*sz*0.044);
+    }
   }
 }
 
-function drawChimeraSeam(ctx:Ctx,x:number,cy:number,R:number,n:number,t:number,f1:string,f2:string,A:number): void {
-  const nJ=6+Math.floor(nh(n,3100)*4);
-  const sH=R*2.2;
-  const pts:P2[]=[[x,cy-sH]];
-  for (let i=1;i<nJ;i++) {
-    pts.push([x+(nh(n,3110+i)-0.5)*R*0.20, cy-sH+i*(sH*2/nJ)]);
-  }
-  pts.push([x,cy+sH]);
-  ctx.save(); ctx.globalAlpha=A*0.38; ctx.strokeStyle='rgba(255,255,220,0.70)'; ctx.lineWidth=1.2;
-  ctx.shadowColor='rgba(255,255,200,0.50)'; ctx.shadowBlur=5; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
-  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i][0],pts[i][1]);
-  ctx.stroke(); ctx.restore();
-  // Growth-ring transition zone
-  ctx.save(); ctx.globalAlpha=A*0.16; ctx.strokeStyle=f2; ctx.lineWidth=2.8; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
-  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i][0],pts[i][1]);
-  ctx.stroke(); ctx.restore();
-}
+function resPulseLocal(t:number,n:number):number { return (Math.sin(t*0.001*0.82*Math.PI*2+nh(n,0xB2B2)*Math.PI*2)+1)*0.5; }
 
 // ═══════════════════════════════════════════════════════════
 // §8  MAIN DISPATCH + drawVirus
@@ -1155,20 +1470,21 @@ export type MorphRole =
 const PH_ROLES: MorphRole[] = ['cephalopod','arthropod','fungal','vascular','crystalline','chimera'];
 
 export interface MorphSig {
-  topology:    number;   // phylum×4+clade, 0–23 (getTopology compat)
-  bodyPlan:    number;   // clade 0–3
-  detailLevel: number;   // stage 0–3
-  variant:     number;   // micro 0–2
-  cls:         number;   // VirusClass index
-  role:        MorphRole;
-  domain:      number;   // phylum index 0–5
-  aspectGroup: number;   // rough shape group (clade)
-  massCenter:  number;   // 0=front 1=center 2=rear 3=distributed
-  hybrid:      boolean;  // clade 3 (parasitic/barnacle variants)
-  innovation:  boolean;  // phylum 5 (chimera)
-  phylum:      number;
-  clade:       number;
-  stage:       number;
+  topology:        number;
+  bodyPlan:        number;
+  detailLevel:     number;
+  variant:         number;
+  cls:             number;
+  role:            MorphRole;
+  domain:          number;
+  aspectGroup:     number;
+  massCenter:      number;
+  hybrid:          boolean;
+  innovation:      boolean;
+  phylum:          number;
+  clade:           number;
+  stage:           number;
+  silhouetteFamily:number;  // 0-23 (ph*4+cl) — substrate-avoidance key
 }
 
 const VC_O: VirusClass[] = ['prime','power-of-two','perfect-square','even-composite','odd-composite'];
@@ -1182,21 +1498,21 @@ export function getMorphSig(n: number): MorphSig {
     role: PH_ROLES[ph], domain: ph, aspectGroup: cl,
     massCenter: mc, hybrid: cl===3, innovation: ph===5,
     phylum: ph, clade: cl, stage: st,
+    silhouetteFamily: ph*4+cl,
   };
 }
 
 export function morphDistance(a: MorphSig, b: MorphSig): number {
   let d=0;
-  d += (a.phylum!==b.phylum  ? 1:0)*0.38;
-  d += (a.clade!==b.clade    ? 1:0)*0.22;
-  d += (a.stage!==b.stage    ? 1:0)*0.16;
-  d += (a.role!==b.role      ? 1:0)*0.14;
-  d += (a.domain!==b.domain  ? 1:0)*0.06;
-  d += (a.massCenter!==b.massCenter ? 1:0)*0.04;
+  d += (a.phylum!==b.phylum            ? 1:0)*0.36;
+  d += (a.silhouetteFamily!==b.silhouetteFamily ? 1:0)*0.28;
+  d += (a.clade!==b.clade              ? 1:0)*0.18;
+  d += (a.stage!==b.stage              ? 1:0)*0.12;
+  d += (a.massCenter!==b.massCenter    ? 1:0)*0.06;
   return d;
 }
 
-const SPAWN_WIN=20, MAX_SAME_PHYLUM=2, MAX_SAME_CLADE=4;
+const SPAWN_WIN=20, MAX_SAME_PHYLUM=2, MAX_SAME_SILO=1;
 const _hist: MorphSig[]=[];
 
 export function registerSpawn(sig: MorphSig): void { _hist.push(sig); if (_hist.length>SPAWN_WIN) _hist.shift(); }
@@ -1204,15 +1520,16 @@ export function clearSpawnHistory(): void { _hist.length=0; }
 
 export function pickDiverseSeed(): number {
   let best=-1, bestScore=-Infinity;
-  for (let i=0; i<72; i++) {
+  for (let i=0; i<88; i++) {
     const seed=1+((i*97+Math.floor(Math.random()*41))%255);
     const sig=getMorphSig(seed);
     const phC=_hist.filter(s=>s.phylum===sig.phylum).length;
-    const clC=_hist.filter(s=>s.clade===sig.clade).length;
+    const sfC=_hist.filter(s=>s.silhouetteFamily===sig.silhouetteFamily).length;
     const stC=_hist.filter(s=>s.stage===sig.stage).length;
-    if (phC>=MAX_SAME_PHYLUM||clC>=MAX_SAME_CLADE) continue;
+    // Hard exclusion: too many of same phylum OR same silhouette family recently
+    if (phC>=MAX_SAME_PHYLUM||sfC>=MAX_SAME_SILO) continue;
     let minD=1.0; for (const s of _hist) { const d=morphDistance(sig,s); if (d<minD) minD=d; }
-    const score=minD*Math.pow(0.44,phC)*Math.pow(0.64,clC)*Math.pow(0.90,stC)+(sig.phylum===5?0.11:0);
+    const score=minD*Math.pow(0.42,phC)*Math.pow(0.55,sfC)*Math.pow(0.90,stC)+(sig.phylum===5?0.11:0);
     if (score>bestScore) { bestScore=score; best=seed; }
   }
   return best>0 ? best : 1+Math.floor(Math.random()*255);
@@ -1221,11 +1538,12 @@ export function pickDiverseSeed(): number {
 export function selectDiverseSeed(waveSigs: MorphSig[], crossHistory: MorphSig[]): number {
   const all=[...crossHistory.slice(-8),...waveSigs];
   let best=-1, bestScore=-1;
-  for (let attempt=0; attempt<60; attempt++) {
+  for (let attempt=0; attempt<72; attempt++) {
     const seed=Math.floor(Math.random()*255)+1, sig=getMorphSig(seed);
     let wMin=1.0; for (const ws of all) { const d=morphDistance(sig,ws); if (d<wMin) wMin=d; }
     const phS=all.filter(ws=>ws.phylum===sig.phylum).length;
-    const score=wMin*Math.pow(0.48,phS);
+    const sfS=all.filter(ws=>ws.silhouetteFamily===sig.silhouetteFamily).length;
+    const score=wMin*Math.pow(0.48,phS)*Math.pow(0.60,sfS);
     if (score>bestScore) { bestScore=score; best=seed; }
   }
   return best>0 ? best : Math.floor(Math.random()*255)+1;
@@ -1247,7 +1565,7 @@ export function validateDistribution(sampleSize=256): {
   const allPh=pc.every(c=>c>0), allCl=cc.every(c=>c>0), allSt=sc.every(c=>c>0);
   const passed=maxPF<=0.26&&allPh&&allCl&&allSt;
   const PH_N=['CEPH','ARTH','FUNG','VASC','XTAL','CHIM'];
-  console.log('[Morphology v8] Distribution check:');
+  console.log('[Morphology v9] Distribution check:');
   console.log('  Phyla:',pc.map((c,i)=>PH_N[i]+':'+c).join(' '));
   console.log('  Clades:',cc,'  Stages:',sc);
   console.log(' ',passed?'✓ PASS':'✗ FAIL',{maxPhylumFrac:maxPF.toFixed(3),allPh,allCl,allSt});
@@ -1257,7 +1575,6 @@ export function validateDistribution(sampleSize=256): {
 export function runSilhouetteDiversityTest(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.fillStyle='#06101e'; ctx.fillRect(0,0,w,h);
   const cols=6, rows=4, cell=Math.min(w/cols,h/rows)*0.90;
-  // One seed per phylum×clade (24 total, show first 24)
   const seeds=[3,19,37,53,7,23,41,59,11,29,43,61,13,31,47,67,17,33,51,71,5,25,45,65];
   const now2=performance.now();
   for (let i=0; i<Math.min(24,seeds.length); i++) {
