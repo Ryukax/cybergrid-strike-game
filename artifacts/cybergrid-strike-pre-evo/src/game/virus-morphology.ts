@@ -1,22 +1,26 @@
 /**
- * CyberGrid Strike — Entity Morphology v6 — OPEN EVOLUTIONARY DESIGN SPACE
+ * CyberGrid Strike — Entity Morphology v7 — EVOLUTIONARY DESIGN SPACE
  *
- * THREE EVOLUTIONARY PATHWAYS
- *   LINEAGE EVOLUTION  (BP 0-2) — pure substrate construction grammars
- *   CROSS HYBRIDIZATION (BP 3) — two substrates integrated into one anatomy
- *   DE NOVO INNOVATION  (BP 4) — novel architectures that replace old assumptions
+ * 16 silhouette niches — each reads as a unique solid cutout at gameplay scale.
+ * No two topologies share aspect ratio, mass distribution, AND construction logic.
  *
- * 14 substrate families × 5 body plans × 3 variants = 210 distinct anatomies
- * across n ∈ [1,255]. Hybrids integrate primary frame + secondary-substrate
- * features at anatomically plausible attachment points — not floating mashups.
- * Innovations break substrate categories to occupy genuinely new niches.
+ * DL(n) = floor(n/64) — bit-depth detail axis:
+ *   DL0  n  1– 63  bare primitive silhouette
+ *   DL1  n 64–127  secondary appendages, fins, pods, extra limb pairs
+ *   DL2  n128–191  articulated subsystems, joint detail, visible mechanisms
+ *   DL3  n192–255  surface microstructure, vascular routing, symbiotic features
  *
- * Spawn diversity tracks topology + body-plan + hybrid-key + full morphological
- * fingerprint across a rolling 20-spawn window. Pressure is applied per-domain,
- * per-body-plan, and per-fingerprint bucket to prevent any combination from
- * dominating without rigid cycling.
+ * Body-plan axis BP(n) = floor(nh(n,0xD00D)*5):
+ *   BP0–2  pure-substrate variants with different construction grammars
+ *   BP3    cross-lineage hybrid — legible anatomical seam between two substrates
+ *   BP4    de-novo innovation — breaks the topology's silhouette rule entirely
  *
- * All legacy exports preserved with identical call signatures.
+ * Role taxonomy (one per topology, shapes every variant's anatomy):
+ *   siege · fortress · interceptor · leviathan · predator · serpentine
+ *   floater · colonial · geometric · swarm · walker · platform
+ *   parasite · orbital · chimera · fungal
+ *
+ * All legacy export signatures unchanged.
  */
 
 export type VirusClass =
@@ -37,13 +41,14 @@ export interface VirusVisualModel {
   compatibleFeatures: { minLobes?: number; maxLobes?: number; symmetryRange?: [number,number]; armorRange?: [number,number]; };
 }
 
-// §1  Deterministic hash
+// ═══════════════════════════════════════════════════════════
+// §1  UTILITIES
+// ═══════════════════════════════════════════════════════════
+
 function nh(n: number, salt: number): number {
   const x = Math.sin(n * 12.9898 + salt * 78.233 + salt * salt * 0.00371) * 43758.5453;
   return x - Math.floor(x);
 }
-
-// §2  Number theory
 export function isPrime(n: number): boolean {
   if (n < 2) return false; if (n === 2) return true; if (n % 2 === 0) return false;
   for (let i = 3; i * i <= n; i += 2) if (n % i === 0) return false; return true;
@@ -57,7 +62,6 @@ export function getVirusClass(n: number): VirusClass {
 export function getVirusLobes(n: number): number { return 3 + (n % 6); }
 export function getVirusSpikes(n: number): boolean[] { return Array.from({length:8},(_,i)=>Boolean((n>>i)&1)); }
 
-// §3  Colours
 const FILL_C: Record<VirusClass,string> = {
   prime:'#e879f9','power-of-two':'#22d3ee','perfect-square':'#fbbf24','even-composite':'#fb7185','odd-composite':'#fb923c',
 };
@@ -72,18 +76,21 @@ export function getVirusColors(n: number, flash: boolean): {fill:string;glow:str
   const cls = getVirusClass(n); return { fill: flash ? FLASH_C[cls] : FILL_C[cls], glow: GLOW_C[cls] };
 }
 
-// §4  Topology + body-plan selectors
-const N_TOPO = 14;
+// §2  Evolutionary selectors
+const N_TOPO = 16;
 export function getTopology(n: number): number { return Math.min(N_TOPO-1, Math.floor(nh(n,0xBEEF)*N_TOPO)); }
-const BP = (n: number) => Math.floor(nh(n,0xD00D)*5);   // 0-4: 3 pure + 1 hybrid + 1 innovation
-const TV = (n: number) => Math.floor(nh(n,0xCAFE)*3);   // 0-2: fine variant
-const nhr = (n: number, s: number, lo: number, hi: number) => lo + nh(n,s)*(hi-lo);  // continuous range
-const nhi = (n: number, s: number, max: number) => Math.floor(nh(n,s)*max);          // integer range
+const BP  = (n: number) => Math.floor(nh(n,0xD00D)*5);
+const TV  = (n: number) => Math.floor(nh(n,0xCAFE)*3);
+const DL  = (n: number) => Math.min(3, Math.floor(n / 64));  // detail level 0-3 from n quartile
+const nhr = (n: number, s: number, lo: number, hi: number) => lo + nh(n,s)*(hi-lo);
+const nhi = (n: number, s: number, max: number) => Math.floor(nh(n,s)*max);
 
-// §5  Drawing primitives
+// ═══════════════════════════════════════════════════════════
+// §3  DRAWING PRIMITIVES
+// ═══════════════════════════════════════════════════════════
 type Ctx = CanvasRenderingContext2D; type P2 = [number,number];
 
-function fpoly(ctx:Ctx, pts:P2[], f:string, g:string, a:number, blur=6): void {
+function fpoly(ctx:Ctx,pts:P2[],f:string,g:string,a:number,blur=6): void {
   if (pts.length<2) return;
   ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=blur;
   ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
@@ -96,9 +103,9 @@ function fell(ctx:Ctx,x:number,y:number,rx:number,ry:number,f:string,g:string,a:
   ctx.beginPath(); ctx.ellipse(x,y,Math.max(rx,0.5),Math.max(ry,0.5),0,0,Math.PI*2);
   ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.75; ctx.stroke(); ctx.restore();
 }
-function fcirc(ctx:Ctx,x:number,y:number,r:number,f:string,g:string,a:number): void { fell(ctx,x,y,r,r,f,g,a); }
-function frect(ctx:Ctx,x:number,y:number,w:number,h:number,f:string,g:string,a:number): void {
-  ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+function fcirc(ctx:Ctx,x:number,y:number,r:number,f:string,g:string,a:number,blur=5): void { fell(ctx,x,y,r,r,f,g,a,blur); }
+function frect(ctx:Ctx,x:number,y:number,w:number,h:number,f:string,g:string,a:number,blur=5): void {
+  ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=blur;
   ctx.fillRect(x,y,w,h); ctx.shadowBlur=0;
   ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.75; ctx.strokeRect(x,y,w,h); ctx.restore();
 }
@@ -106,1284 +113,1546 @@ function sline(ctx:Ctx,x1:number,y1:number,x2:number,y2:number,col:string,a:numb
   ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=lw;
   ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore();
 }
+function sarc(ctx:Ctx,cx:number,cy:number,r:number,a0:number,a1:number,col:string,a:number,lw:number,blur=0): void {
+  ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.shadowColor=col; ctx.shadowBlur=blur;
+  ctx.beginPath(); ctx.arc(cx,cy,r,a0,a1); ctx.stroke(); ctx.restore();
+}
 function gun(ctx:Ctx,bx:number,by:number,len:number,thick:number,f:string,g:string,a:number): void {
   frect(ctx,bx-len,by-thick,len,thick*2,f,g,a+0.04); fcirc(ctx,bx-len,by,thick*0.8,f,g,a+0.06);
 }
 function stinger(ctx:Ctx,bx:number,by:number,len:number,bW:number,f:string,g:string,a:number): void {
   fpoly(ctx,[[bx,by-bW],[bx-len,by],[bx,by+bW]],f,g,a+0.05,6);
 }
-
-// §6  Shared substrate component functions
-function drawSpine(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,w:number,f:string,g:string,A:number): void {
-  ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.shadowColor=g; ctx.shadowBlur=5;
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
+// Dorsal turret — fires leftward from top of a body
+function turret(ctx:Ctx,bx:number,by:number,R:number,f:string,g:string,a:number): void {
+  fcirc(ctx,bx,by,R*0.16,f,g,a-0.04);
+  frect(ctx,bx-R*0.70,by-R*0.055,R*0.70,R*0.11,f,g,a+0.04);
+  fcirc(ctx,bx-R*0.70,by,R*0.065,f,g,a+0.06);
 }
-function organicArm(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,w:number,curl:number,f:string,g:string,A:number): void {
+// Energy beam — direct stroke, no barrel
+function ebeam(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,f:string,g:string,a:number,w:number): void {
+  ctx.save(); ctx.globalAlpha=a-0.10; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.shadowColor=g; ctx.shadowBlur=14;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke(); ctx.restore();
+  fcirc(ctx,x1,y1,w*0.85,'rgba(255,255,255,0.88)',g,a);
+}
+// Organic arm (bezier curve limb)
+function oarm(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,w:number,curl:number,f:string,g:string,a:number): void {
   const mx=(x0+x1)/2+curl, my=(y0+y1)/2;
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w*2; ctx.shadowColor=g; ctx.shadowBlur=3;
+  ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=f; ctx.lineWidth=w*2; ctx.shadowColor=g; ctx.shadowBlur=3;
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.quadraticCurveTo(mx,my,x1,y1); ctx.stroke();
   ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.6;
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.quadraticCurveTo(mx,my,x1,y1); ctx.stroke(); ctx.restore();
 }
-function crystalShard(ctx:Ctx,bx:number,by:number,angle:number,len:number,w:number,f:string,g:string,A:number): void {
+// Mechanical leg (two straight segments with joint circle)
+function mechleg(ctx:Ctx,hx:number,hy:number,kx:number,ky:number,fx:number,fy:number,w:number,f:string,g:string,a:number): void {
+  sline(ctx,hx,hy,kx,ky,f,a-0.06,w*2); sline(ctx,kx,ky,fx,fy,f,a-0.06,w*2);
+  fcirc(ctx,kx,ky,w*1.6,f,g,a-0.10); // knee joint
+}
+// Crystal shard
+function cshard(ctx:Ctx,bx:number,by:number,angle:number,len:number,w:number,f:string,g:string,a:number): void {
   const tx=bx+Math.cos(angle)*len, ty=by+Math.sin(angle)*len;
   const px=-Math.sin(angle)*w, py=Math.cos(angle)*w;
-  fpoly(ctx,[[bx+px,by+py],[bx-px,by-py],[tx-px*0.1,ty-py*0.1],[tx,ty],[tx+px*0.1,ty+py*0.1]],f,g,A,5);
-  fpoly(ctx,[[bx+px*0.4,by+py*0.4],[tx,ty],[bx,by]],'rgba(255,255,255,0.22)',g,A-0.28,2);
+  fpoly(ctx,[[bx+px,by+py],[bx-px,by-py],[tx,ty]],f,g,a,5);
+  fpoly(ctx,[[bx+px*0.4,by+py*0.4],[tx,ty],[bx,by]],'rgba(255,255,255,0.22)',g,a-0.28,2);
 }
-function energyTendril(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,f:string,g:string,A:number,n:number,salt:number): void {
-  const dx=x1-x0, dy=y1-y0, len=Math.hypot(dx,dy);
-  const mx=x0+dx*0.5+(nh(n,salt)-0.5)*len*0.4, my=y0+dy*0.5+(nh(n,salt+1)-0.5)*len*0.4;
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=len*0.028; ctx.shadowColor=g; ctx.shadowBlur=8;
+// Organic blob (bezier-perturbed polygon)
+function oblob(ctx:Ctx,cx:number,cy:number,rx:number,ry:number,f:string,g:string,a:number,n:number,salt:number): void {
+  const nV=10; const pts:P2[]=[];
+  for (let i=0;i<nV;i++) { const ang=(i/nV)*Math.PI*2; pts.push([cx+Math.cos(ang)*rx*(1+(nh(n,salt+i)-0.5)*0.30),cy+Math.sin(ang)*ry*(1+(nh(n,salt+i+nV)-0.5)*0.30)]); }
+  ctx.save(); ctx.globalAlpha=a; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for (let i=0;i<nV;i++) { const ni=(i+1)%nV; ctx.quadraticCurveTo(pts[i][0],pts[i][1],(pts[i][0]+pts[ni][0])/2,(pts[i][1]+pts[ni][1])/2); }
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.75; ctx.stroke(); ctx.restore();
+}
+// Energy tendril (bent arc)
+function etend(ctx:Ctx,x0:number,y0:number,x1:number,y1:number,f:string,g:string,a:number,n:number,salt:number): void {
+  const dx=x1-x0,dy=y1-y0,len=Math.hypot(dx,dy);
+  const mx=x0+dx*0.5+(nh(n,salt)-0.5)*len*0.42,my=y0+dy*0.5+(nh(n,salt+1)-0.5)*len*0.42;
+  ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=f; ctx.lineWidth=len*0.030; ctx.shadowColor=g; ctx.shadowBlur=9;
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.quadraticCurveTo(mx,my,x1,y1); ctx.stroke(); ctx.restore();
 }
-function mechArmor(ctx:Ctx,cx:number,cy:number,angle:number,R:number,f:string,g:string,A:number): void {
-  const px=cx+Math.cos(angle)*R*0.72, py=cy+Math.sin(angle)*R*0.72;
-  ctx.save(); ctx.translate(px,py); ctx.rotate(angle+Math.PI/2);
-  const pw=R*0.28, ph=R*0.12;
-  frect(ctx,-pw/2,-ph/2,pw,ph,f,g,A-0.04);
-  ctx.globalAlpha=A-0.35; ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=0.65;
-  for (const bx of [-pw*0.32,pw*0.32]) { ctx.beginPath(); ctx.arc(bx,0,R*0.038,0,Math.PI*2); ctx.stroke(); }
-  ctx.restore();
-}
-function rootTendril(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,f:string,g:string,A:number,n:number,salt:number): void {
-  const c1x=x0+Math.cos(angle)*len*0.38+(nh(n,salt)-0.5)*len*0.25;
-  const c1y=y0+Math.sin(angle)*len*0.38;
-  const c2x=x0+Math.cos(angle)*len*0.72+(nh(n,salt+1)-0.5)*len*0.18;
-  const c2y=y0+Math.sin(angle)*len*0.72;
+// Root tendril (bezier with variation)
+function rtend(ctx:Ctx,x0:number,y0:number,angle:number,len:number,w:number,f:string,g:string,a:number,n:number,salt:number): void {
+  const c1x=x0+Math.cos(angle)*len*0.38+(nh(n,salt)-0.5)*len*0.28;
+  const c1y=y0+Math.sin(angle)*len*0.38+(nh(n,salt+1)-0.5)*len*0.10;
+  const c2x=x0+Math.cos(angle)*len*0.72+(nh(n,salt+2)-0.5)*len*0.20;
+  const c2y=y0+Math.sin(angle)*len*0.72+(nh(n,salt+3)-0.5)*len*0.08;
   const ex=x0+Math.cos(angle)*len, ey=y0+Math.sin(angle)*len;
-  ctx.save(); ctx.globalAlpha=A; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.shadowColor=g; ctx.shadowBlur=4;
+  ctx.save(); ctx.globalAlpha=a; ctx.strokeStyle=f; ctx.lineWidth=w; ctx.shadowColor=g; ctx.shadowBlur=4;
   ctx.beginPath(); ctx.moveTo(x0,y0); ctx.bezierCurveTo(c1x,c1y,c2x,c2y,ex,ey); ctx.stroke(); ctx.restore();
 }
-// Graft: mechanical gun arm attached at point
-function graftGun(ctx:Ctx,x:number,y:number,R:number,f:string,g:string,A:number): void {
-  fcirc(ctx,x,y,R*0.12,f,g,A-0.08);
-  gun(ctx,x,y,R*0.85,R*0.062,f,g,A);
-}
-// Graft: energy field halo overlaid on existing body center
-function graftEnergyField(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle=f; ctx.lineWidth=R*0.08; ctx.shadowColor=g; ctx.shadowBlur=12;
-  ctx.beginPath(); ctx.arc(cx,cy,R*0.90,nh(n,0xE1)*Math.PI*2,nh(n,0xE1)*Math.PI*2+Math.PI*1.4); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx,cy,R*1.20,nh(n,0xE2)*Math.PI*2,nh(n,0xE2)*Math.PI*2+Math.PI*0.90); ctx.stroke();
+// Bolt row (DL detail)
+function bolts(ctx:Ctx,x0:number,y:number,x1:number,f:string,g:string,a:number,pitch:number): void {
+  ctx.save(); ctx.globalAlpha=a-0.30; ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=0.55;
+  for (let x=x0+pitch/2;x<x1;x+=pitch) { ctx.beginPath(); ctx.arc(x,y,pitch*0.22,0,Math.PI*2); ctx.stroke(); }
   ctx.restore();
-  fcirc(ctx,cx,cy,R*0.14,'rgba(255,255,255,0.75)',g,A-0.12);
 }
-// Graft: crystal dorsal growth
-function graftCrystalDorsal(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  for (let i=0;i<3;i++) {
-    const x=cx+nhr(n,0xC0+i,-R*0.55,R*0.35);
-    const len=R*(0.32+nh(n,0xC8+i)*0.28);
-    crystalShard(ctx,x,cy,Math.PI*1.5,len,R*0.06,f,g,A-0.10);
-  }
+// Track bogie row (DL detail) — small circles representing road wheels
+function bogies(ctx:Ctx,x0:number,x1:number,y:number,f:string,g:string,a:number,R:number): void {
+  const nr=Math.max(2,Math.round((x1-x0)/(R*0.40)));
+  for (let i=0;i<nr;i++) { const bx=x0+i*((x1-x0)/(nr-1)); sarc(ctx,bx,y,R*0.095,0,Math.PI*2,f,a-0.28,0.6); }
+}
+// Armor panel — thin overlay suggesting plate seams
+function armorpanel(ctx:Ctx,x:number,y:number,w:number,h:number,f:string,g:string,a:number): void {
+  frect(ctx,x,y,w,h,f,g,a-0.12);
+  ctx.save(); ctx.globalAlpha=a-0.38; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.5;
+  ctx.strokeRect(x+w*0.12,y+h*0.20,w*0.76,h*0.60); ctx.restore();
 }
 
 // ═══════════════════════════════════════════════════════════
-// §7  14 TOPOLOGY DRAWERS — each with 5 body plans
+// §4  16 TOPOLOGY DRAWERS
+// Each must occupy a UNIQUE silhouette niche.
 // ═══════════════════════════════════════════════════════════
 
-// ── T0  MONOCOQUE ─────────────────────────────────────────
+// ── T0  DREADNOUGHT ──────────────────────────────────────
+// Silhouette: wide rectangle (≥3R each side) × shallow height (≤1.2R)
+// Role: siege · Mass: center-front · Weapon: front gun battery
 function drawT0(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Barge deck — wide/flat, amidship turret
-    const W=R*[2.20,2.40,2.0][v], H=R*[0.30,0.36,0.26][v];
-    fpoly(ctx,[[cx-W,cy-H],[cx+W,cy-H],[cx+W*0.85,cy+H],[cx-W*0.85,cy+H]],f,g,A);
-    frect(ctx,cx-R*0.55,cy-H-R*0.38,R*1.1,R*0.38,f,g,A+0.04);
-    ctx.save(); ctx.globalAlpha=0.24; ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=0.6;
-    for (let i=1;i<=5;i++) { const rx=cx-W+i*W*2/6; ctx.beginPath(); ctx.moveTo(rx,cy-H); ctx.lineTo(rx,cy+H); ctx.stroke(); }
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const HW=[2.90,3.10,2.70][v], HH=[0.58,0.68,0.48][v];  // half-width / half-height
+  if (bp===0) { // Standard siege hull — twin barrels, track skirt
+    // Hull
+    fpoly(ctx,[[cx-HW*R,cy-HH*R],[cx+HW*0.80*R,cy-HH*R],[cx+HW*R,cy-HH*0.55*R],[cx+HW*R,cy+HH*0.55*R],[cx+HW*0.80*R,cy+HH*R],[cx-HW*R,cy+HH*R]],f,g,A,8);
+    // Track skirt below hull
+    fpoly(ctx,[[cx-HW*R,cy+HH*R],[cx+HW*R,cy+HH*R],[cx+HW*R,cy+HH*1.42*R],[cx-HW*R,cy+HH*1.42*R]],f,g,A-0.22,3);
+    // Front gun mantlet
+    frect(ctx,cx-HW*R-R*0.20,cy-HH*0.65*R,R*0.20,HH*1.30*R,f,g,A+0.04);
+    // Twin gun barrels (stacked)
+    gun(ctx,cx-HW*R-R*0.20,cy-R*0.22,R*1.20,R*0.078,f,g,A);
+    gun(ctx,cx-HW*R-R*0.20,cy+R*0.22,R*1.00,R*0.068,f,g,A);
+    // Hull striping
+    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(255,255,255,0.70)'; ctx.lineWidth=0.6;
+    for (let i=1;i<=4;i++) { const sx=cx-HW*R+i*(HW*2*R/5); ctx.beginPath(); ctx.moveTo(sx,cy-HH*R); ctx.lineTo(sx,cy+HH*R); ctx.stroke(); }
     ctx.restore();
-    gun(ctx,cx-R*0.55,cy-H-R*0.20,R*1.0,R*0.07,f,g,A);
-    for (const s of [-1,1] as const) fell(ctx,cx+W*0.55,cy,R*0.16,H*0.60,f,g,A-0.20);
-  } else if (bp===2) { // Wedge craft — delta cross-section, forward taper
-    const L=R*[2.0,1.75,2.25][v], H=R*[0.52,0.64,0.44][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
-    ctx.beginPath();
-    ctx.moveTo(cx-L,cy); ctx.lineTo(cx-L*0.5,cy-H); ctx.lineTo(cx+L,cy-H*0.22);
-    ctx.lineTo(cx+L,cy+H*0.22); ctx.lineTo(cx-L*0.5,cy+H); ctx.closePath();
-    ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    gun(ctx,cx-L,cy,R*0.70,R*0.060,f,g,A);
-    ctx.save(); ctx.globalAlpha=0.20; ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=0.55;
-    for (let i=1;i<=3;i++) { ctx.beginPath(); ctx.moveTo(cx-L+i*L*2/4,cy-H*(1-i/5)); ctx.lineTo(cx-L+i*L*2/4,cy+H*(1-i/5)); ctx.stroke(); }
+  } else if (bp===1) { // Long-barrel artillery — single massive barrel, elevated
+    fpoly(ctx,[[cx-HW*R,cy-HH*0.80*R],[cx+HW*R,cy-HH*0.80*R],[cx+HW*R,cy+HH*0.80*R],[cx-HW*R,cy+HH*0.80*R]],f,g,A-0.04,7);
+    frect(ctx,cx-HW*R,cy+HH*0.80*R,HW*2*R,HH*0.55*R,f,g,A-0.22,3); // track skirt
+    // Single very long barrel at angle
+    const barAngle=-Math.PI*0.12;
+    ctx.save(); ctx.translate(cx-HW*0.32*R,cy-HH*0.50*R); ctx.rotate(barAngle);
+    frect(ctx,-R*1.80,-R*0.072,R*1.80,R*0.144,f,g,A+0.06); fcirc(ctx,-R*1.80,0,R*0.078,f,g,A+0.08);
     ctx.restore();
-  } else if (bp===3) { // HYBRID: Monocoque + Plant — bio-encrusted hull
-    const L=R*[2.10,1.85,2.35][v], H=R*[0.42,0.52,0.36][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-L,cy); ctx.bezierCurveTo(cx-L,cy-H*0.5,cx-H*1.5,cy-H,cx,cy-H);
-    ctx.bezierCurveTo(cx+H*2,cy-H,cx+L*0.88,cy-H*0.35,cx+L,cy);
-    ctx.bezierCurveTo(cx+L*0.88,cy+H*0.35,cx+H*2,cy+H,cx,cy+H);
-    ctx.bezierCurveTo(cx-H*1.5,cy+H,cx-L,cy+H*0.5,cx-L,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Plant graft: barnacle-cap growths on dorsal surface
-    for (let i=0;i<3+v;i++) {
-      const bx=cx-L*0.55+i*L*0.42, bW=R*(0.18+nh(n,30+i)*0.10), bH=R*(0.14+nh(n,40+i)*0.08);
-      ctx.save(); ctx.globalAlpha=A-0.08; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
-      ctx.beginPath(); ctx.moveTo(bx-bW,cy-H); ctx.bezierCurveTo(bx-bW,cy-H-bH*1.5,bx+bW,cy-H-bH*1.5,bx+bW,cy-H); ctx.closePath(); ctx.fill(); ctx.restore();
+    frect(ctx,cx-HW*0.32*R-R*0.28,cy-HH*0.50*R-R*0.22,R*0.55,R*0.44,f,g,A-0.02); // mantlet
+  } else if (bp===2) { // Bunker-tank — very wide, 3 front barrels, squat
+    const W2=HW*1.18*R, H2=HH*0.72*R;
+    fpoly(ctx,[[cx-W2,cy-H2],[cx+W2*0.92,cy-H2],[cx+W2,cy-H2*0.50],[cx+W2,cy+H2*0.50],[cx+W2*0.92,cy+H2],[cx-W2,cy+H2]],f,g,A,8);
+    frect(ctx,cx-W2,cy+H2,W2*2,H2*0.55,f,g,A-0.24,3);
+    frect(ctx,cx-W2-R*0.18,cy-H2*0.72,R*0.18,H2*1.44,f,g,A+0.04);
+    for (const [dy,l] of [[-R*0.30,R*0.95],[0,R*1.15],[R*0.30,R*0.95]]) gun(ctx,cx-W2-R*0.18,cy+dy,l,R*0.062,f,g,A);
+  } else if (bp===3) { // HYBRID: Siege hull + Organic — bio-armored dreadnought
+    // Base hull (slightly reduced)
+    fpoly(ctx,[[cx-HW*R,cy-HH*R],[cx+HW*0.80*R,cy-HH*R],[cx+HW*R,cy-HH*0.55*R],[cx+HW*R,cy+HH*0.55*R],[cx+HW*0.80*R,cy+HH*R],[cx-HW*R,cy+HH*R]],f,g,A-0.06,7);
+    // Organic armor growths (barnacle domes) on hull surface
+    for (let i=0;i<4+v;i++) {
+      const bx=cx-HW*R*0.72+i*HW*R*0.45, bH=R*(0.20+nh(n,20+i)*0.12), bW=R*(0.26+nh(n,30+i)*0.10);
+      ctx.save(); ctx.globalAlpha=A-0.06; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+      ctx.beginPath(); ctx.moveTo(bx-bW,cy-HH*R); ctx.bezierCurveTo(bx-bW,cy-HH*R-bH*1.6,bx+bW,cy-HH*R-bH*1.6,bx+bW,cy-HH*R); ctx.closePath(); ctx.fill(); ctx.restore();
     }
-    // Vine tendrils trailing from stern
-    for (let i=0;i<3;i++) { rootTendril(ctx,cx+L,cy+(i-1)*H*0.6,0,R*(0.55+nh(n,50+i)*0.35),R*0.055,f,g,A-0.22,n,60+i*5); }
-    gun(ctx,cx-L,cy,R*0.62,R*0.062,f,g,A);
-  } else if (bp===4) { // INNOVATION: Recursive panel hull — nested panel structure
-    const L=R*2.0, H=R*0.46;
-    for (let level=0;level<3;level++) {
-      const s=1-level*0.28, lA=A-level*0.16;
-      ctx.save(); ctx.globalAlpha=lA; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7-level*2;
-      ctx.beginPath();
-      ctx.moveTo(cx-L*s,cy); ctx.bezierCurveTo(cx-L*s,cy-H*s*0.5,cx-H*s*1.5,cy-H*s,cx,cy-H*s);
-      ctx.bezierCurveTo(cx+H*s*2,cy-H*s,cx+L*s*0.88,cy-H*s*0.35,cx+L*s,cy);
-      ctx.bezierCurveTo(cx+L*s*0.88,cy+H*s*0.35,cx+H*s*2,cy+H*s,cx,cy+H*s);
-      ctx.bezierCurveTo(cx-H*s*1.5,cy+H*s,cx-L*s,cy+H*s*0.5,cx-L*s,cy);
-      ctx.closePath(); if (level>0) { ctx.globalCompositeOperation='source-atop'; } ctx.fill();
-      ctx.shadowBlur=0; ctx.strokeStyle=`rgba(255,255,255,${0.14+level*0.06})`; ctx.lineWidth=0.75; ctx.stroke();
-      ctx.globalCompositeOperation='source-over'; ctx.restore();
+    // Root tendrils from track area
+    for (let i=0;i<3;i++) rtend(ctx,cx+(i-1)*HW*R*0.55,cy+HH*R,Math.PI*0.5,R*(0.45+nh(n,40+i)*0.30),R*0.060,f,g,A-0.24,n,40+i*4);
+    stinger(ctx,cx-HW*R,cy,R*0.85,R*0.09,f,g,A); // organic fang weapon
+  } else { // BP4 INNOVATION: Hover fortress — anti-grav dreadnought, no tracks
+    const W4=HW*1.08*R, H4=HH*0.90*R;
+    fell(ctx,cx+W4*0.05,cy,W4*0.95,H4*0.82,f,g,A,8); // aerodynamic hull (oval)
+    // Repulsor pods (4 corner ellipses) instead of tracks
+    for (const [px,py] of [[cx-W4*0.70,cy+H4*0.92],[cx-W4*0.20,cy+H4*0.92],[cx+W4*0.30,cy+H4*0.92],[cx+W4*0.75,cy+H4*0.92]]) {
+      fell(ctx,px,py,R*0.18,R*0.09,f,g,A-0.14,4);
+      sarc(ctx,px,py,R*0.22,Math.PI,0,f,A-0.30,0.7,5);
     }
-    gun(ctx,cx-L,cy,R*0.75,R*0.062,f,g,A);
-  } else { // BP0: Torpedo hull — long, tapered, classic
-    const L=R*[2.20,1.85,2.55][v], H=R*[0.44,0.56,0.36][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-L,cy); ctx.bezierCurveTo(cx-L,cy-H*0.5,cx-H*1.5,cy-H,cx,cy-H);
-    ctx.bezierCurveTo(cx+H*2,cy-H,cx+L*0.88,cy-H*0.35,cx+L,cy);
-    ctx.bezierCurveTo(cx+L*0.88,cy+H*0.35,cx+H*2,cy+H,cx,cy+H);
-    ctx.bezierCurveTo(cx-H*1.5,cy+H,cx-L,cy+H*0.5,cx-L,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.9; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.globalAlpha=0.22; ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=0.6;
-    for (let i=1;i<=4;i++) { const rx=cx-L+i*L*2/5; const hx=H*(1-Math.abs(rx-cx)/(L))*0.95; ctx.beginPath(); ctx.moveTo(rx,cy-hx); ctx.lineTo(rx,cy+hx); ctx.stroke(); }
-    ctx.restore();
-    gun(ctx,cx-L,cy,R*(0.50+nh(n,7)*0.35),R*0.065,f,g,A);
-    const nN=v===1?3:2;
-    for (let i=0;i<nN;i++) { const ny=cy+(i-(nN-1)/2)*R*0.28; fpoly(ctx,[[cx+L,ny-R*0.07],[cx+L+R*0.28,ny-R*0.12],[cx+L+R*0.28,ny+R*0.12],[cx+L,ny+R*0.07]],f,g,A-0.16,3); }
+    // Weapons on BOTH front and top
+    gun(ctx,cx-W4,cy,R*1.10,R*0.075,f,g,A);
+    turret(ctx,cx-W4*0.28,cy-H4*0.82,R,f,g,A);
+    turret(ctx,cx+W4*0.28,cy-H4*0.82,R,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Fuel drums at rear
+    for (const s of [-1,1] as const) fell(ctx,cx+HW*R*0.88,cy+s*HH*R*0.62,R*0.14,R*0.22,f,g,A-0.22,3);
+  }
+  if (dl>=2) { // Track bogie wheels visible
+    bogies(ctx,cx-HW*R,cx+HW*R*0.72,cy+HH*1.20*R,f,g,A,R);
+    // Hull vision ports
+    for (let i=0;i<3;i++) { const vx=cx-HW*R*0.50+i*HW*R*0.45; sarc(ctx,vx,cy-HH*R*0.60,R*0.060,0,Math.PI*2,'rgba(255,255,255,0.55)',A-0.30,0.65); }
+  }
+  if (dl>=3) { // Bolt rows + secondary pintle mount
+    bolts(ctx,cx-HW*R*0.90,cy-HH*R*0.96,cx+HW*R*0.80,f,g,A,R*0.28);
+    turret(ctx,cx+HW*R*0.38,cy-HH*R,R*0.75,f,g,A-0.10);
+    // Tow cable
+    ctx.save(); ctx.globalAlpha=A-0.35; ctx.setLineDash([R*0.09,R*0.07]); ctx.strokeStyle=f; ctx.lineWidth=R*0.030;
+    ctx.beginPath(); ctx.moveTo(cx+HW*R,cy+HH*R*0.70); ctx.lineTo(cx+HW*R+R*0.58,cy+HH*R*0.50); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
   }
 }
 
-// ── T1  CHASSIS_FRAME ────────────────────────────────────
+// ── T1  TOWER ────────────────────────────────────────────
+// Silhouette: TALL NARROW prism (H≥2.5R × W≤0.60R) — VERTICAL orientation
+// Role: fortress · Mass: vertical-center · Weapon: rotating head at top
 function drawT1(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Tripod chassis — 3-way radial, weapon at forward apex
-    const rLen=R*[1.65,1.85,1.45][v], armW=R*0.10;
-    const angles=[Math.PI,Math.PI*0.38,Math.PI*1.62];
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const TH=[2.60,2.90,2.30][v]; // tower height (half)
+  const TW=[0.30,0.26,0.34][v]; // tower half-width
+  const top=cy-TH*R, bot=cy+TH*0.40*R;
+  if (bp===0) { // Gun tower — prismatic column + rotating weapon head
+    frect(ctx,cx-TW*R,bot,TW*2*R,TH*1.40*R,f,g,A,8); // main column
+    // Wider base platform
+    fpoly(ctx,[[cx-TW*2.2*R,bot],[cx+TW*2.2*R,bot],[cx+TW*1.80*R,bot+TH*0.38*R],[cx-TW*1.80*R,bot+TH*0.38*R]],f,g,A-0.08,5);
+    // 3 anchor legs spreading down
+    for (const [ax,ay] of [[cx-TW*3.0*R,cy+TH*0.88*R],[cx,cy+TH*0.78*R],[cx+TW*3.0*R,cy+TH*0.88*R]]) {
+      sline(ctx,cx-TW*0.0*R,bot+TH*0.18*R,ax,ay,f,A-0.22,R*0.07);
+      fcirc(ctx,ax,ay,R*0.10,f,g,A-0.25);
+    }
+    // Rotating weapon head at top
+    fell(ctx,cx,top+TH*0.18*R,TW*1.55*R,TW*0.80*R,f,g,A+0.02,7);
+    gun(ctx,cx-TW*R,top+TH*0.18*R,R*1.05,R*0.065,f,g,A);
+  } else if (bp===1) { // Obelisk — tapered square column, beam weapon at apex
+    fpoly(ctx,[[cx-TW*1.60*R,bot],[cx+TW*1.60*R,bot],[cx+TW*0.55*R,top],[cx-TW*0.55*R,top]],f,g,A,8);
+    fpoly(ctx,[[cx-TW*2.4*R,bot],[cx+TW*2.4*R,bot],[cx+TW*1.60*R,bot+TH*0.30*R],[cx-TW*1.60*R,bot+TH*0.30*R]],f,g,A-0.10,5);
+    ebeam(ctx,cx-TW*0.55*R,top,cx-TW*0.55*R-R*1.10,top,f,g,A,R*0.055);
+    // Horizontal rings along shaft
+    for (let i=1;i<=3;i++) { const ry=bot+(top-bot)*(i/4); frect(ctx,cx-TW*1.25*R,ry-R*0.040,TW*2.50*R,R*0.080,f,g,A-0.22); }
+  } else if (bp===2) { // Drilling spire — helix shaft, drill bit at base, gun at top
+    // Shaft (slightly tapered)
+    fpoly(ctx,[[cx-TW*0.88*R,bot],[cx+TW*0.88*R,bot],[cx+TW*0.55*R,top],[cx-TW*0.55*R,top]],f,g,A,7);
+    // Helix pattern (non-bezier stroke segments approximating helix)
+    ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.70)'; ctx.lineWidth=0.65;
+    for (let i=0;i<10;i++) {
+      const t=i/10, t2=(i+1)/10;
+      const y0=bot+(top-bot)*t, y1=bot+(top-bot)*t2;
+      const x0=cx+TW*0.72*R*Math.cos(t*Math.PI*3.0), x1=cx+TW*0.72*R*Math.cos(t2*Math.PI*3.0);
+      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    }
+    ctx.restore();
+    // Drill bit at base
+    fpoly(ctx,[[cx-TW*1.10*R,bot],[cx+TW*1.10*R,bot],[cx,bot+TH*0.50*R]],f,g,A-0.06,6);
+    gun(ctx,cx-TW*0.55*R,top,R*0.98,R*0.060,f,g,A);
+  } else if (bp===3) { // HYBRID: Tower + Crystal — crystal growth at base + mechanical shaft
+    frect(ctx,cx-TW*R,top,TW*2*R,TH*1.40*R,f,g,A,8);
+    // Crystal cluster at base (replacing anchor legs)
+    for (let i=0;i<4+v;i++) {
+      const a=Math.PI*0.55+i*(Math.PI*0.88/(3+v));
+      cshard(ctx,cx+TW*R*(Math.sin(a)*0.50),bot+TH*0.10*R,a,R*(0.45+nh(n,10+i)*0.38),R*0.068,f,g,A-0.06);
+    }
+    fell(ctx,cx,top+TH*0.18*R,TW*1.55*R,TW*0.80*R,f,g,A+0.02,7);
+    gun(ctx,cx-TW*R,top+TH*0.18*R,R*1.05,R*0.065,f,g,A);
+  } else { // BP4 INNOVATION: Floating monolith — same shape, no base, levitates above energy disk
+    frect(ctx,cx-TW*R,top,TW*2*R,TH*1.20*R,f,g,A,8);
+    // No anchor legs — energy disk below instead
+    sarc(ctx,cx,bot+TH*0.22*R,TW*2.80*R,0,Math.PI*2,f,A-0.24,R*0.10,12);
+    sarc(ctx,cx,bot+TH*0.22*R,TW*1.80*R,0,Math.PI*2,f,A-0.30,R*0.050,6);
+    // Energy arcs from disk up to tower
+    for (let i=0;i<3;i++) etend(ctx,cx+TW*(i-1)*2.4*R,bot+TH*0.22*R,cx+TW*(i-1)*0.55*R,bot,f,g,A-0.22,n,10+i*3);
+    fell(ctx,cx,top+TH*0.18*R,TW*1.55*R,TW*0.80*R,f,g,A+0.02,7);
+    gun(ctx,cx-TW*R,top+TH*0.18*R,R*1.05,R*0.065,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { frect(ctx,cx-TW*1.80*R,cy-TH*0.10*R,TW*3.60*R,R*0.080,f,g,A-0.18); } // mid-height banding ring
+  if (dl>=2) { // Cooling fins array
     for (let i=0;i<3;i++) {
-      const ax=cx+Math.cos(angles[i])*rLen, ay=cy+Math.sin(angles[i])*rLen;
-      sline(ctx,cx,cy,ax,ay,f,A-0.10,armW*2);
-      fcirc(ctx,ax,ay,armW*1.6,f,g,A-0.08);
+      const fy=cy-TH*0.28*R+i*R*0.20;
+      frect(ctx,cx-TW*1.40*R,fy,TW*2.80*R,R*0.060,f,g,A-0.22);
     }
-    fpoly(ctx,[[cx-R*0.28,cy-R*0.22],[cx-R*0.28,cy+R*0.22],[cx+R*0.32,cy]],f,g,A+0.02);
-    gun(ctx,cx+Math.cos(Math.PI)*rLen,cy,R*0.72,R*0.062,f,g,A);
-  } else if (bp===2) { // H-frame — two short rails connected by wide center beam
-    const rW=R*[1.20,1.40,1.05][v], sep=R*[0.52,0.66,0.42][v], rH=R*0.10;
-    for (const s of [-1,1] as const) {
-      frect(ctx,cx-rW,cy+s*sep-rH,rW*2,rH*2,f,g,A);
-      gun(ctx,cx-rW,cy+s*sep,R*0.55,R*0.055,f,g,A-0.04);
-    }
-    frect(ctx,cx-R*0.20,cy-sep,R*0.40,sep*2,f,g,A-0.06);
-    frect(ctx,cx-R*0.50,cy-R*0.14,R*1.0,R*0.28,f,g,A-0.10);
-    for (let i=0;i<3;i++) { const wx=cx-rW*0.65+i*rW*0.65; for (const s of [-1,1] as const) fcirc(ctx,wx,cy+s*(sep+R*0.28),R*0.18,f,g,A-0.18); }
-  } else if (bp===3) { // HYBRID: Frame + Biological — rails wrapped in organic muscle
-    const rW=R*2.0, sep=R*[0.48,0.62,0.38][v], rH=R*0.10;
-    frect(ctx,cx-rW,cy-sep-rH,rW*2,rH*2,f,g,A-0.08);
-    frect(ctx,cx-rW,cy+sep-rH,rW*2,rH*2,f,g,A-0.08);
-    // Organic muscle tissue over-wrapping the rails
-    for (let i=0;i<=4;i++) {
-      const rx=cx-rW+i*(rW*2/4);
-      const musH=sep*(0.38+nh(n,10+i)*0.24);
-      ctx.save(); ctx.globalAlpha=A-0.18; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
-      ctx.beginPath(); ctx.ellipse(rx,cy,R*0.14,musH,0,0,Math.PI*2); ctx.fill(); ctx.restore();
-    }
-    stinger(ctx,cx-rW-R*0.18,cy,R*0.68,R*0.09,f,g,A); // organic fang weapon
-    fpoly(ctx,[[cx+rW,cy-sep*1.3],[cx+rW+R*0.40,cy-sep*0.85],[cx+rW+R*0.40,cy+sep*0.85],[cx+rW,cy+sep*1.3]],f,g,A-0.06);
-  } else if (bp===4) { // INNOVATION: Spaceframe — triangulated strut lattice
-    const rW=R*1.85, H=R*[0.55,0.65,0.45][v];
-    const nodes:P2[] = [[cx-rW,cy-H],[cx-rW,cy+H],[cx-rW*0.3,cy-H*0.5],[cx-rW*0.3,cy+H*0.5],[cx+rW*0.4,cy-H*0.4],[cx+rW*0.4,cy+H*0.4],[cx+rW,cy]];
-    const edges=[[0,1],[0,2],[1,3],[2,3],[2,4],[3,5],[4,5],[4,6],[5,6],[0,3],[1,2]];
-    for (const [a,b] of edges) sline(ctx,nodes[a][0],nodes[a][1],nodes[b][0],nodes[b][1],f,A-0.12,R*0.09);
-    for (const [x,y] of nodes) fcirc(ctx,x,y,R*0.09,f,g,A-0.10);
-    gun(ctx,cx-rW,cy,R*0.72,R*0.060,f,g,A);
-  } else { // BP0: Long rectangular frame with rails + cross-members
-    const rW=R*2.0, sep=R*[0.48,0.62,0.38][v], rH=R*0.10, nX=[4,5,3][v];
-    frect(ctx,cx-rW,cy-sep-rH,rW*2,rH*2,f,g,A); frect(ctx,cx-rW,cy+sep-rH,rW*2,rH*2,f,g,A);
-    for (let i=0;i<=nX;i++) { const rx=cx-rW+i*(rW*2/nX); frect(ctx,rx-R*0.055,cy-sep,R*0.11,sep*2,f,g,A-0.12); }
-    fpoly(ctx,[[cx-rW,cy-sep*1.1],[cx-rW,cy+sep*1.1],[cx-rW-R*0.22,cy+sep*0.6],[cx-rW-R*0.22,cy-sep*0.6]],f,g,A+0.04);
-    gun(ctx,cx-rW-R*0.22,cy,R*0.80,R*0.065,f,g,A);
-    fpoly(ctx,[[cx+rW,cy-sep*1.3],[cx+rW+R*0.40,cy-sep*0.85],[cx+rW+R*0.40,cy+sep*0.85],[cx+rW,cy+sep*1.3]],f,g,A-0.06);
-    for (let i=0;i<3;i++) { const wx=cx-rW*0.68+i*rW*0.68; fcirc(ctx,wx,cy+sep+R*0.26,R*0.21,f,g,A-0.16); fcirc(ctx,wx,cy-sep-R*0.26,R*0.21,f,g,A-0.16); }
+  }
+  if (dl>=3) { // Sensor dish
+    sarc(ctx,cx+TW*0.80*R,top+TH*0.10*R,R*0.18,Math.PI*0.80,Math.PI*0.20+Math.PI,f,A-0.20,R*0.040);
+    sline(ctx,cx+TW*0.80*R,top+TH*0.10*R,cx+TW*0.80*R,top+TH*0.30*R,f,A-0.25,R*0.038);
+    bolts(ctx,cx-TW*R*0.90,bot+TH*0.06*R,cx+TW*R*0.90,f,g,A,R*0.20);
   }
 }
 
-// ── T2  CEPHALOPOD ───────────────────────────────────────
+// ── T2  NEEDLE ───────────────────────────────────────────
+// Silhouette: EXTREME elongation ≥4.5R × ≤0.40R — nearly a horizontal line
+// Role: interceptor · Mass: distributed · Weapon: sharp left tip
 function drawT2(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Medusa jellyfish — hemispherical bell + trailing filaments
-    const bR=R*[0.82,0.96,0.70][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
-    ctx.beginPath(); ctx.arc(cx,cy-bR*0.25,bR,Math.PI,0); ctx.closePath();
-    ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Oral arms (4 short, stiff)
-    for (let i=0;i<4;i++) { const ox=cx-bR*0.65+i*bR*0.44; const oLen=R*(0.42+nh(n,10+i)*0.22); organicArm(ctx,ox,cy-bR*0.25+bR*0.05,ox+(nh(n,20+i)-0.5)*R*0.22,cy-bR*0.25+bR*0.05+oLen,R*0.055,0,f,g,A-0.12); }
-    // Trailing filaments (thin, long)
-    const nF=6+v*2;
-    for (let i=0;i<nF;i++) { const fx=cx-bR*0.80+i*(bR*1.60/(nF-1)); const fLen=R*(0.85+nh(n,30+i)*1.10); const curl=(nh(n,40+i)-0.5)*R*0.55; organicArm(ctx,fx,cy-bR*0.25+bR*0.05,fx+curl,cy-bR*0.25+bR*0.05+fLen,R*0.025,0,f,g,A-0.22); }
-    // Weapon: rim sting (left-most)
-    stinger(ctx,cx-bR,cy-bR*0.25,R*0.35,R*0.07,f,g,A);
-    // Radial ribs
-    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=0.6;
-    for (let i=0;i<6;i++) { const a=Math.PI*(1-i/5); ctx.beginPath(); ctx.moveTo(cx,cy-bR*0.25); ctx.lineTo(cx+Math.cos(a)*bR,cy-bR*0.25+Math.sin(a)*bR); ctx.stroke(); }
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const NL=[4.60,5.00,4.20][v]; // needle half-length
+  const NH=[0.18,0.22,0.15][v]; // needle half-height
+  if (bp===0) { // Pure needle — pointed both ends, widest at 40% from left
+    fpoly(ctx,[[cx-NL*R,cy],[cx-NL*0.62*R,cy-NH*R],[cx+NL*0.32*R,cy-NH*0.75*R],[cx+NL*R,cy],[cx+NL*0.32*R,cy+NH*0.75*R],[cx-NL*0.62*R,cy+NH*R]],f,g,A,6);
+    stinger(ctx,cx-NL*R,cy,R*0.38,NH*R,f,g,A);
+    // Engine nozzle at right
+    fpoly(ctx,[[cx+NL*R,cy-NH*0.55*R],[cx+NL*1.12*R,cy-NH*0.28*R],[cx+NL*1.12*R,cy+NH*0.28*R],[cx+NL*R,cy+NH*0.55*R]],f,g,A-0.18,3);
+  } else if (bp===1) { // Twin-spar — two parallel needles joined by center connector
+    const sep=NH*1.80*R;
+    for (const s of [-1,1] as const) {
+      fpoly(ctx,[[cx-NL*R,cy+s*sep],[cx-NL*0.62*R,cy+s*(sep-NH*R)],[cx+NL*0.32*R,cy+s*(sep-NH*0.72*R)],[cx+NL*R,cy+s*sep],[cx+NL*0.32*R,cy+s*(sep+NH*0.72*R)],[cx-NL*0.62*R,cy+s*(sep+NH*R)]],f,g,A,5);
+      stinger(ctx,cx-NL*R,cy+s*sep,R*0.30,NH*R,f,g,A-0.04);
+    }
+    // Center strut
+    frect(ctx,cx-NL*0.10*R,cy-sep,NL*0.20*R,sep*2,f,g,A-0.12);
+  } else if (bp===2) { // Arrow with delta wings — needle + swept stabilizers
+    fpoly(ctx,[[cx-NL*R,cy],[cx-NL*0.62*R,cy-NH*R],[cx+NL*0.32*R,cy-NH*0.72*R],[cx+NL*R,cy],[cx+NL*0.32*R,cy+NH*0.72*R],[cx-NL*0.62*R,cy+NH*R]],f,g,A,6);
+    // Delta wings at center
+    fpoly(ctx,[[cx-NL*0.10*R,cy-NH*R],[cx+NL*0.50*R,cy-NH*R],[cx+NL*0.50*R,cy-NH*2.60*R],[cx-NL*0.25*R,cy-NH*R]],f,g,A-0.12,5);
+    fpoly(ctx,[[cx-NL*0.10*R,cy+NH*R],[cx+NL*0.50*R,cy+NH*R],[cx+NL*0.50*R,cy+NH*2.60*R],[cx-NL*0.25*R,cy+NH*R]],f,g,A-0.12,5);
+    stinger(ctx,cx-NL*R,cy,R*0.38,NH*R,f,g,A);
+  } else if (bp===3) { // HYBRID: Front organic + rear crystal — seam at center
+    // Front third (left) — organic flesh
+    const seam=cx-NL*0.25*R;
+    ctx.save(); ctx.beginPath(); ctx.rect(cx-NL*R,cy-NH*3*R,seam-cx+NL*R,NH*6*R); ctx.clip();
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
+    ctx.beginPath(); ctx.moveTo(cx-NL*R,cy); ctx.bezierCurveTo(cx-NL*R,cy-NH*R,seam,cy-NH*R,seam,cy-NH*R); ctx.lineTo(seam,cy+NH*R); ctx.bezierCurveTo(seam,cy+NH*R,cx-NL*R,cy+NH*R,cx-NL*R,cy); ctx.closePath(); ctx.fill(); ctx.restore(); ctx.restore();
+    // Rear two-thirds (right) — crystal
+    ctx.save(); ctx.beginPath(); ctx.rect(seam,cy-NH*3*R,NL*R*2,NH*6*R); ctx.clip();
+    for (let i=0;i<4+v;i++) {
+      const sx=seam+i*(NL*1.22*R-seam+cx)/(3+v), sh=NH*(1.1-i*0.08)*R;
+      fpoly(ctx,[[sx,cy-sh],[sx+NL*0.28*R,cy-sh*0.60],[sx+NL*0.28*R,cy+sh*0.60],[sx,cy+sh]],f,g,A-0.04,5);
+    }
     ctx.restore();
-  } else if (bp===2) { // Octopus — round body, 8 thick radial arms
-    const bR=R*[0.55,0.64,0.48][v], nArm=6+v*2;
-    fell(ctx,cx,cy,bR,bR*0.80,f,g,A);
-    for (const s of [-1,1] as const) { fcirc(ctx,cx-bR*0.28,cy+s*bR*0.32,R*0.12,'rgba(255,255,255,0.72)',g,A-0.04); fcirc(ctx,cx-bR*0.28,cy+s*bR*0.32,R*0.06,'#111',g,A+0.04); }
-    for (let i=0;i<nArm;i++) {
-      const a=(i/nArm)*Math.PI*2-Math.PI/2;
-      const aLen=R*(0.62+nh(n,10+i)*0.55);
-      const ex=cx+Math.cos(a)*(bR+aLen), ey=cy+Math.sin(a)*(bR+aLen)*0.80;
-      const curl=(nh(n,20+i)-0.5)*R*0.40;
-      organicArm(ctx,cx+Math.cos(a)*bR*0.82,cy+Math.sin(a)*bR*0.70,ex,ey,R*0.072,curl,f,g,A-0.10);
-      fcirc(ctx,ex,ey,R*0.06,f,g,A-0.22);
-    }
-    stinger(ctx,cx-bR,cy,R*0.36,R*0.085,f,g,A);
-  } else if (bp===3) { // HYBRID: Cephalopod + Energy — plasma tentacles, energy mantle
-    const mL=R*[1.10,1.22,0.96][v], mH=R*[0.74,0.82,0.66][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
-    ctx.beginPath();
-    ctx.moveTo(cx-mL,cy); ctx.bezierCurveTo(cx-mL*0.52,cy-mH*0.58,cx,cy-mH,cx+mL*0.48,cy-mH);
-    ctx.bezierCurveTo(cx+mL*0.82,cy-mH,cx+mL,cy-mH*0.42,cx+mL,cy);
-    ctx.bezierCurveTo(cx+mL,cy+mH*0.42,cx+mL*0.82,cy+mH,cx+mL*0.48,cy+mH);
-    ctx.bezierCurveTo(cx,cy+mH,cx-mL*0.52,cy+mH*0.58,cx-mL,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Energy tentacles instead of organic (glowing)
-    const nT=6+v;
-    for (let i=0;i<nT;i++) {
-      const t=nT>1?i/(nT-1):0.5, ty=cy+(t-0.5)*mH*1.85;
-      energyTendril(ctx,cx+mL*0.38,ty,cx+mL*0.38+R*(0.80+nh(n,10+i)*0.90),ty+(nh(n,20+i)-0.5)*R*0.60,f,g,A-0.16,n,30+i*3);
-    }
-    // Energy field overlay
-    graftEnergyField(ctx,cx+mL*0.10,cy,mH*0.55,n,f,g,A);
-    // Energy beam weapon (replaces beak)
-    const beamLen=R*(0.68+nh(n,5)*0.38);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.048; ctx.shadowColor=g; ctx.shadowBlur=12;
-    ctx.beginPath(); ctx.moveTo(cx-mL,cy); ctx.lineTo(cx-mL-beamLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-mL-beamLen,cy,R*0.10,'rgba(255,255,255,0.88)',g,A);
-  } else if (bp===4) { // INNOVATION: Giant neuron — soma body + dendrites + axon
-    const sR=R*[0.62,0.72,0.54][v];
-    fell(ctx,cx+R*0.15,cy,sR,sR*0.88,f,g,A); // soma
-    fcirc(ctx,cx+R*0.28,cy-sR*0.30,R*0.14,'rgba(255,255,255,0.72)',g,A-0.04); // nucleus
-    // Dendrites (branching, shorter, multiply)
-    const nD=5+v*2;
-    for (let i=0;i<nD;i++) {
-      const a=(i/nD)*Math.PI*2*0.85+Math.PI*0.10;
-      const dLen=R*(0.55+nh(n,10+i)*0.60);
-      const dx=cx+R*0.15+Math.cos(a)*(sR+dLen), dy=cy+Math.sin(a)*(sR+dLen)*0.85;
-      organicArm(ctx,cx+R*0.15+Math.cos(a)*sR*0.85,cy+Math.sin(a)*sR*0.75,dx,dy,R*0.048,(nh(n,20+i)-0.5)*R*0.30,f,g,A-0.14);
-      if (nh(n,30+i)>0.5) { // branch tip
-        const b2x=dx+Math.cos(a+0.6)*R*0.30, b2y=dy+Math.sin(a+0.6)*R*0.25;
-        organicArm(ctx,dx,dy,b2x,b2y,R*0.030,0,f,g,A-0.24);
-      }
-    }
-    // Axon (long, straight, leftward — the weapon delivery)
-    const axLen=R*(1.35+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A-0.08; ctx.strokeStyle=f; ctx.lineWidth=R*0.075; ctx.shadowColor=g; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(cx+R*0.15-sR,cy); ctx.lineTo(cx+R*0.15-sR-axLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx+R*0.15-sR-axLen,cy,R*0.12,f,g,A+0.02); // synaptic terminal (weapon)
-  } else { // BP0: Elongated squid
-    const mL=R*[1.10,1.22,0.96][v], mH=R*[0.74,0.82,0.66][v];
-    const tentBase=cx+mL*0.38, nT=[7,6,8][v];
-    for (let i=0;i<nT;i++) {
-      const t=nT>1?i/(nT-1):0.5, ty=cy+(t-0.5)*mH*1.85;
-      const curl=(nh(n,40+i)-0.5)*R*0.58;
-      organicArm(ctx,tentBase,ty,tentBase+R*(0.80+nh(n,20+i)*0.95),ty+curl*0.65,R*Math.max(0.035,0.085-i*0.006),curl,f,g,A-0.14);
-    }
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
-    ctx.beginPath();
-    ctx.moveTo(cx-mL,cy); ctx.bezierCurveTo(cx-mL*0.52,cy-mH*0.58,cx,cy-mH,cx+mL*0.48,cy-mH);
-    ctx.bezierCurveTo(cx+mL*0.82,cy-mH,cx+mL,cy-mH*0.42,cx+mL,cy);
-    ctx.bezierCurveTo(cx+mL,cy+mH*0.42,cx+mL*0.82,cy+mH,cx+mL*0.48,cy+mH);
-    ctx.bezierCurveTo(cx,cy+mH,cx-mL*0.52,cy+mH*0.58,cx-mL,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    for (const s of [-1,1] as const) { fcirc(ctx,cx-mL*0.05,cy+s*mH*0.48,R*0.14,'rgba(255,255,255,0.72)',g,A-0.04); fcirc(ctx,cx-mL*0.05,cy+s*mH*0.48,R*0.07,'#111',g,A+0.05); }
-    stinger(ctx,cx-mL,cy,R*0.34,R*0.095,f,g,A);
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx+mL,cy+s*mH*0.20],[cx+mL+R*0.28,cy+s*mH*0.62],[cx+mL+R*0.12,cy+s*mH*0.66]],f,g,A-0.22,3);
+    stinger(ctx,cx-NL*R,cy,R*0.38,NH*R,f,g,A);
+  } else { // BP4 INNOVATION: Broadhead — breaks needle rule entirely (wide cross)
+    const BW=R*1.65, BH=R*1.10;
+    fell(ctx,cx-R*0.28,cy,BW,BH*0.60,f,g,A,8); // wide central mass
+    // Cross arms
+    for (const s of [-1,1] as const) fell(ctx,cx-R*0.28,cy+s*BH*0.82,R*0.62,BH*0.28,f,g,A-0.10,5);
+    gun(ctx,cx-BW-R*0.28,cy,R*0.88,R*0.075,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Propulsion ring at rear
+    sarc(ctx,cx+NL*0.72*R,cy,NH*1.60*R,0,Math.PI*2,f,A-0.22,R*0.065,5);
+  }
+  if (dl>=2) { // Mid-body sensor cluster
+    fell(ctx,cx,cy-NH*R,R*0.10,R*0.050,f,g,A-0.25,3);
+    sline(ctx,cx,cy-NH*R,cx+R*0.12,cy-NH*1.28*R,f,A-0.22,R*0.038); // antenna
+  }
+  if (dl>=3) { // Leading edge detail
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.60)'; ctx.lineWidth=0.55;
+    for (let i=1;i<=4;i++) { const ix=cx-NL*R+i*(NL*R*0.50/5); ctx.beginPath(); ctx.moveTo(ix,cy-NH*R*0.55); ctx.lineTo(ix,cy+NH*R*0.55); ctx.stroke(); }
+    ctx.restore();
   }
 }
 
-// ── T3  FUNGAL_COLONY ────────────────────────────────────
+// ── T3  LEVIATHAN ────────────────────────────────────────
+// Silhouette: MASSIVE smooth teardrop (2.5R wide × 1.8R tall) — biggest entity
+// Role: leviathan · Mass: rear-heavy · Weapon: tiny stinger at snout
 function drawT3(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n), stemX=cx+R*[0.22,0.10,0.32][v];
-  const drawCap=(capX:number,capY:number,capW:number,capH:number,alpha:number)=>{
-    ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(capX-capW,capY); ctx.bezierCurveTo(capX-capW,capY-capH*1.65,capX+capW,capY-capH*1.65,capX+capW,capY); ctx.closePath(); ctx.fill();
-    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.globalAlpha=alpha-0.22; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=2;
-    ctx.beginPath(); ctx.ellipse(capX,capY,capW,capH*0.32,0,0,Math.PI); ctx.fill(); ctx.restore();
-  };
-  if (bp===1) { // Shelf bracket — 3-4 horizontal layered caps on vertical base
-    const nShelf=3+v, baseH=R*[1.10,0.95,1.25][v];
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.16; ctx.shadowColor=g; ctx.shadowBlur=5;
-    ctx.beginPath(); ctx.moveTo(stemX,cy+baseH*0.35); ctx.lineTo(stemX,cy-baseH); ctx.stroke(); ctx.restore();
-    for (let i=0;i<nShelf;i++) {
-      const sy=cy-baseH*0.15-i*(baseH*0.75/nShelf);
-      const sW=R*(0.62-i*0.06+nh(n,10+i)*0.08), sH=R*(0.18-i*0.015);
-      drawCap(stemX+sW*0.5,sy,sW,sH,A-i*0.06);
-    }
-    gun(ctx,stemX-R*0.22,cy-baseH*0.15,R*0.72,R*0.060,f,g,A);
-  } else if (bp===2) { // Coral fungi — branching cylinders with bulbous tips
-    const nBranch=4+v, trunkH=R*[0.55,0.50,0.62][v];
-    ctx.save(); ctx.globalAlpha=A-0.08; ctx.strokeStyle=f; ctx.lineWidth=R*0.16; ctx.shadowColor=g; ctx.shadowBlur=5;
-    ctx.beginPath(); ctx.moveTo(stemX,cy+trunkH*0.30); ctx.lineTo(stemX,cy-trunkH*0.40); ctx.stroke(); ctx.restore();
-    for (let i=0;i<nBranch;i++) {
-      const a=Math.PI*(1.15+i*(0.70/(nBranch-1))), bLen=R*(0.52+nh(n,10+i)*0.42);
-      const bx=stemX+Math.cos(a)*bLen, by=cy-trunkH*0.32+Math.sin(a)*bLen;
-      ctx.save(); ctx.globalAlpha=A-0.12; ctx.strokeStyle=f; ctx.lineWidth=R*0.10; ctx.shadowColor=g; ctx.shadowBlur=4;
-      ctx.beginPath(); ctx.moveTo(stemX,cy-trunkH*0.32); ctx.lineTo(bx,by); ctx.stroke(); ctx.restore();
-      fcirc(ctx,bx,by,R*(0.16+nh(n,20+i)*0.10),f,g,A-0.08);
-    }
-    gun(ctx,stemX-R*0.55,cy,R*0.62,R*0.060,f,g,A);
-  } else if (bp===3) { // HYBRID: Fungal + Mechanical — metal armature with organic caps
-    const stemH=R*[0.65,0.55,0.72][v];
-    // Mechanical armature (rectangular rails as spine)
-    frect(ctx,stemX-R*0.065,cy-stemH*0.90,R*0.13,stemH*1.10,f,g,A-0.06);
-    frect(ctx,stemX-R*0.40,cy-stemH*0.40,R*0.80,R*0.10,f,g,A-0.10);
-    for (let i=0;i<2+v;i++) { mechArmor(ctx,stemX,cy-stemH*(0.30+i*0.30),Math.PI*0.5,R*0.62,f,g,A-0.08); }
-    // Organic caps still growing from mechanical nodes
-    drawCap(stemX,cy-stemH*0.90,R*0.50,R*0.26,A-0.04);
-    drawCap(stemX-R*0.38,cy-stemH*0.48,R*0.35,R*0.18,A-0.12);
-    // Mechanical gun weapon
-    gun(ctx,stemX-R*0.55,cy,R*0.75,R*0.065,f,g,A);
-  } else if (bp===4) { // INNOVATION: Rhizomorphic neural mat — flat brain-like tissue
-    const matW=R*[1.55,1.72,1.38][v], matH=R*[0.55,0.62,0.48][v];
-    // Main flat mat
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-matW,cy+matH*0.20);
-    ctx.bezierCurveTo(cx-matW,cy-matH,cx+matW,cy-matH,cx+matW,cy+matH*0.20);
-    ctx.bezierCurveTo(cx+matW,cy+matH,cx-matW,cy+matH,cx-matW,cy+matH*0.20);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.8; ctx.stroke(); ctx.restore();
-    // Convoluted folds (gyri/sulci pattern)
-    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.7;
-    for (let i=0;i<5+v;i++) {
-      const sx=cx-matW*0.75+i*matW*0.38, sy=cy-matH*0.50+nh(n,10+i)*matH*0.60;
-      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.quadraticCurveTo(sx+R*(nh(n,20+i)-0.5)*0.45,sy+R*0.28,sx+R*0.35,sy+R*(0.10+nh(n,30+i)*0.22)); ctx.stroke();
-    }
-    ctx.restore();
-    // Ganglia swellings
-    for (let i=0;i<4;i++) { fcirc(ctx,cx-matW*0.55+i*matW*0.38,cy-matH*0.15+nh(n,40+i)*matH*0.20,R*(0.10+nh(n,50+i)*0.07),f,g,A-0.16); }
-    // Weapon: ejector tube from left edge
-    gun(ctx,cx-matW,cy,R*0.68,R*0.060,f,g,A);
-  } else { // BP0: Parasol cap + stalk + mycelium
-    const stemH=R*[0.65,0.55,0.72][v];
-    const nThread=9+v*2;
-    for (let i=0;i<nThread;i++) {
-      const a=(i/nThread)*Math.PI*2+nh(n,60+i)*0.50;
-      const tLen=R*(0.58+nh(n,70+i)*1.20);
-      const mx=stemX+Math.cos(a)*tLen*0.55+(nh(n,80+i)-0.5)*R*0.28, my=cy+Math.sin(a)*tLen*0.55+(nh(n,90+i)-0.5)*R*0.28;
-      ctx.save(); ctx.globalAlpha=A-0.36; ctx.strokeStyle=f; ctx.lineWidth=R*0.028; ctx.shadowColor=g; ctx.shadowBlur=2;
-      ctx.beginPath(); ctx.moveTo(stemX,cy); ctx.quadraticCurveTo(mx,my,stemX+Math.cos(a)*tLen,cy+Math.sin(a)*tLen); ctx.stroke(); ctx.restore();
-      fcirc(ctx,stemX+Math.cos(a)*tLen,cy+Math.sin(a)*tLen,R*0.042,f,g,A-0.40);
-    }
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.13; ctx.shadowColor=g; ctx.shadowBlur=5;
-    ctx.beginPath(); ctx.moveTo(stemX,cy+stemH); ctx.lineTo(stemX,cy-stemH*0.40); ctx.stroke(); ctx.restore();
-    drawCap(stemX,cy-stemH*0.90,R*(0.54+nh(n,100)*0.10),R*0.27,A);
-    drawCap(stemX-R*0.52*0.55,cy-stemH*0.52,R*(0.44-0.055),R*(0.27-0.025),A-0.06);
-    drawCap(stemX+R*0.52*0.55,cy-stemH*0.52,R*(0.44-0.055),R*(0.27-0.025),A-0.06);
-    const tubeLen=R*(0.62+nh(n,7)*0.42);
-    ctx.save(); ctx.globalAlpha=A-0.05; ctx.strokeStyle=f; ctx.lineWidth=R*0.13; ctx.shadowColor=g; ctx.shadowBlur=5;
-    ctx.beginPath(); ctx.moveTo(cx-R*0.55,cy); ctx.lineTo(cx-R*0.55-tubeLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-R*0.55-tubeLen,cy,R*0.12,f,g,A); fcirc(ctx,cx-R*0.55-tubeLen-R*0.10,cy,R*0.055,'rgba(255,255,255,0.72)',g,A);
-  }
-}
-
-// ── T4  VERTEBRATE ───────────────────────────────────────
-function drawT4(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  const drawSkullRibs=(spL:number,nRib:number)=>{
-    drawSpine(ctx,cx-spL,cy,cx+spL*0.55,cy,R*0.11,f,g,A);
-    for (let i=0;i<nRib;i++) {
-      const rx=cx-spL*0.60+i*(spL*0.78/Math.max(nRib-1,1));
-      const rH=R*(0.55+nh(n,10+i)*0.30)*(1-Math.abs(rx-cx)/(spL*0.92)*0.32);
-      for (const s of [-1,1] as const) {
-        ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.07; ctx.shadowColor=g; ctx.shadowBlur=3;
-        ctx.beginPath(); ctx.moveTo(rx,cy); ctx.bezierCurveTo(rx+R*0.12,cy+s*rH*0.48,rx+R*0.20,cy+s*rH*0.86,rx+R*0.06,cy+s*rH); ctx.stroke(); ctx.restore();
-      }
-    }
-  };
-  if (bp===1) { // Aquatic swimmer — fusiform, paired fins, forked tail
-    const bL=R*[1.72,1.55,1.90][v], bH=R*[0.38,0.44,0.34][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-bL,cy); ctx.bezierCurveTo(cx-bL,cy-bH,cx+bL*0.30,cy-bH,cx+bL*0.65,cy-bH*0.38);
-    ctx.lineTo(cx+bL,cy); ctx.lineTo(cx+bL*0.65,cy+bH*0.38);
-    ctx.bezierCurveTo(cx+bL*0.30,cy+bH,cx-bL,cy+bH,cx-bL,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Dorsal fin
-    fpoly(ctx,[[cx-bL*0.10,cy-bH],[cx-bL*0.35,cy-bH-R*0.42],[cx-bL*0.62,cy-bH-R*0.38],[cx-bL*0.68,cy-bH]],f,g,A-0.10,4);
-    // Paired pectoral fins
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx-bL*0.08,cy+s*bH*0.30],[cx-bL*0.08,cy+s*bH],[cx+bL*0.20,cy+s*bH*0.65],[cx+bL*0.25,cy+s*bH*0.25]],f,g,A-0.14,4);
-    // Forked tail
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx+bL,cy+s*bH*0.08],[cx+bL+R*0.55,cy+s*R*0.52],[cx+bL+R*0.42,cy+s*R*0.58]],f,g,A-0.18,3);
-    // Eye + stinger weapon
-    fcirc(ctx,cx-bL+R*0.55,cy-bH*0.25,R*0.11,'rgba(255,255,255,0.80)',g,A); fcirc(ctx,cx-bL+R*0.55,cy-bH*0.25,R*0.055,'#111',g,1.0);
-    stinger(ctx,cx-bL,cy,R*0.40,R*0.080,f,g,A);
-  } else if (bp===2) { // Serpentine — S-curve spine, no ribcage, fang at tip
-    const sLen=R*[2.30,2.10,2.55][v], nSeg=5+v;
-    // Draw S-curve spine segments
-    for (let i=0;i<nSeg;i++) {
-      const t=i/(nSeg-1), t2=(i+1)/(nSeg-1);
-      const wave=Math.sin(t*Math.PI)*R*[0.52,0.62,0.44][v];
-      const wave2=Math.sin(t2*Math.PI)*R*[0.52,0.62,0.44][v];
-      const x1=cx-sLen+t*sLen*1.55, x2=cx-sLen+t2*sLen*1.55;
-      const r=R*(0.28-t*0.10);
-      fell(ctx,x1,cy+wave,r*1.15,r,f,g,A-i*0.05);
-      if (i<nSeg-1) sline(ctx,x1,cy+wave,x2,cy+wave2,f,A-0.28,r*1.8);
-    }
-    // Head (leftmost)
-    fell(ctx,cx-sLen,cy,R*0.32,R*0.24,f,g,A);
-    fcirc(ctx,cx-sLen+R*0.10,cy-R*0.12,R*0.10,'rgba(255,255,255,0.80)',g,A);
-    stinger(ctx,cx-sLen-R*0.32,cy,R*0.42,R*0.085,f,g,A);
-    // Tail tip (rightmost)
-    fpoly(ctx,[[cx+R*0.55*1.55,cy+Math.sin(Math.PI)*R*0.52],[cx+R*0.55*1.55+R*0.30,cy+Math.sin(Math.PI)*R*0.52+R*0.05],[cx+R*0.55*1.55+R*0.20,cy+Math.sin(Math.PI)*R*0.52-R*0.05]],f,g,A-0.22,3);
-  } else if (bp===3) { // HYBRID: Vertebrate + Mechanical — cyborg predator
-    const spL=R*[1.95,1.75,2.15][v];
-    drawSkullRibs(spL,4+v);
-    // Skull (organic)
-    const hW=R*[0.55,0.62,0.50][v], hH=R*[0.38,0.44,0.34][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-spL-hW*0.50,cy); ctx.bezierCurveTo(cx-spL-hW*0.50,cy-hH,cx-spL+hW*0.80,cy-hH,cx-spL+hW,cy-hH*0.28);
-    ctx.lineTo(cx-spL+hW,cy+hH*0.28); ctx.bezierCurveTo(cx-spL+hW*0.80,cy+hH,cx-spL-hW*0.50,cy+hH,cx-spL-hW*0.50,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Mechanical sensor replaces eye
-    frect(ctx,cx-spL-R*0.05,cy-hH*0.32,R*0.38,R*0.14,f,g,A-0.04); fcirc(ctx,cx-spL+R*0.22,cy-hH*0.25,R*0.07,'rgba(255,255,255,0.88)',g,A);
-    // Mechanical gun replaces fang
-    graftGun(ctx,cx-spL-hW*0.50,cy,R,f,g,A);
-    // Mechanical armor plates along spine
-    for (let i=0;i<3;i++) { const px=cx-spL*0.55+i*spL*0.45; frect(ctx,px-R*0.065,cy-R*0.45-R*0.16,R*0.13,R*0.16,f,g,A-0.06); }
-    fell(ctx,cx+spL*0.35,cy,R*0.44,R*0.32,f,g,A-0.12);
-    fpoly(ctx,[[cx+spL*0.55,cy-R*0.08],[cx+spL+R*0.28,cy],[cx+spL*0.55,cy+R*0.08]],f,g,A-0.18,3);
-  } else if (bp===4) { // INNOVATION: Leviathan — massive whale-like, tiny forward weapon
-    const bL=R*[2.10,1.90,2.35][v], bH=R*[0.72,0.82,0.64][v];
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const LW=[2.55,2.80,2.35][v]; // leviathan half-width (massive)
+  const LH=[1.72,1.88,1.58][v]; // leviathan half-height
+  if (bp===0) { // Great whale — teardrop, pectoral fins, tail flukes
     ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=10;
     ctx.beginPath();
-    ctx.moveTo(cx-bL,cy); ctx.bezierCurveTo(cx-bL,cy-bH*0.55,cx-bL*0.20,cy-bH,cx+bL*0.38,cy-bH*0.90);
-    ctx.bezierCurveTo(cx+bL*0.72,cy-bH*0.68,cx+bL,cy-bH*0.30,cx+bL,cy);
-    ctx.bezierCurveTo(cx+bL,cy+bH*0.30,cx+bL*0.72,cy+bH*0.68,cx+bL*0.38,cy+bH*0.90);
-    ctx.bezierCurveTo(cx-bL*0.20,cy+bH,cx-bL,cy+bH*0.55,cx-bL,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=0.9; ctx.stroke(); ctx.restore();
-    // Belly stripes
-    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=0.65;
-    for (let i=1;i<=4;i++) { const sx=cx-bL*0.55+i*bL*0.25; const sh=bH*0.88*Math.sqrt(Math.max(0,1-Math.pow((sx-cx+bL*0.10)/(bL*0.88),2))); ctx.beginPath(); ctx.moveTo(sx,cy-sh); ctx.lineTo(sx,cy+sh); ctx.stroke(); }
-    ctx.restore();
-    // Pectoral fins
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx-bL*0.10,cy+s*bH*0.72],[cx+bL*0.25,cy+s*bH],[cx+bL*0.45,cy+s*bH*0.60],[cx+bL*0.38,cy+s*bH*0.40]],f,g,A-0.16,4);
+    ctx.moveTo(cx-LW*R,cy); ctx.bezierCurveTo(cx-LW*R,cy-LH*R*0.52,cx-LH*R*0.85,cy-LH*R,cx+LH*R*0.55,cy-LH*R);
+    ctx.bezierCurveTo(cx+LW*R*0.70,cy-LH*R,cx+LW*R,cy-LH*R*0.35,cx+LW*R,cy);
+    ctx.bezierCurveTo(cx+LW*R,cy+LH*R*0.35,cx+LW*R*0.70,cy+LH*R,cx+LH*R*0.55,cy+LH*R);
+    ctx.bezierCurveTo(cx-LH*R*0.85,cy+LH*R,cx-LW*R,cy+LH*R*0.52,cx-LW*R,cy);
+    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.9; ctx.stroke(); ctx.restore();
+    // Pectoral fins (pair)
+    for (const s of [-1,1] as const) fpoly(ctx,[[cx-LW*0.20*R,cy+s*LH*R*0.55],[cx+LW*0.30*R,cy+s*LH*R],[cx+LW*0.58*R,cy+s*LH*R*0.58],[cx+LW*0.42*R,cy+s*LH*R*0.28]],f,g,A-0.14,5);
     // Tail flukes
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx+bL,cy+s*bH*0.15],[cx+bL+R*0.65,cy+s*bH*0.72],[cx+bL+R*0.50,cy+s*bH*0.80]],f,g,A-0.20,3);
-    stinger(ctx,cx-bL,cy,R*0.38,R*0.075,f,g,A);
-  } else { // BP0: Theropod (skull + spine + ribs + haunches)
-    const spL=R*[2.10,1.90,2.30][v];
-    drawSkullRibs(spL,[5,6,4][v]);
-    const hW=R*[0.55,0.62,0.50][v], hH=R*[0.38,0.44,0.34][v];
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    ctx.moveTo(cx-spL-hW*0.50,cy); ctx.bezierCurveTo(cx-spL-hW*0.50,cy-hH,cx-spL+hW*0.80,cy-hH,cx-spL+hW,cy-hH*0.28);
-    ctx.lineTo(cx-spL+hW,cy+hH*0.28); ctx.bezierCurveTo(cx-spL+hW*0.80,cy+hH,cx-spL-hW*0.50,cy+hH,cx-spL-hW*0.50,cy);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    stinger(ctx,cx-spL-hW*0.50,cy,R*0.42,R*0.10,f,g,A);
-    fcirc(ctx,cx-spL-hW*0.12,cy-hH*0.28,R*0.12,'rgba(255,255,255,0.80)',g,A); fcirc(ctx,cx-spL-hW*0.12,cy-hH*0.28,R*0.06,'#111',g,1.0);
-    fell(ctx,cx+spL*0.35,cy,R*0.44,R*0.32,f,g,A-0.12);
-    fpoly(ctx,[[cx+spL*0.55,cy-R*0.08],[cx+spL+R*0.32,cy],[cx+spL*0.55,cy+R*0.08]],f,g,A-0.18,3);
-  }
-}
-
-// ── T5  CRYSTAL_CLUSTER ───────────────────────────────────
-function drawT5(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Geode — circular shell with hollow, interior spikes
-    const oR=R*[1.10,1.22,0.98][v], shellW=R*0.14;
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=shellW*2; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath(); ctx.arc(cx,cy,oR-shellW,0,Math.PI*2); ctx.stroke();
-    ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.8; ctx.stroke(); ctx.restore();
-    // Interior crystal spikes pointing inward
-    const iR=oR-shellW*2.5, nSpike=6+v*2;
-    for (let i=0;i<nSpike;i++) {
-      const a=(i/nSpike)*Math.PI*2;
-      const tipX=cx+Math.cos(a)*iR*0.35, tipY=cy+Math.sin(a)*iR*0.35;
-      crystalShard(ctx,cx+Math.cos(a)*iR,cy+Math.sin(a)*iR,a+Math.PI,iR*0.65,R*0.07,f,g,A-0.06);
-    }
-    fcirc(ctx,cx,cy,iR*0.20,f,g,A+0.04);
-    gun(ctx,cx-oR,cy,R*0.72,R*0.062,f,g,A);
-  } else if (bp===2) { // Spire formation — tall central crystal + flanking spires
-    const spH=R*[1.55,1.80,1.32][v], spW=R*[0.22,0.26,0.18][v];
-    // Main central spire
-    fpoly(ctx,[[cx-spW,cy+spH*0.40],[cx+spW,cy+spH*0.40],[cx+spW*0.40,cy-spH],[cx-spW*0.40,cy-spH]],f,g,A,7);
-    fpoly(ctx,[[cx+spW*0.40,cy+spH*0.40],[cx+spW*1.20,cy-spH*0.55],[cx+spW*0.40,cy-spH]],'rgba(255,255,255,0.24)',g,A-0.28,2);
-    // Flanking spires
-    for (const [sx,sc] of [[cx-R*0.72,0.62],[cx+R*0.72,0.58]] as [number,number][]) {
-      fpoly(ctx,[[sx-spW*sc,cy+spH*0.20*sc],[sx+spW*sc,cy+spH*0.20*sc],[sx+spW*0.35*sc,cy-spH*sc],[sx-spW*0.35*sc,cy-spH*sc]],f,g,A-0.14,5);
-    }
-    gun(ctx,cx-spW,cy,R*0.90,R*0.062,f,g,A);
-  } else if (bp===3) { // HYBRID: Crystal + Energy — plasma-charged crystal structure
-    const coreR=R*[0.30,0.28,0.34][v], nShard=[6,7,5][v];
-    for (let i=0;i<nShard;i++) {
-      const baseA=(i/nShard)*Math.PI*2-Math.PI/8;
-      const shardLen=R*(0.65+nh(n,10+i)*0.80);
-      const midA=baseA+(nh(n,30+i)-0.5)*0.28;
-      const tipX=cx+Math.cos(midA)*(coreR+shardLen), tipY=cy+Math.sin(midA)*(coreR+shardLen);
-      const lbX=cx+Math.cos(baseA-0.25)*coreR, lbY=cy+Math.sin(baseA-0.25)*coreR;
-      const rbX=cx+Math.cos(baseA+0.25)*coreR, rbY=cy+Math.sin(baseA+0.25)*coreR;
-      fpoly(ctx,[[lbX,lbY],[rbX,rbY],[tipX,tipY]],f,g,A-0.04,6);
-    }
-    const corePts:P2[]=[];
-    for (let i=0;i<[6,8,5][v];i++) { const a=(i/[6,8,5][v])*Math.PI*2; corePts.push([cx+coreR*Math.cos(a),cy+coreR*Math.sin(a)]); }
-    fpoly(ctx,corePts,f,g,A+0.06,8);
-    // Energy graft — plasma filling gaps between shards
-    graftEnergyField(ctx,cx,cy,R*1.10,n,f,g,A);
-    fpoly(ctx,[[cx-coreR,cy-R*0.08],[cx-coreR-R*(0.90+nh(n,5)*0.42),cy],[cx-coreR,cy+R*0.08]],f,g,A+0.02,7);
-  } else if (bp===4) { // INNOVATION: Snowflake crystal — 6-fold symmetry, lacy branches
-    const mainR=R*[0.85,1.0,0.72][v];
-    for (let i=0;i<6;i++) {
-      const a=(i/6)*Math.PI*2;
-      // Main arm
-      const eax=cx+Math.cos(a)*mainR, eay=cy+Math.sin(a)*mainR;
-      sline(ctx,cx,cy,eax,eay,f,A-0.06,R*0.09);
-      // Side branches
-      for (let j=1;j<=2;j++) {
-        const t=j/3, bx=cx+Math.cos(a)*mainR*t, by=cy+Math.sin(a)*mainR*t;
-        const bLen=mainR*(0.28-j*0.06);
-        for (const bs of [-1,1] as const) {
-          const ba=a+Math.PI/2*bs;
-          sline(ctx,bx,by,bx+Math.cos(ba)*bLen,by+Math.sin(ba)*bLen,f,A-0.14,R*0.055);
-          fcirc(ctx,bx+Math.cos(ba)*bLen,by+Math.sin(ba)*bLen,R*0.050,f,g,A-0.22);
-        }
-      }
-      fcirc(ctx,eax,eay,R*0.080,f,g,A-0.12);
-    }
-    fcirc(ctx,cx,cy,R*0.16,f,g,A+0.04);
-    gun(ctx,cx-mainR,cy,R*0.72,R*0.055,f,g,A);
-  } else { // BP0: Radiating shards + core polygon
-    const nShard=[6,7,5][v], coreR=R*[0.30,0.28,0.34][v];
-    for (let i=0;i<nShard;i++) {
-      const baseA=(i/nShard)*Math.PI*2-Math.PI/8, shardLen=R*(0.65+nh(n,10+i)*0.80);
-      const midA=baseA+(nh(n,30+i)-0.5)*0.28;
-      const tipX=cx+Math.cos(midA)*(coreR+shardLen), tipY=cy+Math.sin(midA)*(coreR+shardLen);
-      const lbX=cx+Math.cos(baseA-0.25)*coreR, lbY=cy+Math.sin(baseA-0.25)*coreR;
-      const rbX=cx+Math.cos(baseA+0.25)*coreR, rbY=cy+Math.sin(baseA+0.25)*coreR;
-      const px=-Math.sin(midA)*R*0.045, py=Math.cos(midA)*R*0.045;
-      fpoly(ctx,[[lbX,lbY],[rbX,rbY],[tipX,tipY]],f,g,A-0.04,6);
-      fpoly(ctx,[[rbX,rbY],[tipX,tipY],[tipX+px,tipY+py]],'rgba(255,255,255,0.32)',g,A-0.28,2);
-    }
-    const nCoreSides=[6,8,5][v], corePts:P2[]=[];
-    for (let i=0;i<nCoreSides;i++) { const a=(i/nCoreSides)*Math.PI*2-Math.PI/6; corePts.push([cx+coreR*Math.cos(a),cy+coreR*Math.sin(a)]); }
-    fpoly(ctx,corePts,f,g,A+0.06,8);
-    const fLen=R*(0.90+nh(n,5)*0.42);
-    fpoly(ctx,[[cx-coreR,cy-R*0.08],[cx-coreR-fLen,cy],[cx-coreR,cy+R*0.08]],f,g,A+0.02,7);
-    fpoly(ctx,[[cx-coreR-R*0.10,cy-R*0.04],[cx-coreR-fLen-R*0.14,cy],[cx-coreR-R*0.10,cy+R*0.04]],'rgba(255,255,255,0.30)',g,A-0.24,3);
-  }
-}
-
-// ── T6  ARTHROPOD ────────────────────────────────────────
-function drawT6(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Scorpion — elongated body, curved tail with stinger
-    const bL=R*[1.55,1.42,1.72][v], tH=R*[0.28,0.34,0.24][v];
-    // Segmented body (4 segments decreasing in size)
+    for (const s of [-1,1] as const) fpoly(ctx,[[cx+LW*R,cy+s*LH*R*0.18],[cx+LW*R+R*0.72,cy+s*LH*R*0.88],[cx+LW*R+R*0.52,cy+s*LH*R*0.98]],f,g,A-0.18,4);
+    stinger(ctx,cx-LW*R,cy,R*0.42,LH*R*0.14,f,g,A); // tiny snout weapon
+    fcirc(ctx,cx-LW*0.60*R,cy-LH*R*0.52,R*0.14,'rgba(255,255,255,0.82)',g,A-0.02); // eye
+    fcirc(ctx,cx-LW*0.60*R,cy-LH*R*0.52,R*0.070,'#0a0f1a',g,1.0);
+  } else if (bp===1) { // Nautiloid — coiled shell (spiral), tentacles at opening
+    const shellR=LW*R*0.82;
+    // Spiral coil (approximated as concentric arcs)
     for (let i=0;i<4;i++) {
-      const sx=cx-bL*0.45+i*(bL*0.90/3);
-      const sR=R*(0.32-i*0.04+nh(n,10+i)*0.06);
-      fell(ctx,sx,cy,sR,sR*0.75,f,g,A-i*0.05);
+      const sR=shellR*(1-i*0.22);
+      ctx.save(); ctx.globalAlpha=A-i*0.10; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8-i*1.5;
+      ctx.beginPath(); ctx.moveTo(cx+R*0.18,cy); ctx.arc(cx+R*0.18,cy,sR,Math.PI*0.40,Math.PI*1.60,false); ctx.closePath(); ctx.fill();
+      ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.75; ctx.stroke(); ctx.restore();
     }
-    // Claws (large pincers at front)
+    // Tentacle cluster at shell opening (left side)
+    const tentBase=[cx-shellR*0.75,cy+shellR*0.32];
+    for (let i=0;i<5+v;i++) {
+      const tLen=R*(0.62+nh(n,10+i)*0.58);
+      const curl=(nh(n,20+i)-0.5)*R*0.40;
+      oarm(ctx,tentBase[0],tentBase[1],tentBase[0]-tLen,tentBase[1]+(nh(n,30+i)-0.5)*R*0.55,R*0.060,curl,f,g,A-0.12);
+    }
+    stinger(ctx,tentBase[0]-R*0.62,tentBase[1],R*0.40,R*0.085,f,g,A);
+  } else if (bp===2) { // Giant manta ray — flat diamond, very wide, long tail
+    const MW=LW*1.18*R, MH=LH*0.52*R;
+    // Main diamond body
+    fpoly(ctx,[[cx-MW*0.42,cy],[cx-MW*0.20,cy-MH],[cx+MW,cy-MH*0.22],[cx+MW*1.05,cy],[cx+MW,cy+MH*0.22],[cx-MW*0.20,cy+MH]],f,g,A,9);
+    // Wingtip details
     for (const s of [-1,1] as const) {
-      const cx2=cx-bL*0.45-R*0.20, cy2=cy+s*R*0.40;
-      fpoly(ctx,[[cx2,cy2],[cx2-R*0.52,cy2+s*R*0.10],[cx2-R*0.52,cy2-s*R*0.22],[cx2-R*0.18,cy2-s*R*0.22]],f,g,A-0.08,4);
+      fpoly(ctx,[[cx-MW*0.10,cy+s*MH*0.72],[cx-MW*0.40,cy+s*MH*1.18],[cx-MW*0.10,cy+s*MH*1.22]],f,g,A-0.20,4);
+      fpoly(ctx,[[cx+MW*0.72,cy+s*MH*0.22],[cx+MW*0.88,cy+s*MH*0.60],[cx+MW*1.05,cy+s*MH*0.26]],f,g,A-0.22,4);
     }
-    stinger(ctx,cx-bL*0.45-R*0.38,cy,R*0.52,R*0.08,f,g,A);
-    // Tail curving over body
-    const nTailSeg=4+v;
-    for (let i=0;i<nTailSeg;i++) {
-      const t=(i+1)/(nTailSeg+1);
-      const tx=cx+bL*0.45+t*R*0.80, ty=cy-t*t*R*1.20;
-      const tr=R*(0.20-t*0.08);
-      fell(ctx,tx,ty,tr,tr,f,g,A-i*0.05);
+    // Long tail spine
+    fpoly(ctx,[[cx+MW*1.05,cy-MH*0.06],[cx+MW*1.05+R*1.30,cy],[cx+MW*1.05,cy+MH*0.06]],f,g,A-0.18,4);
+    stinger(ctx,cx-MW*0.42,cy,R*0.40,MH*0.22,f,g,A);
+  } else if (bp===3) { // HYBRID: Leviathan + Crystal — calcified armor on whale body
+    // Base whale
+    ctx.save(); ctx.globalAlpha=A-0.04; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
+    ctx.beginPath();
+    ctx.moveTo(cx-LW*R,cy); ctx.bezierCurveTo(cx-LW*R,cy-LH*R*0.52,cx-LH*R*0.85,cy-LH*R,cx+LH*R*0.55,cy-LH*R);
+    ctx.bezierCurveTo(cx+LW*R*0.70,cy-LH*R,cx+LW*R,cy-LH*R*0.35,cx+LW*R,cy);
+    ctx.bezierCurveTo(cx+LW*R,cy+LH*R*0.35,cx+LW*R*0.70,cy+LH*R,cx+LH*R*0.55,cy+LH*R);
+    ctx.bezierCurveTo(cx-LH*R*0.85,cy+LH*R,cx-LW*R,cy+LH*R*0.52,cx-LW*R,cy);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+    // Crystal plate armor growing on dorsal surface
+    for (let i=0;i<4+v;i++) {
+      const px=cx-LW*R*0.55+i*LW*R*0.38, pLen=R*(0.40+nh(n,10+i)*0.28);
+      cshard(ctx,px,cy-LH*R*(0.62+nh(n,20+i)*0.18),Math.PI*1.5,pLen,R*0.072,f,g,A-0.08);
     }
-    // Tail stinger at tip
-    const finalT=cx+bL*0.45+R*0.80, finalY=cy-R*1.20;
-    stinger(ctx,finalT,finalY,-R*0.38,R*0.07,f,g,A);
-    // Legs (3 pairs)
-    for (let i=0;i<3;i++) { const lx=cx-bL*0.20+i*R*0.42; for (const s of [-1,1] as const) sline(ctx,lx,cy+s*R*0.28,lx+s*R*0.28,cy+s*R*0.72,f,A-0.22,R*0.055); }
-  } else if (bp===2) { // Crab — very wide flat body, enormous front claws
-    const bW=R*[1.02,1.18,0.88][v], bH=R*[0.36,0.42,0.30][v];
-    fell(ctx,cx+R*0.20,cy,bW,bH,f,g,A); // wide flat carapace
-    // Carapace patterning
-    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.65;
-    for (let i=1;i<=3;i++) { const rx=cx+R*0.20-bW*0.6+i*bW*0.40; const rh=bH*0.85*Math.sqrt(Math.max(0,1-Math.pow((rx-cx-R*0.20)/bW,2))); ctx.beginPath(); ctx.moveTo(rx,cy-rh); ctx.lineTo(rx,cy+rh); ctx.stroke(); }
+    stinger(ctx,cx-LW*R,cy,R*0.42,LH*R*0.14,f,g,A);
+  } else { // BP4 INNOVATION: Gas-sac — balloon sphere, trailing gas tendrils, no skeleton
+    const GR=LW*0.88*R;
+    // Huge sphere body
+    fell(ctx,cx+GR*0.15,cy,GR,GR*0.82,f,g,A,10);
+    // Internal gas pocket (lighter inner region)
+    fell(ctx,cx+GR*0.08,cy-GR*0.08,GR*0.58,GR*0.52,'rgba(255,255,255,0.10)',g,A-0.50,2);
+    // Trailing gas tendrils below
+    for (let i=0;i<6+v;i++) {
+      const tx=cx-GR*0.72+i*GR*0.28, tLen=R*(0.90+nh(n,10+i)*1.10);
+      oarm(ctx,tx,cy+GR*0.68,tx+(nh(n,20+i)-0.5)*R*0.40,cy+GR*0.68+tLen,R*0.040,0,f,g,A-0.22);
+    }
+    stinger(ctx,cx-GR,cy,R*0.38,GR*0.10,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Barnacle patches
+    for (let i=0;i<3+v;i++) {
+      const bx=cx+LW*R*(nh(n,40+i)-0.50)*0.88, by=cy+LH*R*(nh(n,50+i)-0.50)*0.72;
+      fcirc(ctx,bx,by,R*(0.068+nh(n,60+i)*0.040),'rgba(255,255,255,0.28)',g,A-0.45);
+    }
+  }
+  if (dl>=2) { // Belly stripe pattern
+    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.70;
+    for (let i=1;i<=4;i++) { const bx=cx-LW*R*0.45+i*LW*R*0.28; const bh=LH*R*0.72*Math.sqrt(Math.max(0,1-Math.pow((bx-cx)/(LW*R),2))); ctx.beginPath(); ctx.moveTo(bx,cy-bh); ctx.lineTo(bx,cy+bh); ctx.stroke(); }
     ctx.restore();
-    // Enormous front claws
-    for (const s of [-1,1] as const) {
-      const clawX=cx-bW-R*0.10;
-      fpoly(ctx,[[clawX,cy+s*bH*0.20],[clawX-R*0.72,cy+s*R*0.42],[clawX-R*0.72,cy+s*R*0.08],[clawX-R*0.28,cy+s*R*0.02]],f,g,A-0.06,4);
-      fpoly(ctx,[[clawX,cy+s*bH*0.20],[clawX-R*0.65,cy-s*R*0.02],[clawX-R*0.62,cy-s*R*0.32],[clawX-R*0.22,cy-s*R*0.26]],f,g,A-0.10,4);
-    }
-    // Short walking legs (4 pairs)
-    for (let i=0;i<4;i++) { const lx=cx-bW*0.60+i*bW*0.40+R*0.20; for (const s of [-1,1] as const) sline(ctx,lx,cy+s*bH,lx+(s>0?R*0.14:-R*0.14),cy+s*(bH+R*0.42),f,A-0.24,R*0.052); }
-    stinger(ctx,cx-bW-R*0.80,cy,R*0.45,R*0.07,f,g,A);
-  } else if (bp===3) { // HYBRID: Arthropod + Crystal — crystal exoskeleton
-    // Abdomen with crystal plating
-    const abX=cx+R*[0.72,0.62,0.82][v], abW=R*[0.72,0.80,0.65][v], abH=R*[0.50,0.58,0.45][v];
-    fell(ctx,abX,cy,abW,abH,f,g,A);
-    // Crystal dorsal growth on abdomen
-    graftCrystalDorsal(ctx,abX,cy,R,n,f,g,A);
-    // Thorax
-    fell(ctx,cx-R*0.18,cy,R*0.48,R*0.36,f,g,A-0.04);
-    // Crystal legs (sharp mineral instead of chitin)
-    const legRoots=[-R*0.36*0.55,0,R*0.36*0.55];
-    for (let i=0;i<3;i++) {
-      for (const s of [-1,1] as const) {
-        const lby=cy+legRoots[i];
-        crystalShard(ctx,cx-R*0.18,lby,s>0?Math.PI*0.38:Math.PI*0.62,R*0.72,R*0.060,f,g,A-0.14);
-      }
-    }
-    // Crystal mandible weapon
-    crystalShard(ctx,cx-R*0.80,cy,Math.PI,R*0.65,R*0.075,f,g,A);
-    fell(ctx,cx-R*0.80,cy,R*0.30,R*0.28,f,g,A-0.06);
-  } else if (bp===4) { // INNOVATION: Mantis — raptorial forelegs, triangular head
-    const thoraxX=cx-R*0.10, thoraxW=R*[0.42,0.48,0.36][v], thoraxH=R*[0.32,0.38,0.28][v];
-    // Elongated abdomen (rear)
-    fell(ctx,cx+R*0.85,cy,R*0.72,R*0.30,f,g,A);
-    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.6;
-    for (let i=1;i<=3;i++) { ctx.beginPath(); ctx.moveTo(cx+R*0.28+i*R*0.30,cy-R*0.24); ctx.lineTo(cx+R*0.28+i*R*0.30,cy+R*0.24); ctx.stroke(); }
-    ctx.restore();
-    // Thorax
-    fell(ctx,thoraxX,cy,thoraxW,thoraxH,f,g,A-0.04);
-    // Triangular head
-    fpoly(ctx,[[cx-R*0.62,cy-R*0.22],[cx-R*0.62,cy+R*0.22],[cx-R*1.05,cy]],f,g,A);
-    fcirc(ctx,cx-R*0.75,cy-R*0.12,R*0.11,'rgba(255,255,255,0.82)',g,A);
-    // Raptorial forelegs (asymmetric, weapon-like)
-    for (const s of [-1,1] as const) {
-      fpoly(ctx,[[cx-R*0.62,cy+s*R*0.14],[cx-R*1.05+R*0.15,cy+s*R*0.55],[cx-R*1.05-R*0.18,cy+s*R*0.38],[cx-R*0.80,cy+s*R*0.08]],f,g,A-0.10,4);
-      fcirc(ctx,cx-R*1.05-R*0.18,cy+s*R*0.38,R*0.06,f,g,A-0.18);
-    }
-    // Walking legs
-    for (let i=0;i<2;i++) { const lx=thoraxX+R*0.10+i*thoraxW*0.65; for (const s of [-1,1] as const) sline(ctx,lx,cy+s*thoraxH,lx+s*R*0.20,cy+s*(thoraxH+R*0.42),f,A-0.22,R*0.050); }
-    stinger(ctx,cx-R*1.05,cy,R*0.38,R*0.075,f,g,A);
-  } else { // BP0: Spider — round abdomen, 8 legs, chelicerae
-    const abX=cx+R*[0.72,0.62,0.82][v], abW=R*[0.72,0.80,0.65][v], abH=R*[0.50,0.58,0.45][v];
-    fell(ctx,abX,cy,abW,abH,f,g,A);
-    ctx.save(); ctx.globalAlpha=A-0.38; ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=0.65;
-    for (let i=1;i<=3;i++) { const sx=abX-abW+i*(abW*2/4); const sh=abH*Math.sqrt(Math.max(0,1-Math.pow((sx-abX)/abW,2))); ctx.beginPath(); ctx.moveTo(sx,cy-sh); ctx.lineTo(sx,cy+sh); ctx.stroke(); }
-    ctx.restore();
-    fell(ctx,cx-R*0.18,cy,R*0.48,R*0.36,f,g,A-0.04);
-    const legRoots=[-R*0.36*0.55,0,R*0.36*0.55];
-    for (let i=0;i<3;i++) { for (const s of [-1,1] as const) { const lby=cy+legRoots[i]; const kx=cx-R*0.18+s*R*0.18, ky=lby+s*R*0.55; const fx=cx-R*0.18+s*R*0.42, fy=ky+s*R*0.36; fpoly(ctx,[[cx-R*0.18-R*0.05,lby],[cx-R*0.18+R*0.05,lby],[kx+R*0.05,ky],[kx-R*0.05,ky]],f,g,A-0.15); fcirc(ctx,kx,ky,R*0.07,f,g,A-0.12); fpoly(ctx,[[kx-R*0.04,ky],[kx+R*0.04,ky],[fx+R*0.04,fy],[fx-R*0.04,fy]],f,g,A-0.20); } }
-    fell(ctx,cx-R*0.80,cy,R*0.30,R*0.28,f,g,A-0.06);
-    fcirc(ctx,cx-R*0.80-R*0.22,cy-R*0.28*0.40,R*0.10,'rgba(255,255,255,0.80)',g,A);
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx-R*0.80-R*0.30*0.90,cy+s*R*0.04],[cx-R*0.80-R*0.30*0.90-R*0.38,cy+s*R*0.22],[cx-R*0.80-R*0.30*0.90-R*0.34,cy+s*R*0.07]],f,g,A-0.08,4);
+  }
+  if (dl>=3) { // Parasite attached + blowhole
+    fcirc(ctx,cx-LW*0.38*R,cy-LH*R*0.75,R*0.12,f,g,A-0.30);
+    for (let i=0;i<4;i++) sline(ctx,cx-LW*0.38*R,cy-LH*R*0.75,cx-LW*0.38*R+R*(nh(n,70+i)-0.50)*0.25,cy-LH*R*0.75+R*(nh(n,80+i)-0.50)*0.25,f,A-0.40,R*0.028);
+    fcirc(ctx,cx-LW*0.22*R,cy-LH*R,R*0.060,f,g,A-0.18); // blowhole
   }
 }
 
-// ── T7  CRAWLER_BED ──────────────────────────────────────
-function drawT7(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  const drawTracks=(trkW:number,trkH:number)=>{
-    fpoly(ctx,[[cx-trkW-R*0.12,cy-trkH],[cx+trkW+R*0.12,cy-trkH],[cx+trkW,cy+trkH],[cx-trkW,cy+trkH]],f,g,A-0.04);
-    ctx.save(); ctx.globalAlpha=0.28; ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=trkH*0.52;
-    for (let i=0;i<=12;i++) { const tx=cx-trkW+i*(trkW*2/12); ctx.beginPath(); ctx.moveTo(tx,cy-trkH+R*0.03); ctx.lineTo(tx,cy+trkH-R*0.03); ctx.stroke(); }
-    ctx.restore();
-    fcirc(ctx,cx-trkW,cy,trkH*0.60,f,g,A-0.06); fcirc(ctx,cx+trkW,cy,trkH*0.60,f,g,A-0.06);
+// ── T4  ARACHNID ─────────────────────────────────────────
+// Silhouette: compact body + 3-4 legs each side, total span 5R+, no torso mass
+// Role: predator · Mass: front (weapon) · Weapon: chelicerae fang
+function drawT4(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const legLen=R*[1.32,1.55,1.12][v], nLeg=3+v; // legs per side
+  // Helper: draw one leg (hip → knee → foot)
+  const leg=(hx:number,hy:number,kx:number,ky:number,fx:number,fy:number)=>{
+    mechleg(ctx,hx,hy,kx,ky,fx,fy,R*0.040,f,g,A);
   };
-  if (bp===1) { // Artillery platform — narrow tracks, tall hull, angled barrel
-    const trkW=R*[1.65,1.80,1.45][v], trkH=R*0.22, hullH=R*[0.75,0.85,0.65][v], hullW=R*0.62;
-    drawTracks(trkW,trkH);
-    frect(ctx,cx-hullW,cy-trkH-hullH,hullW*2,hullH,f,g,A+0.04);
-    // Raised superstructure with angled barrel
-    fell(ctx,cx-hullW*0.30,cy-trkH-hullH-R*0.28,R*0.35,R*0.24,f,g,A-0.06);
-    // Angled long-range barrel
-    const barAngle=-Math.PI*0.12;
-    const bLen=R*(1.10+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
-    ctx.save(); ctx.translate(cx-hullW*0.30,cy-trkH-hullH-R*0.28); ctx.rotate(barAngle);
-    frect(ctx,-bLen,-R*0.060,bLen,R*0.12,f,g,A+0.04); fcirc(ctx,-bLen,0,R*0.065,f,g,A+0.06);
-    ctx.restore(); ctx.restore();
-  } else if (bp===2) { // Multi-track — 3 separate track sections + wide spine
-    const trackW=R*[0.62,0.72,0.55][v], trkH=R*0.20;
-    for (const dx of [cx-R*[1.30,1.45,1.15][v],cx,cx+R*[1.30,1.45,1.15][v]]) {
-      fpoly(ctx,[[dx-trackW-R*0.08,cy-trkH],[dx+trackW+R*0.08,cy-trkH],[dx+trackW,cy+trkH],[dx-trackW,cy+trkH]],f,g,A-0.04);
-      ctx.save(); ctx.globalAlpha=0.25; ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=trkH*0.55;
-      for (let i=0;i<=6;i++) { const tx=dx-trackW+i*(trackW*2/6); ctx.beginPath(); ctx.moveTo(tx,cy-trkH+R*0.02); ctx.lineTo(tx,cy+trkH-R*0.02); ctx.stroke(); }
+  if (bp===0) { // Orb-weaver spider — round bodies, 4 legs per side diagonal
+    const abR=R*0.68, thR=R*0.42;
+    // Abdomen (rear)
+    fell(ctx,cx+R*0.72,cy,abR,abR*0.85,f,g,A,7);
+    // Thorax (front-center)
+    fell(ctx,cx-R*0.22,cy,thR,thR*0.80,f,g,A-0.04,5);
+    // Chelicerae
+    for (const s of [-1,1] as const) {
+      fpoly(ctx,[[cx-thR-R*0.10,cy+s*thR*0.32],[cx-thR-R*0.55,cy+s*thR*0.62],[cx-thR-R*0.55,cy+s*thR*0.10],[cx-thR-R*0.14,cy+s*thR*0.04]],f,g,A-0.06,4);
+    }
+    stinger(ctx,cx-thR-R*0.55,cy,R*0.42,thR*0.18,f,g,A);
+    // 4 legs per side (from thorax)
+    const angles=[[-0.62,-0.88,-1.10,-1.40],[0.62,0.88,1.10,1.40]];
+    for (const [sa,sign] of [[angles[0],-1],[angles[1],1]] as [number[],number][]) {
+      for (let i=0;i<Math.min(nLeg,sa.length);i++) {
+        const a=sa[i]; const kx=cx-R*0.22+Math.cos(a)*legLen*0.52, ky=cy+sign*R*0.22+Math.sin(Math.abs(a))*legLen*0.52;
+        const fx=cx-R*0.22+Math.cos(a)*legLen, fy=cy+sign*R*0.22+Math.sin(Math.abs(a))*legLen;
+        leg(cx-R*0.22+Math.cos(a)*thR*0.82,cy+sign*thR*0.55,kx,ky,fx,fy);
+      }
+    }
+  } else if (bp===1) { // Horseshoe crab — dome shield + trailing tail + fringe legs
+    const shR=R*0.95, shH=R*0.48;
+    // Horseshoe carapace
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.moveTo(cx-shR,cy+shH); ctx.lineTo(cx-shR,cy-shH*0.40);
+    ctx.bezierCurveTo(cx-shR,cy-shH,cx-R*0.10,cy-shH,cx+shR*0.72,cy-shH*0.60);
+    ctx.lineTo(cx+shR*0.72,cy+shH); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
+    // Telson (tail spine)
+    fpoly(ctx,[[cx+shR*0.72,cy-shH*0.12],[cx+shR*0.72+R*1.30,cy],[cx+shR*0.72,cy+shH*0.12]],f,g,A-0.18,4);
+    // Fringe legs under edge
+    for (let i=0;i<5+v;i++) {
+      const lx=cx-shR*0.60+i*shR*0.28, lLen=R*(0.38+nh(n,10+i)*0.22);
+      sline(ctx,lx,cy+shH,lx+(nh(n,20+i)-0.50)*R*0.12,cy+shH+lLen,f,A-0.22,R*0.058);
+      fcirc(ctx,lx+(nh(n,20+i)-0.50)*R*0.12,cy+shH+lLen,R*0.040,f,g,A-0.30);
+    }
+    stinger(ctx,cx-shR,cy,R*0.52,shH*0.28,f,g,A);
+  } else if (bp===2) { // Scorpion — segments + curved tail overhead + claws
+    // Segmented abdomen (3 segments)
+    for (let i=0;i<3;i++) { const sx=cx+R*0.28+i*R*0.68, sR=R*(0.38-i*0.05); fell(ctx,sx,cy,sR,sR*0.72,f,g,A-i*0.04,6); }
+    // Pedipalps (claws)
+    for (const s of [-1,1] as const) {
+      fpoly(ctx,[[cx-R*0.28,cy+s*R*0.20],[cx-R*0.80,cy+s*R*0.52],[cx-R*0.80,cy+s*R*0.14],[cx-R*0.42,cy+s*R*0.06]],f,g,A-0.06,4);
+      fpoly(ctx,[[cx-R*0.28,cy+s*R*0.20],[cx-R*0.72,cy-s*R*0.02],[cx-R*0.68,cy-s*R*0.34],[cx-R*0.32,cy-s*R*0.28]],f,g,A-0.10,4);
+    }
+    // Curved tail (over body)
+    const nT=4+v;
+    for (let i=0;i<nT;i++) {
+      const t=(i+1)/(nT+1);
+      const tx=cx+R*1.40+t*R*0.60, ty=cy-t*t*R*1.30;
+      fell(ctx,tx,ty,R*(0.22-t*0.06),R*(0.18-t*0.05),f,g,A-i*0.04,5);
+    }
+    stinger(ctx,cx+R*1.40+R*0.62,cy-R*1.30,-R*0.38,R*0.072,f,g,A); // tail stinger (modified)
+    stinger(ctx,cx-R*0.80,cy,R*0.42,R*0.080,f,g,A); // front weapon
+    // Walking legs (3 pairs)
+    for (let i=0;i<3;i++) { for (const s of [-1,1] as const) { const lx=cx+R*0.18+i*R*0.55; mechleg(ctx,lx,cy+s*R*0.28,lx+s*R*0.22,cy+s*R*0.72,lx+s*R*0.10,cy+s*R*1.05,R*0.038,f,g,A); } }
+  } else if (bp===3) { // HYBRID: Arachnid + Crystal — mineral exoskeleton + crystal legs
+    const abR=R*0.68, thR=R*0.42;
+    fell(ctx,cx+R*0.72,cy,abR,abR*0.85,f,g,A,7);
+    fell(ctx,cx-R*0.22,cy,thR,thR*0.80,f,g,A-0.04,5);
+    // Crystal legs instead of organic
+    for (const [sa,sign] of [[[-0.62,-1.0,-1.38],-1],[[ 0.62,1.0,1.38],1]] as [number[],number][]) {
+      for (let i=0;i<Math.min(nLeg,sa.length);i++) {
+        cshard(ctx,cx-R*0.22+Math.cos(sa[i])*thR*0.82,cy+sign*thR*0.55,sa[i]+(sign>0?0:Math.PI),legLen,R*0.065,f,g,A-0.08);
+      }
+    }
+    stinger(ctx,cx-thR-R*0.55,cy,R*0.45,thR*0.18,f,g,A);
+  } else { // BP4 INNOVATION: Mantis shrimp — asymmetric: one massive raptorial appendage
+    const mR=R*0.62;
+    fell(ctx,cx+R*0.28,cy,mR,mR*0.68,f,g,A,7); // compact body
+    // ONE massive raptorial forearm (left, offset above midline)
+    fpoly(ctx,[[cx-R*0.25,cy-mR*0.28],[cx-R*1.55,cy-mR*0.88],[cx-R*1.75,cy-mR*0.42],[cx-R*0.90,cy+mR*0.05]],f,g,A+0.02,7);
+    fcirc(ctx,cx-R*1.75,cy-mR*0.42,R*0.10,f,g,A-0.04); // knuckle joint
+    // Small vestigial claws on other side (different scale)
+    fpoly(ctx,[[cx-R*0.25,cy+mR*0.35],[cx-R*0.72,cy+mR*0.72],[cx-R*0.72,cy+mR*0.18],[cx-R*0.32,cy+mR*0.12]],f,g,A-0.16,3);
+    // Tail fan
+    for (const s of [-1,1,0] as const) fpoly(ctx,[[cx+mR,cy+s*mR*0.25],[cx+mR+R*0.48,cy+s*mR*0.62],[cx+mR+R*0.36,cy+s*mR*0.72]],f,g,A-0.22,3);
+    stinger(ctx,cx-R*1.75,cy-mR*0.42,R*0.50,R*0.078,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Knee joint circles already added in mechleg; add eye cluster
+    for (const s of [-1,1] as const) fcirc(ctx,cx-R*0.22-R*0.12,cy+s*R*0.18,R*0.062,'rgba(255,255,255,0.78)',g,A-0.05);
+  }
+  if (dl>=2) { // Leg hair bristles (short stubs)
+    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle=f; ctx.lineWidth=R*0.025;
+    for (let i=0;i<4;i++) { const bx=cx+R*0.55+i*R*0.35; for (const s of [-1,1] as const) { ctx.beginPath(); ctx.moveTo(bx,cy+s*R*0.10); ctx.lineTo(bx+R*0.08,cy+s*R*0.18); ctx.stroke(); } }
+    ctx.restore();
+  }
+  if (dl>=3) { // Spinnerets + egg sac
+    fcirc(ctx,cx+legLen*0.90,cy,R*0.10,f,g,A-0.25); // spinneret
+    fcirc(ctx,cx+legLen*0.90+R*0.14,cy,R*0.050,'rgba(255,255,255,0.38)',g,A-0.40); // silk thread start
+  }
+}
+
+// ── T5  SERPENT ──────────────────────────────────────────
+// Silhouette: S-curve or Z-curve CHAIN — no central body mass
+// Role: serpentine · Mass: distributed · Weapon: fanged head at left
+function drawT5(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const nSeg=[7,8,6][v];
+  // Head position at left
+  const headX=cx-R*2.40, headY=cy;
+  if (bp===0) { // Viper — oval segments in S-curve, triangular head, rattle
+    const amp=R*[0.58,0.70,0.46][v];
+    for (let i=0;i<nSeg;i++) {
+      const t=i/(nSeg-1);
+      const sx=headX+t*(R*4.80), sy=headY+Math.sin(t*Math.PI*1.85)*amp*(1-t*0.35);
+      const sr=R*(0.33-t*0.085+nh(n,10+i)*0.04);
+      fell(ctx,sx,sy,sr,sr*0.82,f,g,A-i*0.030,6-i*0.4);
+    }
+    // Head (triangular + eyes)
+    fpoly(ctx,[[headX-R*0.42,headY],[headX,headY-R*0.30],[headX+R*0.35,headY-R*0.10],[headX+R*0.35,headY+R*0.10],[headX,headY+R*0.30]],f,g,A+0.02,7);
+    fcirc(ctx,headX-R*0.18,headY-R*0.14,R*0.068,'rgba(255,255,255,0.82)',g,A); fcirc(ctx,headX-R*0.18,headY-R*0.14,R*0.035,'#0a0f1a',g,1.0);
+    stinger(ctx,headX-R*0.42,headY,R*0.48,R*0.068,f,g,A);
+    // Rattle at tail
+    const tx=headX+R*4.80, ty=headY+Math.sin(Math.PI*1.85)*amp*(1-0.65);
+    for (let i=0;i<3;i++) fcirc(ctx,tx+i*R*0.12,ty,R*(0.095-i*0.015),f,g,A-0.20-i*0.08);
+  } else if (bp===1) { // Millipede — straight horizontal row + paired legs on each segment
+    const segW=R*0.38, totalL=R*4.60;
+    for (let i=0;i<nSeg;i++) {
+      const sx=headX+i*(totalL/(nSeg-1));
+      fell(ctx,sx,cy,segW*(1-i*0.03),segW*0.62*(1-i*0.03),f,g,A-i*0.025,5);
+      // Paired leg stubs
+      for (const s of [-1,1] as const) {
+        const lLen=R*(0.30+nh(n,30+i)*0.12);
+        sline(ctx,sx,cy+s*segW*0.52,sx,cy+s*(segW*0.52+lLen),f,A-0.20,R*0.058);
+        fcirc(ctx,sx,cy+s*(segW*0.52+lLen),R*0.035,f,g,A-0.28);
+      }
+    }
+    stinger(ctx,headX,cy,R*0.48,segW*0.58,f,g,A);
+  } else if (bp===2) { // Sea eel — smooth sinuous, paired fins on segments
+    const amp=R*[0.62,0.78,0.48][v];
+    for (let i=0;i<nSeg;i++) {
+      const t=i/(nSeg-1);
+      const sx=headX+t*R*4.60, sy=headY+Math.sin(t*Math.PI*2.0)*amp;
+      const sr=R*(0.30-t*0.070);
+      // Draw segment as ellipse
+      const angle=Math.atan2(amp*Math.PI*2.0/(R*4.60)*Math.cos(t*Math.PI*2.0),1);
+      ctx.save(); ctx.translate(sx,sy); ctx.rotate(angle);
+      fell(ctx,0,0,sr*1.45,sr,f,g,A-i*0.025,5);
+      // Fin (dorsal)
+      fpoly(ctx,[[0,-sr],[sr*0.20,-sr-R*0.22],[sr*0.40,-sr]],f,g,A-0.16,3);
       ctx.restore();
     }
-    frect(ctx,cx-R*[1.30,1.45,1.15][v]-trackW,cy-trkH*0.30,R*[2.60,2.90,2.30][v]*2+trackW*2,trkH*0.60,f,g,A-0.12);
-    fell(ctx,cx,cy-trkH-R*0.32,R*0.35,R*0.24,f,g,A-0.08);
-    gun(ctx,cx-R*[1.30,1.45,1.15][v]-trackW,cy-trkH*0.10,R*0.95,R*0.062,f,g,A);
-  } else if (bp===3) { // HYBRID: Crawler + Crystal — tracked chassis + crystal superstructure
-    const trkW=R*[2.10,2.35,1.90][v], trkH=R*[0.28,0.36,0.24][v];
-    drawTracks(trkW,trkH);
-    // Crystal superstructure on top
-    graftCrystalDorsal(ctx,cx,cy-trkH-R*0.10,R*1.10,n,f,g,A);
-    const hullW=R*0.60;
-    frect(ctx,cx-hullW,cy-trkH-R*0.36,hullW*2,R*0.36,f,g,A+0.02);
-    // Crystal focusing cannon
-    crystalShard(ctx,cx-hullW,cy-trkH-R*0.18,Math.PI,R*(0.95+nh(n,7)*0.40),R*0.065,f,g,A);
-  } else if (bp===4) { // INNOVATION: Centipede crawler — 6 small track units in spine chain
-    const nUnit=6, unitW=R*[0.45,0.52,0.40][v], unitH=R*0.18, pitch=unitW*2.20;
-    const totalW=pitch*(nUnit-1), startX=cx+totalW/2;
-    for (let i=0;i<nUnit;i++) {
-      const ux=startX-i*pitch, uScale=1-i*0.04;
-      fpoly(ctx,[[ux-unitW*uScale-R*0.06,cy-unitH],[ux+unitW*uScale+R*0.06,cy-unitH],[ux+unitW*uScale,cy+unitH],[ux-unitW*uScale,cy+unitH]],f,g,A-i*0.04);
-      if (i<nUnit-1) sline(ctx,ux-unitW*uScale,cy,ux-pitch+unitW*(uScale-0.04),cy,f,A-0.30,R*0.10);
+    stinger(ctx,headX,headY+Math.sin(0)*amp,R*0.42,R*0.065,f,g,A);
+  } else if (bp===3) { // HYBRID: Front mechanical + rear organic snake — seam at center
+    const amp=R*0.55; const seam=headX+R*2.30;
+    for (let i=0;i<nSeg;i++) {
+      const t=i/(nSeg-1);
+      const sx=headX+t*R*4.60, sy=headY+Math.sin(t*Math.PI*1.85)*amp*(1-t*0.30);
+      const sr=R*(0.33-t*0.080);
+      if (sx<seam) { // mechanical segment
+        const a=Math.atan2(amp*Math.PI*1.85/(R*4.60)*Math.cos(t*Math.PI*1.85),1);
+        ctx.save(); ctx.translate(sx,sy); ctx.rotate(a);
+        frect(ctx,-sr*1.40,-sr*0.72,sr*2.80,sr*1.44,f,g,A-i*0.020);
+        ctx.restore();
+      } else { // organic segment
+        fell(ctx,sx,sy,sr*1.20,sr,f,g,A-i*0.028,5);
+      }
     }
-    gun(ctx,startX-unitW-R*0.06,cy,R*0.70,R*0.058,f,g,A);
-  } else { // BP0: Wide low-profile tank
-    const trkW=R*[2.35,2.60,2.10][v], trkH=R*[0.32,0.40,0.28][v], hullW=R*[0.75,0.85,0.65][v], hullH=R*[0.50,0.58,0.42][v];
-    drawTracks(trkW,trkH);
-    for (const dx of [cx-trkW*0.50,cx,cx+trkW*0.50]) fcirc(ctx,dx,cy,trkH*0.35,f,g,A-0.20);
-    frect(ctx,cx-hullW,cy-trkH-hullH,hullW*2,hullH,f,g,A+0.04);
-    fell(ctx,cx-hullW*0.28,cy-trkH-hullH-R*0.22,R*0.30,R*0.20,f,g,A-0.06);
-    gun(ctx,cx-hullW*0.28-R*0.30,cy-trkH-hullH-R*0.22,R*0.92,R*0.065,f,g,A);
-  }
-}
-
-// ── T8  ENERGY_FIELD ─────────────────────────────────────
-function drawT8(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Lightning node — central sphere + jagged arc bolts
-    fcirc(ctx,cx,cy,R*[0.30,0.36,0.26][v],f,g,A+0.04);
-    fcirc(ctx,cx,cy,R*[0.16,0.19,0.13][v],'rgba(255,255,255,0.85)',g,A-0.04);
-    const nBolt=5+v*2;
-    for (let i=0;i<nBolt;i++) {
-      const a=(i/nBolt)*Math.PI*2+nh(n,10+i)*0.5;
-      const bLen=R*(0.80+nh(n,20+i)*0.80);
-      const mid1X=cx+Math.cos(a)*bLen*0.35+(nh(n,30+i)-0.5)*R*0.42;
-      const mid1Y=cy+Math.sin(a)*bLen*0.35+(nh(n,35+i)-0.5)*R*0.42;
-      const mid2X=cx+Math.cos(a)*bLen*0.68+(nh(n,40+i)-0.5)*R*0.35;
-      const mid2Y=cy+Math.sin(a)*bLen*0.68+(nh(n,45+i)-0.5)*R*0.35;
-      const ex=cx+Math.cos(a)*bLen, ey=cy+Math.sin(a)*bLen;
-      ctx.save(); ctx.globalAlpha=A-0.14; ctx.strokeStyle=f; ctx.lineWidth=R*0.042; ctx.shadowColor=g; ctx.shadowBlur=12;
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(mid1X,mid1Y); ctx.lineTo(mid2X,mid2Y); ctx.lineTo(ex,ey); ctx.stroke(); ctx.restore();
-      fcirc(ctx,ex,ey,R*0.08,f,g,A-0.22);
-    }
-    const beamLen=R*(0.80+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.058; ctx.shadowColor=g; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.moveTo(cx-R*[0.30,0.36,0.26][v],cy); ctx.lineTo(cx-R*[0.30,0.36,0.26][v]-beamLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-R*[0.30,0.36,0.26][v]-beamLen,cy,R*0.10,'rgba(255,255,255,0.90)',g,A);
-  } else if (bp===2) { // Solar corona — bright core + eruption plumes
-    const cR=R*[0.28,0.34,0.22][v];
-    fcirc(ctx,cx,cy,cR,f,g,A+0.06);
-    fcirc(ctx,cx,cy,cR*0.55,'rgba(255,255,255,0.90)',g,A-0.02);
-    const nPlume=4+v;
-    for (let i=0;i<nPlume;i++) {
-      const a=(i/nPlume)*Math.PI*2+Math.PI*0.12;
-      const pLen=R*(0.65+nh(n,10+i)*0.90);
-      const pW=R*(0.18+nh(n,20+i)*0.12);
-      ctx.save(); ctx.globalAlpha=A-0.14; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=10;
-      ctx.beginPath();
-      ctx.moveTo(cx+Math.cos(a-0.22)*cR,cy+Math.sin(a-0.22)*cR);
-      ctx.bezierCurveTo(cx+Math.cos(a)*cR*1.4+Math.cos(a-Math.PI/2)*pW,cy+Math.sin(a)*cR*1.4+Math.sin(a-Math.PI/2)*pW,cx+Math.cos(a)*(cR+pLen*0.7),cy+Math.sin(a)*(cR+pLen*0.7),cx+Math.cos(a)*(cR+pLen),cy+Math.sin(a)*(cR+pLen));
-      ctx.bezierCurveTo(cx+Math.cos(a)*(cR+pLen*0.7),cy+Math.sin(a)*(cR+pLen*0.7),cx+Math.cos(a)*cR*1.4+Math.cos(a+Math.PI/2)*pW,cy+Math.sin(a)*cR*1.4+Math.sin(a+Math.PI/2)*pW,cx+Math.cos(a+0.22)*cR,cy+Math.sin(a+0.22)*cR);
-      ctx.closePath(); ctx.fill(); ctx.restore();
-    }
-    const beamLen=R*(0.80+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.052; ctx.shadowColor=g; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.moveTo(cx-cR,cy); ctx.lineTo(cx-cR-beamLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-cR-beamLen,cy,R*0.10,'rgba(255,255,255,0.88)',g,A);
-  } else if (bp===3) { // HYBRID: Energy + Biological — energy field encasing organic tissue core
-    // Organic tissue nucleus
-    const blobR=R*[0.38,0.44,0.32][v];
-    const blobPts:P2[]=[];
-    for (let i=0;i<8;i++) { const a=(i/8)*Math.PI*2; blobPts.push([cx+Math.cos(a)*blobR*(1+(nh(n,10+i)-0.5)*0.22),cy+Math.sin(a)*blobR*(1+(nh(n,20+i)-0.5)*0.22)]); }
+    // Seam mark
+    sline(ctx,seam,cy-R*0.40,seam,cy+R*0.40,'rgba(255,255,255,0.50)',A-0.20,0.90);
+    stinger(ctx,headX-R*0.42,headY,R*0.50,R*0.068,f,g,A); // mechanical fang
+  } else { // BP4 INNOVATION: Knot — figure-8 tangle, breaks linear form
+    const kR=R*[1.02,1.18,0.88][v];
+    // Figure-8 lemniscate
     ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath(); ctx.moveTo(blobPts[0][0],blobPts[0][1]);
-    for (let i=0;i<8;i++) { const ni=(i+1)%8; ctx.quadraticCurveTo(blobPts[i][0],blobPts[i][1],(blobPts[i][0]+blobPts[ni][0])/2,(blobPts[i][1]+blobPts[ni][1])/2); }
-    ctx.closePath(); ctx.fill(); ctx.restore();
-    // Energy field overlay around organic core
-    const nRing=3;
-    for (let i=0;i<nRing;i++) {
-      const ringR=blobR*(1.35+i*0.42);
-      const startA=nh(n,40+i)*Math.PI*2;
-      ctx.save(); ctx.globalAlpha=A-0.08-i*0.06; ctx.strokeStyle=f; ctx.lineWidth=R*(0.11-i*0.020); ctx.shadowColor=g; ctx.shadowBlur=10;
-      ctx.beginPath(); ctx.arc(cx,cy,ringR,startA,startA+Math.PI*(1.35+nh(n,50+i)*0.50)); ctx.stroke(); ctx.restore();
-    }
-    // Energy arcs from organic to ring
-    for (let i=0;i<5+v;i++) { energyTendril(ctx,cx+(nh(n,60+i)-0.5)*blobR,cy+(nh(n,70+i)-0.5)*blobR,cx+Math.cos(nh(n,80+i)*Math.PI*2)*blobR*1.85,cy+Math.sin(nh(n,80+i)*Math.PI*2)*blobR*1.85,f,g,A-0.28,n,90+i*3); }
-    const beamLen=R*(0.80+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.052; ctx.shadowColor=g; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.moveTo(cx-blobR,cy); ctx.lineTo(cx-blobR-beamLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-blobR-beamLen,cy,R*0.10,'rgba(255,255,255,0.88)',g,A);
-  } else if (bp===4) { // INNOVATION: Energy lattice — nodes in geometric web
-    const nNode=6+v*2, webR=R*[1.10,1.25,0.95][v];
-    const nodes:P2[]=[[cx,cy]];
-    for (let i=0;i<nNode;i++) { const a=(i/nNode)*Math.PI*2; nodes.push([cx+Math.cos(a)*webR,cy+Math.sin(a)*webR]); }
-    // Web edges
-    ctx.save(); ctx.globalAlpha=A-0.24; ctx.strokeStyle=f; ctx.lineWidth=R*0.035; ctx.shadowColor=g; ctx.shadowBlur=8;
-    for (let i=1;i<=nNode;i++) {
-      const ni=i%nNode+1;
-      ctx.beginPath(); ctx.moveTo(nodes[i][0],nodes[i][1]); ctx.lineTo(nodes[ni][0],nodes[ni][1]); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(nodes[0][0],nodes[0][1]); ctx.lineTo(nodes[i][0],nodes[i][1]); ctx.stroke();
-    }
+    ctx.beginPath();
+    for (let i=0;i<=120;i++) { const t=(i/120)*Math.PI*2; const den=1+0.62*Math.sin(t)*Math.sin(t); const px=cx+kR*0.80*Math.cos(t)/den, py=cy+kR*0.60*Math.sin(t)*Math.cos(t)/den; if (i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py); }
+    ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
+    fcirc(ctx,cx,cy,kR*0.14,f,g,A+0.02);
+    stinger(ctx,cx-kR*0.80,cy,R*0.42,R*0.065,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Scale band lines
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.58)'; ctx.lineWidth=0.55;
+    for (let i=0;i<6;i++) { const sx=headX+R*0.45+i*R*0.65; ctx.beginPath(); ctx.arc(sx,cy,R*0.28,Math.PI*0.40,Math.PI*1.60,false); ctx.stroke(); }
     ctx.restore();
-    // Nodes
-    for (let i=0;i<nodes.length;i++) fcirc(ctx,nodes[i][0],nodes[i][1],R*(i===0?0.18:0.10),f,g,A-i*0.02);
-    // Find leftmost node for weapon
-    let leftI=1; for (let i=1;i<nodes.length;i++) if (nodes[i][0]<nodes[leftI][0]) leftI=i;
-    gun(ctx,nodes[leftI][0],nodes[leftI][1],R*0.65,R*0.055,f,g,A);
-  } else { // BP0: Plasma rings + arcing tendrils + nucleus
-    const nRing=[3,4,2][v];
-    for (let i=0;i<7+v*2;i++) {
-      const a1=(i/(7+v*2))*Math.PI*2, a2=a1+(nh(n,10+i)-0.5)*1.80;
-      const r1=R*(0.22+nh(n,20+i)*0.50), r2=R*(0.55+nh(n,30+i)*0.82);
-      energyTendril(ctx,cx+Math.cos(a1)*r1,cy+Math.sin(a1)*r1,cx+Math.cos(a2)*r2,cy+Math.sin(a2)*r2,f,g,A-0.28,n,10+i);
-    }
-    for (let i=0;i<nRing;i++) {
-      const ringR=R*(0.42+i*[0.40,0.32,0.54][v]), startA=nh(n,40+i)*Math.PI*0.80, endA=startA+Math.PI*(1.35+nh(n,50+i)*0.50);
-      ctx.save(); ctx.globalAlpha=A-0.06*i; ctx.strokeStyle=f; ctx.lineWidth=R*(0.13-i*0.022); ctx.shadowColor=g; ctx.shadowBlur=10-i*2;
-      ctx.beginPath(); ctx.arc(cx,cy,ringR,startA,endA); ctx.stroke(); ctx.shadowBlur=0;
-      ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.70; ctx.beginPath(); ctx.arc(cx,cy,ringR,startA,endA); ctx.stroke(); ctx.restore();
-    }
-    fcirc(ctx,cx,cy,R*0.22,f,g,A+0.04); fcirc(ctx,cx,cy,R*0.12,'rgba(255,255,255,0.82)',g,A-0.04);
-    const beamLen=R*(0.78+nh(n,7)*0.46);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.052; ctx.shadowColor=g; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.moveTo(cx-R*0.22,cy); ctx.lineTo(cx-R*0.22-beamLen,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-R*0.22-beamLen,cy,R*0.10,'rgba(255,255,255,0.88)',g,A);
-    fcirc(ctx,cx+Math.cos(nh(n,3)*Math.PI*2)*R*1.10,cy+Math.sin(nh(n,3)*Math.PI*2)*R*1.10,R*0.10,f,g,A-0.20);
+  }
+  if (dl>=2) { // Heat pits on head + fang detail
+    for (const [px,py] of [[headX-R*0.05,headY-R*0.20],[headX-R*0.05,headY+R*0.20]]) fcirc(ctx,px,py,R*0.042,'rgba(255,255,255,0.60)',g,A-0.28);
+  }
+  if (dl>=3) { // Forked tongue
+    sline(ctx,headX-R*0.42,headY,headX-R*0.62,headY-R*0.08,f,A-0.20,R*0.028);
+    sline(ctx,headX-R*0.42,headY,headX-R*0.62,headY+R*0.08,f,A-0.20,R*0.028);
   }
 }
 
-// ── T9  PLANT_SIEGE ──────────────────────────────────────
-function drawT9(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Vine crawler — horizontal spread, hanging pods
-    const vineW=R*[1.62,1.80,1.42][v], nVine=3+v;
-    for (let vi=0;vi<nVine;vi++) {
-      const vy=cy+(vi-(nVine-1)/2)*R*[0.48,0.55,0.40][v];
-      const vLen=vineW*(0.80+nh(n,10+vi)*0.40);
-      organicArm(ctx,cx+vineW*0.20,vy,cx-vLen,vy+(nh(n,20+vi)-0.5)*R*0.22,R*0.08,(nh(n,30+vi)-0.5)*R*0.18,f,g,A-0.10);
-      // Hanging pods
-      const nPod=2+nhi(n,40+vi,2);
-      for (let pi=0;pi<nPod;pi++) {
-        const px=cx+vineW*0.10-pi*(vLen*0.42+nh(n,50+vi+pi)*vLen*0.18);
-        const podY=vy+(nh(n,60+vi+pi)-0.4)*R*0.30+R*0.28;
-        fell(ctx,px,podY,R*(0.16+nh(n,70+vi+pi)*0.10),R*(0.22+nh(n,80+vi+pi)*0.12),f,g,A-0.14);
-        sline(ctx,px,vy,px,podY-R*0.10,f,A-0.28,R*0.035);
-      }
+// ── T6  MEDUSA ───────────────────────────────────────────
+// Silhouette: BELL AT TOP + filaments hanging DOWN — inverted mass distribution
+// Role: floater · Mass: top-heavy · Weapon: stinger at longest filament tip
+function drawT6(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  // Bell is ABOVE cy (top), filaments hang BELOW
+  const bellCenter=cy-R*[0.62,0.72,0.52][v];
+  const bellR=R*[0.78,0.88,0.68][v];
+  if (bp===0) { // True jellyfish — hemispherical bell, 8 filaments hanging down
+    // Bell
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
+    ctx.beginPath(); ctx.arc(cx,bellCenter,bellR,Math.PI,0); ctx.closePath();
+    ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
+    // Sub-umbrella fringe
+    ctx.save(); ctx.globalAlpha=A-0.14; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.ellipse(cx,bellCenter,bellR*0.88,bellR*0.28,0,0,Math.PI); ctx.fill(); ctx.restore();
+    // Oral arms (4 thick, wavy)
+    for (let i=0;i<4;i++) { const ox=cx-bellR*0.65+i*bellR*0.44; const oLen=R*(0.55+nh(n,10+i)*0.28); oarm(ctx,ox,bellCenter,(ox+(nh(n,20+i)-0.5)*R*0.22),bellCenter+oLen,R*0.058,0,f,g,A-0.12); }
+    // Trailing filaments (8, varying length)
+    const nF=6+v*2;
+    for (let i=0;i<nF;i++) {
+      const fx=cx-bellR*0.82+i*(bellR*1.64/(nF-1));
+      const fLen=R*(1.05+nh(n,30+i)*1.25);
+      const curl=(nh(n,40+i)-0.5)*R*0.62;
+      oarm(ctx,fx,bellCenter,fx+curl,bellCenter+fLen,R*0.022,0,f,g,A-0.22);
     }
-    gun(ctx,cx-vineW*0.80,cy,R*0.68,R*0.058,f,g,A);
-  } else if (bp===2) { // Cactus cluster — columnar bodies with heavy spines
-    const nCol=2+v, spacing=R*[0.88,1.0,0.72][v];
-    for (let ci=0;ci<nCol;ci++) {
-      const colX=cx-spacing*(nCol-1)/2+ci*spacing, colH=R*(0.75-ci%2*0.20+nh(n,10+ci)*0.22), colW=R*(0.28+nh(n,20+ci)*0.12);
-      frect(ctx,colX-colW,cy-colH,colW*2,colH*1.80,f,g,A-ci*0.04);
-      // Horizontal spine tiers
-      for (let j=1;j<=3;j++) {
-        const sy=cy-colH+j*(colH*0.55);
-        for (const s of [-1,1] as const) sline(ctx,colX,sy,colX+s*(colW+R*(0.28+nh(n,30+ci+j)*0.18)),sy+(nh(n,40+ci+j)-0.5)*R*0.08,f,A-0.10,R*0.055);
-      }
+    // Weapon = tip of leftmost long filament
+    const weapX=cx-bellR*0.82, weapLen=R*2.10;
+    stinger(ctx,weapX+(nh(n,40)-0.5)*R*0.62,bellCenter+weapLen,R*0.35,R*0.065,f,g,A);
+    // Radial ribs inside bell
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.60;
+    for (let i=0;i<6;i++) { const a=Math.PI*(1-i/5); ctx.beginPath(); ctx.moveTo(cx,bellCenter); ctx.lineTo(cx+Math.cos(a)*bellR*0.92,bellCenter+Math.sin(a)*bellR*0.92); ctx.stroke(); }
+    ctx.restore();
+  } else if (bp===1) { // Man-o-war — irregular gas float, colonial polyps below
+    // Gas float (irregular elongated blob)
+    oblob(ctx,cx+R*0.18,bellCenter,bellR*1.28,bellR*0.58,f,g,A,n,10);
+    // Colonial polyps hanging below
+    const nP=5+v;
+    for (let i=0;i<nP;i++) {
+      const px=cx-bellR*0.80+i*bellR*0.42;
+      const pLen=R*(0.70+nh(n,30+i)*1.10);
+      oarm(ctx,px,bellCenter+bellR*0.40,px+(nh(n,40+i)-0.5)*R*0.35,bellCenter+bellR*0.40+pLen,R*0.040,0,f,g,A-0.18);
+      fcirc(ctx,px+(nh(n,40+i)-0.5)*R*0.35,bellCenter+bellR*0.40+pLen,R*0.060,f,g,A-0.26);
     }
-    gun(ctx,cx-spacing*(nCol-1)/2-R*[0.28,0.28,0.28][v],cy,R*0.72,R*0.062,f,g,A);
-  } else if (bp===3) { // HYBRID: Plant + Mechanical — organic trunk + mechanical weapon
-    const stemH=R*[0.82,0.72,0.96][v];
-    const nRoot=[4,5,3][v];
-    for (let i=0;i<nRoot;i++) {
-      const a=Math.PI*0.38+(i/Math.max(nRoot-1,1))*Math.PI*0.74;
-      rootTendril(ctx,cx,cy,a,R*(0.72+nh(n,10+i)*0.58),R*(0.10-i*0.008),f,g,A-0.14,n,10+i);
+    stinger(ctx,cx-bellR*1.18,bellCenter+bellR*0.35,R*0.38,R*0.062,f,g,A);
+  } else if (bp===2) { // Box jellyfish — cubic bell, 4 corner filament clusters
+    const bW=bellR*0.88, bH=bellR*0.78;
+    frect(ctx,cx-bW,bellCenter-bH,bW*2,bH,f,g,A,8); // cubic bell
+    // 4 rhopalium sensory structures
+    for (const [rx,ry] of [[cx-bW*0.62,bellCenter],[cx+bW*0.62,bellCenter],[cx-bW*0.62,bellCenter-bH*0.50],[cx+bW*0.62,bellCenter-bH*0.50]]) fcirc(ctx,rx,ry,R*0.060,'rgba(255,255,255,0.72)',g,A-0.08);
+    // Corner filament clusters
+    for (const [fx,fy] of [[cx-bW,bellCenter],[cx+bW,bellCenter],[cx-bW*0.50,bellCenter],[cx+bW*0.50,bellCenter]]) {
+      for (let t=0;t<3;t++) { oarm(ctx,fx,fy,fx+(nh(n,50+t)-0.5)*R*0.28,fy+R*(0.88+nh(n,60+t)*0.82),R*0.025,0,f,g,A-0.24); }
     }
-    ctx.save(); ctx.globalAlpha=A-0.04; ctx.strokeStyle=f; ctx.lineWidth=R*0.18; ctx.shadowColor=g; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(cx,cy+R*0.18); ctx.lineTo(cx,cy-stemH); ctx.stroke(); ctx.restore();
-    // Leaf panels
-    for (let i=0;i<2+v;i++) { const ly=cy-stemH*(0.22+i*0.28), lS=i%2===0?1:-1, lW=R*(0.50-i*0.04), lH=R*(0.17-i*0.012); fpoly(ctx,[[cx,ly],[cx+lS*lW*0.20,ly-lH*0.52],[cx+lS*lW,ly-lH*0.26],[cx+lS*lW*0.90,ly+lH*0.38],[cx,ly+lH*0.18]],f,g,A-0.08-i*0.04,4); }
-    // GRAFT: Mechanical weapon system at crown (replaces organic spore pod)
-    fell(ctx,cx,cy-stemH-R*0.24,R*0.30,R*0.22,f,g,A+0.02);
-    // Mechanical barrel integrated at crown
-    frect(ctx,cx-R*0.30-R*0.78,cy-stemH-R*0.24-R*0.06,R*0.78,R*0.12,f,g,A+0.02);
-    fcirc(ctx,cx-R*0.30-R*0.78,cy-stemH-R*0.24,R*0.065,f,g,A+0.04);
-  } else if (bp===4) { // INNOVATION: Carnivorous maw — snapping trap, no trunk
-    const mW=R*[1.12,1.28,0.96][v], mH=R*[0.68,0.78,0.58][v];
-    // Trap lobes (2 halves, hinged at right, open to left)
-    for (const s of [-1,1] as const) {
-      ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-      ctx.beginPath();
-      ctx.moveTo(cx+mW*0.35,cy+s*R*0.05);
-      ctx.bezierCurveTo(cx+mW*0.35,cy+s*mH*0.20,cx-mW*0.20,cy+s*mH,cx-mW,cy+s*mH*0.72);
-      ctx.bezierCurveTo(cx-mW*1.10,cy+s*mH*0.40,cx-mW*0.85,cy+s*R*0.04,cx+mW*0.35,cy+s*R*0.05);
-      ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.8; ctx.stroke(); ctx.restore();
-      // Trigger hairs along lobe inner edge
-      for (let i=0;i<4;i++) { const hx=cx-mW*0.55+i*mW*0.30, hLen=R*(0.20+nh(n,10+i)*0.12); sline(ctx,hx,cy+s*R*0.05,hx+(nh(n,20+i)-0.5)*R*0.08,cy+s*(R*0.05+hLen),f,A-0.22,R*0.042); }
+    stinger(ctx,cx-bW,bellCenter+R*0.90,R*0.35,R*0.055,f,g,A);
+  } else if (bp===3) { // HYBRID: Medusa + Energy — plasma bell, electric tendrils
+    // Plasma-filled bell (glowing)
+    ctx.save(); ctx.globalAlpha=A-0.08; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=12;
+    ctx.beginPath(); ctx.arc(cx,bellCenter,bellR,Math.PI,0); ctx.closePath();
+    ctx.fill(); ctx.restore();
+    // Inner energy glow
+    ctx.save(); ctx.globalAlpha=A-0.24; ctx.fillStyle='rgba(255,255,255,0.40)';
+    ctx.beginPath(); ctx.arc(cx,bellCenter,bellR*0.55,Math.PI,0); ctx.closePath(); ctx.fill(); ctx.restore();
+    // Electric arc tendrils (not organic curves — jagged etend)
+    const nT=7+v;
+    for (let i=0;i<nT;i++) {
+      const tx=cx-bellR*0.88+i*(bellR*1.76/(nT-1));
+      const tLen=R*(0.88+nh(n,10+i)*1.18);
+      etend(ctx,tx,bellCenter,tx+(nh(n,20+i)-0.5)*R*0.45,bellCenter+tLen,f,g,A-0.18,n,30+i*3);
     }
-    // Hinge
-    fell(ctx,cx+mW*0.35,cy,R*0.12,R*0.12,f,g,A-0.04);
-    // Root anchors
-    for (const s of [-1,1] as const) rootTendril(ctx,cx+mW*0.35,cy+s*R*0.05,s>0?Math.PI*0.55:Math.PI*1.45,R*0.62,R*0.07,f,g,A-0.18,n,30+(s+1)*5);
-    // The open mouth IS the weapon — weapon indicator at gap
-    fcirc(ctx,cx-mW,cy,R*0.095,'rgba(255,255,255,0.75)',g,A);
-  } else { // BP0: Root tree + trunk + leaves + spore cannon
-    const nRoot=[4,5,3][v], stemH=R*[0.82,0.72,0.96][v];
-    for (let i=0;i<nRoot;i++) { const a=Math.PI*0.38+(i/Math.max(nRoot-1,1))*Math.PI*0.74; rootTendril(ctx,cx,cy,a,R*(0.72+nh(n,10+i)*0.58),R*(0.10-i*0.008),f,g,A-0.14,n,10+i); }
-    ctx.save(); ctx.globalAlpha=A-0.04; ctx.strokeStyle=f; ctx.lineWidth=R*0.18; ctx.shadowColor=g; ctx.shadowBlur=6;
-    ctx.beginPath(); ctx.moveTo(cx,cy+R*0.18); ctx.lineTo(cx,cy-stemH); ctx.stroke(); ctx.restore();
-    for (let i=0;i<[3,4,2][v];i++) { const ly=cy-stemH*(0.22+i*0.28), lS=i%2===0?1:-1, lW=R*(0.50-i*0.04), lH=R*(0.17-i*0.012); fpoly(ctx,[[cx,ly],[cx+lS*lW*0.20,ly-lH*0.52],[cx+lS*lW,ly-lH*0.26],[cx+lS*lW*0.90,ly+lH*0.38],[cx,ly+lH*0.18]],f,g,A-0.08-i*0.04,4); }
-    fell(ctx,cx,cy-stemH-R*0.24,R*0.30,R*0.22,f,g,A+0.02);
-    gun(ctx,cx-R*0.30,cy-stemH-R*0.24,R*0.72,R*0.062,f,g,A);
-    for (const px of [cx-R*0.18,cx+R*0.18]) fcirc(ctx,px,cy-stemH-R*0.38,R*0.065,'rgba(255,255,255,0.55)',g,A-0.22);
-  }
-}
-
-// ── T10  SWARM_COLLECTIVE ────────────────────────────────
-function drawT10(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Vortex spiral — units in inward-pulling spiral
-    const nUnit=22+v*8, spiralR=R*[1.55,1.72,1.38][v];
+    ebeam(ctx,cx-bellR*0.88,bellCenter+R*1.05,cx-bellR-R*0.72,bellCenter+R*0.72,f,g,A,R*0.050);
+  } else { // BP4 INNOVATION: Siphonophore — no bell at all, just a long vertical chain
+    const chainLen=R*[2.80,3.20,2.40][v];
+    const nUnit=8+v*2;
     for (let i=0;i<nUnit;i++) {
       const t=i/nUnit;
-      const a=t*Math.PI*4.5, r=spiralR*(1-t*0.78);
-      const px=cx+Math.cos(a)*r, py=cy+Math.sin(a)*r*0.68;
-      const ur=R*(0.042+t*0.038+nh(n,100+i)*0.024);
-      fcirc(ctx,px,py,ur,f,g,A-0.08*(1-t));
+      const uy=bellCenter-bellR*0.20+t*chainLen;
+      const ux=cx+(nh(n,10+i)-0.5)*R*0.30;
+      const ur=R*(0.14-t*0.006+nh(n,20+i)*0.04);
+      fell(ctx,ux,uy,ur*2.50,ur,f,g,A-i*0.030,4);
+      // Nectophore gas bells at intervals
+      if (i%3===0) {
+        ctx.save(); ctx.globalAlpha=A-0.20; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+        ctx.beginPath(); ctx.arc(ux,uy,ur*2.80,Math.PI,0); ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+      // Trailing dactylozooid
+      oarm(ctx,ux,uy,ux+(nh(n,30+i)-0.5)*R*0.22,uy+R*(0.40+nh(n,40+i)*0.38),R*0.022,0,f,g,A-0.26);
     }
-    // Hot center
-    fcirc(ctx,cx,cy,R*0.16,f,g,A-0.18);
-    // Weapon: concentrated front edge
-    gun(ctx,cx-spiralR*0.88,cy,R*0.65,R*0.055,f,g,A);
-  } else if (bp===2) { // Shoal formation — parallel rows of aligned units
-    const nRow=3, nCol=5+v*2, colSep=R*[0.48,0.54,0.42][v], rowSep=R*[0.42,0.48,0.36][v];
-    const totalW=nCol*colSep, totalH=nRow*rowSep;
-    for (let r=0;r<nRow;r++) { for (let c=0;c<nCol;c++) {
-      const px=cx-totalW/2+c*colSep+(r%2)*colSep*0.50;
-      const py=cy-totalH/2+r*rowSep;
-      const ur=R*(0.062+nh(n,r*20+c)*0.028);
-      fcirc(ctx,px,py,ur,f,g,A-0.06*r);
-    }}
-    // Leading row weapon emphasis
-    const leadX=cx-totalW/2;
-    fcirc(ctx,leadX,cy-totalH/2,R*0.095,f,g,A-0.02);
-    gun(ctx,leadX,cy,R*0.65,R*0.055,f,g,A);
-  } else if (bp===3) { // HYBRID: Swarm + Crystal — crystal shard units
-    const nUnit=[24,20,28][v], swW=R*[1.55,1.38,1.72][v], swH=R*[0.80,0.70,0.90][v];
-    const positions:P2[]=[];
-    for (let i=0;i<nUnit;i++) {
-      const a=(i/nUnit)*Math.PI*2+nh(n,100+i)*0.90, r=swW*Math.sqrt(nh(n,200+i));
-      positions.push([cx+Math.cos(a)*r,cy+Math.sin(a)*swH/swW*r]);
+    stinger(ctx,cx-R*0.52,bellCenter,R*0.42,R*0.060,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Additional fine filaments between main ones
+    const nExtra=4+v;
+    for (let i=0;i<nExtra;i++) {
+      const fx=cx-bellR*0.70+i*bellR*0.46;
+      oarm(ctx,fx,bellCenter,fx+(nh(n,70+i)-0.5)*R*0.18,bellCenter+R*(0.58+nh(n,80+i)*0.52),R*0.014,0,f,g,A-0.32);
     }
-    for (let i=0;i<nUnit;i++) {
-      const [px,py]=positions[i];
-      const a=nh(n,300+i)*Math.PI*2;
-      const shardLen=R*(0.08+nh(n,400+i)*0.06);
-      crystalShard(ctx,px,py,a,shardLen,shardLen*0.28,f,g,A-0.08-nh(n,500+i)*0.20);
-    }
-    fcirc(ctx,cx,cy,R*0.14,f,g,A-0.22);
-    gun(ctx,cx-swW*0.72,cy,R*0.60,R*0.052,f,g,A);
-  } else if (bp===4) { // INNOVATION: Needle filament — very elongated narrow column
-    const nUnit=18+v*6, fileL=R*[2.10,2.40,1.80][v], fileH=R*0.25;
-    for (let i=0;i<nUnit;i++) {
-      const t=i/(nUnit-1);
-      const px=cx+fileL*(1-2*t), py=cy+(nh(n,100+i)-0.5)*fileH*2*(1-Math.abs(t-0.5)*1.4);
-      const ur=R*(0.048+nh(n,200+i)*0.030)*(1-Math.abs(t-0.35)*0.6);
-      if (ur>0.01) fcirc(ctx,px,py,ur,f,g,A-0.06-nh(n,300+i)*0.20);
-    }
-    gun(ctx,cx-fileL,cy,R*0.62,R*0.052,f,g,A);
-  } else { // BP0: Diffuse cloud
-    const nUnit=[28,22,34][v], swW=R*[1.65,1.45,1.82][v], swH=R*[0.85,0.75,0.96][v];
-    const positions:P2[]=[];
-    for (let i=0;i<nUnit;i++) { const a=(i/nUnit)*Math.PI*2+nh(n,100+i)*0.92, r=Math.sqrt(nh(n,200+i)); positions.push([cx+Math.cos(a)*swW*r,cy+Math.sin(a)*swH*r]); }
-    ctx.save(); ctx.globalAlpha=A-0.46; ctx.strokeStyle=f; ctx.lineWidth=R*0.024; ctx.shadowColor=g; ctx.shadowBlur=2;
-    for (let i=0;i<nUnit;i++) { const ni=(i+1)%nUnit; const dx=positions[ni][0]-positions[i][0], dy=positions[ni][1]-positions[i][1]; if (dx*dx+dy*dy<(R*0.85)*(R*0.85)) { ctx.beginPath(); ctx.moveTo(positions[i][0],positions[i][1]); ctx.lineTo(positions[ni][0],positions[ni][1]); ctx.stroke(); } }
+  }
+  if (dl>=2) { // Radial canals visible through bell
+    ctx.save(); ctx.globalAlpha=A-0.30; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.55;
+    for (let i=0;i<4;i++) { const a=Math.PI*(0.95+i*0.36); ctx.beginPath(); ctx.moveTo(cx,bellCenter); ctx.lineTo(cx+Math.cos(a)*bellR*0.80,bellCenter+Math.sin(a)*bellR*0.80); ctx.stroke(); }
     ctx.restore();
-    for (let i=0;i<nUnit;i++) { const [px,py]=positions[i]; const fb=1-(px-(cx-swW))/(swW*2.0); fcirc(ctx,px,py,R*(0.038+fb*0.032+nh(n,300+i)*0.026),f,g,A-0.06-nh(n,400+i)*0.24); }
-    const frontX=cx-swW*0.72;
-    for (let i=0;i<4+v;i++) { const fx=frontX+nh(n,500+i)*R*0.26-R*0.13, fy=cy+(nh(n,600+i)-0.5)*R*0.28; fcirc(ctx,fx,fy,R*(0.072+nh(n,700+i)*0.038),f,g,A-0.02); }
-    fcirc(ctx,cx+R*0.10,cy,R*0.16,f,g,A-0.22);
+  }
+  if (dl>=3) { // Individual nematocysts along edge
+    for (let i=0;i<5;i++) { const a=Math.PI*(1.10+i*0.18); fcirc(ctx,cx+Math.cos(a)*bellR,bellCenter+Math.sin(a)*bellR,R*0.032,'rgba(255,255,255,0.60)',g,A-0.35); }
   }
 }
 
-// ── T11  BIOMECH_HYBRID ──────────────────────────────────
-function drawT11(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  const drawOrgBlob=(bW:number,bH:number)=>{
-    const nV=10; const pts:P2[]=[];
-    for (let i=0;i<nV;i++) { const a=(i/nV)*Math.PI*2; pts.push([cx+Math.cos(a)*bW*(1+(nh(n,10+i)-0.5)*0.28),cy+Math.sin(a)*bH*(1+(nh(n,20+i)-0.5)*0.28)]); }
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=9;
-    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
-    for (let i=0;i<nV;i++) { const ni=(i+1)%nV; ctx.quadraticCurveTo(pts[i][0],pts[i][1],(pts[i][0]+pts[ni][0])/2,(pts[i][1]+pts[ni][1])/2); }
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.8; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.globalAlpha=A-0.36; ctx.strokeStyle='rgba(255,255,255,0.60)'; ctx.lineWidth=0.58;
-    for (let i=0;i<4+v;i++) { const a=(i/(4+v))*Math.PI*2+nh(n,20+i); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*bW*0.62,cy+Math.sin(a)*bH*0.62); ctx.stroke(); }
-    ctx.restore();
-  };
-  if (bp===1) { // Mechanical chassis + organic overflow — frame overgrown with flesh
-    const rW=R*[1.45,1.62,1.28][v], sep=R*[0.45,0.55,0.35][v];
-    frect(ctx,cx-rW,cy-sep-R*0.08,rW*2,R*0.16,f,g,A-0.10);
-    frect(ctx,cx-rW,cy+sep-R*0.08,rW*2,R*0.16,f,g,A-0.10);
-    for (let i=0;i<=4;i++) { const rx=cx-rW+i*(rW*2/4); frect(ctx,rx-R*0.05,cy-sep,R*0.10,sep*2,f,g,A-0.16); }
-    // Organic mass growing over the frame
-    for (let i=0;i<3+v;i++) {
-      const ox=cx-rW*0.55+i*rW*0.55, oH=sep*(0.58+nh(n,30+i)*0.32);
-      ctx.save(); ctx.globalAlpha=A-0.12; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
-      ctx.beginPath(); ctx.ellipse(ox,cy,R*(0.20+nh(n,40+i)*0.10),oH,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+// ── T7  DENDRITE ──────────────────────────────────────────
+// Silhouette: BRANCHING from single base node — tree/coral shape
+// Role: colonial · Mass: distributed · Weapon: leftmost branch tip
+function drawT7(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const base:[number,number]=[cx+R*0.52,cy+R*0.28]; // base attachment point
+  // Recursive branch helper
+  const branch=(x0:number,y0:number,a:number,len:number,w:number,depth:number)=>{
+    if (depth<=0||len<R*0.10) return;
+    const x1=x0+Math.cos(a)*len, y1=y0+Math.sin(a)*len;
+    sline(ctx,x0,y0,x1,y1,f,A-0.04*(3-depth),w*2);
+    fcirc(ctx,x1,y1,w*1.40,f,g,A-0.08*(3-depth));
+    if (depth>1) {
+      branch(x1,y1,a-0.55+nh(n,depth*7+Math.floor(a*5))*0.40,len*0.68,w*0.72,depth-1);
+      branch(x1,y1,a+0.48+nh(n,depth*11+Math.floor(a*5))*0.40,len*0.62,w*0.65,depth-1);
     }
-    gun(ctx,cx-rW-R*0.18,cy,R*0.75,R*0.060,f,g,A);
-  } else if (bp===2) { // Organic torso + mechanical arms
-    const bW=R*[0.72,0.80,0.62][v], bH=R*[0.55,0.62,0.48][v];
-    drawOrgBlob(bW,bH);
-    // Mechanical arms (3-4 rigid arm grafts)
-    const nArm=3+nhi(n,30,2);
-    const armAngles=[Math.PI,Math.PI*0.28,Math.PI*1.72,Math.PI*0.55,Math.PI*1.45];
+  };
+  if (bp===0) { // Staghorn coral — irregular thick branches
+    const mainBranches=[[Math.PI*1.25,R*1.20,R*0.14],[Math.PI*0.88,R*1.05,R*0.12],[Math.PI*1.55,R*0.98,R*0.11],[Math.PI*1.78,R*0.88,R*0.10]];
+    frect(ctx,base[0]-R*0.16,base[1]-R*0.12,R*0.32,R*0.24,f,g,A-0.06); // holdfast
+    for (const [a,l,w] of mainBranches) branch(base[0],base[1],a,l,w,2);
+    // Weapon = leftmost tip (branch index 0)
+    const wx=base[0]+Math.cos(Math.PI*1.25)*R*1.20, wy=base[1]+Math.sin(Math.PI*1.25)*R*1.20;
+    stinger(ctx,wx,wy,R*0.38,R*0.052,f,g,A);
+  } else if (bp===1) { // Fan coral — flat 2D spread, mesh pattern
+    const fanW=R*1.45, fanH=R*1.10;
+    // Fan base
+    fpoly(ctx,[[base[0]-R*0.14,base[1]],[base[0]-fanW*0.88,base[1]-fanH],[base[0]+fanW*0.52,base[1]-fanH],[base[0]+R*0.14,base[1]]],f,g,A-0.06,5);
+    // Mesh lines
+    ctx.save(); ctx.globalAlpha=A-0.22; ctx.strokeStyle='rgba(255,255,255,0.58)'; ctx.lineWidth=0.55;
+    for (let i=1;i<=5;i++) { const fy=base[1]-i*fanH*0.18; ctx.beginPath(); ctx.moveTo(base[0]-fanW*0.88*(i/5.5),fy); ctx.lineTo(base[0]+fanW*0.52*(i/5.5),fy); ctx.stroke(); }
+    for (let i=-2;i<=2;i++) { ctx.beginPath(); ctx.moveTo(base[0]+i*fanW*0.24,base[1]); ctx.lineTo(base[0]+i*fanW*0.24-fanW*0.22,base[1]-fanH); ctx.stroke(); }
+    ctx.restore();
+    stinger(ctx,base[0]-fanW*0.88,base[1]-fanH,R*0.38,R*0.048,f,g,A);
+  } else if (bp===2) { // Feather star — 10 pinnate arms from central holdfast
+    const nArm=7+v, armLen=R*1.10;
+    fcirc(ctx,base[0],base[1]-R*0.08,R*0.22,f,g,A-0.04); // central disc
     for (let i=0;i<nArm;i++) {
-      const a=armAngles[i];
-      const gr=bW*(0.85+nh(n,40+i)*0.15);
-      const ax=cx+Math.cos(a)*gr, ay=cy+Math.sin(a)*bH/bW*gr;
-      const aLen=R*(0.42+nh(n,50+i)*0.28), aW=R*0.10;
-      frect(ctx,ax-aLen*0.5,ay-aW,aLen,aW*2,f,g,A-0.06);
-      if (i===0) graftGun(ctx,ax-aLen*0.5,ay,R,f,g,A);
-      else fcirc(ctx,ax-aLen*0.5,ay,aW*1.5,f,g,A-0.16);
+      const a=Math.PI*(0.72+i*(Math.PI*0.96/(nArm-1)));
+      const ax=base[0]+Math.cos(a)*armLen, ay=base[1]+Math.sin(a)*armLen;
+      sline(ctx,base[0],base[1]-R*0.08,ax,ay,f,A-0.06,R*0.11);
+      // Pinnules (side branches)
+      for (let j=1;j<=3;j++) {
+        const px=base[0]+Math.cos(a)*armLen*(j/4), py=base[1]-R*0.08+Math.sin(a)*armLen*(j/4);
+        const pa=a+Math.PI*0.5, pLen=R*(0.24-j*0.02);
+        sline(ctx,px,py,px+Math.cos(pa)*pLen,py+Math.sin(pa)*pLen,f,A-0.14,R*0.050);
+        sline(ctx,px,py,px-Math.cos(pa)*pLen,py-Math.sin(pa)*pLen,f,A-0.14,R*0.050);
+      }
     }
-  } else if (bp===3) { // HYBRID: Biomech + Crystal — crystal grafts instead of metal plates
-    const bW=R*[1.05,0.92,1.18][v], bH=R*[0.72,0.82,0.64][v];
-    drawOrgBlob(bW,bH);
-    // Crystal graft plates instead of metal
-    const graftAngs=[Math.PI*0.90,Math.PI*0.15,Math.PI*1.55,Math.PI*0.55];
-    for (let i=0;i<[3,4,2][v];i++) {
-      const a=graftAngs[i]+nh(n,30+i)*0.20;
-      const gr=bW*(0.72+nh(n,40+i)*0.20);
-      const gx=cx+Math.cos(a)*gr, gy=cy+Math.sin(a)*bH/bW*gr;
-      crystalShard(ctx,gx,gy,a,R*(0.32+nh(n,50+i)*0.22),R*0.065,f,g,A-0.06);
+    stinger(ctx,base[0]+Math.cos(Math.PI*1.55)*armLen,base[1]+Math.sin(Math.PI*1.55)*armLen,R*0.38,R*0.048,f,g,A);
+  } else if (bp===3) { // HYBRID: Mechano-dendrite — mechanical armature + organic polyps
+    // Mechanical armature
+    const arms=[Math.PI*1.20,Math.PI*0.85,Math.PI*1.55];
+    for (const a of arms) {
+      const l=R*(0.88+nh(n,Math.floor(a*10))*0.40);
+      sline(ctx,base[0],base[1],base[0]+Math.cos(a)*l,base[1]+Math.sin(a)*l,f,A-0.04,R*0.12);
+      fcirc(ctx,base[0]+Math.cos(a)*l,base[1]+Math.sin(a)*l,R*0.10,f,g,A-0.08); // terminal node
+      // Secondary arm from each
+      const sa=a-0.55+nh(n,Math.floor(a*20))*0.30;
+      const sl=l*0.65;
+      sline(ctx,base[0]+Math.cos(a)*l,base[1]+Math.sin(a)*l,base[0]+Math.cos(a)*l+Math.cos(sa)*sl,base[1]+Math.sin(a)*l+Math.sin(sa)*sl,f,A-0.12,R*0.085);
+      // Organic polyp growths at joints
+      for (let j=0;j<=2;j++) {
+        const jx=base[0]+Math.cos(a)*l*(j/2), jy=base[1]+Math.sin(a)*l*(j/2);
+        fcirc(ctx,jx,jy,R*(0.072+nh(n,j*10+Math.floor(a*5))*0.042),f,g,A-0.14);
+      }
     }
-    // Crystal weapon graft
-    crystalShard(ctx,cx-bW,cy,Math.PI,R*(0.72+nh(n,7)*0.35),R*0.065,f,g,A);
-    fcirc(ctx,cx-bW,cy,R*0.12,f,g,A-0.10);
-  } else if (bp===4) { // INNOVATION: Exo-brain — mechanical sphere with organic interior
-    const outerR=R*[0.68,0.78,0.58][v];
-    // Outer mechanical shell (segmented sphere)
-    const nSeg=[6,8,5][v];
-    ctx.save(); ctx.globalAlpha=A-0.08; ctx.strokeStyle=f; ctx.lineWidth=R*0.13; ctx.shadowColor=g; ctx.shadowBlur=7;
-    ctx.beginPath(); ctx.arc(cx,cy,outerR,0,Math.PI*2); ctx.stroke();
-    ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.80; ctx.beginPath(); ctx.arc(cx,cy,outerR+R*0.06,0,Math.PI*2); ctx.stroke(); ctx.restore();
-    // Panel gaps showing interior
-    for (let i=0;i<nSeg;i++) {
-      const a=(i/nSeg)*Math.PI*2, nextA=((i+1)/nSeg)*Math.PI*2;
-      ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,outerR-R*0.04,a+0.18,nextA-0.18); ctx.closePath(); ctx.fill(); ctx.restore();
-    }
-    // Organic brain interior (visible through gaps — convoluted surface)
-    fcirc(ctx,cx,cy,outerR*0.68,f,g,A-0.04);
-    ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.6;
-    for (let i=0;i<5;i++) { const bx=cx-outerR*0.35+i*outerR*0.18, by=cy-outerR*(0.25+nh(n,30+i)*0.10); ctx.beginPath(); ctx.moveTo(bx,by); ctx.quadraticCurveTo(bx+R*0.14,by+R*0.22,bx+R*0.28,by+R*0.08); ctx.stroke(); }
+    frect(ctx,base[0]-R*0.14,base[1]-R*0.10,R*0.28,R*0.20,f,g,A-0.04);
+    stinger(ctx,base[0]+Math.cos(Math.PI*1.55)*R*0.88+Math.cos(Math.PI*1.0)*R*0.58,base[1]+Math.sin(Math.PI*1.55)*R*0.88+Math.sin(Math.PI*1.0)*R*0.58,R*0.38,R*0.048,f,g,A);
+  } else { // BP4 INNOVATION: Radiolarian — spherical crystal lattice (breaks branching)
+    const rR=R*[1.08,1.22,0.95][v];
+    // Outer lattice sphere (polygon approximation)
+    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.08; ctx.shadowColor=g; ctx.shadowBlur=7;
+    ctx.beginPath(); for (let i=0;i<12;i++) { const a=(i/12)*Math.PI*2; if (i===0) ctx.moveTo(cx+rR*Math.cos(a),cy+rR*Math.sin(a)); else ctx.lineTo(cx+rR*Math.cos(a),cy+rR*Math.sin(a)); } ctx.closePath(); ctx.stroke(); ctx.restore();
+    // Internal struts (icosahedron-like)
+    for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2; sline(ctx,cx,cy,cx+rR*Math.cos(a),cy+rR*Math.sin(a),f,A-0.18,R*0.055); }
+    fcirc(ctx,cx,cy,rR*0.22,f,g,A+0.02);
+    // Spine radii
+    for (let i=0;i<8;i++) { const a=(i/8)*Math.PI*2; cshard(ctx,cx+rR*Math.cos(a),cy+rR*Math.sin(a),a,R*0.35,R*0.040,f,g,A-0.14); }
+    ebeam(ctx,cx-rR,cy,cx-rR-R*0.90,cy,f,g,A,R*0.050);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Secondary polyp dots along branches
+    for (let i=0;i<6;i++) { const a=Math.PI*(1.05+i*0.22); fcirc(ctx,base[0]+Math.cos(a)*R*(0.40+i*0.12),base[1]+Math.sin(a)*R*(0.40+i*0.12),R*0.038,f,g,A-0.28); }
+  }
+  if (dl>=2) { // Interconnection filaments
+    ctx.save(); ctx.globalAlpha=A-0.38; ctx.strokeStyle=f; ctx.lineWidth=R*0.025;
+    for (let i=0;i<4;i++) { const a1=Math.PI*(1.15+i*0.24), a2=Math.PI*(1.32+i*0.24), r=R*0.78; ctx.beginPath(); ctx.moveTo(base[0]+Math.cos(a1)*r,base[1]+Math.sin(a1)*r); ctx.lineTo(base[0]+Math.cos(a2)*r,base[1]+Math.sin(a2)*r); ctx.stroke(); }
     ctx.restore();
-    // Mechanical sensor eye
-    frect(ctx,cx-outerR*0.40,cy-outerR*0.38,outerR*0.48,outerR*0.20,f,g,A-0.04);
-    fcirc(ctx,cx-outerR*0.16,cy-outerR*0.28,R*0.07,'rgba(255,255,255,0.90)',g,A);
-    graftGun(ctx,cx-outerR,cy,R,f,g,A);
-  } else { // BP0: Organic blob + metal graft plates + welded gun arm
-    const bW=R*[1.05,0.92,1.18][v], bH=R*[0.72,0.82,0.64][v];
-    drawOrgBlob(bW,bH);
-    const graftAngs=[Math.PI*0.90,Math.PI*0.15,Math.PI*1.55,Math.PI*0.55];
-    for (let i=0;i<[3,4,2][v];i++) {
-      const a=graftAngs[i]+nh(n,30+i)*0.20, gr=bW*(0.72+nh(n,40+i)*0.20);
-      mechArmor(ctx,cx+Math.cos(a)*gr,cy+Math.sin(a)*bH/bW*gr,a,R,f,g,A);
-    }
-    fcirc(ctx,cx-bW,cy,R*0.14,f,g,A-0.08);
-    frect(ctx,cx-bW-R*(0.55+nh(n,7)*0.38),cy-R*0.062,R*(0.55+nh(n,7)*0.38),R*0.124,f,g,A+0.04);
-    gun(ctx,cx-bW,cy,R*(0.55+nh(n,7)*0.38)+R*0.18,R*0.062,f,g,A);
+  }
+  if (dl>=3) { // Spawning gamete dots
+    for (let i=0;i<5;i++) { fcirc(ctx,base[0]+Math.cos(Math.PI*1.15+nh(n,90+i))*R*(0.55+nh(n,100+i)*0.38),base[1]+Math.sin(Math.PI*1.15+nh(n,90+i))*R*(0.55+nh(n,100+i)*0.38)+R*(0.05+nh(n,110+i)*0.08),R*0.022,'rgba(255,255,255,0.55)',g,A-0.40); }
   }
 }
 
-// ── T12  AVIAN_FLYER ─────────────────────────────────────
-function drawT12(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  const drawMembraneWing=(s:1|-1,span:number,sweep:number,fL:number,fH:number)=>{
-    const wTipX=cx-R*sweep, wTipY=cy+s*span;
-    const wTrailX=cx+R*0.70, wTrailY=cy+s*span*0.52;
-    ctx.save(); ctx.globalAlpha=A-0.08; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=6;
-    ctx.beginPath();
-    ctx.moveTo(cx,cy+s*fH*0.28);
-    ctx.bezierCurveTo(cx-R*0.22,cy+s*span*0.30,wTipX,cy+s*span*0.60,wTipX,wTipY);
-    ctx.bezierCurveTo(cx-R*0.08,cy+s*span*0.88,wTrailX,wTrailY*1.0,wTrailX,wTrailY);
-    ctx.bezierCurveTo(cx+R*0.55,cy+s*span*0.28,cx+R*0.35,cy+s*fH*0.40,cx,cy+s*fH*0.28);
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.14)'; ctx.lineWidth=0.7; ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=0.55;
-    for (let i=1;i<=3;i++) { const t=i/4; ctx.beginPath(); ctx.moveTo(cx-R*0.05,cy+s*fH*0.28); ctx.lineTo(wTipX+(cx-R*0.05-wTipX)*(1-t),wTipY*t+(cy+s*fH*0.28)*(1-t)); ctx.stroke(); }
-    ctx.restore();
-    fpoly(ctx,[[wTipX-R*0.05,wTipY],[wTipX+R*0.16,wTipY+s*R*0.20],[wTipX+R*0.22,wTipY]],f,g,A-0.22,3);
+// ── T8  POLYHEDRON ───────────────────────────────────────
+// Silhouette: PURELY ANGULAR — only straight edges, no curves at all
+// Role: geometric · Mass: center · Weapon: one face opens to fire
+function drawT8(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  // Utility: draw a polygon with straight edges only (no bezier)
+  const poly=(pts:P2[],alpha=A)=>{
+    fpoly(ctx,pts,f,g,alpha,6);
+    // Facet highlight (top faces are lighter)
+    if (pts.length>=3) {
+      const topHalf=pts.filter(p=>p[1]<cy);
+      if (topHalf.length>=2) {
+        ctx.save(); ctx.globalAlpha=alpha-0.28; ctx.fillStyle='rgba(255,255,255,0.28)';
+        ctx.beginPath(); ctx.moveTo(topHalf[0][0],topHalf[0][1]);
+        for (let i=1;i<topHalf.length;i++) ctx.lineTo(topHalf[i][0],topHalf[i][1]);
+        ctx.closePath(); ctx.fill(); ctx.restore();
+      }
+    }
   };
-  if (bp===1) { // Manta ray flyer — flat diamond body, no distinct head
-    const mW=R*[1.80,2.10,1.55][v], mH=R*[0.55,0.65,0.46][v];
-    for (const s of [-1,1] as const) {
-      fpoly(ctx,[[cx,cy],[cx-mW*0.50,cy+s*mH],[cx+mW,cy+s*mH*0.28],[cx+mW*0.82,cy]],f,g,A-0.08,5);
-      // Wingtip detail
-      fpoly(ctx,[[cx-mW*0.50,cy+s*mH],[cx-mW*0.65,cy+s*mH*0.78],[cx-mW*0.30,cy+s*mH*1.05]],f,g,A-0.24,3);
-    }
-    fell(ctx,cx+mW*0.28,cy,R*0.40,mH*0.62,f,g,A); // central body lozenge
-    stinger(ctx,cx,cy,R*0.45,mH*0.20,f,g,A); // frontal weapon
-    // Trailing tail
-    fpoly(ctx,[[cx+mW,cy-mH*0.10],[cx+mW+R*0.72,cy-R*0.05],[cx+mW+R*0.60,cy+R*0.05],[cx+mW,cy+mH*0.10]],f,g,A-0.20,3);
-  } else if (bp===2) { // Dragonfly — 4 separate wings, segmented abdomen
-    const fL=R*[0.75,0.85,0.65][v], fH=R*0.18;
-    // 4 separate wings (2 pairs)
-    for (const s of [-1,1] as const) {
-      // Fore wings (larger)
-      fpoly(ctx,[[cx-fL*0.20,cy+s*fH*0.5],[cx-fL*1.05,cy+s*R*1.45],[cx+fL*0.22,cy+s*R*1.28],[cx+fL*0.48,cy+s*fH*0.35]],f,g,A-0.10,5);
-      // Hind wings (offset, shorter)
-      fpoly(ctx,[[cx+fL*0.12,cy+s*fH*0.55],[cx-fL*0.55,cy+s*R*1.05],[cx+fL*0.60,cy+s*R*0.90],[cx+fL*0.82,cy+s*fH*0.38]],f,g,A-0.16,4);
-    }
-    // Segmented abdomen (5 segments)
-    for (let i=0;i<5;i++) {
-      const sx=cx-fL*0.55+i*(fL*1.60/4), sR=fL*(0.20-i*0.022+nh(n,10+i)*0.04);
-      fell(ctx,sx,cy,sR,sR*0.72,f,g,A-i*0.04);
-    }
-    stinger(ctx,cx-fL*0.55-fL*0.20,cy,R*0.40,R*0.068,f,g,A);
-    // Compound eyes
-    for (const s of [-1,1] as const) fcirc(ctx,cx-fL*0.55+R*0.04,cy+s*fL*0.20*0.55,R*0.12,'rgba(255,255,255,0.80)',g,A-0.02);
-  } else if (bp===3) { // HYBRID: Avian + Energy — lightning wing tips + energy beak
-    const span=R*[1.95,2.40,1.65][v], fL=R*[0.92,0.85,1.02][v], fH=R*0.20;
-    for (const s of [-1,1] as const) {
-      drawMembraneWing(s,span,0.55,fL,fH);
-      // Energy vein graft (glowing lines over membrane)
-      ctx.save(); ctx.globalAlpha=A-0.22; ctx.strokeStyle='rgba(255,255,255,0.80)'; ctx.lineWidth=R*0.035; ctx.shadowColor=g; ctx.shadowBlur=10;
-      for (let i=1;i<=3;i++) { const t=i/4; ctx.beginPath(); ctx.moveTo(cx-R*0.05,cy+s*fH*0.28); ctx.lineTo(cx-R*0.55+(cx-R*0.05-(cx-R*0.55))*(1-t),cy+s*span*t+(cy+s*fH*0.28)*(1-t)); ctx.stroke(); }
-      ctx.restore();
-      // Wing-tip energy nodes
-      energyTendril(ctx,cx-R*0.55,cy+s*span,cx-R*0.55+R*(nh(n,10+s*3)-0.5)*0.55,cy+s*span+R*(nh(n,20+s*3)-0.5)*0.55,f,g,A-0.24,n,30+s*10);
-    }
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
-    ctx.beginPath(); ctx.moveTo(cx-fL,cy); ctx.bezierCurveTo(cx-fL*0.60,cy-fH,cx+fL*0.20,cy-fH,cx+fL*0.75,cy-fH*0.45); ctx.lineTo(cx+fL,cy); ctx.lineTo(cx+fL*0.75,cy+fH*0.45); ctx.bezierCurveTo(cx+fL*0.20,cy+fH,cx-fL*0.60,cy+fH,cx-fL,cy); ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    // Energy beam weapon (replaces beak)
-    const eBeam=R*(0.70+nh(n,7)*0.45);
-    ctx.save(); ctx.globalAlpha=A-0.10; ctx.strokeStyle=f; ctx.lineWidth=R*0.048; ctx.shadowColor=g; ctx.shadowBlur=14;
-    ctx.beginPath(); ctx.moveTo(cx-fL,cy); ctx.lineTo(cx-fL-eBeam,cy); ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx-fL-eBeam,cy,R*0.10,'rgba(255,255,255,0.90)',g,A);
-  } else if (bp===4) { // INNOVATION: Stingray drifter — flat round, long tail, wave wings
-    const bR=R*[0.68,0.78,0.58][v];
-    // Round flat body
-    fell(ctx,cx+R*0.12,cy,bR*1.35,bR,f,g,A);
-    // Pectoral wing-tips
-    for (const s of [-1,1] as const) fpoly(ctx,[[cx-R*0.20,cy+s*bR*0.62],[cx-R*0.65,cy+s*bR*1.45],[cx+R*0.12,cy+s*bR],[cx+R*0.80,cy+s*bR*0.55]],f,g,A-0.12,5);
-    // Long whip tail
-    organicArm(ctx,cx+bR*1.35+R*0.12,cy,cx+bR*1.35+R*0.12+R*1.62,cy+R*(0.45+nh(n,7)*0.35),R*0.045,(nh(n,8)-0.5)*R*0.25,f,g,A-0.16);
-    // Tail spine tip
-    fpoly(ctx,[[cx+bR*1.35+R*0.12+R*1.55,cy+R*0.55],[cx+bR*1.35+R*0.12+R*1.80,cy+R*0.68],[cx+bR*1.35+R*0.12+R*1.62,cy+R*0.40]],f,g,A-0.22,3);
-    stinger(ctx,cx-R*0.20,cy,R*0.45,bR*0.18,f,g,A);
-    fcirc(ctx,cx-R*0.08,cy-bR*0.28,R*0.085,'rgba(255,255,255,0.80)',g,A);
-  } else { // BP0: Pterosaur membrane wings + beak
-    const span=R*[1.95,2.40,1.65][v], fL=R*[0.92,0.85,1.02][v], fH=R*0.20;
-    for (const s of [-1,1] as const) drawMembraneWing(s,span,0.55,fL,fH);
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
-    ctx.beginPath(); ctx.moveTo(cx-fL,cy); ctx.bezierCurveTo(cx-fL*0.60,cy-fH,cx+fL*0.20,cy-fH,cx+fL*0.75,cy-fH*0.45); ctx.lineTo(cx+fL,cy); ctx.lineTo(cx+fL*0.75,cy+fH*0.45); ctx.bezierCurveTo(cx+fL*0.20,cy+fH,cx-fL*0.60,cy+fH,cx-fL,cy); ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    stinger(ctx,cx-fL,cy,R*0.40,R*0.085,f,g,A);
-    fcirc(ctx,cx-fL+R*0.28,cy-fH*0.45,R*0.09,'rgba(255,255,255,0.85)',g,A);
-    for (let i=-1;i<=1;i++) fpoly(ctx,[[cx+fL,cy+i*R*0.12],[cx+fL+R*0.38,cy+i*R*0.30],[cx+fL+R*0.32,cy+i*R*0.36]],f,g,A-0.24,3);
-  }
-}
-
-// ── T13  ALIEN_ARCH ──────────────────────────────────────
-function drawT13(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
-  const bp=BP(n), v=TV(n);
-  if (bp===1) { // Recursive shell — logarithmic spiral within spiral
-    const nShell=3, startR=R*[1.20,1.35,1.05][v];
-    for (let sh=0;sh<nShell;sh++) {
-      const shellR=startR*Math.pow(0.58,sh), offset=sh*Math.PI/nShell;
-      ctx.save(); ctx.globalAlpha=A-sh*0.18; ctx.strokeStyle=f; ctx.lineWidth=R*(0.11-sh*0.025); ctx.shadowColor=g; ctx.shadowBlur=8-sh*2;
-      ctx.beginPath();
-      for (let i=0;i<=120;i++) { const t=(i/120)*Math.PI*2; const r=shellR*(1+0.28*Math.cos(3*(t+offset))); if (i===0) ctx.moveTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); else ctx.lineTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); }
-      ctx.closePath(); ctx.stroke(); ctx.restore();
-    }
-    fcirc(ctx,cx,cy,startR*Math.pow(0.58,3)*0.60,f,g,A+0.02);
-    const rfL=R*(0.65+nh(n,7)*0.46);
-    fpoly(ctx,[[cx-startR,cy-R*0.10],[cx-startR-rfL,cy],[cx-startR,cy+R*0.10]],f,g,A+0.02,8);
-  } else if (bp===2) { // Möbius-like self-intersecting loop
-    const oR=R*[1.05,1.18,0.92][v];
-    // Draw the figure-8 / lemniscate-like form
-    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    for (let i=0;i<=160;i++) {
-      const t=(i/160)*Math.PI*2;
-      const denom=1+0.62*Math.sin(t)*Math.sin(t);
-      const x=cx+oR*Math.cos(t)/denom, y=cy+oR*Math.sin(t)*Math.cos(t)/denom;
-      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    }
-    ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
-    fcirc(ctx,cx,cy,R*0.14,f,g,A+0.04);
-    const rfL=R*(0.55+nh(n,7)*0.40);
-    fpoly(ctx,[[cx-oR,cy-R*0.09],[cx-oR-rfL,cy],[cx-oR,cy+R*0.09]],f,g,A+0.02,8);
-  } else if (bp===3) { // HYBRID: Alien + Colonial — alien form composed of colony units
-    const oR=R*[1.18,1.32,1.06][v];
-    // Draw alien outer shell (trefoil)
-    ctx.save(); ctx.globalAlpha=A-0.12; ctx.strokeStyle=f; ctx.lineWidth=R*0.11; ctx.shadowColor=g; ctx.shadowBlur=8;
-    ctx.beginPath();
-    for (let i=0;i<=120;i++) { const t=(i/120)*Math.PI*2; const r=oR*(1+0.28*Math.cos(3*t)); if (i===0) ctx.moveTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); else ctx.lineTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); }
-    ctx.closePath(); ctx.stroke(); ctx.restore();
-    // Colony units filling the interior — small organics in alien geometry
-    const nColony=16+v*4;
-    for (let i=0;i<nColony;i++) {
-      const a=(i/nColony)*Math.PI*2+nh(n,10+i)*0.55;
-      const r=oR*(0.72+nh(n,20+i)*0.22);
-      const ux=cx+Math.cos(a)*r, uy=cy+Math.sin(a)*r;
-      fell(ctx,ux,uy,R*(0.08+nh(n,30+i)*0.06),R*(0.06+nh(n,40+i)*0.04),f,g,A-0.16-i*0.01);
-    }
-    // Mycelium-like threads between colony units
-    ctx.save(); ctx.globalAlpha=A-0.38; ctx.strokeStyle=f; ctx.lineWidth=R*0.022;
-    for (let i=0;i<8;i++) { const a1=(i/8)*Math.PI*2, a2=((i+2)/8)*Math.PI*2; const r=oR*0.82; ctx.beginPath(); ctx.moveTo(cx+Math.cos(a1)*r,cy+Math.sin(a1)*r); ctx.lineTo(cx+Math.cos(a2)*r,cy+Math.sin(a2)*r); ctx.stroke(); }
+  if (bp===0) { // Hexagonal prism (viewed from slight angle)
+    const R6=R*[1.08,1.18,0.95][v];
+    const pts6:P2[]=[];
+    for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2-Math.PI/6; pts6.push([cx+R6*Math.cos(a),cy+R6*Math.sin(a)]); }
+    poly(pts6);
+    // Facet lines
+    ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.6;
+    for (let i=0;i<6;i++) { ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(pts6[i][0],pts6[i][1]); ctx.stroke(); }
     ctx.restore();
-    fpoly(ctx,[[cx-oR,cy-R*0.10],[cx-oR-R*(0.65+nh(n,7)*0.46),cy],[cx-oR,cy+R*0.10]],f,g,A+0.02,8);
-  } else if (bp===4) { // INNOVATION: Disconnected orbitals — no center body
-    const oR=R*[1.10,1.25,0.95][v], nOrb=[6,7,5][v];
-    // No central body — only orbiting pieces
-    for (let i=0;i<nOrb;i++) {
-      const a=(i/nOrb)*Math.PI*2+nh(n,10+i)*0.55;
-      const od=oR*(0.85+nh(n,20+i)*0.30);
-      const ox=cx+Math.cos(a)*od, oy=cy+Math.sin(a)*od;
-      const orbR=R*(0.14+nh(n,30+i)*0.10);
-      // Each orbital is its own distinct shape
-      if (i%3===0) fell(ctx,ox,oy,orbR*1.5,orbR,f,g,A-0.12);
-      else if (i%3===1) { const pts:P2[]=[]; for (let j=0;j<5;j++) { const ja=(j/5)*Math.PI*2; pts.push([ox+Math.cos(ja)*orbR,oy+Math.sin(ja)*orbR]); } fpoly(ctx,pts,f,g,A-0.16,5); }
-      else crystalShard(ctx,ox,oy,a+Math.PI,orbR,orbR*0.30,f,g,A-0.14);
-      // Phase lines connecting them
-      const ni=(i+1)%nOrb, na=(ni/nOrb)*Math.PI*2+nh(n,10+ni)*0.55, nod=oR*(0.85+nh(n,20+ni)*0.30);
-      ctx.save(); ctx.globalAlpha=A-0.45; ctx.setLineDash([R*0.06,R*0.10]); ctx.strokeStyle=f; ctx.lineWidth=R*0.028;
-      ctx.beginPath(); ctx.moveTo(ox,oy); ctx.lineTo(cx+Math.cos(na)*nod,cy+Math.sin(na)*nod); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+    // Weapon face (leftmost)
+    const leftPt=pts6.reduce((m,p)=>p[0]<m[0]?p:m,pts6[0]);
+    fpoly(ctx,[[leftPt[0],leftPt[1]-R*0.10],[leftPt[0]-R*0.72,leftPt[1]],[leftPt[0],leftPt[1]+R*0.10]],f,g,A+0.04,7);
+  } else if (bp===1) { // Rhombohedron — 4 rhombus faces, taller than wide
+    const RW=R*[0.78,0.88,0.68][v], RH=R*[1.22,1.35,1.08][v];
+    const pts:P2[]=[[cx,cy-RH],[cx+RW,cy-RH*0.35],[cx+RW,cy+RH*0.35],[cx,cy+RH],[cx-RW,cy+RH*0.35],[cx-RW,cy-RH*0.35]];
+    poly(pts);
+    // Internal diamond seams
+    ctx.save(); ctx.globalAlpha=A-0.24; ctx.strokeStyle='rgba(255,255,255,0.62)'; ctx.lineWidth=0.55;
+    ctx.beginPath(); ctx.moveTo(cx-RW,cy-RH*0.35); ctx.lineTo(cx,cy); ctx.lineTo(cx+RW,cy-RH*0.35); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-RW,cy+RH*0.35); ctx.lineTo(cx,cy); ctx.lineTo(cx+RW,cy+RH*0.35); ctx.stroke();
+    ctx.restore();
+    fpoly(ctx,[[cx-RW,cy-RH*0.18],[cx-RW-R*0.72,cy],[cx-RW,cy+RH*0.18]],f,g,A+0.02,7);
+  } else if (bp===2) { // Fractured shard — irregular jagged 9-sided polygon
+    const nSide=8+nhi(n,5,3);
+    const pts:P2[]=[];
+    for (let i=0;i<nSide;i++) {
+      const a=(i/nSide)*Math.PI*2-Math.PI*0.10;
+      const r=R*(0.72+nh(n,10+i)*0.52);
+      pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]);
     }
-    // Weapon: leftmost orbital fires
-    let li=0; for (let i=1;i<nOrb;i++) { const a=(i/nOrb)*Math.PI*2+nh(n,10+i)*0.55, od=oR*(0.85+nh(n,20+i)*0.30); if (cx+Math.cos(a)*od < cx+Math.cos((li/nOrb)*Math.PI*2+nh(n,10+li)*0.55)*oR*(0.85+nh(n,20+li)*0.30)) li=i; }
-    const la=(li/nOrb)*Math.PI*2+nh(n,10+li)*0.55, lod=oR*(0.85+nh(n,20+li)*0.30);
-    gun(ctx,cx+Math.cos(la)*lod,cy+Math.sin(la)*lod,R*0.55,R*0.052,f,g,A);
-  } else { // BP0: Trefoil outer + quadfoil inner + phase orbitals
-    const oR=R*[1.18,1.32,1.06][v];
-    for (let pass=0;pass<2;pass++) {
-      const off=pass*R*0.07;
-      ctx.save(); ctx.globalAlpha=A-pass*0.24; ctx.strokeStyle=f; ctx.lineWidth=R*(0.12-pass*0.040); ctx.shadowColor=g; ctx.shadowBlur=8-pass*3;
-      ctx.beginPath();
-      for (let i=0;i<=120;i++) { const t=(i/120)*Math.PI*2; const r=oR*(1+0.28*Math.cos(3*t))+off; if (i===0) ctx.moveTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); else ctx.lineTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); }
-      ctx.closePath(); ctx.stroke(); ctx.restore();
+    poly(pts);
+    // Fracture lines
+    ctx.save(); ctx.globalAlpha=A-0.20; ctx.strokeStyle='rgba(255,255,255,0.70)'; ctx.lineWidth=0.65;
+    for (let i=0;i<3;i++) { const fa=Math.PI*(0.80+i*0.55); ctx.beginPath(); ctx.moveTo(cx+Math.cos(fa)*R*0.20,cy+Math.sin(fa)*R*0.20); ctx.lineTo(cx+Math.cos(fa)*R*(0.68+nh(n,50+i)*0.32),cy+Math.sin(fa)*R*(0.68+nh(n,50+i)*0.32)); ctx.stroke(); }
+    ctx.restore();
+    const leftX=Math.min(...pts.map(p=>p[0])), leftPts=pts.filter(p=>p[0]===leftX);
+    const leftY=leftPts.length?leftPts[0][1]:cy;
+    fpoly(ctx,[[leftX,leftY-R*0.09],[leftX-R*0.62,leftY],[leftX,leftY+R*0.09]],f,g,A+0.02,7);
+  } else if (bp===3) { // HYBRID: Plasma-crystal — polyhedron with energy inside
+    const R6=R*[1.05,1.18,0.92][v];
+    const pts6:P2[]=[];
+    for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2-Math.PI/6; pts6.push([cx+R6*Math.cos(a),cy+R6*Math.sin(a)]); }
+    poly(pts6,A-0.08);
+    // Energy interior glow (partial transparency effect)
+    ctx.save(); ctx.globalAlpha=A-0.38; ctx.fillStyle='rgba(255,255,255,0.20)';
+    ctx.beginPath(); ctx.moveTo(pts6[0][0],pts6[0][1]); for (let i=1;i<6;i++) ctx.lineTo(pts6[i][0],pts6[i][1]); ctx.closePath(); ctx.fill(); ctx.restore();
+    // Energy arcs inside
+    for (let i=0;i<4;i++) etend(ctx,cx+(nh(n,10+i)-0.5)*R*0.55,cy+(nh(n,20+i)-0.5)*R*0.55,cx+Math.cos((i/4)*Math.PI*2)*R6*0.82,cy+Math.sin((i/4)*Math.PI*2)*R6*0.82,f,g,A-0.24,n,30+i*3);
+    fcirc(ctx,cx,cy,R*0.18,f,g,A+0.04);
+    ebeam(ctx,pts6[3][0],pts6[3][1],pts6[3][0]-R*0.88,pts6[3][1],f,g,A,R*0.055);
+  } else { // BP4 INNOVATION: Penrose tiling — aperiodic 5-fold, breaks regular polygon
+    const pR=R*[1.08,1.20,0.95][v];
+    // 5-fold Penrose-inspired shape (kite + dart tiles)
+    const phi=1.618; const ang=Math.PI*2/5;
+    for (let i=0;i<5;i++) {
+      const a=i*ang-Math.PI*0.10;
+      const p0:[number,number]=[cx,cy];
+      const p1:[number,number]=[cx+pR*Math.cos(a),cy+pR*Math.sin(a)];
+      const p2:[number,number]=[cx+pR/phi*Math.cos(a+ang),cy+pR/phi*Math.sin(a+ang)];
+      const p3:[number,number]=[cx+pR*Math.cos(a+ang),cy+pR*Math.sin(a+ang)];
+      fpoly(ctx,[p0,p1,p2],f,g,A-i*0.04,5); // kite
+      fpoly(ctx,[p2,p1,p3],'rgba(255,255,255,0.22)',g,A-0.28-i*0.03,2); // dart highlight
     }
-    ctx.save(); ctx.globalAlpha=A-0.06; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=7;
-    ctx.beginPath();
-    const is=[0.52,0.46,0.58][v];
-    for (let i=0;i<=80;i++) { const t=(i/80)*Math.PI*2+Math.PI/5; const r=oR*is*(1+0.32*Math.cos(4*t+0.8)); if (i===0) ctx.moveTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); else ctx.lineTo(cx+r*Math.cos(t),cy+r*Math.sin(t)); }
-    ctx.closePath(); ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.75; ctx.stroke(); ctx.restore();
-    const nOrb=[4,5,3][v];
-    for (let i=0;i<nOrb;i++) {
-      const oa=(i/nOrb)*Math.PI*2+nh(n,10+i)*0.70, od=oR*(0.72+nh(n,20+i)*0.38);
-      fcirc(ctx,cx+Math.cos(oa)*od,cy+Math.sin(oa)*od,R*(0.10+nh(n,30+i)*0.07),f,g,A-0.18);
-      ctx.save(); ctx.globalAlpha=A-0.44; ctx.setLineDash([R*0.06,R*0.10]); ctx.strokeStyle=f; ctx.lineWidth=R*0.028;
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(oa)*od,cy+Math.sin(oa)*od); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
-    }
-    const nPts5:P2[]=[], nPts8:P2[]=[];
-    for (let i=0;i<5;i++) { const a=(i/5)*Math.PI*2-Math.PI/2; nPts5.push([cx+R*0.22*Math.cos(a),cy+R*0.22*Math.sin(a)]); }
-    for (let i=0;i<8;i++) { const a=(i/8)*Math.PI*2; nPts8.push([cx+R*0.13*Math.cos(a),cy+R*0.13*Math.sin(a)]); }
-    fpoly(ctx,nPts5,f,g,A+0.02,6); fpoly(ctx,nPts8,'rgba(255,255,255,0.36)',g,A-0.24,3);
-    const rfL=R*(0.65+nh(n,7)*0.46);
-    fpoly(ctx,[[cx-oR,cy-R*0.10],[cx-oR-rfL,cy],[cx-oR,cy+R*0.10]],f,g,A+0.02,8);
-    fpoly(ctx,[[cx-oR-R*0.10,cy-R*0.06],[cx-oR-rfL-R*0.14,cy],[cx-oR-R*0.10,cy+R*0.06]],'rgba(255,255,255,0.40)',g,A-0.22,4);
+    fcirc(ctx,cx,cy,pR*0.18,f,g,A+0.04);
+    // Weapon from leftmost vertex
+    const leftV=[cx-pR,cy];
+    fpoly(ctx,[[leftV[0],leftV[1]-R*0.09],[leftV[0]-R*0.72,leftV[1]],[leftV[0],leftV[1]+R*0.09]],f,g,A+0.02,7);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Face highlights already handled inside poly(); add corner dots
+    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(255,255,255,0.70)'; ctx.lineWidth=0.55;
+    for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2-Math.PI/6; ctx.beginPath(); ctx.arc(cx+R*[1.08,1.18,0.95][v]*Math.cos(a),cy+R*[1.08,1.18,0.95][v]*Math.sin(a),R*0.048,0,Math.PI*2); ctx.stroke(); }
+    ctx.restore();
+  }
+  if (dl>=2) { // Internal lattice structure lines
+    ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.58)'; ctx.lineWidth=0.55;
+    for (let i=0;i<3;i++) { const a1=Math.PI*0.65+i*0.90, a2=a1+Math.PI; ctx.beginPath(); ctx.moveTo(cx+R*0.32*Math.cos(a1),cy+R*0.32*Math.sin(a1)); ctx.lineTo(cx+R*0.32*Math.cos(a2),cy+R*0.32*Math.sin(a2)); ctx.stroke(); }
+    ctx.restore();
+  }
+  if (dl>=3) { // Crystal growth on vertices
+    for (let i=0;i<3;i++) { const a=Math.PI*(0.90+i*0.55); cshard(ctx,cx+R*[1.08,1.18,0.95][v]*Math.cos(a),cy+R*[1.08,1.18,0.95][v]*Math.sin(a),a,R*0.28,R*0.038,f,g,A-0.16); }
   }
 }
 
-// §8  Class mark overlay
+// ── T9  SWARM ────────────────────────────────────────────
+// Silhouette: 20-60 INDIVIDUAL UNITS — no solid central body
+// Role: swarm · Mass: distributed · Weapon: leading edge concentration
+function drawT9(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const swW=R*[1.62,1.80,1.42][v], swH=R*[0.88,1.02,0.75][v];
+  const nUnit=[32,28,38][v];
+  // Unit type based on DL: all same at DL0, differentiated at DL1+
+  const unitR=(i:number,t:number)=>{
+    const base=R*(0.045+t*0.040+nh(n,200+i)*0.028);
+    return dl>=1?(i%5===0?base*1.90:i%3===0?base*1.40:base):base;
+  };
+  if (bp===0) { // Cloud — loose oval distribution
+    const positions:[[number,number],number][]=[];
+    for (let i=0;i<nUnit;i++) {
+      const a=(i/nUnit)*Math.PI*2+nh(n,100+i)*0.95;
+      const r=Math.sqrt(nh(n,200+i));
+      const px=cx+Math.cos(a)*swW*r, py=cy+Math.sin(a)*swH*r;
+      const t=1-(px-cx+swW)/(swW*2);
+      positions.push([[px,py],t]);
+    }
+    // Draw connections at DL1+
+    if (dl>=1) {
+      ctx.save(); ctx.globalAlpha=A-0.44; ctx.strokeStyle=f; ctx.lineWidth=R*0.018;
+      for (let i=0;i<nUnit;i++) { const ni=(i+1)%nUnit; const dx=positions[ni][0][0]-positions[i][0][0],dy=positions[ni][0][1]-positions[i][0][1]; if (dx*dx+dy*dy<(R*0.85)*(R*0.85)) { ctx.beginPath(); ctx.moveTo(positions[i][0][0],positions[i][0][1]); ctx.lineTo(positions[ni][0][0],positions[ni][0][1]); ctx.stroke(); } }
+      ctx.restore();
+    }
+    for (let i=0;i<positions.length;i++) { const [[px,py],t]=positions[i]; fcirc(ctx,px,py,unitR(i,t),f,g,A-0.06-nh(n,300+i)*0.24); }
+    // Leading edge weapon emphasis
+    const leadX=cx-swW*0.78;
+    for (let i=0;i<4+v;i++) { const lx=leadX+nh(n,500+i)*R*0.28-R*0.14, ly=cy+(nh(n,600+i)-0.5)*R*0.30; fcirc(ctx,lx,ly,R*(0.082+nh(n,700+i)*0.042),f,g,A-0.02); }
+  } else if (bp===1) { // Column — narrow forward-moving column
+    const nRow=Math.ceil(nUnit/3), colW=swH*0.42;
+    for (let i=0;i<nUnit;i++) {
+      const row=Math.floor(i/3), col=i%3;
+      const px=cx+swW*0.72-row*(swW*1.44/nRow);
+      const py=cy+(col-1)*colW*0.82+(nh(n,100+i)-0.5)*colW*0.28;
+      const t=1-(px-cx+swW)/(swW*2);
+      fcirc(ctx,px,py,unitR(i,t),f,g,A-0.06-nh(n,200+i)*0.20);
+    }
+  } else if (bp===2) { // Ring formation — units in a circle, weapon fires through gap
+    const ringR=swW*0.78;
+    const gapA=Math.PI; // gap on left (weapon fires through)
+    for (let i=0;i<nUnit;i++) {
+      const a=(i/nUnit)*Math.PI*2*0.88+Math.PI*0.05; // 88% of circle, gap at ~PI
+      const px=cx+Math.cos(a)*ringR+(nh(n,100+i)-0.5)*R*0.10;
+      const py=cy+Math.sin(a)*ringR*(swH/swW)+(nh(n,200+i)-0.5)*R*0.10;
+      fcirc(ctx,px,py,unitR(i,0.5),f,g,A-0.06-nh(n,300+i)*0.16);
+    }
+    // Weapon fires through the gap
+    stinger(ctx,cx-ringR,cy,R*0.42,R*0.065,f,g,A);
+  } else if (bp===3) { // HYBRID: Crystal-swarm — triangular crystal shard units
+    for (let i=0;i<nUnit;i++) {
+      const a=(i/nUnit)*Math.PI*2+nh(n,100+i)*0.92;
+      const r=Math.sqrt(nh(n,200+i))*swW;
+      const px=cx+Math.cos(a)*r, py=cy+Math.sin(a)*(swH/swW)*r;
+      const sa=nh(n,300+i)*Math.PI*2;
+      cshard(ctx,px,py,sa,R*(0.075+nh(n,400+i)*0.055),R*(0.028+nh(n,500+i)*0.018),f,g,A-0.10-nh(n,600+i)*0.22);
+    }
+    stinger(ctx,cx-swW*0.75,cy,R*0.42,R*0.060,f,g,A);
+  } else { // BP4 INNOVATION: Fractal swarm — hierarchical 3-tier grouping
+    const leaders=3, followers=4, micro=3;
+    for (let l=0;l<leaders;l++) {
+      const la=(l/leaders)*Math.PI*2+Math.PI*0.88; const lr=swW*0.72;
+      const lx=cx+Math.cos(la)*lr, ly=cy+Math.sin(la)*swH/swW*lr;
+      fcirc(ctx,lx,ly,R*0.12,f,g,A-0.04); // leader (large)
+      for (let m=0;m<followers;m++) {
+        const ma=la+(m/followers)*Math.PI*2*0.38-Math.PI*0.19; const mr=R*0.42;
+        const mx=lx+Math.cos(ma)*mr, my=ly+Math.sin(ma)*mr;
+        fcirc(ctx,mx,my,R*0.068,f,g,A-0.12); // mid
+        for (let s=0;s<micro;s++) {
+          const sa=ma+(s/micro)*Math.PI*2*0.28; const sr=R*0.20;
+          fcirc(ctx,mx+Math.cos(sa)*sr,my+Math.sin(sa)*sr,R*0.038,f,g,A-0.22); // small
+        }
+      }
+    }
+    const leadPt=[cx+Math.cos(Math.PI*0.88)*swW*0.72,cy+Math.sin(Math.PI*0.88)*swH/swW*swW*0.72];
+    stinger(ctx,leadPt[0],leadPt[1],R*0.42,R*0.055,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=2) { // Pheromone trail dots from front leader to next row
+    ctx.save(); ctx.globalAlpha=A-0.40; ctx.setLineDash([R*0.05,R*0.09]);
+    ctx.strokeStyle=f; ctx.lineWidth=R*0.020;
+    ctx.beginPath(); ctx.moveTo(cx-swW*0.78,cy); ctx.lineTo(cx-swW*0.35,cy); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  }
+  if (dl>=3) { // Compound eye dots on scout units (largest units)
+    for (let i=0;i<3;i++) {
+      const a=Math.PI*0.92+i*Math.PI*0.22; const r=swW*0.45;
+      const ux=cx+Math.cos(a)*r, uy=cy+Math.sin(a)*swH/swW*r;
+      fcirc(ctx,ux+R*0.04,uy-R*0.04,R*0.022,'rgba(255,255,255,0.75)',g,A-0.28);
+    }
+  }
+}
+
+// ── T10  STRIDER ─────────────────────────────────────────
+// Silhouette: ARTICULATED WALKER — visible joints, limb-torso-limb form
+// Role: walker · Mass: center · Weapon: shoulder or arm-mounted
+function drawT10(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const tH=R*[0.52,0.58,0.44][v]; // torso half-height
+  const tW=R*[0.38,0.44,0.32][v]; // torso half-width
+  if (bp===0) { // Quadruped — 4 articulated legs, armored torso, shoulder gun
+    // Torso
+    fpoly(ctx,[[cx-tW,cy-tH],[cx+tW,cy-tH],[cx+tW*1.35,cy-tH*0.48],[cx+tW*1.35,cy+tH*0.48],[cx+tW,cy+tH],[cx-tW,cy+tH]],f,g,A,7);
+    // 4 legs (hip→knee→foot)
+    for (const [s,sx,dir] of [[-1,-1,1],[-1,1,-1],[1,-1,1],[1,1,-1]] as [number,number,number][]) {
+      const hipX=cx+s*tW*0.68, hipY=cy+s*tH*0.88;
+      const kneeX=hipX+dir*R*0.55, kneeY=hipY+R*0.68;
+      const footX=kneeX+dir*R*0.22, footY=kneeY+R*0.58;
+      mechleg(ctx,hipX,hipY,kneeX,kneeY,footX,footY,R*0.048,f,g,A);
+    }
+    // Shoulder gun
+    turret(ctx,cx-tW*0.25,cy-tH,R,f,g,A);
+    // Head sensor cluster
+    fell(ctx,cx-tW*0.88,cy-tH*0.30,tW*0.58,tH*0.42,f,g,A-0.06,5);
+    fcirc(ctx,cx-tW*0.88-tW*0.32,cy-tH*0.30,tH*0.20,'rgba(255,255,255,0.78)',g,A-0.02);
+  } else if (bp===1) { // Biped — 2 long legs, upper body with arm-mounted gun
+    // Torso + head
+    frect(ctx,cx-tW,cy-tH*1.28,tW*2,tH*1.28,f,g,A,7);
+    fell(ctx,cx-tW*0.28,cy-tH*1.52,tH*0.72,tH*0.62,f,g,A-0.04,5);
+    fcirc(ctx,cx-tW*0.50,cy-tH*1.60,tH*0.22,'rgba(255,255,255,0.80)',g,A-0.02); // eye
+    // Gun arm (left)
+    frect(ctx,cx-tW-R*0.55,cy-tH*0.90,R*0.55,tH*0.28,f,g,A-0.04);
+    gun(ctx,cx-tW-R*0.55,cy-tH*0.76,R*0.80,R*0.065,f,g,A);
+    // 2 legs
+    for (const s of [-1,1] as const) {
+      const hipX=cx+s*tW*0.60, hipY=cy;
+      const kneeX=hipX+s*R*0.28, kneeY=hipY+R*0.82;
+      const footX=hipX+s*R*0.08, footY=kneeY+R*0.72;
+      mechleg(ctx,hipX,hipY,kneeX,kneeY,footX,footY,R*0.058,f,g,A);
+    }
+  } else if (bp===2) { // Spider-tank — 8 mechanical legs in X pattern, top weapon pod
+    // Central weapon pod
+    fell(ctx,cx,cy-tH*0.28,tW*1.35,tH*0.88,f,g,A,7);
+    turret(ctx,cx-tW*0.22,cy-tH,R,f,g,A);
+    // 8 legs (4 each side, fanning out)
+    const legAngles=[Math.PI*0.38,Math.PI*0.58,Math.PI*0.80,Math.PI*1.02];
+    for (const [a,sign] of [[legAngles,1],[legAngles.map(x=>Math.PI*2-x),-1]] as [number[],number][]) {
+      for (const la of a) {
+        const hipX=cx+Math.cos(la)*tW*1.10, hipY=cy+sign*Math.sin(la)*tH*0.62;
+        const kneeX=hipX+Math.cos(la)*R*0.72, kneeY=hipY+sign*R*0.50;
+        const footX=kneeX+Math.cos(la)*R*0.58, footY=kneeY+sign*R*0.68;
+        mechleg(ctx,hipX,hipY,kneeX,kneeY,footX,footY,R*0.038,f,g,A);
+      }
+    }
+  } else if (bp===3) { // HYBRID: Flesh-walker — mech skeleton + organic muscle tissue
+    // Mechanical skeleton legs (visible structure)
+    for (const s of [-1,1] as const) {
+      const hipX=cx+s*tW*0.62, hipY=cy+tH*0.90;
+      const kneeX=hipX+s*R*0.45, kneeY=hipY+R*0.72;
+      const footX=kneeX+s*R*0.18, footY=kneeY+R*0.62;
+      mechleg(ctx,hipX,hipY,kneeX,kneeY,footX,footY,R*0.048,f,g,A);
+    }
+    // Organic muscle mass over torso
+    oblob(ctx,cx,cy,tW*1.30,tH*1.18,f,g,A,n,10);
+    turret(ctx,cx-tW*0.25,cy-tH,R,f,g,A);
+    fell(ctx,cx-tW*0.88,cy-tH*0.30,tW*0.60,tH*0.40,f,g,A-0.06,5);
+  } else { // BP4 INNOVATION: Gyro-walker — monostrut leg + gyroscopic ring
+    // Single central leg (monostrut)
+    frect(ctx,cx-R*0.065,cy+tH*0.88,R*0.13,R*1.10,f,g,A,7);
+    fcirc(ctx,cx,cy+tH*0.88+R*1.10,R*0.22,f,g,A-0.10); // foot pad
+    // Gyroscopic ring (body)
+    sarc(ctx,cx,cy,tH*1.55,0,Math.PI*2,f,A-0.08,R*0.16,7);
+    sarc(ctx,cx,cy,tH*1.55*0.68,0,Math.PI*2,f,A-0.14,R*0.090,4);
+    // Inner body sphere
+    fcirc(ctx,cx,cy,tH*0.55,f,g,A-0.04,7);
+    gun(ctx,cx-tH*1.55,cy,R*0.88,R*0.065,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Hip/shoulder socket details (extra circles at joints)
+    for (const s of [-1,1] as const) fcirc(ctx,cx+s*tW*0.62,cy+tH*0.88,R*0.082,f,g,A-0.18);
+  }
+  if (dl>=2) { // Hydraulic piston visible on each leg
+    ctx.save(); ctx.globalAlpha=A-0.24; ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=0.62;
+    for (const s of [-1,1] as const) {
+      const x0=cx+s*tW*0.68, y0=cy+tH*0.92, x1=cx+s*(tW*0.68+R*0.42), y1=y0+R*0.62;
+      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    }
+    ctx.restore();
+    // Cockpit viewport on torso
+    sarc(ctx,cx+tW*0.58,cy-tH*0.52,R*0.12,0,Math.PI*2,'rgba(255,255,255,0.55)',A-0.28,0.62);
+  }
+  if (dl>=3) { // Exhaust pipes + cable routing
+    for (const s of [-1,1] as const) { frect(ctx,cx+s*tW*0.78,cy-tH*1.00,R*0.068,R*0.32,f,g,A-0.22); fcirc(ctx,cx+s*tW*0.78+R*0.034,cy-tH*1.00,R*0.048,f,g,A-0.30); }
+    bolts(ctx,cx-tW*0.88,cy-tH*0.96,cx+tW*1.28,f,g,A,R*0.22);
+  }
+}
+
+// ── T11  PLATFORM ────────────────────────────────────────
+// Silhouette: ultra-wide (≥4R) × ultra-flat (≤0.50R) — extreme aspect ratio
+// Role: platform · Mass: rear-center · Weapon: front-edge battery
+function drawT11(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const PW=R*[4.40,4.80,4.00][v]; // platform half-width
+  const PH=R*[0.28,0.32,0.24][v]; // platform half-height
+  if (bp===0) { // Carrier deck — flat slab, 3 sub-units on deck, front gun
+    // Main slab
+    fpoly(ctx,[[cx-PW,cy-PH],[cx+PW,cy-PH],[cx+PW*0.90,cy+PH],[cx-PW,cy+PH]],f,g,A,7);
+    // Island superstructure (offset to rear)
+    frect(ctx,cx+PW*0.32,cy-PH-R*0.55,R*0.72,R*0.55,f,g,A+0.04);
+    // Sub-unit silhouettes on deck (3)
+    for (const [ux,uW] of [[cx-PW*0.55,R*0.38],[cx-PW*0.10,R*0.28],[cx+PW*0.12,R*0.32]]) {
+      frect(ctx,ux-uW,cy-PH-R*0.24,uW*2,R*0.24,f,g,A-0.14);
+    }
+    // Front gun battery
+    gun(ctx,cx-PW,cy-PH*0.20,R*0.92,R*0.062,f,g,A);
+    gun(ctx,cx-PW,cy+PH*0.22,R*0.72,R*0.050,f,g,A);
+  } else if (bp===1) { // Gun barge — slab with full weapon battery across front
+    fpoly(ctx,[[cx-PW,cy-PH],[cx+PW,cy-PH],[cx+PW*0.90,cy+PH],[cx-PW,cy+PH]],f,g,A,7);
+    // 5-gun battery at front
+    for (let i=0;i<5;i++) {
+      const gy=cy-PH+(i-(4/2))*PH*0.44;
+      const gl=[R*1.10,R*0.88,R*1.00,R*0.88,R*1.10][i];
+      gun(ctx,cx-PW,gy,gl,R*[0.058,0.048,0.052,0.048,0.058][i],f,g,A);
+    }
+    frect(ctx,cx+PW*0.35,cy-PH-R*0.32,R*0.55,R*0.32,f,g,A+0.02);
+  } else if (bp===2) { // Hive-mother — slab with organic pod structures on top
+    fpoly(ctx,[[cx-PW,cy-PH],[cx+PW,cy-PH],[cx+PW*0.90,cy+PH],[cx-PW,cy+PH]],f,g,A-0.04,7);
+    // Organic pods on deck surface
+    for (let i=0;i<4+v;i++) {
+      const px=cx-PW*0.75+i*PW*0.40, pW=R*(0.28+nh(n,10+i)*0.14), pH=R*(0.32+nh(n,20+i)*0.18);
+      ctx.save(); ctx.globalAlpha=A-0.06; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+      ctx.beginPath(); ctx.moveTo(px-pW,cy-PH); ctx.bezierCurveTo(px-pW,cy-PH-pH*1.5,px+pW,cy-PH-pH*1.5,px+pW,cy-PH); ctx.closePath(); ctx.fill(); ctx.restore();
+    }
+    stinger(ctx,cx-PW,cy,R*0.50,PH*0.80,f,g,A);
+  } else if (bp===3) { // HYBRID: Mech-platform + Bio-bays — slab with organic launch bays
+    fpoly(ctx,[[cx-PW,cy-PH],[cx+PW,cy-PH],[cx+PW*0.90,cy+PH],[cx-PW,cy+PH]],f,g,A-0.04,7);
+    // Mechanical front structure
+    frect(ctx,cx-PW,cy-PH-R*0.18,PW*0.45,R*0.18,f,g,A+0.02);
+    // Organic bio-bays (bulging launch tubes) on rear portion
+    for (let i=0;i<3;i++) {
+      const bx=cx+PW*0.12+i*PW*0.36;
+      ctx.save(); ctx.globalAlpha=A-0.10; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=4;
+      ctx.beginPath(); ctx.ellipse(bx,cy-PH,R*0.22,R*0.40,0,Math.PI,0); ctx.fill(); ctx.restore();
+      rtend(ctx,bx,cy+PH,Math.PI*0.5,R*0.28,R*0.055,f,g,A-0.26,n,10+i*4);
+    }
+    gun(ctx,cx-PW,cy-PH*0.20,R*0.88,R*0.058,f,g,A);
+  } else { // BP4 INNOVATION: Inverted platform — upside down, anti-grav field below
+    // Same wide slab but upside-down orientation suggestion (weapons hang from bottom)
+    fpoly(ctx,[[cx-PW,cy+PH],[cx+PW,cy+PH],[cx+PW*0.90,cy-PH],[cx-PW,cy-PH]],f,g,A,7);
+    // Anti-grav rings visible below
+    for (let i=0;i<4;i++) { const gx=cx-PW*0.72+i*PW*0.48; sarc(ctx,gx,cy+PH+R*0.22,R*0.22,0,Math.PI*2,f,A-0.22,R*0.065,8); }
+    // Downward-facing weapons (from bottom surface)
+    for (const gy of [cy+PH*0.18,cy+PH*0.50]) {
+      gun(ctx,cx-PW,gy,R*0.80,R*0.048,f,g,A);
+    }
+    // Superstructure now on bottom
+    frect(ctx,cx+PW*0.32,cy+PH,R*0.72,R*0.42,f,g,A+0.02);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Deck marking lines
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.58)'; ctx.lineWidth=0.55;
+    for (let i=1;i<=7;i++) { const dx=cx-PW+i*PW*2/8; ctx.beginPath(); ctx.moveTo(dx,cy-PH); ctx.lineTo(dx,cy+PH); ctx.stroke(); }
+    ctx.restore();
+  }
+  if (dl>=2) { // Radar arch on island + antenna
+    sline(ctx,cx+PW*0.68,cy-PH-R*0.55,cx+PW*0.68,cy-PH-R*0.82,f,A-0.22,R*0.035);
+    sarc(ctx,cx+PW*0.78,cy-PH-R*0.72,R*0.15,Math.PI*0.60,Math.PI*2.40,'rgba(255,255,255,0.55)',A-0.28,0.58);
+  }
+  if (dl>=3) { // Secondary gun positions + towed sub visible at rear
+    turret(ctx,cx+PW*0.62,cy-PH,R*0.75,f,g,A-0.10);
+    frect(ctx,cx+PW*1.08,cy-PH*0.65,R*0.48,PH*1.30,f,g,A-0.30); // towed sub
+  }
+}
+
+// ── T12  PARASITE ────────────────────────────────────────
+// Silhouette: ASYMMETRIC amorphous blob + 3-5 barbed appendages, no bilateral symmetry
+// Role: parasite · Mass: front · Weapon: penetrating spike at left
+function drawT12(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  if (bp===0) { // Tick — swollen round body, 6 leg stubs, suction disc, asymmetric
+    const bR=R*[0.82,0.92,0.72][v];
+    // Swollen asymmetric body (not centered)
+    oblob(ctx,cx+R*0.28,cy+R*0.12,bR,bR*0.88,f,g,A,n,10);
+    // Suction disc at front (offset above midline — asymmetric)
+    sarc(ctx,cx-bR*0.55,cy-bR*0.22,R*0.28,0,Math.PI*2,f,A-0.08,R*0.10,5);
+    sarc(ctx,cx-bR*0.55,cy-bR*0.22,R*0.14,0,Math.PI*2,'rgba(255,255,255,0.60)',A-0.18,0.72);
+    // 6 leg stubs (asymmetrically placed)
+    const stubAngles=[Math.PI*0.30,Math.PI*0.58,Math.PI*0.82,Math.PI*1.18,Math.PI*1.42,Math.PI*1.70];
+    for (const a of stubAngles) {
+      const lLen=R*(0.30+nh(n,Math.floor(a*10))*0.18);
+      sline(ctx,cx+R*0.28+Math.cos(a)*bR*0.82,cy+R*0.12+Math.sin(a)*bR*0.80,cx+R*0.28+Math.cos(a)*(bR*0.82+lLen),cy+R*0.12+Math.sin(a)*(bR*0.80+lLen),f,A-0.18,R*0.072);
+      fcirc(ctx,cx+R*0.28+Math.cos(a)*(bR*0.82+lLen),cy+R*0.12+Math.sin(a)*(bR*0.80+lLen),R*0.045,f,g,A-0.26); // claw tip
+    }
+    stinger(ctx,cx-bR*0.55,cy-bR*0.22,R*0.45,R*0.062,f,g,A); // penetrating spike = weapon
+  } else if (bp===1) { // Hook parasite — crescent shape with barbs at ends
+    const cR=R*[1.05,1.18,0.92][v];
+    // Crescent (partial arc filled)
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.arc(cx+R*0.35,cy,cR,Math.PI*0.55,Math.PI*1.45);
+    ctx.arc(cx+R*0.35,cy,cR*0.60,Math.PI*1.45,Math.PI*0.55,true); ctx.closePath();
+    ctx.fill(); ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.85; ctx.stroke(); ctx.restore();
+    // Barbed hooks at both crescent tips
+    const tip1=[cx+R*0.35+Math.cos(Math.PI*0.55)*cR, cy+Math.sin(Math.PI*0.55)*cR];
+    const tip2=[cx+R*0.35+Math.cos(Math.PI*1.45)*cR, cy+Math.sin(Math.PI*1.45)*cR];
+    for (const [tx,ty] of [tip1,tip2]) {
+      for (const ba of [0.38,-0.38]) {
+        const ba2=Math.atan2(ty-cy-0,tx-cx-R*0.35)+Math.PI+ba;
+        cshard(ctx,tx,ty,ba2,R*0.32,R*0.040,f,g,A-0.10);
+      }
+    }
+    stinger(ctx,tip1[0],tip1[1],R*0.38,R*0.055,f,g,A);
+  } else if (bp===2) { // Lamprey — circular sucker mouth, eel body trailing
+    const suckerR=R*[0.52,0.60,0.44][v];
+    // Circular sucker mouth (series of rings)
+    for (let i=0;i<3;i++) { sarc(ctx,cx-R*0.38,cy,suckerR*(1-i*0.22),0,Math.PI*2,f,A-i*0.08,R*(0.14-i*0.030),7-i*2); }
+    // Tooth ring (inner)
+    ctx.save(); ctx.globalAlpha=A-0.18; ctx.strokeStyle='rgba(255,255,255,0.70)'; ctx.lineWidth=0.55;
+    for (let i=0;i<10;i++) { const ta=(i/10)*Math.PI*2; ctx.beginPath(); ctx.moveTo(cx-R*0.38+Math.cos(ta)*suckerR*0.65,cy+Math.sin(ta)*suckerR*0.65); ctx.lineTo(cx-R*0.38+Math.cos(ta)*suckerR*0.38,cy+Math.sin(ta)*suckerR*0.38); ctx.stroke(); }
+    ctx.restore();
+    // Eel body trailing to right (tapering bezier)
+    ctx.save(); ctx.globalAlpha=A-0.04; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=6;
+    ctx.beginPath(); ctx.moveTo(cx-R*0.38,cy-suckerR*0.72); ctx.bezierCurveTo(cx+R*1.20,cy-suckerR*0.60,cx+R*2.10,cy-suckerR*0.25,cx+R*2.60,cy); ctx.bezierCurveTo(cx+R*2.10,cy+suckerR*0.25,cx+R*1.20,cy+suckerR*0.60,cx-R*0.38,cy+suckerR*0.72); ctx.closePath(); ctx.fill(); ctx.restore();
+    stinger(ctx,cx-R*0.38-suckerR,cy,R*0.40,R*0.055,f,g,A); // spike from sucker
+  } else if (bp===3) { // HYBRID: Crystal-parasite — organic mass + crystal penetrators
+    // Organic absorption mass
+    oblob(ctx,cx+R*0.25,cy,R*0.72,R*0.62,f,g,A-0.04,n,10);
+    // Crystal penetrating spines in non-uniform directions
+    const spineAngles=[Math.PI,Math.PI*1.28,Math.PI*0.75,Math.PI*1.52,Math.PI*0.88];
+    for (let i=0;i<3+nhi(n,5,2);i++) {
+      const sa=spineAngles[i]+(nh(n,30+i)-0.5)*0.40;
+      cshard(ctx,cx+R*0.25+Math.cos(sa)*R*0.62,cy+Math.sin(sa)*R*0.52,sa,R*(0.42+nh(n,40+i)*0.30),R*0.055,f,g,A-0.06);
+    }
+    stinger(ctx,cx-R*0.47,cy,R*0.46,R*0.065,f,g,A);
+  } else { // BP4 INNOVATION: Nano-cloud — cluster of microscopic hooks, no body
+    const nHook=10+v*3;
+    for (let i=0;i<nHook;i++) {
+      const hx=cx-R*(0.20+nh(n,10+i)*0.88), hy=cy+(nh(n,20+i)-0.50)*R*0.80;
+      const ha=nh(n,30+i)*Math.PI*2;
+      cshard(ctx,hx,hy,ha,R*(0.10+nh(n,40+i)*0.12),R*0.025,f,g,A-0.12-nh(n,50+i)*0.25);
+    }
+    ebeam(ctx,cx-R*1.08,cy,cx-R*1.48,cy,f,g,A,R*0.045);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Sucker/barb detail
+    sarc(ctx,cx-R*0.55,cy-R*0.22,R*0.34,0,Math.PI*2,'rgba(255,255,255,0.52)',A-0.30,0.55);
+  }
+  if (dl>=2) { // Feeding tube extending from mass
+    ctx.save(); ctx.globalAlpha=A-0.20; ctx.strokeStyle=f; ctx.lineWidth=R*0.065; ctx.shadowColor=g; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.bezierCurveTo(cx+R*0.35,cy-R*0.28,cx+R*0.62,cy-R*0.22,cx+R*0.72,cy-R*0.45); ctx.stroke(); ctx.restore();
+    fcirc(ctx,cx+R*0.72,cy-R*0.45,R*0.068,f,g,A-0.22);
+  }
+  if (dl>=3) { // Egg sac cluster
+    for (let i=0;i<4;i++) { fcirc(ctx,cx+R*0.55+nh(n,60+i)*R*0.40,cy+R*0.42+nh(n,70+i)*R*0.22,R*(0.048+nh(n,80+i)*0.032),'rgba(255,255,255,0.35)',g,A-0.38); }
+  }
+}
+
+// ── T13  RING ────────────────────────────────────────────
+// Silhouette: CLEAR TOROIDAL FORM — center is visibly empty
+// Role: orbital · Mass: distributed on ring · Weapon: leftmost node
+function drawT13(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const ringR=R*[1.12,1.28,0.96][v]; // ring radius
+  const ringW=R*[0.16,0.18,0.14][v]; // ring tube width
+  if (bp===0) { // Simple ring — 4 structural nodes, weapon at leftmost
+    sarc(ctx,cx,cy,ringR,0,Math.PI*2,f,A-0.04,ringW*2,8); // ring tube (stroke)
+    // 4 nodes (N/S/E/W)
+    for (const [na] of [[0],[Math.PI*0.5],[Math.PI],[Math.PI*1.5]] as [number][]) {
+      fcirc(ctx,cx+Math.cos(na)*ringR,cy+Math.sin(na)*ringR,ringW*1.80,f,g,A-0.06);
+    }
+    // Left node weapon
+    gun(ctx,cx-ringR,cy,R*0.88,R*0.060,f,g,A);
+  } else if (bp===1) { // Double ring — two concentric rings with radial struts
+    const r1=ringR, r2=ringR*0.58;
+    sarc(ctx,cx,cy,r1,0,Math.PI*2,f,A-0.04,ringW*2,8);
+    sarc(ctx,cx,cy,r2,0,Math.PI*2,f,A-0.08,ringW*1.40,5);
+    // Radial struts (6)
+    for (let i=0;i<6;i++) { const sa=(i/6)*Math.PI*2; sline(ctx,cx+Math.cos(sa)*r2,cy+Math.sin(sa)*r2,cx+Math.cos(sa)*r1,cy+Math.sin(sa)*r1,f,A-0.18,ringW*1.40); }
+    gun(ctx,cx-r1,cy,R*0.88,R*0.060,f,g,A);
+  } else if (bp===2) { // Segmented ring — 6 visible segments with junction boxes
+    const nSeg=5+v;
+    for (let i=0;i<nSeg;i++) {
+      const a0=(i/nSeg)*Math.PI*2-Math.PI*0.08, a1=((i+0.82)/nSeg)*Math.PI*2-Math.PI*0.08;
+      sarc(ctx,cx,cy,ringR,a0,a1,f,A-0.04,ringW*2.20,7);
+      // Junction box at segment end
+      const jx=cx+Math.cos(a1)*ringR, jy=cy+Math.sin(a1)*ringR;
+      fcirc(ctx,jx,jy,ringW*2.40,f,g,A-0.06);
+    }
+    // Find leftmost node for weapon
+    const leftA=Math.PI*(1-1/nSeg*0.5);
+    gun(ctx,cx+Math.cos(leftA)*ringR,cy+Math.sin(leftA)*ringR,R*0.88,R*0.060,f,g,A);
+  } else if (bp===3) { // HYBRID: Bio-ring — ring structure threaded with organic tissue
+    sarc(ctx,cx,cy,ringR,0,Math.PI*2,f,A-0.08,ringW*2,7);
+    // Organic tissue threading between ring sections
+    for (let i=0;i<8;i++) {
+      const a1=(i/8)*Math.PI*2, a2=((i+3)/8)*Math.PI*2;
+      ctx.save(); ctx.globalAlpha=A-0.22; ctx.strokeStyle=f; ctx.lineWidth=ringW*0.80; ctx.shadowColor=g; ctx.shadowBlur=4;
+      ctx.beginPath(); ctx.arc(cx,cy,ringR*(0.78+nh(n,10+i)*0.18),a1,a2); ctx.stroke(); ctx.restore();
+    }
+    // 4 organic nodules on ring
+    for (let i=0;i<4;i++) { const na=(i/4)*Math.PI*2+Math.PI*0.12; oblob(ctx,cx+Math.cos(na)*ringR,cy+Math.sin(na)*ringR,ringW*2.40,ringW*1.80,f,g,A-0.10,n,20+i*5); }
+    stinger(ctx,cx-ringR,cy,R*0.42,R*0.060,f,g,A);
+  } else { // BP4 INNOVATION: Partial arc — 270° arc with 90° gap, fires through gap
+    const gapStart=Math.PI*0.75, gapEnd=Math.PI*1.25; // gap on upper-left
+    sarc(ctx,cx,cy,ringR,gapEnd,gapStart+Math.PI*2,f,A-0.04,ringW*2.20,8); // 270° arc
+    // End caps at gap
+    for (const ea of [gapStart+Math.PI*2, gapEnd]) {
+      fcirc(ctx,cx+Math.cos(ea)*ringR,cy+Math.sin(ea)*ringR,ringW*2.20,f,g,A-0.06);
+    }
+    // Weapon fires through gap
+    const gapMid=(gapStart+Math.PI*2+gapEnd)/2;
+    ebeam(ctx,cx+Math.cos(gapMid)*ringR*0.45,cy+Math.sin(gapMid)*ringR*0.45,cx+Math.cos(gapMid)*ringR*1.55,cy+Math.sin(gapMid)*ringR*1.55,f,g,A,R*0.055);
+    stinger(ctx,cx-ringR,cy,R*0.42,R*0.060,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Module housing at each node
+    for (let i=0;i<4;i++) { const na=(i/4)*Math.PI*2+Math.PI*0.12; frect(ctx,cx+Math.cos(na)*ringR-ringW*1.50,cy+Math.sin(na)*ringR-ringW,ringW*3.0,ringW*2,f,g,A-0.18); }
+  }
+  if (dl>=2) { // Power conduit lines along ring
+    ctx.save(); ctx.globalAlpha=A-0.26; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.52;
+    ctx.beginPath(); ctx.arc(cx,cy,ringR-ringW*0.75,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  if (dl>=3) { // Radiator fin panels
+    for (let i=0;i<6;i++) { const na=(i/6)*Math.PI*2+0.26; const rx=cx+Math.cos(na)*ringR, ry=cy+Math.sin(na)*ringR; sline(ctx,rx,ry,rx+Math.cos(na)*ringW*1.80,ry+Math.sin(na)*ringW*1.80,f,A-0.28,ringW*0.72); }
+  }
+}
+
+// ── T14  CHIMERA ─────────────────────────────────────────
+// Silhouette: TWO DIFFERENT HALVES joined at seam — substrate contrast is the form
+// Role: chimera · Mass: center · Weapon: from front (left) half
+function drawT14(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const seam=cx; // visible seam at center
+  // Seam line helper
+  const seamLine=(seH:number)=>{
+    sline(ctx,seam,cy-seH,seam,cy+seH,'rgba(255,255,255,0.62)',A-0.12,R*0.030);
+    for (let i=0;i<4;i++) { sline(ctx,seam-R*0.06,cy-seH+i*seH*0.50,seam+R*0.06,cy-seH+i*seH*0.50,'rgba(255,255,255,0.40)',A-0.22,R*0.022); }
+  };
+  if (bp===0) { // Crab-front + Tank-rear
+    // Front (left): crustacean claw + head
+    const cR=R*0.52;
+    fell(ctx,seam-R*0.55,cy,cR,cR*0.80,f,g,A-0.04,6);
+    // Claw
+    for (const s of [-1,1] as const) {
+      fpoly(ctx,[[seam-R*0.55-cR*0.75,cy+s*cR*0.28],[seam-R*0.55-cR*1.48,cy+s*cR*0.62],[seam-R*0.55-cR*1.48,cy+s*cR*0.10],[seam-R*0.55-cR*0.85,cy+s*cR*0.04]],f,g,A-0.06,4);
+    }
+    stinger(ctx,seam-R*0.55-cR*1.48,cy,R*0.42,cR*0.20,f,g,A);
+    fcirc(ctx,seam-R*0.55-cR*0.35,cy-cR*0.35,R*0.10,'rgba(255,255,255,0.80)',g,A-0.02);
+    // Rear (right): tracked tank hull
+    fpoly(ctx,[[seam,cy-R*0.60],[seam+R*1.85,cy-R*0.60],[seam+R*2.05,cy-R*0.32],[seam+R*2.05,cy+R*0.32],[seam+R*1.85,cy+R*0.60],[seam,cy+R*0.60]],f,g,A-0.04,6);
+    frect(ctx,seam,cy+R*0.60,R*2.0,R*0.32,f,g,A-0.22,3); // track skirt
+    seamLine(R*0.60);
+  } else if (bp===1) { // Skull-front + Engine-rear
+    // Front (left): skull/vertebrate head
+    const sW=R*0.72, sH=R*0.48;
+    ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
+    ctx.beginPath(); ctx.moveTo(seam-sW*0.55,cy); ctx.bezierCurveTo(seam-sW*0.55,cy-sH,seam+sW*0.35,cy-sH,seam,cy-sH*0.30); ctx.lineTo(seam,cy+sH*0.30); ctx.bezierCurveTo(seam+sW*0.35,cy+sH,seam-sW*0.55,cy+sH,seam-sW*0.55,cy); ctx.closePath(); ctx.fill(); ctx.restore();
+    // Skull bone lines
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.60)'; ctx.lineWidth=0.55;
+    ctx.beginPath(); ctx.moveTo(seam-sW*0.35,cy-sH*0.90); ctx.lineTo(seam-sW*0.35,cy+sH*0.90); ctx.stroke();
+    ctx.restore();
+    fcirc(ctx,seam-sW*0.28,cy-sH*0.32,R*0.10,'rgba(255,255,255,0.70)',g,A-0.04); fcirc(ctx,seam-sW*0.28,cy-sH*0.32,R*0.048,'#0a0f1a',g,1.0); // eye socket
+    stinger(ctx,seam-sW*0.55,cy,R*0.50,sH*0.22,f,g,A);
+    // Rear (right): mechanical engine block
+    frect(ctx,seam,cy-R*0.72,R*1.85,R*1.44,f,g,A-0.04,6);
+    for (let i=1;i<=2;i++) { frect(ctx,seam+i*R*0.55,cy-R*0.72-R*0.28,R*0.30,R*0.28,f,g,A-0.18); } // exhaust stacks
+    seamLine(R*0.72);
+  } else if (bp===2) { // Wing-front + Crawler-rear
+    // Front (left): membrane wing
+    fpoly(ctx,[[seam,cy-R*0.20],[seam-R*1.65,cy-R*1.10],[seam-R*1.52,cy-R*1.20],[seam-R*0.28,cy-R*0.18]],f,g,A-0.06,6);
+    fpoly(ctx,[[seam,cy+R*0.20],[seam-R*1.65,cy+R*1.10],[seam-R*1.52,cy+R*1.20],[seam-R*0.28,cy+R*0.18]],f,g,A-0.06,6);
+    // Wing veins
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.55;
+    for (const s of [-1,1] as const) { for (let i=1;i<=3;i++) { const t=i/4; ctx.beginPath(); ctx.moveTo(seam-R*0.08,cy+s*R*0.16); ctx.lineTo(seam-R*1.55*t,cy+s*R*1.08*t); ctx.stroke(); } }
+    ctx.restore();
+    stinger(ctx,seam-R*1.65,cy,R*0.38,R*0.058,f,g,A);
+    // Rear (right): tracked crawler
+    frect(ctx,seam,cy-R*0.52,R*1.78,R*1.04,f,g,A-0.04,6);
+    frect(ctx,seam,cy+R*0.52,R*1.72,R*0.32,f,g,A-0.22,3);
+    bogies(ctx,seam,seam+R*1.72,cy+R*0.64,f,g,A,R);
+    seamLine(R*0.52);
+  } else if (bp===3) { // Triple chimera — 3 segments, each different substrate
+    const seg=R*1.38;
+    // Segment 1 (left): organic blob
+    oblob(ctx,seam-seg,cy,R*0.62,R*0.52,f,g,A,n,10);
+    stinger(ctx,seam-seg-R*0.62,cy,R*0.44,R*0.062,f,g,A);
+    // Segment 2 (center): crystal
+    for (let i=0;i<5;i++) { const sa=(i/5)*Math.PI*2+Math.PI*0.10; cshard(ctx,seam,cy,sa,R*0.55,R*0.068,f,g,A-0.06); }
+    fcirc(ctx,seam,cy,R*0.15,f,g,A+0.02);
+    // Segment 3 (right): mechanical box
+    frect(ctx,seam+seg-R*0.50,cy-R*0.45,R*1.00,R*0.90,f,g,A-0.04,6);
+    // Two seams
+    sline(ctx,seam-seg*0.5,cy-R*0.52,seam-seg*0.5,cy+R*0.52,'rgba(255,255,255,0.55)',A-0.14,0.88);
+    sline(ctx,seam+seg*0.5,cy-R*0.52,seam+seg*0.5,cy+R*0.52,'rgba(255,255,255,0.55)',A-0.14,0.88);
+  } else { // BP4 INNOVATION: Active-fusion — two substrates visibly MERGING
+    // Organic half (left) — becoming mechanical
+    oblob(ctx,seam-R*0.80,cy,R*0.88,R*0.72,f,g,A-0.04,n,10);
+    // Mechanical half (right) — becoming organic (curved plates)
+    fpoly(ctx,[[seam,cy-R*0.72],[seam+R*1.55,cy-R*0.58],[seam+R*1.80,cy],[seam+R*1.55,cy+R*0.58],[seam,cy+R*0.72]],f,g,A-0.04,7);
+    // Interpenetrating seam zone (energy glow)
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.fillStyle='rgba(255,255,255,0.22)'; ctx.shadowColor=g; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.ellipse(seam,cy,R*0.22,R*0.72,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    // Transition tendrils crossing the seam
+    for (let i=0;i<4;i++) etend(ctx,seam-R*(0.10+nh(n,10+i)*0.30),cy+(nh(n,20+i)-0.50)*R*0.55,seam+R*(0.10+nh(n,30+i)*0.30),cy+(nh(n,40+i)-0.50)*R*0.55,f,g,A-0.22,n,50+i*3);
+    stinger(ctx,seam-R*1.68,cy,R*0.44,R*0.062,f,g,A);
+    seamLine(R*0.72);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Bolts/stitches at seam
+    for (let i=0;i<4;i++) { fcirc(ctx,seam,cy-R*0.45+i*R*0.28,R*0.040,'rgba(255,255,255,0.60)',g,A-0.28); }
+  }
+  if (dl>=2) { // More detailed anatomy on each half
+    fcirc(ctx,seam-R*0.88,cy+R*0.22,R*0.058,'rgba(255,255,255,0.48)',g,A-0.32);
+    frect(ctx,seam+R*0.55,cy-R*0.18,R*0.35,R*0.10,f,g,A-0.22);
+  }
+  if (dl>=3) { // Active integration zone glow + nerve/cable routing at seam
+    ctx.save(); ctx.globalAlpha=A-0.32; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=R*0.025;
+    for (let i=0;i<3;i++) { ctx.beginPath(); ctx.moveTo(seam-R*0.20,cy-R*0.25+i*R*0.22); ctx.bezierCurveTo(seam,cy-R*0.25+i*R*0.22+R*0.08,seam,cy-R*0.25+i*R*0.22+R*0.08,seam+R*0.20,cy-R*0.25+i*R*0.22); ctx.stroke(); }
+    ctx.restore();
+  }
+}
+
+// ── T15  FUNGAL_MAT ──────────────────────────────────────
+// Silhouette: wide flat pad (≥3.5R) + upright fruiting body caps
+// Role: fungal · Mass: bottom/distributed · Weapon: leftmost cap = spore gun
+function drawT15(ctx:Ctx,cx:number,cy:number,R:number,n:number,f:string,g:string,A:number): void {
+  const bp=BP(n),v=TV(n),dl=DL(n);
+  const matW=R*[3.60,4.00,3.20][v]; // pad half-width
+  const matH=R*[0.24,0.28,0.20][v]; // pad half-height
+  const nCap=4+v;
+  // Cap drawing helper
+  const drawCap=(capX:number,stemTop:number,cW:number,cH:number,alpha:number)=>{
+    ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=5;
+    ctx.beginPath(); ctx.moveTo(capX-cW,stemTop); ctx.bezierCurveTo(capX-cW,stemTop-cH*1.65,capX+cW,stemTop-cH*1.65,capX+cW,stemTop); ctx.closePath(); ctx.fill();
+    ctx.shadowBlur=0; ctx.strokeStyle='rgba(255,255,255,0.16)'; ctx.lineWidth=0.72; ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.globalAlpha=alpha-0.22; ctx.fillStyle=f;
+    ctx.beginPath(); ctx.ellipse(capX,stemTop,cW,cH*0.30,0,0,Math.PI); ctx.fill(); ctx.restore();
+  };
+  if (bp===0) { // Parasol colony — flat pad + 4-5 mushroom caps of varying heights
+    // Main rhizome pad (flat)
+    fpoly(ctx,[[cx-matW,cy+matH],[cx+matW,cy+matH],[cx+matW*0.85,cy-matH],[cx-matW*0.88,cy-matH]],f,g,A-0.04,6);
+    // Mycelium thread network on pad surface (DL0 still shows basic threads)
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=0.50;
+    for (let i=0;i<6;i++) { const tx=cx-matW*0.80+i*matW*0.32; ctx.beginPath(); ctx.moveTo(tx,cy-matH); ctx.lineTo(tx+(nh(n,10+i)-0.5)*R*0.40,cy+matH); ctx.stroke(); }
+    ctx.restore();
+    // Fruiting body caps (varying heights)
+    const capPositions=[-0.78,-0.38,0.02,0.44,0.82].slice(0,nCap);
+    for (let i=0;i<nCap;i++) {
+      const cx2=cx+matW*capPositions[i];
+      const stemH=R*(0.38+nh(n,20+i)*0.35), cW=R*(0.28+nh(n,30+i)*0.14), cH=R*(0.22+nh(n,40+i)*0.10);
+      // Stem
+      sline(ctx,cx2,cy-matH,cx2,cy-matH-stemH,f,A-0.10,R*0.075);
+      drawCap(cx2,cy-matH-stemH,cW,cH,A-0.04-i*0.030);
+    }
+    // Weapon: leftmost cap = spore cannon
+    gun(ctx,cx-matW*0.78,cy-matH-R*0.58,R*0.78,R*0.060,f,g,A);
+  } else if (bp===1) { // Puffball array — round bulbous caps in a row
+    fpoly(ctx,[[cx-matW,cy+matH],[cx+matW,cy+matH],[cx+matW*0.85,cy-matH],[cx-matW*0.88,cy-matH]],f,g,A-0.06,6);
+    for (let i=0;i<nCap;i++) {
+      const px=cx-matW*0.80+i*matW*0.44, pR=R*(0.32+nh(n,10+i)*0.16);
+      sline(ctx,px,cy-matH,px+(nh(n,20+i)-0.5)*R*0.08,cy-matH-R*0.22,f,A-0.12,R*0.055);
+      fcirc(ctx,px+(nh(n,20+i)-0.5)*R*0.08,cy-matH-R*0.22-pR*0.80,pR,f,g,A-i*0.030,5);
+      // Pore opening at top
+      fcirc(ctx,px+(nh(n,20+i)-0.5)*R*0.08,cy-matH-R*0.22-pR*1.62,pR*0.18,'rgba(255,255,255,0.50)',g,A-0.25);
+    }
+    gun(ctx,cx-matW*0.80,cy-matH-R*0.22-R*0.48*0.80,R*0.72,R*0.055,f,g,A);
+  } else if (bp===2) { // Hyphal network — mostly flat pad with visible thread lattice, minimal caps
+    // Thick flat pad
+    fpoly(ctx,[[cx-matW,cy+matH*1.20],[cx+matW,cy+matH*1.20],[cx+matW*0.85,cy-matH*1.20],[cx-matW*0.88,cy-matH*1.20]],f,g,A-0.02,6);
+    // Dense hyphal thread network
+    ctx.save(); ctx.globalAlpha=A-0.18; ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=0.55;
+    for (let i=0;i<10;i++) { const x0=cx-matW+i*matW*0.22, x1=cx-matW+(i+1)*matW*0.22; ctx.beginPath(); ctx.moveTo(x0,cy-matH*(0.5+nh(n,10+i)*0.60)); ctx.quadraticCurveTo(cx-matW+i*matW*0.22+matW*0.11,cy-(matH*0.20+nh(n,20+i)*matH*0.70),x1,cy-matH*(0.5+nh(n,30+i)*0.60)); ctx.stroke(); }
+    ctx.restore();
+    // Just 2 caps
+    for (const [px,sw] of [[cx-matW*0.72,1],[cx+matW*0.18,-1]] as [number,number][]) {
+      const stemH=R*0.28, cW=R*0.32;
+      sline(ctx,px,cy-matH*1.20,px,cy-matH*1.20-stemH,f,A-0.10,R*0.065);
+      drawCap(px,cy-matH*1.20-stemH,cW,R*0.18,A-0.06);
+    }
+    gun(ctx,cx-matW*0.72,cy-matH-R*0.28,R*0.68,R*0.055,f,g,A);
+  } else if (bp===3) { // HYBRID: Cordyceps-mech — mechanical host body with fungal growth
+    // Mechanical host body (visible frame)
+    frect(ctx,cx-matW*0.62,cy-R*0.42,matW*1.24,R*0.84,f,g,A-0.08,6);
+    // Legs/wheels of host
+    for (let i=0;i<3;i++) { const lx=cx-matW*0.48+i*matW*0.48; sline(ctx,lx,cy+R*0.42,lx,cy+R*0.42+R*0.38,f,A-0.18,R*0.075); fcirc(ctx,lx,cy+R*0.42+R*0.38+R*0.10,R*0.10,f,g,A-0.22); }
+    // Fungal growths emerging from host
+    for (let i=0;i<3+v;i++) {
+      const fx=cx-matW*0.52+i*matW*0.36;
+      const stemH=R*(0.32+nh(n,10+i)*0.25), cW=R*(0.22+nh(n,20+i)*0.12);
+      ctx.save(); ctx.globalAlpha=A-0.06; ctx.strokeStyle=f; ctx.lineWidth=R*0.065; ctx.shadowColor=g; ctx.shadowBlur=4;
+      ctx.beginPath(); ctx.moveTo(fx,cy-R*0.42); ctx.lineTo(fx+(nh(n,30+i)-0.5)*R*0.10,cy-R*0.42-stemH); ctx.stroke(); ctx.restore();
+      drawCap(fx+(nh(n,30+i)-0.5)*R*0.10,cy-R*0.42-stemH,cW,R*0.16,A-0.06-i*0.025);
+    }
+    gun(ctx,cx-matW*0.52,cy-R*0.42-R*0.45,R*0.72,R*0.055,f,g,A);
+  } else { // BP4 INNOVATION: Slime mold — amorphous flowing form, pseudopod weapon
+    const sW=matW*0.88, sH=R*[0.88,1.02,0.75][v];
+    // Amorphous flowing mass (heavily perturbed blob)
+    oblob(ctx,cx-R*0.25,cy,sW*0.75,sH*0.62,f,g,A,n,10);
+    // Secondary pseudopods
+    for (let i=0;i<3+v;i++) {
+      const pa=Math.PI*(0.42+i*0.38)+nh(n,60+i)*0.55;
+      rtend(ctx,cx-R*0.25,cy,pa,R*(0.48+nh(n,70+i)*0.42),R*(0.068-i*0.008),f,g,A-0.18,n,80+i*4);
+    }
+    // Leading pseudopod = weapon
+    const wx=cx-R*0.25+Math.cos(Math.PI)*sW*0.75;
+    stinger(ctx,wx,cy,R*0.48,R*0.065,f,g,A);
+  }
+  // ── DL detail ──
+  if (dl>=1) { // Bioluminescent spots on pad
+    for (let i=0;i<5;i++) { fcirc(ctx,cx-matW*0.70+i*matW*0.36,cy+(nh(n,90+i)-0.5)*matH*0.70,R*0.032,'rgba(255,255,255,0.55)',g,A-0.35); }
+  }
+  if (dl>=2) { // Individual spore release particles
+    for (let i=0;i<4;i++) {
+      const sx=cx-matW*0.58+i*matW*0.40, sy=cy-matH-R*(0.25+nh(n,100+i)*0.35);
+      fcirc(ctx,sx+(nh(n,110+i)-0.5)*R*0.18,sy,R*0.025,'rgba(255,255,255,0.60)',g,A-0.38);
+    }
+  }
+  if (dl>=3) { // Rhizomorph bundles visible under pad edge
+    ctx.save(); ctx.globalAlpha=A-0.28; ctx.strokeStyle=f; ctx.lineWidth=R*0.040;
+    for (let i=0;i<4;i++) { const rx=cx-matW*0.68+i*matW*0.45; rtend(ctx,rx,cy+matH,Math.PI*0.5,R*(0.22+nh(n,120+i)*0.14),R*0.040,f,g,A-0.28,n,130+i*4); }
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// §5  CLASS MARK + MAIN ENTRY POINT
+// ═══════════════════════════════════════════════════════════
+
 function drawClassMark(ctx:Ctx,cx:number,cy:number,R:number,cls:VirusClass): void {
-  ctx.save(); ctx.globalAlpha=0.28; ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=0.75; ctx.shadowBlur=0;
+  ctx.save(); ctx.globalAlpha=0.26; ctx.strokeStyle='rgba(255,255,255,0.82)'; ctx.lineWidth=0.72; ctx.shadowBlur=0;
   switch (cls) {
-    case 'prime': for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2; ctx.beginPath(); ctx.moveTo(cx+R*0.12*Math.cos(a),cy+R*0.12*Math.sin(a)); ctx.lineTo(cx+R*0.28*Math.cos(a),cy+R*0.28*Math.sin(a)); ctx.stroke(); } break;
-    case 'power-of-two': ctx.strokeRect(cx-R*0.16,cy-R*0.16,R*0.32,R*0.32); break;
-    case 'perfect-square': ctx.beginPath(); ctx.arc(cx,cy,R*0.22,0,Math.PI*2); ctx.stroke(); break;
-    case 'even-composite': ctx.beginPath(); ctx.moveTo(cx-R*0.24,cy-R*0.10); ctx.lineTo(cx+R*0.24,cy-R*0.10); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-R*0.24,cy+R*0.10); ctx.lineTo(cx+R*0.24,cy+R*0.10); ctx.stroke(); break;
-    case 'odd-composite': { const t=R*0.20; ctx.beginPath(); ctx.moveTo(cx,cy-t); ctx.lineTo(cx+t*0.87,cy+t*0.5); ctx.lineTo(cx-t*0.87,cy+t*0.5); ctx.closePath(); ctx.stroke(); break; }
+    case 'prime': for (let i=0;i<6;i++) { const a=(i/6)*Math.PI*2; ctx.beginPath(); ctx.moveTo(cx+R*0.10*Math.cos(a),cy+R*0.10*Math.sin(a)); ctx.lineTo(cx+R*0.24*Math.cos(a),cy+R*0.24*Math.sin(a)); ctx.stroke(); } break;
+    case 'power-of-two': ctx.strokeRect(cx-R*0.14,cy-R*0.14,R*0.28,R*0.28); break;
+    case 'perfect-square': ctx.beginPath(); ctx.arc(cx,cy,R*0.20,0,Math.PI*2); ctx.stroke(); break;
+    case 'even-composite': ctx.beginPath(); ctx.moveTo(cx-R*0.20,cy-R*0.08); ctx.lineTo(cx+R*0.20,cy-R*0.08); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-R*0.20,cy+R*0.08); ctx.lineTo(cx+R*0.20,cy+R*0.08); ctx.stroke(); break;
+    case 'odd-composite': { const t=R*0.18; ctx.beginPath(); ctx.moveTo(cx,cy-t); ctx.lineTo(cx+t*0.87,cy+t*0.5); ctx.lineTo(cx-t*0.87,cy+t*0.5); ctx.closePath(); ctx.stroke(); break; }
   }
   ctx.restore();
 }
 
-// §9  Main draw entry — signature UNCHANGED
-const TOPO_DRAW=[drawT0,drawT1,drawT2,drawT3,drawT4,drawT5,drawT6,drawT7,drawT8,drawT9,drawT10,drawT11,drawT12,drawT13];
+const TOPO_DRAW=[drawT0,drawT1,drawT2,drawT3,drawT4,drawT5,drawT6,drawT7,drawT8,drawT9,drawT10,drawT11,drawT12,drawT13,drawT14,drawT15];
 
 export function drawVirus(
   ctx: CanvasRenderingContext2D, cx: number, cy: number,
@@ -1401,112 +1670,112 @@ export function drawVirus(
   ctx.restore();
 }
 
-// §10  Silhouette validation
 export function drawVirusSilhouette(ctx:CanvasRenderingContext2D,cx:number,cy:number,n:number,cell:number): void {
   const R=cell*0.22+cell*0.016*Math.log2(n+1);
   ctx.save();
   TOPO_DRAW[getTopology(n)](ctx,cx,cy,R,n,'#000000','#000000',1.0);
   ctx.globalCompositeOperation='source-atop'; ctx.fillStyle='#000000';
-  ctx.fillRect(cx-R*3.5,cy-R*3.5,R*7,R*7); ctx.globalCompositeOperation='source-over'; ctx.restore();
+  ctx.fillRect(cx-R*5.5,cy-R*3.5,R*11,R*7); ctx.globalCompositeOperation='source-over'; ctx.restore();
 }
 
 export function runSilhouetteDiversityTest(ctx:CanvasRenderingContext2D,w:number,h:number): void {
-  const seeds=[37,14,25,63,47,18,71,40,53,29,89,56,100,172,121,94,200,160,213,177];
-  const C=5,cW=w/C,cH=h/4,cell=Math.min(cW,cH)*0.52;
-  const names=['MONO','FRAME','CEPH','FUNG','VERT','CRYS','ARTH','CRAWL','ENRG','PLANT','SWRM','BIOM','AVIA','ALIE'];
-  const bpNames=['pure-A','pure-B','pure-C','hybrid','innov'];
-  ctx.fillStyle='#f0f4f8'; ctx.fillRect(0,0,w,h);
-  ctx.fillStyle='#1e293b'; ctx.font=`${Math.round(cell*0.10)}px monospace`; ctx.textAlign='center';
-  ctx.fillText('EVOLUTIONARY SPACE TEST v6',w/2,cell*0.09);
-  const topoSet=new Set<number>(), bpSet=new Set<string>();
-  for (let i=0;i<seeds.length;i++) {
-    const seed=seeds[i],col=i%C,row=Math.floor(i/C);
-    const ex=cW*(col+0.5),ey=cH*(row+0.5)+cell*0.08;
-    const t=getTopology(seed), bp=BP(seed); topoSet.add(t); bpSet.add(`${t}-${bp}`);
+  const seeds=[37,14,25,63,47,18,71,40,53,29,89,56,100,172,121,94,200,160,213,177,8,32,128,200,73,149,211,67,143,251,97,181,42,118,193];
+  const C=5,cW=w/C,cH=h/4,cell=Math.min(cW,cH)*0.48;
+  const topoNames=['DREAD','TOWER','NEEDLE','LEVIA','ARACH','SERP','MEDU','DEND','POLY','SWRM','STRD','PLAT','PARA','RING','CHIM','FUNG'];
+  const bpNames=['pur-A','pur-B','pur-C','hybrd','innov'];
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#c9d1d9'; ctx.font=`${Math.round(cell*0.10)}px monospace`; ctx.textAlign='center';
+  ctx.fillText('MORPHOLOGY v7 — SILHOUETTE DIVERSITY TEST',w/2,cell*0.10);
+  const topoSet=new Set<number>(), bpSet=new Set<string>(), dlSet=new Set<number>();
+  for (let i=0;i<Math.min(seeds.length,20);i++) {
+    const seed=seeds[i],col=i%C,row=Math.floor(i/C)+1;
+    const ex=cW*(col+0.5),ey=cH*(row+0.50);
+    const t=getTopology(seed), bp=BP(seed), dl=DL(seed);
+    topoSet.add(t); bpSet.add(`${t}-${bp}`); dlSet.add(dl);
     drawVirusSilhouette(ctx,ex,ey,seed,cell);
-    ctx.fillStyle='#334155'; ctx.font=`${Math.round(cell*0.080)}px monospace`; ctx.textAlign='center';
-    ctx.fillText(`T${t} ${names[t]} ${bpNames[bp]}`,ex,ey+cell*0.35);
+    ctx.fillStyle='#8b949e'; ctx.font=`${Math.round(cell*0.076)}px monospace`; ctx.textAlign='center';
+    ctx.fillText(`T${t} ${topoNames[t]}`,ex,ey+cell*0.38);
+    ctx.fillText(`${bpNames[bp]} DL${dl}`,ex,ey+cell*0.50);
   }
   const passed=topoSet.size>=10;
-  ctx.font=`${Math.round(cell*0.090)}px monospace`; ctx.textAlign='center';
-  ctx.fillStyle=passed?'#064e3b':'#7f1d1d';
-  ctx.fillText(`${passed?'PASS':'FAIL'} — ${topoSet.size}/14 families, ${bpSet.size} unique body-plans`,w/2,h-cell*0.12);
-  console.log('[EvoTest]',passed?'PASS':'FAIL','families:',topoSet.size,'body-plans:',bpSet.size);
+  ctx.font=`${Math.round(cell*0.088)}px monospace`; ctx.textAlign='center';
+  ctx.fillStyle=passed?'#3fb950':'#f85149';
+  ctx.fillText(`${passed?'PASS':'FAIL'} — ${topoSet.size}/16 families · ${bpSet.size} body-plans · DL 0-3: ${dlSet.size} tiers`,w/2,h-cell*0.10);
+  console.log('[Morphology v7]',passed?'PASS':'FAIL',{families:topoSet.size,bodyPlans:bpSet.size,dlTiers:dlSet.size});
 }
 
-// §11  Expanded MorphSig — topology + body-plan + hybrid key + fingerprint
+// ═══════════════════════════════════════════════════════════
+// §6  EXPANDED MorphSig WITH ROLE + DIVERSITY GATE
+// ═══════════════════════════════════════════════════════════
+
+export type MorphRole = 'siege'|'fortress'|'interceptor'|'leviathan'|'predator'|'serpentine'|'floater'|'colonial'|'geometric'|'swarm'|'walker'|'platform'|'parasite'|'orbital'|'chimera'|'fungal';
+
 export interface MorphSig {
-  topology: number;    // 0-13 substrate family
-  bodyPlan: number;    // 0-4 (0-2 pure, 3 hybrid, 4 innovation)
-  variant: number;     // 0-2 fine variant
-  cls: number;         // VirusClass index
-  aspectGroup: number; // 0=round 1=vert 2=horiz 3=irregular 4=radial
-  massCenter: number;  // 0=front 1=center 2=rear 3=distributed
-  domain: number;      // coarse substrate domain (0=mech 1=bio 2=xtal 3=colonial 4=energy 5=plant 6=swarm 7=biomech 8=alien)
-  hybrid: boolean;     // is this a cross-lineage hybrid (BP=3)?
-  innovation: boolean; // is this a de novo innovation (BP=4)?
+  topology:   number;     // 0-15 substrate family
+  bodyPlan:   number;     // 0-4
+  detailLevel: number;    // 0-3 DL tier
+  variant:    number;     // 0-2 fine variant
+  cls:        number;     // VirusClass index
+  role:       MorphRole;  // combat role
+  domain:     number;     // substrate domain
+  aspectGroup: number;    // 0=round 1=vertical 2=horizontal 3=irregular 4=radial
+  massCenter: number;     // 0=front 1=center 2=rear 3=distributed
+  hybrid:     boolean;
+  innovation: boolean;
 }
+
+const TOPO_ROLE: MorphRole[] = ['siege','fortress','interceptor','leviathan','predator','serpentine','floater','colonial','geometric','swarm','walker','platform','parasite','orbital','chimera','fungal'];
+const TOPO_DOMAIN = [0,0,0,1,1,1,1,3,2,6,0,0,1,8,7,5]; // mech=0 bio=1 xtal=2 colonial=3 energy=4 plant=5 swarm=6 biomech=7 alien=8
 
 // [topology][bodyPlan] → [aspectGroup, massCenter]
 const TOPO_BP_META: [number,number][][] = [
-  [[2,0],[2,1],[2,0],[1,3],[3,0]],  // T0 MONO
-  [[2,1],[4,2],[2,1],[0,0],[3,1]],  // T1 FRAME
-  [[0,0],[0,3],[0,1],[4,0],[1,3]],  // T2 CEPH
-  [[1,3],[1,3],[1,3],[2,1],[0,3]],  // T3 FUNG
-  [[2,0],[2,0],[2,0],[2,0],[2,1]],  // T4 VERT
-  [[4,1],[1,1],[4,1],[4,1],[1,1]],  // T5 CRYS
-  [[2,2],[2,0],[2,2],[4,2],[2,0]],  // T6 ARTH
-  [[2,1],[1,1],[2,1],[4,1],[2,1]],  // T7 CRAWL
-  [[4,1],[4,3],[4,2],[0,1],[4,1]],  // T8 ENRG
-  [[1,2],[2,2],[1,2],[1,2],[0,0]],  // T9 PLANT
-  [[4,3],[4,3],[4,3],[4,3],[2,3]],  // T10 SWRM
-  [[3,0],[2,0],[0,0],[3,0],[0,1]],  // T11 BIOM
-  [[2,0],[2,1],[2,0],[2,0],[2,2]],  // T12 AVIA
-  [[3,3],[3,3],[3,3],[3,3],[4,3]],  // T13 ALIE
+  [[2,0],[2,1],[2,0],[2,0],[4,1]],  // T0 DREADNOUGHT
+  [[1,1],[1,2],[1,1],[1,1],[4,1]],  // T1 TOWER
+  [[2,3],[2,3],[2,3],[2,3],[0,1]],  // T2 NEEDLE
+  [[0,2],[4,2],[2,2],[0,2],[0,3]],  // T3 LEVIATHAN
+  [[4,0],[2,0],[2,0],[4,0],[2,0]],  // T4 ARACHNID
+  [[2,3],[2,3],[2,3],[2,3],[3,1]],  // T5 SERPENT
+  [[1,1],[3,1],[0,1],[4,1],[1,3]],  // T6 MEDUSA
+  [[4,3],[2,3],[4,3],[4,3],[4,1]],  // T7 DENDRITE
+  [[3,1],[3,1],[3,1],[4,1],[3,1]],  // T8 POLYHEDRON
+  [[0,3],[2,3],[4,3],[2,3],[3,3]],  // T9 SWARM
+  [[1,1],[1,0],[4,1],[1,1],[4,1]],  // T10 STRIDER
+  [[2,2],[2,2],[2,2],[2,2],[2,2]],  // T11 PLATFORM
+  [[3,0],[3,0],[2,0],[3,0],[3,3]],  // T12 PARASITE
+  [[4,1],[4,1],[4,1],[4,1],[4,1]],  // T13 RING
+  [[3,1],[3,1],[3,1],[3,3],[3,1]],  // T14 CHIMERA
+  [[2,2],[2,2],[2,3],[2,1],[3,3]],  // T15 FUNGAL_MAT
 ];
 
-const TOPO_DOMAIN=[0,0,1,3,1,2,1,0,4,5,6,7,1,8]; // substrate domain per topology
-const VC_O: VirusClass[]=['prime','power-of-two','perfect-square','even-composite','odd-composite'];
+const VC_O: VirusClass[] = ['prime','power-of-two','perfect-square','even-composite','odd-composite'];
 
 export function getMorphSig(n: number): MorphSig {
-  const t=getTopology(n), bp=BP(n), v=TV(n);
+  const t=getTopology(n), bp=BP(n), v=TV(n), dl=DL(n);
   const [ag,mc]=TOPO_BP_META[t][bp];
   return {
-    topology:t, bodyPlan:bp, variant:v, cls:VC_O.indexOf(getVirusClass(n)),
-    aspectGroup:ag, massCenter:mc, domain:TOPO_DOMAIN[t],
+    topology:t, bodyPlan:bp, detailLevel:dl, variant:v, cls:VC_O.indexOf(getVirusClass(n)),
+    role:TOPO_ROLE[t], domain:TOPO_DOMAIN[t], aspectGroup:ag, massCenter:mc,
     hybrid:bp===3, innovation:bp===4,
   };
 }
 
 export function morphDistance(a: MorphSig, b: MorphSig): number {
   let d=0;
-  d += (a.topology!==b.topology?1:0)*0.40;
-  d += (a.bodyPlan!==b.bodyPlan?1:0)*0.22;
-  d += (a.domain!==b.domain?1:0)*0.16;
-  d += (a.aspectGroup!==b.aspectGroup?1:0)*0.10;
-  d += (a.massCenter!==b.massCenter?1:0)*0.06;
-  d += (a.cls!==b.cls?1:0)*0.04;
-  d += (a.hybrid!==b.hybrid?1:0)*0.02;
+  d += (a.topology!==b.topology?1:0)*0.35;
+  d += (a.role!==b.role?1:0)*0.20;
+  d += (a.bodyPlan!==b.bodyPlan?1:0)*0.18;
+  d += (a.domain!==b.domain?1:0)*0.14;
+  d += (a.aspectGroup!==b.aspectGroup?1:0)*0.08;
+  d += (a.massCenter!==b.massCenter?1:0)*0.04;
+  d += (a.hybrid!==b.hybrid?1:0)*0.01;
   return d;
 }
 
-export function selectDiverseSeed(waveSigs: MorphSig[], crossHistory: MorphSig[]): number {
-  const all=[...crossHistory.slice(-8),...waveSigs]; let best=-1, bestScore=-1;
-  for (let attempt=0;attempt<48;attempt++) {
-    const seed=Math.floor(Math.random()*255)+1, sig=getMorphSig(seed);
-    let wMin=1.0; for (const ws of all) { const d=morphDistance(sig,ws); if (d<wMin) wMin=d; }
-    const sharedTopo=all.filter(ws=>ws.topology===sig.topology).length;
-    const sharedBP=all.filter(ws=>ws.topology===sig.topology&&ws.bodyPlan===sig.bodyPlan).length;
-    const sharedDomain=all.filter(ws=>ws.domain===sig.domain).length;
-    const score=wMin*Math.pow(0.50,sharedTopo)*Math.pow(0.70,sharedBP)*Math.pow(0.85,sharedDomain);
-    if (score>bestScore) { bestScore=score; best=seed; }
-  }
-  return best>0?best:Math.floor(Math.random()*255)+1;
-}
-
-// §12  Expanded spawn diversity gate
-// Window tracks topology, body-plan combo, domain, and hybrid/innovation flags
-const SPAWN_WIN=20, MAX_SAME_TOPO=3, MAX_SAME_DOMAIN=5, MAX_SAME_BP=2;
+// ═══════════════════════════════════════════════════════════
+// §7  SPAWN DIVERSITY GATE
+// Window: 20 entities. Caps per topology, per role, per domain.
+// ═══════════════════════════════════════════════════════════
+const SPAWN_WIN=20, MAX_SAME_TOPO=3, MAX_SAME_ROLE=2, MAX_SAME_DOMAIN=5;
 const _hist: MorphSig[]=[];
 
 export function registerSpawn(sig: MorphSig): void { _hist.push(sig); if (_hist.length>SPAWN_WIN) _hist.shift(); }
@@ -1514,45 +1783,81 @@ export function clearSpawnHistory(): void { _hist.length=0; }
 
 export function pickDiverseSeed(): number {
   let best=-1, bestScore=-Infinity;
-  // Try 60 candidates; use quasi-random spread across [1,255]
-  for (let i=0;i<60;i++) {
-    const seed=1+((i*97+Math.floor(Math.random()*31))%255);
+  for (let i=0;i<72;i++) {
+    const seed=1+((i*97+Math.floor(Math.random()*41))%255);
     const sig=getMorphSig(seed);
     const topoC=_hist.filter(s=>s.topology===sig.topology).length;
+    const roleC=_hist.filter(s=>s.role===sig.role).length;
     const domC=_hist.filter(s=>s.domain===sig.domain).length;
-    const bpC=_hist.filter(s=>s.topology===sig.topology&&s.bodyPlan===sig.bodyPlan).length;
     // Hard limits
-    if (topoC>=MAX_SAME_TOPO) continue;
-    if (domC>=MAX_SAME_DOMAIN) continue;
-    if (bpC>=MAX_SAME_BP) continue;
+    if (topoC>=MAX_SAME_TOPO||roleC>=MAX_SAME_ROLE||domC>=MAX_SAME_DOMAIN) continue;
     // Soft score
     let minD=1.0; for (const s of _hist) { const d=morphDistance(sig,s); if (d<minD) minD=d; }
-    // Bonus for hybrids and innovations (underrepresented in random selection)
-    const hybrBonus=sig.hybrid?0.12:sig.innovation?0.10:0;
-    const score=minD*Math.pow(0.45,topoC)*Math.pow(0.72,bpC)*Math.pow(0.88,domC)+hybrBonus;
+    const hybrBonus=sig.hybrid?0.14:sig.innovation?0.12:0;
+    const dlBonus=sig.detailLevel>=2?0.04:0; // slight bonus for high-detail entities
+    const score=minD*Math.pow(0.42,topoC)*Math.pow(0.60,roleC)*Math.pow(0.88,domC)+hybrBonus+dlBonus;
     if (score>bestScore) { bestScore=score; best=seed; }
   }
   return best>0?best:1+Math.floor(Math.random()*255);
 }
 
-// §13  Distribution validator
-export function validateDistribution(sampleSize=256): {topoCounts:number[];bpCounts:number[];maxTopoFrac:number;uniqueBodyPlans:number;passed:boolean;} {
-  const tc=new Array(N_TOPO).fill(0), bpc=new Array(5).fill(0);
-  for (let i=0;i<sampleSize;i++) { const n=Math.floor(Math.random()*255)+1; tc[getTopology(n)]++; bpc[BP(n)]++; }
-  const maxTC=Math.max(...tc), maxFrac=maxTC/sampleSize, ubp=bpc.filter(c=>c>0).length;
-  const passed=maxFrac<=0.14&&ubp>=4;
-  if (!passed) console.warn('[Morphology] FAIL',{maxFrac:maxFrac.toFixed(3),tc,bpc});
-  else console.log('[Morphology] OK — maxFrac:',maxFrac.toFixed(3),'bodyPlans:',ubp);
-  return {topoCounts:tc,bpCounts:bpc,maxTopoFrac:maxFrac,uniqueBodyPlans:ubp,passed};
+export function selectDiverseSeed(waveSigs: MorphSig[], crossHistory: MorphSig[]): number {
+  const all=[...crossHistory.slice(-8),...waveSigs];
+  let best=-1, bestScore=-1;
+  for (let attempt=0;attempt<60;attempt++) {
+    const seed=Math.floor(Math.random()*255)+1, sig=getMorphSig(seed);
+    let wMin=1.0; for (const ws of all) { const d=morphDistance(sig,ws); if (d<wMin) wMin=d; }
+    const sharedTopo=all.filter(ws=>ws.topology===sig.topology).length;
+    const sharedRole=all.filter(ws=>ws.role===sig.role).length;
+    const score=wMin*Math.pow(0.48,sharedTopo)*Math.pow(0.62,sharedRole);
+    if (score>bestScore) { bestScore=score; best=seed; }
+  }
+  return best>0?best:Math.floor(Math.random()*255)+1;
 }
 
-// §14  Legacy shims
+// ═══════════════════════════════════════════════════════════
+// §8  DISTRIBUTION VALIDATION
+// ═══════════════════════════════════════════════════════════
+
+export function validateDistribution(sampleSize=256): {
+  topoCounts:number[]; roleCounts:Record<MorphRole,number>; domainCounts:number[];
+  bpCounts:number[]; dlCounts:number[]; maxTopoFrac:number; maxDomainFrac:number;
+  uniqueBodyPlans:number; passed:boolean;
+} {
+  const tc=new Array(N_TOPO).fill(0), bpc=new Array(5).fill(0), dlc=new Array(4).fill(0);
+  const dc=new Array(9).fill(0);
+  const rc={} as Record<MorphRole,number>;
+  for (const r of TOPO_ROLE) rc[r]=(rc[r]??0);
+  for (let i=0;i<sampleSize;i++) {
+    const n=Math.floor(Math.random()*255)+1;
+    const sig=getMorphSig(n);
+    tc[sig.topology]++; bpc[sig.bodyPlan]++; dlc[sig.detailLevel]++; dc[sig.domain]++;
+    rc[sig.role]=(rc[sig.role]??0)+1;
+  }
+  const maxTC=Math.max(...tc), maxDC=Math.max(...dc);
+  const maxTopoFrac=maxTC/sampleSize, maxDomainFrac=maxDC/sampleSize;
+  const ubp=bpc.filter(c=>c>0).length;
+  const passed=maxTopoFrac<=0.14&&maxDomainFrac<=0.25&&ubp>=4;
+  console.log('[Morphology v7] Distribution check:');
+  console.log('  Topologies:',tc.map((c,i)=>`T${i}(${TOPO_ROLE[i]}):${c}`).join(' '));
+  console.log('  Roles:',Object.entries(rc).map(([r,c])=>`${r}:${c}`).join(' '));
+  console.log('  Domains:',dc);
+  console.log('  BP:',bpc,'DL:',dlc);
+  console.log(`  maxTopoFrac:${maxTopoFrac.toFixed(3)} maxDomainFrac:${maxDomainFrac.toFixed(3)} uniqueBP:${ubp}`);
+  console.log(' ',passed?'✓ PASS':'✗ FAIL');
+  return {topoCounts:tc,roleCounts:rc,domainCounts:dc,bpCounts:bpc,dlCounts:dlc,maxTopoFrac,maxDomainFrac,uniqueBodyPlans:ubp,passed};
+}
+
+// ═══════════════════════════════════════════════════════════
+// §9  LEGACY SHIMS — all call signatures unchanged
+// ═══════════════════════════════════════════════════════════
+
 export function getVirusRadius(n:number,R0:number,k:number): number { return R0+k*Math.log2(n+1); }
 const ARCHS: VirusArchetype[]=['biological','humanoid','animal','insectoid','mechanical','armored','crystalline','mineral','plant','synthetic','robotic','amorphous','geometric','energy','cybernetic','skeletal','fluid'];
 export function getVirusModelProfile(value:number): VirusModelProfile {
   const pi=Math.floor(nh(value,1)*ARCHS.length); let si=Math.floor(nh(value,2)*ARCHS.length); if (si===pi) si=(si+1)%ARCHS.length;
   const pw=0.6+nh(value,3)*0.4;
-  return { primaryArchetype:ARCHS[pi],secondaryArchetype:ARCHS[si],primaryWeight:pw,secondaryWeight:1-pw, structureLevel:nh(value,4),symmetryLevel:nh(value,5),armorLevel:nh(value,6),organicLevel:nh(value,7),mechanicalLevel:nh(value,8),crystallineLevel:nh(value,9),energyLevel:nh(value,10) };
+  return { primaryArchetype:ARCHS[pi],secondaryArchetype:ARCHS[si],primaryWeight:pw,secondaryWeight:1-pw,structureLevel:nh(value,4),symmetryLevel:nh(value,5),armorLevel:nh(value,6),organicLevel:nh(value,7),mechanicalLevel:nh(value,8),crystallineLevel:nh(value,9),energyLevel:nh(value,10) };
 }
 export function getCompatibilityScore(profile:VirusModelProfile,model:VirusVisualModel,lobes:number,symmetryLevel:number): number {
   const am=model.archetypes.includes(profile.primaryArchetype)?1:model.archetypes.includes(profile.secondaryArchetype)?0.5:0;
