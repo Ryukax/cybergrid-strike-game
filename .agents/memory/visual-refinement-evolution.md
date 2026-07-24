@@ -1,43 +1,68 @@
 ---
 name: Visual Refinement Evolution + Substrate Diversity
-description: Per-n refinement system, substrate diversity v5, topology-to-domain mapping
+description: Per-n refinement system, substrate diversity v6, 5 body-plans per topology, spawn diversity gate wired into Game.tsx
 ---
 
-## Morphology system: v5 (current)
+## Morphology system: v6 (current)
 
 File: `artifacts/cybergrid-strike-pre-evo/src/game/virus-morphology.ts`
 
+### Evolutionary architecture
+
+Three pathways per topology:
+- **BP 0-2** — pure substrate variants with distinct construction grammars (not scale variants)
+- **BP 3** — cross-lineage hybrid: primary substrate frame + secondary substrate features at anatomically plausible attachment points
+- **BP 4** — de novo innovation: novel archetype that breaks the family's normal assumptions
+
+`BP(n)` = `Math.floor(nh(n, 0xD00D) * 5)` → 0-4
+`TV(n)` = `Math.floor(nh(n, 0xCAFE) * 3)` → fine variant 0-2
+
 ### Topology → Substrate domain map
 
-| T# | Name | Domain |
-|----|------|--------|
-| T0 | MONOCOQUE | Mechanical |
-| T1 | CHASSIS_FRAME | Mechanical |
-| T2 | CEPHALOPOD | Biological — mantle + tentacles, beak |
-| T3 | FUNGAL_COLONY | Colonial — mycelium threads, caps, spore tube |
-| T4 | VERTEBRATE | Biological — skull, spine, ribcage |
-| T5 | CRYSTAL_CLUSTER | Crystalline — faceted shards, no curves |
-| T6 | ARTHROPOD | Biological — thorax/abdomen, 6 legs, mandibles |
-| T7 | CRAWLER_BED | Mechanical |
-| T8 | ENERGY_FIELD | Energy — plasma rings, tendrils, no hull |
-| T9 | PLANT_SIEGE | Plant/Siege — roots, trunk, leaves, spore cannon |
-| T10 | SWARM_COLLECTIVE | Swarm — particle cloud, front-density weapon |
-| T11 | BIOMECH_HYBRID | Biomech — organic blob + welded graft plates |
-| T12 | AVIAN_FLYER | Biological — bat/pterodactyl membrane wings |
-| T13 | ALIEN_ARCH | Alien — trefoil knot, nested incompatible polygons |
+| T# | Name | Domain | BP3 Hybrid | BP4 Innovation |
+|----|------|--------|------------|----------------|
+| T0 | MONOCOQUE | Mechanical | + Plant barnacle/vine hull | Recursive panel hull (nested Matryoshka) |
+| T1 | CHASSIS_FRAME | Mechanical | + Biological (muscle-wrapped rails) | Tripod / H-frame / Spaceframe |
+| T2 | CEPHALOPOD | Biological | + Energy (plasma mantle, energy tentacles) | Giant neuron (soma+dendrites+axon) |
+| T3 | FUNGAL_COLONY | Colonial | + Mechanical (armature + organic caps) | Rhizomorphic neural mat (flat brain) |
+| T4 | VERTEBRATE | Biological | + Mechanical (cyborg: skull+ribs+armor grafts) | Leviathan (massive whale body) |
+| T5 | CRYSTAL_CLUSTER | Crystalline | + Energy (plasma-charged crystal) | Snowflake (6-fold lacy branches) |
+| T6 | ARTHROPOD | Biological | + Crystal (mineral exoskeleton + crystal legs) | Mantis (raptorial forelegs, triangular head) |
+| T7 | CRAWLER_BED | Mechanical | + Crystal (tracks + crystal superstructure) | Centipede (6 separate track units in chain) |
+| T8 | ENERGY_FIELD | Energy | + Biological (energy rings around tissue core) | Energy lattice (nodes in geometric web) |
+| T9 | PLANT_SIEGE | Plant/Siege | + Mechanical (organic trunk + mech cannon) | Carnivorous maw (snapping trap, no trunk) |
+| T10 | SWARM_COLLECTIVE | Swarm | + Crystal (crystal shard units) | Needle filament (elongated narrow column) |
+| T11 | BIOMECH_HYBRID | Biomech | + Crystal (crystal grafts replace metal plates) | Exo-brain (mechanical sphere, organic inside) |
+| T12 | AVIAN_FLYER | Biological | + Energy (energy vein wings, beam weapon) | Stingray drifter (flat body, whip tail) |
+| T13 | ALIEN_ARCH | Alien | + Colonial (alien form filled with colony units) | Disconnected orbitals (no center body) |
 
-**Domain balance:** 3 mechanical · 4 biological · 1 crystalline · 1 colonial · 1 energy · 1 plant · 1 swarm · 1 biomech · 1 alien
+### Key shared component functions (new in v6)
+- `graftGun(ctx, x, y, R, ...)` — mechanical gun attached at a specific point (for hybrids)
+- `graftEnergyField(ctx, cx, cy, R, ...)` — energy halo overlaid on existing body
+- `graftCrystalDorsal(ctx, cx, cy, R, ...)` — crystal spikes growing from dorsal surface
+- `organicArm(ctx, x0,y0,x1,y1, w, curl, ...)` — bezier-curved organic limb/tendril
+- `energyTendril(ctx, ...)` — chaotic plasma arc between two points
+- `crystalShard(ctx, bx, by, angle, len, w, ...)` — faceted tapered shard
+- `rootTendril(ctx, ...)` — bezier root/vine with curl variation
+- `mechArmor(ctx, cx, cy, angle, R, ...)` — rectangular armor plate at angle
 
-### Key primitives added in v5
-- `stinger(ctx, bx, by, len, baseW, ...)` — organic fang pointing LEFT, used by CEPH/VERT/AVIA instead of `gun()`
-- `gun()` kept for machine/plant substrates only
+### Expanded MorphSig (v6)
+Fields: `topology`, `bodyPlan`, `variant`, `cls`, `aspectGroup`, `massCenter`, `domain`, `hybrid`, `innovation`
 
-### TOPO_META updated
-aspectGroup: 0=round 1=vertical 2=horizontal 3=irregular 4=radial
-massCenter: 0=front 1=center 2=rear 3=distributed
+`morphDistance()` weights: topology 0.40 · bodyPlan 0.22 · domain 0.16 · aspectGroup 0.10 · massCenter 0.06 · cls 0.04 · hybrid 0.02
 
-### Diversity gate (unchanged from v4)
-- Rolling 12-entity history, max 3 of same topology: `pickDiverseSeed()` / `registerSpawn()` / `clearSpawnHistory()`
-- `validateDistribution(256)` in console to verify max topo fraction ≤14%, ≥12 unique
+### Spawn diversity gate (v6 — now WIRED into Game.tsx)
+Window: 20 entities. Hard limits: max 3 same topology, max 5 same domain, max 2 same topology+bodyPlan combo.
+Soft score: minMorphDistance × per-category decay factors. Hybrid/innovation bonus: +0.12/+0.10 to score.
+`pickDiverseSeed()` tries 60 quasi-random candidates, returns best.
 
-**Why:** v4 achieved silhouette variety but all 14 topologies were machine-construction-grammar (rails, hulls, booms, tracks). v5 replaces 11 of 14 with different substrate families so mechanical entities are ~21% of the population.
+**Game.tsx wiring:**
+- Line ~927 (normal mode spawn): `value = pickDiverseSeed(); registerSpawn(getMorphSig(value));`
+- Line ~983 (VS NPC mode spawn): IIFE inlines the same calls
+- Import added: `import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';`
+
+### Console validation
+`validateDistribution(256)` — checks maxTopoFrac ≤14%, ≥4 unique body-plans
+`runSilhouetteDiversityTest(ctx, w, h)` — visual grid of silhouettes with family+body-plan labels
+
+**Why:** v5 achieved substrate variety but all 5 body-plans within each topology were effectively scale/color variants of the same construction grammar. v6 gives each topology 5 genuinely distinct anatomies (3 pure + 1 cross-lineage hybrid + 1 de novo innovation), and the spawn gate now actually runs in-game (v5 gate was dead code).

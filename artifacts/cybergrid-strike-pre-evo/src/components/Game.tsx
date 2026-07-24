@@ -37,6 +37,7 @@ import {
   playShot, playHit, playScore, playGameOver,
   playMove, playAutoToggle, playCardReady, playAbility,
 } from '../game/audio';
+import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 
@@ -924,7 +925,8 @@ export default function Game() {
       const row = Math.floor(Math.random() * 3);
       const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
       const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
-      const value = Math.floor(Math.random() * 255) + 1;
+      const value = pickDiverseSeed();
+      registerSpawn(getMorphSig(value));
       s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0, value });
     }
 
@@ -980,7 +982,7 @@ export default function Game() {
                 speed: 1.15 + Math.random() * 0.5,
                 hp: 1,
                 flash: 0,
-                value: Math.floor(Math.random() * 255) + 1,
+                value: (() => { const v = pickDiverseSeed(); registerSpawn(getMorphSig(v)); return v; })(),
               });
             }
             // Record kill for CGRD reward
