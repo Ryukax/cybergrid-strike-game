@@ -1,1340 +1,549 @@
 /**
- * Virus Morphology Encoding Standard v1 — with Universal Archetype Interpretation
+ * CyberGrid Strike — Entity Morphology v4
  *
- * Pipeline:
- *   Virus Integer
- *     → Numerical Morphology   (lobes, spikes, notches, class)
- *     → Geometric Constraints  (radius, symmetry, structure)
- *     → Archetype Profile      (primary + secondary archetype + structural levels)
- *     → Nearest Physical Model (rendered overlay interpretation)
- *     → Final Coherent Virus
+ * TOPOLOGY-FIRST design: topology selected from n before any other property.
+ * 14 topology families — each has its own construction grammar.
  *
- * The numerical morphology is authoritative. The archetype system interprets it,
- * never replaces it. Every integer always produces the same profile and appearance.
+ *   T0  MONOCOQUE        — single smooth pressure hull
+ *   T1  CHASSIS_FRAME    — exposed rails + cross-members, no skin
+ *   T2  MULTI_HULL       — two separate hulls + bridge
+ *   T3  POD_CLUSTER      — 4-5 pods, no center mass
+ *   T4  SEGMENTED_CHAIN  — beaded capsule spine
+ *   T5  EXOSKELETON      — ribs extend beyond soft inner body
+ *   T6  WALKER_FRAME     — legs first, body elevated
+ *   T7  CRAWLER_BED      — wide tracks >> hull
+ *   T8  RING_STRUCTURE   — annular form, hollow center
+ *   T9  BOOM_FRAME       — tiny body, long booms
+ *   T10 SHELL_CORE       — polygonal shell + mismatched inner core
+ *   T11 DISTRIBUTED_NODE — equal-weight node network
+ *   T12 WING_BODY        — wings are primary mass
+ *   T13 ASYMMETRIC       — deliberate imbalance, no symmetry axis
+ *
+ * All legacy exports preserved with identical signatures.
  */
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 1  Types
-// ═══════════════════════════════════════════════════════════════════════════════
 
 export type VirusClass =
-  | 'prime'
-  | 'power-of-two'
-  | 'perfect-square'
-  | 'even-composite'
-  | 'odd-composite';
+  | 'prime' | 'power-of-two' | 'perfect-square' | 'even-composite' | 'odd-composite';
 
 export type VirusArchetype =
-  | 'biological'
-  | 'humanoid'
-  | 'animal'
-  | 'insectoid'
-  | 'mechanical'
-  | 'armored'
-  | 'crystalline'
-  | 'mineral'
-  | 'plant'
-  | 'synthetic'
-  | 'robotic'
-  | 'amorphous'
-  | 'geometric'
-  | 'energy'
-  | 'cybernetic'
-  | 'skeletal'
-  | 'fluid';
+  | 'biological' | 'humanoid' | 'animal' | 'insectoid' | 'mechanical'
+  | 'armored' | 'crystalline' | 'mineral' | 'plant' | 'synthetic'
+  | 'robotic' | 'amorphous' | 'geometric' | 'energy' | 'cybernetic'
+  | 'skeletal' | 'fluid';
 
-/**
- * Full model profile derived deterministically from a virus integer.
- * Structural levels are all in [0, 1].
- */
 export interface VirusModelProfile {
-  primaryArchetype:   VirusArchetype;
-  secondaryArchetype: VirusArchetype;
-  primaryWeight:   number; // 0.6–1.0
-  secondaryWeight: number; // 1 − primaryWeight
-  structureLevel:    number; // rigid (1) ↔ loose/amorphous (0)
-  symmetryLevel:     number; // radially symmetric (1) ↔ asymmetric (0)
-  armorLevel:        number;
-  organicLevel:      number;
-  mechanicalLevel:   number;
-  crystallineLevel:  number;
-  energyLevel:       number;
+  primaryArchetype: VirusArchetype; secondaryArchetype: VirusArchetype;
+  primaryWeight: number; secondaryWeight: number;
+  structureLevel: number; symmetryLevel: number; armorLevel: number;
+  organicLevel: number; mechanicalLevel: number; crystallineLevel: number; energyLevel: number;
 }
-
-/**
- * Discrete model family definition — used when image/3-D assets are introduced.
- * Unused at render time for now; included so the architecture supports it.
- */
 export interface VirusVisualModel {
-  id: string;
-  archetypes: VirusArchetype[];
+  id: string; archetypes: VirusArchetype[];
   compatibleFeatures: {
-    minLobes?:      number;
-    maxLobes?:      number;
-    symmetryRange?: [number, number];
-    armorRange?:    [number, number];
+    minLobes?: number; maxLobes?: number;
+    symmetryRange?: [number, number]; armorRange?: [number, number];
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 2  Deterministic hash utility
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Maps (value, salt) → [0, 1) deterministically.
- * Same inputs always produce the same output. No RNG at render time.
- */
-function normalizedHash(value: number, salt: number): number {
-  const x = Math.sin(value * 12.9898 + salt * 78.233) * 43758.5453;
+// §1  Deterministic hash
+function nh(n: number, salt: number): number {
+  const x = Math.sin(n * 12.9898 + salt * 78.233 + salt * salt * 0.00371) * 43758.5453;
   return x - Math.floor(x);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 3  Archetype profile generation
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const ARCHETYPES: VirusArchetype[] = [
-  'biological', 'humanoid', 'animal',   'insectoid',  'mechanical',
-  'armored',    'crystalline', 'mineral', 'plant',     'synthetic',
-  'robotic',    'amorphous',  'geometric', 'energy',   'cybernetic',
-  'skeletal',   'fluid',
-];
-
-export function getVirusModelProfile(value: number): VirusModelProfile {
-  const primaryIndex   = Math.floor(normalizedHash(value, 1) * ARCHETYPES.length);
-  let secondaryIndex   = Math.floor(normalizedHash(value, 2) * ARCHETYPES.length);
-  if (secondaryIndex === primaryIndex) secondaryIndex = (secondaryIndex + 1) % ARCHETYPES.length;
-
-  const primaryWeight   = 0.6 + normalizedHash(value, 3) * 0.4;
-  const secondaryWeight = 1 - primaryWeight;
-
-  return {
-    primaryArchetype:   ARCHETYPES[primaryIndex],
-    secondaryArchetype: ARCHETYPES[secondaryIndex],
-    primaryWeight,
-    secondaryWeight,
-    structureLevel:   normalizedHash(value,  4),
-    symmetryLevel:    normalizedHash(value,  5),
-    armorLevel:       normalizedHash(value,  6),
-    organicLevel:     normalizedHash(value,  7),
-    mechanicalLevel:  normalizedHash(value,  8),
-    crystallineLevel: normalizedHash(value,  9),
-    energyLevel:      normalizedHash(value, 10),
-  };
-}
-
-/**
- * Weighted compatibility score for matching a profile to a VirusVisualModel.
- * Lower = better match.
- */
-export function getCompatibilityScore(
-  profile: VirusModelProfile,
-  model: VirusVisualModel,
-  lobes: number,
-  symmetryLevel: number,
-): number {
-  const archetypeMatch  = model.archetypes.includes(profile.primaryArchetype) ? 1 :
-                          model.archetypes.includes(profile.secondaryArchetype) ? 0.5 : 0;
-  const normalizedLobes = (lobes - 3) / 5; // 0–1
-  const minL = model.compatibleFeatures.minLobes ?? 3;
-  const maxL = model.compatibleFeatures.maxLobes ?? 8;
-  const geometryMatch   = lobes >= minL && lobes <= maxL ? 1 : 0;
-  const [sMin, sMax]    = model.compatibleFeatures.symmetryRange ?? [0, 1];
-  const symmetryMatch   = symmetryLevel >= sMin && symmetryLevel <= sMax ? 1 : 0;
-  void normalizedLobes;
-  return archetypeMatch * 0.40 + geometryMatch * 0.25 + symmetryMatch * 0.15;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 4  Number theory helpers
-// ═══════════════════════════════════════════════════════════════════════════════
-
+// §2  Number theory
 export function isPrime(n: number): boolean {
-  if (n < 2) return false;
-  if (n === 2) return true;
-  if (n % 2 === 0) return false;
+  if (n < 2) return false; if (n === 2) return true; if (n % 2 === 0) return false;
   for (let i = 3; i * i <= n; i += 2) if (n % i === 0) return false;
   return true;
 }
-
-export function isPerfectSquare(n: number): boolean {
-  const s = Math.round(Math.sqrt(n));
-  return s * s === n;
-}
-
-export function isPowerOfTwo(n: number): boolean {
-  return n > 0 && (n & (n - 1)) === 0;
-}
-
+export function isPerfectSquare(n: number): boolean { const s = Math.round(Math.sqrt(n)); return s * s === n; }
+export function isPowerOfTwo(n: number): boolean { return n > 0 && (n & (n - 1)) === 0; }
 export function getVirusClass(n: number): VirusClass {
-  if (isPrime(n))         return 'prime';
-  if (isPowerOfTwo(n))    return 'power-of-two';
+  if (isPrime(n)) return 'prime';
+  if (isPowerOfTwo(n)) return 'power-of-two';
   if (isPerfectSquare(n)) return 'perfect-square';
-  if (n % 2 === 0)        return 'even-composite';
+  if (n % 2 === 0) return 'even-composite';
   return 'odd-composite';
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 5  Morphology parameters
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** L = 3 + (n mod 6) → 3–8 outer lobes */
 export function getVirusLobes(n: number): number { return 3 + (n % 6); }
-
-/** R = R₀ + k·log₂(n+1) */
-export function getVirusRadius(n: number, R0: number, k: number): number {
-  return R0 + k * Math.log2(n + 1);
-}
-
-/** 8-bit binary shell: bit_i=1 → spike, bit_i=0 → notch */
 export function getVirusSpikes(n: number): boolean[] {
   return Array.from({ length: 8 }, (_, i) => Boolean((n >> i) & 1));
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 6  Color palette  (class-based; archetype modifies interpretation, not hue)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const CLASS_FILL: Record<VirusClass, string> = {
-  'prime':          '#e879f9',
-  'power-of-two':   '#22d3ee',
-  'perfect-square': '#fbbf24',
-  'even-composite': '#fb7185',
-  'odd-composite':  '#fb923c',
+// §3  Colours
+const FILL_C: Record<VirusClass, string> = {
+  prime: '#e879f9', 'power-of-two': '#22d3ee', 'perfect-square': '#fbbf24',
+  'even-composite': '#fb7185', 'odd-composite': '#fb923c',
 };
-const CLASS_FLASH: Record<VirusClass, string> = {
-  'prime':          '#fae8ff',
-  'power-of-two':   '#ecfeff',
-  'perfect-square': '#fef9c3',
-  'even-composite': '#fff1f2',
-  'odd-composite':  '#fff7ed',
+const FLASH_C: Record<VirusClass, string> = {
+  prime: '#fae8ff', 'power-of-two': '#ecfeff', 'perfect-square': '#fef9c3',
+  'even-composite': '#fff1f2', 'odd-composite': '#fff7ed',
 };
-const CLASS_GLOW: Record<VirusClass, string> = {
-  'prime':          'rgba(232,121,249,0.55)',
-  'power-of-two':   'rgba(34,211,238,0.55)',
-  'perfect-square': 'rgba(251,191,36,0.55)',
-  'even-composite': 'rgba(251,113,133,0.45)',
-  'odd-composite':  'rgba(251,146,60,0.50)',
+const GLOW_C: Record<VirusClass, string> = {
+  prime: 'rgba(232,121,249,0.55)', 'power-of-two': 'rgba(34,211,238,0.55)',
+  'perfect-square': 'rgba(251,191,36,0.55)', 'even-composite': 'rgba(251,113,133,0.45)',
+  'odd-composite': 'rgba(251,146,60,0.50)',
 };
-
 export function getVirusColors(n: number, flash: boolean): { fill: string; glow: string } {
   const cls = getVirusClass(n);
-  return { fill: flash ? CLASS_FLASH[cls] : CLASS_FILL[cls], glow: CLASS_GLOW[cls] };
+  return { fill: flash ? FLASH_C[cls] : FILL_C[cls], glow: GLOW_C[cls] };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 7  Chassis silhouettes
-//
-//  8 chassis templates derived from n % 8.  Curves are used selectively:
-//   • Organic/biological chassis (CRAWLER, STALKER, BRUISER, STRIKER) use
-//     quadratic / bezier curves for shell contours, belly membranes, and
-//     muscle-like transitions.
-//   • Mechanical chassis (WEDGE, TANK, ARTILLERY, SPECTER) keep hard polygon
-//     edges to communicate armor, weapons, and rigid structure.
-//  No rose curves, no radial oscillators, no universal blobs.
-//  All shapes face LEFT (direction of travel toward the player).
-// ═══════════════════════════════════════════════════════════════════════════════
+// §4  Topology
+const N_TOPO = 14;
+export function getTopology(n: number): number {
+  return Math.min(N_TOPO - 1, Math.floor(nh(n, 0xBEEF) * N_TOPO));
+}
+const TV = (n: number) => Math.floor(nh(n, 0xCAFE) * 3);
 
-// ── Distribution ──────────────────────────────────────────────────────────────
-const CHASSIS_SEQ = [0, 4, 1, 5, 2, 7, 4, 3, 1, 6, 5, 7] as const;
+// §5  Drawing primitives
+type Ctx = CanvasRenderingContext2D;
+type P2 = [number, number];
 
-/** Returns chassis index 0–7 from n. */
-function getChassisType(n: number): number {
-  return CHASSIS_SEQ[n % CHASSIS_SEQ.length];
+function fpoly(ctx: Ctx, pts: P2[], f: string, g: string, a: number, blur = 6): void {
+  if (pts.length < 2) return;
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = f; ctx.shadowColor = g; ctx.shadowBlur = blur;
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 0.75; ctx.stroke(); ctx.restore();
+}
+function fell(ctx: Ctx, x: number, y: number, rx: number, ry: number, f: string, g: string, a: number, blur = 5): void {
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = f; ctx.shadowColor = g; ctx.shadowBlur = blur;
+  ctx.beginPath(); ctx.ellipse(x, y, Math.max(rx, 0.5), Math.max(ry, 0.5), 0, 0, Math.PI * 2);
+  ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 0.75; ctx.stroke(); ctx.restore();
+}
+function fcirc(ctx: Ctx, x: number, y: number, r: number, f: string, g: string, a: number): void {
+  fell(ctx, x, y, r, r, f, g, a);
+}
+function frect(ctx: Ctx, x: number, y: number, w: number, h: number, f: string, g: string, a: number): void {
+  ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = f; ctx.shadowColor = g; ctx.shadowBlur = 5;
+  ctx.fillRect(x, y, w, h); ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 0.75; ctx.strokeRect(x, y, w, h); ctx.restore();
+}
+function sline(ctx: Ctx, x1: number, y1: number, x2: number, y2: number, col: string, a: number, lw = 1.2): void {
+  ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
+}
+function gun(ctx: Ctx, bx: number, by: number, len: number, thick: number, f: string, g: string, a: number): void {
+  frect(ctx, bx - len, by - thick, len, thick * 2, f, g, a + 0.04);
+  fcirc(ctx, bx - len, by, thick * 0.8, f, g, a + 0.06);
 }
 
-function getChassisVariant(n: number): number {
-  return (Math.floor(n / CHASSIS_SEQ.length) + Math.floor((n % CHASSIS_SEQ.length) / 4)) % 3;
-}
+// §6  14 topology drawers
 
-function buildChassisPath(
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number,
-  n: number, R: number,
-): void {
-  const chassis = getChassisType(n);
+// T0 MONOCOQUE
+function drawT0(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v = TV(n), L = [2.20,1.85,2.55][v], H = [0.44,0.56,0.36][v];
+  ctx.save(); ctx.globalAlpha=A; ctx.fillStyle=f; ctx.shadowColor=g; ctx.shadowBlur=8;
   ctx.beginPath();
-
-  switch (chassis) {
-
-    case 0: // WEDGE — true wide delta wing
-      ctx.moveTo(cx - R * 0.52, cy);
-      ctx.lineTo(cx - R * 0.02, cy - R * 2.05);
-      ctx.lineTo(cx + R * 1.05, cy - R * 0.12);
-      ctx.lineTo(cx + R * 1.05, cy + R * 0.12);
-      ctx.lineTo(cx - R * 0.02, cy + R * 2.05);
-      break;
-
-    case 1: // STRIKER — D-lobe asymmetric
-      ctx.moveTo(cx - R * 0.82, cy + R * 0.24);
-      ctx.bezierCurveTo(cx - R * 1.10, cy + R * 0.10, cx - R * 1.10, cy - R * 0.10, cx - R * 0.82, cy - R * 0.24);
-      ctx.bezierCurveTo(cx - R * 0.40, cy - R * 1.55, cx + R * 0.55, cy - R * 1.52, cx + R * 0.90, cy - R * 0.35);
-      ctx.lineTo(cx + R * 0.90, cy + R * 0.24);
-      break;
-
-    case 2: // TANK — compact hexagonal shell
-      ctx.moveTo(cx - R * 0.85, cy);
-      ctx.lineTo(cx - R * 0.45, cy - R * 0.95);
-      ctx.lineTo(cx + R * 0.45, cy - R * 0.95);
-      ctx.lineTo(cx + R * 0.85, cy);
-      ctx.lineTo(cx + R * 0.45, cy + R * 0.95);
-      ctx.lineTo(cx - R * 0.45, cy + R * 0.95);
-      break;
-
-    case 3: // ARTILLERY — radial 3-spoke
-      ctx.moveTo(cx,             cy - R * 0.42);
-      ctx.lineTo(cx + R * 0.36, cy - R * 0.21);
-      ctx.lineTo(cx + R * 0.36, cy + R * 0.21);
-      ctx.lineTo(cx,             cy + R * 0.42);
-      ctx.lineTo(cx - R * 0.36, cy + R * 0.21);
-      ctx.lineTo(cx - R * 0.36, cy - R * 0.21);
-      break;
-
-    case 4: // CRAWLER — thin boomerang crescent
-      ctx.moveTo(cx - R * 0.68, cy - R * 1.08);
-      ctx.bezierCurveTo(cx + R * 0.05, cy - R * 1.58, cx + R * 1.55, cy - R * 0.62, cx + R * 1.55, cy);
-      ctx.bezierCurveTo(cx + R * 1.55, cy + R * 0.62, cx + R * 0.05, cy + R * 1.58, cx - R * 0.68, cy + R * 1.08);
-      ctx.bezierCurveTo(cx - R * 0.30, cy + R * 0.88, cx + R * 0.55, cy + R * 0.56, cx + R * 0.98, cy);
-      ctx.bezierCurveTo(cx + R * 0.55, cy - R * 0.56, cx - R * 0.30, cy - R * 0.88, cx - R * 0.68, cy - R * 1.08);
-      break;
-
-    case 5: // BRUISER — segmented chain front thorax
-      ctx.moveTo(cx - R * 0.65, cy - R * 0.72);
-      ctx.lineTo(cx + R * 0.62, cy - R * 0.72);
-      ctx.lineTo(cx + R * 0.80, cy);
-      ctx.lineTo(cx + R * 0.62, cy + R * 0.72);
-      ctx.lineTo(cx - R * 0.65, cy + R * 0.72);
-      ctx.quadraticCurveTo(cx - R * 1.12, cy, cx - R * 0.65, cy - R * 0.72);
-      break;
-
-    case 6: // SPECTER — asymmetric dendritic crystal; diamond node
-      ctx.moveTo(cx,             cy - R * 0.52);
-      ctx.lineTo(cx + R * 0.50, cy);
-      ctx.lineTo(cx,             cy + R * 0.52);
-      ctx.lineTo(cx - R * 0.50, cy);
-      break;
-
-    default: // STALKER (7) — elongated spine; horizontal rod
-      ctx.moveTo(cx - R * 1.15, cy - R * 0.30);
-      ctx.lineTo(cx - R * 1.15, cy + R * 0.30);
-      ctx.lineTo(cx + R * 1.35, cy + R * 0.18);
-      ctx.lineTo(cx + R * 1.52, cy);
-      ctx.lineTo(cx + R * 1.35, cy - R * 0.18);
-      break;
-  }
-
-  ctx.closePath();
+  ctx.moveTo(cx-L*R,cy);
+  ctx.bezierCurveTo(cx-L*R,cy-H*R*0.5,cx-H*R*1.5,cy-H*R,cx,cy-H*R);
+  ctx.bezierCurveTo(cx+H*R*2.0,cy-H*R,cx+L*R*0.88,cy-H*R*0.35,cx+L*R,cy);
+  ctx.bezierCurveTo(cx+L*R*0.88,cy+H*R*0.35,cx+H*R*2.0,cy+H*R,cx,cy+H*R);
+  ctx.bezierCurveTo(cx-H*R*1.5,cy+H*R,cx-L*R,cy+H*R*0.5,cx-L*R,cy);
+  ctx.closePath(); ctx.fill(); ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.20)'; ctx.lineWidth=0.9; ctx.stroke(); ctx.restore();
+  ctx.save(); ctx.globalAlpha=0.22; ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=0.6;
+  for (let i=1;i<=4;i++){const rx=cx-L*R+i*(L*2*R/5);const hx=H*R*(1-Math.abs(rx-cx)/(L*R))*0.95;ctx.beginPath();ctx.moveTo(rx,cy-hx);ctx.lineTo(rx,cy+hx);ctx.stroke();}
+  ctx.restore();
+  gun(ctx,cx-L*R,cy,R*(0.50+nh(n,7)*0.35),R*0.065,f,g,A);
+  const nN=v===1?3:2;
+  for (let i=0;i<nN;i++){const ny=cy+(i-(nN-1)/2)*R*0.28;fpoly(ctx,[[cx+L*R,ny-R*0.07],[cx+L*R+R*0.28,ny-R*0.12],[cx+L*R+R*0.28,ny+R*0.12],[cx+L*R,ny+R*0.07]],f,g,A-0.16,3);}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 7b  Secondary anatomy — elaborated hierarchical build
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function drawChassisSecondary(
-  ctx:   CanvasRenderingContext2D,
-  cx: number, cy: number,
-  n:     number, R: number,
-  fill:  string,
-  glow:  string,
-  flash: boolean,
-): void {
-  const chassis = getChassisType(n);
-  ctx.save();
-
-  const sep  = flash ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.22)';
-  const blur = flash ? 3 : 7;
-
-  const poly = (pts: [number, number][], alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle   = fill;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur  = blur;
-    ctx.beginPath();
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur  = 0;
-    ctx.strokeStyle = sep;
-    ctx.lineWidth   = 0.9;
-    ctx.stroke();
-  };
-
-  const curved = (pathFn: () => void, alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle   = fill;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur  = blur;
-    ctx.beginPath();
-    pathFn();
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur  = 0;
-    ctx.strokeStyle = sep;
-    ctx.lineWidth   = 0.9;
-    ctx.stroke();
-  };
-
-  const circ = (x: number, y: number, r: number, alpha: number) => {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle   = fill;
-    ctx.shadowColor = glow;
-    ctx.shadowBlur  = blur;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur  = 0;
-    ctx.strokeStyle = sep;
-    ctx.lineWidth   = 0.8;
-    ctx.stroke();
-  };
-
-  switch (chassis) {
-
-    // ── 0  WEDGE ─────────────────────────────────────────────────────────────
-    case 0: {
-      poly([[cx-R*0.02,cy-R*2.05],[cx-R*0.55,cy-R*2.82],[cx+R*0.10,cy-R*3.05],[cx+R*0.68,cy-R*2.75],[cx+R*0.56,cy-R*2.02],[cx+R*0.22,cy-R*1.95]], 0.76);
-      poly([[cx-R*0.02,cy+R*2.05],[cx-R*0.55,cy+R*2.82],[cx+R*0.10,cy+R*3.05],[cx+R*0.68,cy+R*2.75],[cx+R*0.56,cy+R*2.02],[cx+R*0.22,cy+R*1.95]], 0.76);
-      poly([[cx-R*0.52,cy-R*0.08],[cx-R*0.52,cy+R*0.08],[cx+R*0.30,cy+R*0.06],[cx+R*1.05,cy+R*0.12],[cx+R*1.05,cy-R*0.12],[cx+R*0.30,cy-R*0.06]], 0.70);
-      poly([[cx+R*0.55,cy-R*0.12],[cx+R*1.05,cy-R*0.12],[cx+R*1.58,cy-R*0.98],[cx+R*1.22,cy-R*1.06],[cx+R*0.80,cy-R*0.40]], 0.72);
-      poly([[cx+R*0.55,cy+R*0.12],[cx+R*1.05,cy+R*0.12],[cx+R*1.58,cy+R*0.98],[cx+R*1.22,cy+R*1.06],[cx+R*0.80,cy+R*0.40]], 0.72);
-      for (const side of [-1, 1] as const) {
-        for (let i = 0; i < 2; i++) {
-          const sf = 0.38 + i * 0.40;
-          const wx = cx + R*sf*0.30; const wy = cy + side * R*2.05*sf;
-          poly([[wx-R*0.05,wy-side*R*0.04],[wx+R*0.05,wy-side*R*0.04],[wx+R*0.08,wy+side*R*0.28],[wx-R*0.08,wy+side*R*0.28]], 0.65);
-          poly([[wx-R*0.14,wy+side*R*0.26],[wx+R*0.14,wy+side*R*0.26],[wx+R*0.16,wy+side*R*0.50],[wx+R*0.06,wy+side*R*0.60],[wx-R*0.06,wy+side*R*0.60],[wx-R*0.16,wy+side*R*0.50]], 0.70);
-        }
-      }
-      poly([[cx-R*0.52,cy-R*0.06],[cx-R*0.52,cy+R*0.06],[cx-R*1.22,cy+R*0.04],[cx-R*1.58,cy],[cx-R*1.22,cy-R*0.04]], 0.82);
-      poly([[cx-R*1.58,cy-R*0.04],[cx-R*1.58,cy+R*0.04],[cx-R*2.05,cy]], 0.88);
-      for (const side of [-1, 1] as const) {
-        curved(() => {
-          ctx.moveTo(cx+R*0.15, cy+side*R*0.95);
-          ctx.bezierCurveTo(cx-R*0.05,cy+side*R*0.78, cx-R*0.05,cy+side*R*0.62, cx+R*0.15,cy+side*R*0.50);
-          ctx.lineTo(cx+R*0.46, cy+side*R*0.52);
-          ctx.bezierCurveTo(cx+R*0.26,cy+side*R*0.65, cx+R*0.26,cy+side*R*0.80, cx+R*0.46,cy+side*R*0.95);
-        }, 0.60);
-      }
-      break;
-    }
-
-    // ── 1  STRIKER ────────────────────────────────────────────────────────────
-    case 1: {
-      const v = getChassisVariant(n);
-      if (v === 0) {
-        curved(() => {
-          ctx.moveTo(cx-R*.28,cy-R*1.38);
-          ctx.bezierCurveTo(cx-R*.58,cy-R*1.82,cx-R*.52,cy-R*2.28,cx-R*.15,cy-R*2.32);
-          ctx.bezierCurveTo(cx+R*.18,cy-R*2.12,cx+R*.35,cy-R*1.68,cx+R*.28,cy-R*1.38);
-          ctx.quadraticCurveTo(cx,cy-R*1.50,cx-R*.28,cy-R*1.38);
-        }, 0.74);
-        poly([[cx-R*.42,cy-R*1.32],[cx+R*.40,cy-R*1.32],[cx+R*.32,cy-R*1.58],[cx-R*.34,cy-R*1.58]], 0.68);
-        curved(() => {
-          ctx.moveTo(cx-R*.82,cy-R*.24);
-          ctx.bezierCurveTo(cx-R*1.12,cy-R*.42,cx-R*1.52,cy-R*1.08,cx-R*1.22,cy-R*1.58);
-          ctx.bezierCurveTo(cx-R*.88,cy-R*1.62,cx-R*.62,cy-R*1.28,cx-R*.52,cy-R*.82);
-          ctx.quadraticCurveTo(cx-R*.62,cy-R*.42,cx-R*.82,cy-R*.24);
-        }, 0.68);
-        curved(() => {
-          ctx.moveTo(cx-R*1.10,cy-R*1.25);
-          ctx.bezierCurveTo(cx-R*1.35,cy-R*1.45,cx-R*1.28,cy-R*1.88,cx-R*.98,cy-R*1.92);
-          ctx.bezierCurveTo(cx-R*.72,cy-R*1.78,cx-R*.75,cy-R*1.48,cx-R*.90,cy-R*1.30);
-        }, 0.55);
-        poly([[cx+R*.90,cy-R*.35],[cx+R*1.18,cy-R*.28],[cx+R*1.32,cy-R*.88],[cx+R*1.05,cy-R*.95]], 0.72);
-        poly([[cx+R*.90,cy-R*.35],[cx+R*1.10,cy-R*.30],[cx+R*1.18,cy-R*.62],[cx+R*1.00,cy-R*.64]], 0.56);
-        poly([[cx-R*.08,cy-R*1.02],[cx+R*.12,cy-R*.98],[cx+R*.22,cy-R*1.25],[cx+R*.02,cy-R*1.30]], 0.60);
-        poly([[cx+R*.30,cy-R*.70],[cx+R*.50,cy-R*.66],[cx+R*.58,cy-R*.92],[cx+R*.38,cy-R*.96]], 0.56);
-        poly([[cx+R*.60,cy-R*.38],[cx+R*.78,cy-R*.34],[cx+R*.84,cy-R*.58],[cx+R*.64,cy-R*.62]], 0.52);
-        poly([[cx-R*.82,cy+R*.28],[cx+R*.90,cy+R*.32],[cx+R*.90,cy+R*.52],[cx+R*.18,cy+R*.56],[cx-R*.62,cy+R*.46]], 0.48);
-        circ(cx-R*1.28,cy-R*1.30,R*0.10,0.72);
-      } else if (v === 1) {
-        curved(() => {
-          ctx.moveTo(cx-R*.52,cy-R*1.22);
-          ctx.bezierCurveTo(cx-R*.72,cy-R*1.58,cx-R*.20,cy-R*1.98,cx+R*.35,cy-R*1.80);
-          ctx.bezierCurveTo(cx+R*.65,cy-R*1.55,cx+R*.62,cy-R*1.20,cx+R*.48,cy-R*1.18);
-          ctx.quadraticCurveTo(cx+R*.05,cy-R*1.32,cx-R*.52,cy-R*1.22);
-        }, 0.74);
-        poly([[cx+R*.48,cy-R*1.18],[cx+R*.64,cy-R*1.20],[cx+R*.86,cy-R*1.82],[cx+R*.70,cy-R*1.88]], 0.68);
-        poly([[cx+R*.42,cy-R*1.15],[cx+R*.56,cy-R*1.18],[cx+R*.74,cy-R*1.72],[cx+R*.60,cy-R*1.78]], 0.60);
-        poly([[cx+R*.35,cy-R*1.14],[cx+R*.48,cy-R*1.16],[cx+R*.60,cy-R*1.55],[cx+R*.48,cy-R*1.60]], 0.52);
-        curved(() => {
-          ctx.moveTo(cx-R*.82,cy-R*.24);
-          ctx.bezierCurveTo(cx-R*1.08,cy-R*.38,cx-R*1.40,cy-R*.80,cx-R*1.12,cy-R*1.25);
-          ctx.bezierCurveTo(cx-R*.88,cy-R*1.30,cx-R*.68,cy-R*1.00,cx-R*.58,cy-R*.68);
-          ctx.quadraticCurveTo(cx-R*.66,cy-R*.38,cx-R*.82,cy-R*.24);
-        }, 0.68);
-        poly([[cx-R*1.05,cy-R*1.00],[cx-R*.95,cy-R*1.18],[cx-R*1.40,cy-R*1.55],[cx-R*1.52,cy-R*1.42]], 0.65);
-        poly([[cx+R*.90,cy-R*.35],[cx+R*1.12,cy-R*.30],[cx+R*1.22,cy-R*.82],[cx+R*1.02,cy-R*.85]], 0.72);
-        poly([[cx+R*.90,cy-R*.35],[cx+R*1.20,cy-R*.28],[cx+R*1.35,cy-R*.58],[cx+R*1.12,cy-R*.62]], 0.60);
-        poly([[cx-R*.10,cy-R*.98],[cx+R*.08,cy-R*.94],[cx+R*.16,cy-R*1.16],[cx-R*.02,cy-R*1.22]], 0.55);
-        poly([[cx+R*.22,cy-R*.72],[cx+R*.40,cy-R*.68],[cx+R*.48,cy-R*.88],[cx+R*.30,cy-R*.92]], 0.50);
-        poly([[cx-R*.82,cy+R*.22],[cx+R*.90,cy+R*.24],[cx+R*.90,cy+R*.45],[cx+R*.15,cy+R*.55],[cx-R*.62,cy+R*.42]], 0.52);
-        circ(cx-R*1.10,cy-R*1.12,R*0.10,0.70);
-      } else {
-        curved(() => {
-          ctx.moveTo(cx-R*.30,cy-R*1.35);
-          ctx.bezierCurveTo(cx-R*.52,cy-R*1.78,cx-R*.42,cy-R*2.22,cx-R*.12,cy-R*2.24);
-          ctx.bezierCurveTo(cx+R*.10,cy-R*2.08,cx+R*.20,cy-R*1.72,cx+R*.08,cy-R*1.38);
-          ctx.quadraticCurveTo(cx-R*.10,cy-R*1.42,cx-R*.30,cy-R*1.35);
-        }, 0.74);
-        curved(() => {
-          ctx.moveTo(cx-R*.42,cy-R*1.82);
-          ctx.bezierCurveTo(cx-R*.62,cy-R*2.02,cx-R*.82,cy-R*2.35,cx-R*.60,cy-R*2.52);
-          ctx.bezierCurveTo(cx-R*.38,cy-R*2.48,cx-R*.28,cy-R*2.18,cx-R*.28,cy-R*1.92);
-        }, 0.58);
-        curved(() => {
-          ctx.moveTo(cx+R*.18,cy-R*1.25);
-          ctx.bezierCurveTo(cx+R*.05,cy-R*1.48,cx+R*.18,cy-R*1.88,cx+R*.50,cy-R*1.85);
-          ctx.bezierCurveTo(cx+R*.75,cy-R*1.68,cx+R*.75,cy-R*1.38,cx+R*.52,cy-R*1.25);
-          ctx.quadraticCurveTo(cx+R*.35,cy-R*1.22,cx+R*.18,cy-R*1.25);
-        }, 0.68);
-        curved(() => {
-          ctx.moveTo(cx-R*.82,cy-R*.24);
-          ctx.bezierCurveTo(cx-R*1.05,cy-R*.55,cx-R*1.62,cy-R*.95,cx-R*1.52,cy-R*1.45);
-          ctx.bezierCurveTo(cx-R*1.22,cy-R*1.60,cx-R*.88,cy-R*1.28,cx-R*.68,cy-R*.85);
-          ctx.quadraticCurveTo(cx-R*.72,cy-R*.45,cx-R*.82,cy-R*.24);
-        }, 0.68);
-        poly([[cx-R*1.48,cy-R*1.20],[cx-R*1.38,cy-R*1.38],[cx-R*1.72,cy-R*1.68],[cx-R*1.84,cy-R*1.52]], 0.62);
-        poly([[cx-R*1.35,cy-R*.90],[cx-R*1.25,cy-R*1.08],[cx-R*1.58,cy-R*1.30],[cx-R*1.68,cy-R*1.15]], 0.55);
-        curved(() => {
-          ctx.moveTo(cx-R*.65,cy-R*.58);
-          ctx.bezierCurveTo(cx-R*.80,cy-R*.75,cx-R*.95,cy-R*.95,cx-R*.82,cy-R*1.12);
-          ctx.bezierCurveTo(cx-R*.65,cy-R*1.18,cx-R*.50,cy-R*.98,cx-R*.42,cy-R*.75);
-          ctx.quadraticCurveTo(cx-R*.48,cy-R*.62,cx-R*.65,cy-R*.58);
-        }, 0.52);
-        poly([[cx-R*.05,cy-R*.95],[cx+R*.12,cy-R*.92],[cx+R*.18,cy-R*1.12],[cx+R*.02,cy-R*1.16]], 0.52);
-        circ(cx-R*1.50,cy-R*1.28,R*0.10,0.68);
-      }
-      break;
-    }
-
-    // ── 2  TANK ───────────────────────────────────────────────────────────────
-    case 2: {
-      poly([[cx-R*0.85,cy-R*0.28],[cx-R*0.85,cy+R*0.28],[cx-R*1.52,cy+R*0.56],[cx-R*2.18,cy],[cx-R*1.52,cy-R*0.56]], 0.84);
-      poly([[cx-R*2.18,cy-R*0.08],[cx-R*2.18,cy+R*0.08],[cx-R*2.75,cy+R*0.05],[cx-R*2.98,cy],[cx-R*2.75,cy-R*0.05]], 0.88);
-      poly([[cx-R*.78,cy+R*.55],[cx-R*.42,cy+R*.95],[cx-R*.88,cy+R*1.62],[cx-R*1.08,cy+R*1.50],[cx-R*1.00,cy+R*.72]], 0.76);
-      poly([[cx-R*.78,cy-R*.55],[cx-R*.42,cy-R*.95],[cx-R*.88,cy-R*1.62],[cx-R*1.08,cy-R*1.50],[cx-R*1.00,cy-R*.72]], 0.76);
-      poly([[cx-R*.88,cy+R*1.62],[cx-R*1.08,cy+R*1.50],[cx-R*1.28,cy+R*1.82],[cx-R*1.10,cy+R*1.92]], 0.82);
-      poly([[cx-R*.88,cy-R*1.62],[cx-R*1.08,cy-R*1.50],[cx-R*1.28,cy-R*1.82],[cx-R*1.10,cy-R*1.92]], 0.82);
-      poly([[cx-R*0.45,cy-R*0.95],[cx+R*0.45,cy-R*0.95],[cx+R*0.68,cy-R*1.88],[cx,cy-R*2.02],[cx-R*0.68,cy-R*1.88]], 0.72);
-      poly([[cx-R*0.28,cy-R*1.05],[cx+R*0.28,cy-R*1.05],[cx+R*0.40,cy-R*1.60],[cx,cy-R*1.72],[cx-R*0.40,cy-R*1.60]], 0.58);
-      poly([[cx-R*0.45,cy+R*0.95],[cx+R*0.45,cy+R*0.95],[cx+R*0.68,cy+R*1.88],[cx,cy+R*2.02],[cx-R*0.68,cy+R*1.88]], 0.72);
-      poly([[cx-R*0.28,cy+R*1.05],[cx+R*0.28,cy+R*1.05],[cx+R*0.40,cy+R*1.60],[cx,cy+R*1.72],[cx-R*0.40,cy+R*1.60]], 0.58);
-      poly([[cx-R*.30,cy-R*.92],[cx+R*.68,cy-R*.82],[cx+R*.85,cy-R*1.22],[cx+R*.55,cy-R*1.42],[cx-R*.18,cy-R*1.30]], 0.68);
-      poly([[cx-R*.30,cy+R*.92],[cx+R*.68,cy+R*.82],[cx+R*.85,cy+R*1.22],[cx+R*.55,cy+R*1.42],[cx-R*.18,cy+R*1.30]], 0.68);
-      poly([[cx+R*0.85,cy-R*0.22],[cx+R*0.85,cy+R*0.22],[cx+R*1.55,cy+R*0.14],[cx+R*1.72,cy],[cx+R*1.55,cy-R*0.14]], 0.70);
-      poly([[cx+R*1.55,cy-R*0.08],[cx+R*1.55,cy+R*0.08],[cx+R*2.18,cy]], 0.62);
-      circ(cx+R*0.20,cy-R*0.58,R*0.18,0.68);
-      break;
-    }
-
-    // ── 3  ARTILLERY ──────────────────────────────────────────────────────────
-    case 3: {
-      const v = getChassisVariant(n);
-      if (v === 0) {
-        curved(() => {
-          ctx.moveTo(cx-R*.36,cy-R*.28); ctx.lineTo(cx-R*.36,cy+R*.28);
-          ctx.lineTo(cx-R*2.72,cy+R*.16); ctx.arc(cx-R*2.72,cy,R*.16,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.72,cy-R*.16);
-        }, 0.82);
-        poly([[cx-R*2.72,cy-R*.22],[cx-R*2.72,cy+R*.22],[cx-R*3.00,cy+R*.16],[cx-R*3.12,cy],[cx-R*3.00,cy-R*.16]], 0.82);
-        poly([[cx-R*.36,cy+R*.30],[cx-R*.26,cy+R*.44],[cx-R*2.48,cy+R*.38],[cx-R*2.62,cy+R*.28]], 0.68);
-        poly([[cx+R*.40,cy-R*.18],[cx+R*.14,cy-R*.44],[cx+R*1.80,cy-R*1.98],[cx+R*1.92,cy-R*1.85]], 0.80);
-        poly([[cx+R*1.80,cy-R*1.98],[cx+R*1.92,cy-R*1.85],[cx+R*2.08,cy-R*2.12],[cx+R*1.96,cy-R*2.26]], 0.80);
-        poly([[cx+R*.30,cy-R*.12],[cx+R*.08,cy-R*.36],[cx+R*1.62,cy-R*1.70],[cx+R*1.72,cy-R*1.60]], 0.65);
-        poly([[cx+R*.40,cy+R*.18],[cx+R*.14,cy+R*.44],[cx+R*1.80,cy+R*1.98],[cx+R*1.92,cy+R*1.85]], 0.80);
-        poly([[cx+R*1.80,cy+R*1.98],[cx+R*1.92,cy+R*1.85],[cx+R*2.08,cy+R*2.12],[cx+R*1.96,cy+R*2.26]], 0.80);
-        poly([[cx+R*.30,cy+R*.12],[cx+R*.08,cy+R*.36],[cx+R*1.62,cy+R*1.70],[cx+R*1.72,cy+R*1.60]], 0.65);
-        poly([[cx-R*.36,cy-R*.28],[cx+R*.14,cy-R*.44],[cx,cy-R*.62],[cx-R*.30,cy-R*.46]], 0.55);
-        poly([[cx-R*.36,cy+R*.28],[cx+R*.14,cy+R*.44],[cx,cy+R*.62],[cx-R*.30,cy+R*.46]], 0.55);
-        circ(cx,cy,R*0.50,0.50);
-      } else if (v === 1) {
-        curved(() => {
-          ctx.moveTo(cx-R*.36,cy-R*.22); ctx.lineTo(cx-R*.36,cy+R*.22);
-          ctx.lineTo(cx-R*2.55,cy+R*.14); ctx.arc(cx-R*2.55,cy,R*.14,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.55,cy-R*.14);
-        }, 0.82);
-        poly([[cx-R*2.55,cy-R*.20],[cx-R*2.55,cy+R*.20],[cx-R*2.82,cy+R*.16],[cx-R*2.98,cy],[cx-R*2.82,cy-R*.16]], 0.80);
-        poly([[cx-R*.36,cy+R*.25],[cx-R*.25,cy+R*.38],[cx-R*2.38,cy+R*.32],[cx-R*2.50,cy+R*.22]], 0.65);
-        poly([[cx-R*.18,cy-R*.42],[cx+R*.18,cy-R*.42],[cx+R*.12,cy-R*2.48],[cx-R*.12,cy-R*2.48]], 0.80);
-        poly([[cx-R*.20,cy-R*2.44],[cx+R*.20,cy-R*2.44],[cx+R*.14,cy-R*2.72],[cx-R*.14,cy-R*2.72]], 0.80);
-        poly([[cx+R*.20,cy-R*.40],[cx+R*.32,cy-R*.40],[cx+R*.26,cy-R*2.30],[cx+R*.14,cy-R*2.30]], 0.65);
-        poly([[cx-R*.18,cy+R*.42],[cx+R*.18,cy+R*.42],[cx+R*.12,cy+R*2.48],[cx-R*.12,cy+R*2.48]], 0.80);
-        poly([[cx-R*.20,cy+R*2.44],[cx+R*.20,cy+R*2.44],[cx+R*.14,cy+R*2.72],[cx-R*.14,cy+R*2.72]], 0.80);
-        poly([[cx+R*.20,cy+R*.40],[cx+R*.32,cy+R*.40],[cx+R*.26,cy+R*2.30],[cx+R*.14,cy+R*2.30]], 0.65);
-        circ(cx,cy,R*0.50,0.50);
-      } else {
-        curved(() => {
-          ctx.moveTo(cx-R*.36,cy-R*.22); ctx.lineTo(cx-R*.36,cy+R*.22);
-          ctx.lineTo(cx-R*2.90,cy+R*.12); ctx.arc(cx-R*2.90,cy,R*.12,Math.PI*.5,-Math.PI*.5,true); ctx.lineTo(cx-R*2.90,cy-R*.12);
-        }, 0.82);
-        poly([[cx-R*2.90,cy-R*.18],[cx-R*2.90,cy+R*.18],[cx-R*3.12,cy+R*.14],[cx-R*3.25,cy],[cx-R*3.12,cy-R*.14]], 0.82);
-        poly([[cx-R*.36,cy+R*.25],[cx-R*.25,cy+R*.38],[cx-R*2.72,cy+R*.30],[cx-R*2.82,cy+R*.20]], 0.65);
-        poly([[cx+R*.35,cy-R*.20],[cx+R*.08,cy-R*.42],[cx+R*.90,cy-R*2.28],[cx+R*1.08,cy-R*2.12]], 0.80);
-        poly([[cx+R*.90,cy-R*2.28],[cx+R*1.08,cy-R*2.12],[cx+R*1.22,cy-R*2.38],[cx+R*1.06,cy-R*2.55]], 0.80);
-        poly([[cx+R*.24,cy-R*.12],[cx+R*.04,cy-R*.32],[cx+R*.70,cy-R*2.08],[cx+R*.84,cy-R*1.92]], 0.65);
-        poly([[cx+R*.36,cy-R*.10],[cx+R*.36,cy+R*.10],[cx+R*1.18,cy+R*.07],[cx+R*1.18,cy-R*.07]], 0.68);
-        poly([[cx+R*1.18,cy-R*.10],[cx+R*1.18,cy+R*.10],[cx+R*1.42,cy+R*.08],[cx+R*1.50,cy],[cx+R*1.42,cy-R*.08]], 0.72);
-        poly([[cx-R*.36,cy-R*.22],[cx-R*.36,cy+R*.22],[cx-R*.58,cy+R*.20],[cx-R*.58,cy-R*.20]], 0.65);
-        circ(cx,cy,R*0.50,0.50);
-      }
-      break;
-    }
-
-    // ── 4  CRAWLER ────────────────────────────────────────────────────────────
-    case 4: {
-      const v = getChassisVariant(n);
-      curved(() => {
-        ctx.moveTo(cx-R*.68,cy-R*1.08);
-        ctx.bezierCurveTo(cx-R*1.08,cy-R*.55,cx-R*1.08,cy+R*.55,cx-R*.68,cy+R*1.08);
-        ctx.bezierCurveTo(cx-R*.30,cy+R*.88,cx+R*.55,cy+R*.56,cx+R*.98,cy);
-        ctx.bezierCurveTo(cx+R*.55,cy-R*.56,cx-R*.30,cy-R*.88,cx-R*.68,cy-R*1.08);
-      }, v === 2 ? 0.42 : 0.35);
-      for (let i = 0; i < 5; i++) {
-        const t = i / 4; const angle = Math.PI*1.18 + t*Math.PI*1.64; const baseX = cx + R*0.52;
-        const ox = baseX + R*1.52*Math.cos(angle); const oy = cy + R*1.52*Math.sin(angle);
-        const mx = baseX + R*1.28*Math.cos(angle); const my = cy + R*1.28*Math.sin(angle);
-        const px = -Math.sin(angle)*R*0.22; const py = Math.cos(angle)*R*0.22;
-        poly([[mx-px*0.12,my-py*0.12],[mx+px*0.12,my+py*0.12],[ox+px*0.12,oy+py*0.12],[ox-px*0.12,oy-py*0.12]], 0.54);
-      }
-      if (v === 0) {
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy-R*1.08);
-          ctx.bezierCurveTo(cx-R*1.05,cy-R*1.20,cx-R*1.60,cy-R*.88,cx-R*2.08,cy-R*1.38);
-          ctx.lineTo(cx-R*1.82,cy-R*1.60);
-          ctx.bezierCurveTo(cx-R*1.45,cy-R*1.08,cx-R*.98,cy-R*1.30,cx-R*.82,cy-R*1.18);
-        }, 0.76);
-        poly([[cx-R*2.08,cy-R*1.38],[cx-R*1.82,cy-R*1.60],[cx-R*2.30,cy-R*1.95],[cx-R*2.52,cy-R*1.75]], 0.82);
-        poly([[cx-R*1.92,cy-R*1.48],[cx-R*1.82,cy-R*1.58],[cx-R*2.05,cy-R*1.78],[cx-R*2.15,cy-R*1.68]], 0.72);
-        poly([[cx-R*1.65,cy-R*1.32],[cx-R*1.58,cy-R*1.42],[cx-R*1.78,cy-R*1.58],[cx-R*1.85,cy-R*1.48]], 0.62);
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy+R*1.08);
-          ctx.bezierCurveTo(cx-R*1.00,cy+R*1.18,cx-R*1.45,cy+R*.82,cx-R*1.75,cy+R*1.18);
-          ctx.lineTo(cx-R*1.52,cy+R*1.38);
-          ctx.bezierCurveTo(cx-R*1.28,cy+R*.98,cx-R*.92,cy+R*1.22,cx-R*.80,cy+R*1.15);
-        }, 0.68);
-        poly([[cx-R*1.75,cy+R*1.18],[cx-R*1.52,cy+R*1.38],[cx-R*1.82,cy+R*1.62],[cx-R*2.00,cy+R*1.45]], 0.72);
-        poly([[cx-R*1.55,cy+R*1.25],[cx-R*1.45,cy+R*1.38],[cx-R*1.62,cy+R*1.52],[cx-R*1.72,cy+R*1.40]], 0.60);
-        curved(() => {
-          ctx.moveTo(cx+R*1.28,cy-R*.40);
-          ctx.bezierCurveTo(cx+R*1.62,cy-R*.54,cx+R*1.92,cy-R*.26,cx+R*1.92,cy-R*.06);
-          ctx.bezierCurveTo(cx+R*1.92,cy+R*.14,cx+R*1.62,cy+R*.38,cx+R*1.40,cy+R*.28);
-          ctx.bezierCurveTo(cx+R*1.72,cy+R*.08,cx+R*1.72,cy-R*.20,cx+R*1.42,cy-R*.32);
-        }, 0.60);
-        circ(cx+R*0.98,cy,R*0.12,0.60);
-      } else if (v === 1) {
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy-R*1.08);
-          ctx.bezierCurveTo(cx-R*1.02,cy-R*1.15,cx-R*1.52,cy-R*.82,cx-R*1.88,cy-R*1.18);
-          ctx.lineTo(cx-R*1.65,cy-R*1.38);
-          ctx.bezierCurveTo(cx-R*1.32,cy-R*.98,cx-R*.90,cy-R*1.24,cx-R*.78,cy-R*1.16);
-        }, 0.74);
-        poly([[cx-R*1.88,cy-R*1.18],[cx-R*1.65,cy-R*1.38],[cx-R*1.92,cy-R*1.62],[cx-R*2.12,cy-R*1.45]], 0.78);
-        poly([[cx-R*1.72,cy-R*1.28],[cx-R*1.65,cy-R*1.38],[cx-R*1.85,cy-R*1.55],[cx-R*1.92,cy-R*1.46]], 0.68);
-        poly([[cx-R*1.50,cy-R*1.15],[cx-R*1.42,cy-R*1.25],[cx-R*1.60,cy-R*1.40],[cx-R*1.68,cy-R*1.30]], 0.58);
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy+R*1.08);
-          ctx.bezierCurveTo(cx-R*1.02,cy+R*1.15,cx-R*1.52,cy+R*.82,cx-R*1.88,cy+R*1.18);
-          ctx.lineTo(cx-R*1.65,cy+R*1.38);
-          ctx.bezierCurveTo(cx-R*1.32,cy+R*.98,cx-R*.90,cy+R*1.24,cx-R*.78,cy+R*1.16);
-        }, 0.74);
-        poly([[cx-R*1.88,cy+R*1.18],[cx-R*1.65,cy+R*1.38],[cx-R*1.92,cy+R*1.62],[cx-R*2.12,cy+R*1.45]], 0.78);
-        poly([[cx-R*1.72,cy+R*1.28],[cx-R*1.65,cy+R*1.38],[cx-R*1.85,cy+R*1.55],[cx-R*1.92,cy+R*1.46]], 0.68);
-        poly([[cx-R*1.50,cy+R*1.15],[cx-R*1.42,cy+R*1.25],[cx-R*1.60,cy+R*1.40],[cx-R*1.68,cy+R*1.30]], 0.58);
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy-R*1.08);
-          ctx.bezierCurveTo(cx-R*.80,cy-R*1.30,cx-R*.78,cy-R*1.52,cx-R*.60,cy-R*1.56);
-          ctx.bezierCurveTo(cx-R*.42,cy-R*1.48,cx-R*.40,cy-R*1.28,cx-R*.55,cy-R*1.12);
-        }, 0.56);
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy+R*1.08);
-          ctx.bezierCurveTo(cx-R*.80,cy+R*1.30,cx-R*.78,cy+R*1.52,cx-R*.60,cy+R*1.56);
-          ctx.bezierCurveTo(cx-R*.42,cy+R*1.48,cx-R*.40,cy+R*1.28,cx-R*.55,cy+R*1.12);
-        }, 0.56);
-        curved(() => {
-          ctx.moveTo(cx+R*1.28,cy-R*.35);
-          ctx.bezierCurveTo(cx+R*1.58,cy-R*.48,cx+R*1.82,cy-R*.22,cx+R*1.82,cy);
-          ctx.bezierCurveTo(cx+R*1.82,cy+R*.22,cx+R*1.58,cy+R*.42,cx+R*1.38,cy+R*.32);
-          ctx.bezierCurveTo(cx+R*1.65,cy+R*.12,cx+R*1.65,cy-R*.15,cx+R*1.40,cy-R*.28);
-        }, 0.58);
-        circ(cx+R*0.98,cy-R*0.15,R*0.11,0.60); circ(cx+R*0.98,cy+R*0.15,R*0.11,0.60);
-      } else {
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy-R*1.08);
-          ctx.bezierCurveTo(cx-R*1.08,cy-R*1.22,cx-R*1.72,cy-R*.92,cx-R*2.30,cy-R*1.62);
-          ctx.lineTo(cx-R*2.05,cy-R*1.88);
-          ctx.bezierCurveTo(cx-R*1.58,cy-R*1.18,cx-R*1.05,cy-R*1.38,cx-R*.85,cy-R*1.22);
-        }, 0.80);
-        poly([[cx-R*2.30,cy-R*1.62],[cx-R*2.05,cy-R*1.88],[cx-R*2.50,cy-R*2.30],[cx-R*2.72,cy-R*2.05]], 0.82);
-        poly([[cx-R*1.55,cy-R*1.12],[cx-R*1.45,cy-R*1.22],[cx-R*1.68,cy-R*1.42],[cx-R*1.78,cy-R*1.32]], 0.68);
-        poly([[cx-R*1.80,cy-R*1.25],[cx-R*1.72,cy-R*1.38],[cx-R*1.98,cy-R*1.58],[cx-R*2.05,cy-R*1.45]], 0.65);
-        poly([[cx-R*2.00,cy-R*1.42],[cx-R*1.92,cy-R*1.55],[cx-R*2.18,cy-R*1.75],[cx-R*2.26,cy-R*1.62]], 0.60);
-        curved(() => {
-          ctx.moveTo(cx-R*.68,cy+R*1.08);
-          ctx.bezierCurveTo(cx-R*.98,cy+R*1.18,cx-R*1.15,cy+R*1.08,cx-R*1.05,cy+R*.90);
-          ctx.bezierCurveTo(cx-R*.88,cy+R*.72,cx-R*.68,cy+R*.80,cx-R*.68,cy+R*1.08);
-        }, 0.56);
-        poly([[cx-R*1.05,cy+R*.90],[cx-R*.92,cy+R*.78],[cx-R*1.18,cy+R*.58],[cx-R*1.30,cy+R*.72]], 0.54);
-        circ(cx+R*0.98,cy,R*0.14,0.65);
-      }
-      break;
-    }
-
-    // ── 5  BRUISER ────────────────────────────────────────────────────────────
-    case 5: {
-      const v = getChassisVariant(n);
-      if (v === 0) {
-        poly([[cx+R*.48,cy-R*.60],[cx+R*1.42,cy-R*.50],[cx+R*1.62,cy],[cx+R*1.42,cy+R*.50],[cx+R*.48,cy+R*.60],[cx+R*.80,cy]], 0.80);
-        poly([[cx+R*1.30,cy-R*.36],[cx+R*1.90,cy-R*.22],[cx+R*2.08,cy],[cx+R*1.90,cy+R*.22],[cx+R*1.30,cy+R*.36],[cx+R*1.62,cy]], 0.72);
-        poly([[cx+R*2.08,cy-R*.08],[cx+R*2.08,cy+R*.08],[cx+R*2.55,cy]], 0.80);
-        poly([[cx+R*.52,cy-R*.58],[cx+R*.68,cy-R*.55],[cx+R*.58,cy-R*1.20],[cx+R*.30,cy-R*1.35],[cx+R*.15,cy-R*1.12],[cx+R*.40,cy-R*.72]], 0.70);
-        poly([[cx+R*.52,cy+R*.58],[cx+R*.68,cy+R*.55],[cx+R*.58,cy+R*1.20],[cx+R*.30,cy+R*1.35],[cx+R*.15,cy+R*1.12],[cx+R*.40,cy+R*.72]], 0.70);
-        poly([[cx+R*1.32,cy-R*.36],[cx+R*1.46,cy-R*.34],[cx+R*1.38,cy-R*.88],[cx+R*1.15,cy-R*.98],[cx+R*1.05,cy-R*.80],[cx+R*1.22,cy-R*.48]], 0.62);
-        poly([[cx+R*1.32,cy+R*.36],[cx+R*1.46,cy+R*.34],[cx+R*1.38,cy+R*.88],[cx+R*1.15,cy+R*.98],[cx+R*1.05,cy+R*.80],[cx+R*1.22,cy+R*.48]], 0.62);
-        poly([[cx-R*.60,cy-R*.62],[cx-R*.48,cy-R*.58],[cx-R*.68,cy-R*1.05],[cx-R*.92,cy-R*1.18],[cx-R*1.05,cy-R*.92],[cx-R*.78,cy-R*.75]], 0.72);
-        poly([[cx-R*.60,cy+R*.62],[cx-R*.48,cy+R*.58],[cx-R*.68,cy+R*1.05],[cx-R*.92,cy+R*1.18],[cx-R*1.05,cy+R*.92],[cx-R*.78,cy+R*.75]], 0.72);
-        for (let i = 0; i < 5; i++) { const sx = cx - R*0.48 + i * R*0.55; poly([[sx-R*.07,cy-R*.68],[sx+R*.07,cy-R*.68],[sx+R*.08,cy-R*.90],[sx-R*.08,cy-R*.90]], 0.65); }
-        for (let i = 0; i < 4; i++) { const sx = cx - R*0.28 + i * R*0.55; poly([[sx-R*.06,cy+R*.68],[sx+R*.06,cy+R*.68],[sx+R*.07,cy+R*.88],[sx-R*.07,cy+R*.88]], 0.50); }
-      } else if (v === 1) {
-        poly([[cx+R*.42,cy-R*.68],[cx+R*1.58,cy-R*.60],[cx+R*2.08,cy-R*.18],[cx+R*2.12,cy],[cx+R*2.08,cy+R*.18],[cx+R*1.58,cy+R*.60],[cx+R*.42,cy+R*.68],[cx+R*.80,cy]], 0.82);
-        poly([[cx+R*.55,cy-R*.65],[cx+R*1.45,cy-R*.58],[cx+R*1.62,cy-R*1.12],[cx+R*1.12,cy-R*1.38],[cx+R*.42,cy-R*1.12]], 0.70);
-        poly([[cx+R*.55,cy+R*.65],[cx+R*1.45,cy+R*.58],[cx+R*1.62,cy+R*1.12],[cx+R*1.12,cy+R*1.38],[cx+R*.42,cy+R*1.12]], 0.70);
-        poly([[cx+R*.62,cy-R*.75],[cx+R*1.25,cy-R*.68],[cx+R*1.40,cy-R*1.05],[cx+R*.88,cy-R*1.20],[cx+R*.50,cy-R*.95]], 0.58);
-        poly([[cx+R*.62,cy+R*.75],[cx+R*1.25,cy+R*.68],[cx+R*1.40,cy+R*1.05],[cx+R*.88,cy+R*1.20],[cx+R*.50,cy+R*.95]], 0.58);
-        poly([[cx-R*.58,cy-R*.62],[cx-R*.45,cy-R*.58],[cx-R*.65,cy-R*1.02],[cx-R*.88,cy-R*1.15],[cx-R*1.00,cy-R*.90],[cx-R*.75,cy-R*.72]], 0.72);
-        poly([[cx-R*.58,cy+R*.62],[cx-R*.45,cy+R*.58],[cx-R*.65,cy+R*1.02],[cx-R*.88,cy+R*1.15],[cx-R*1.00,cy+R*.90],[cx-R*.75,cy+R*.72]], 0.72);
-        poly([[cx-R*.10,cy-R*.65],[cx+R*.12,cy-R*.62],[cx+R*.08,cy-R*1.15],[cx-R*.12,cy-R*1.18]], 0.72);
-        poly([[cx+R*.68,cy-R*.60],[cx+R*.90,cy-R*.58],[cx+R*.85,cy-R*1.02],[cx+R*.65,cy-R*1.04]], 0.65);
-        poly([[cx-R*.50,cy-R*.65],[cx-R*.32,cy-R*.62],[cx-R*.36,cy-R*.88],[cx-R*.52,cy-R*.90]], 0.55);
-        for (let i = 0; i < 4; i++) { const sx = cx - R*0.35 + i * R*0.58; poly([[sx-R*.07,cy-R*.65],[sx+R*.07,cy-R*.65],[sx+R*.08,cy-R*.85],[sx-R*.08,cy-R*.85]], 0.60); }
-      } else {
-        poly([[cx+R*.50,cy-R*.55],[cx+R*1.22,cy-R*.42],[cx+R*1.38,cy],[cx+R*1.22,cy+R*.42],[cx+R*.50,cy+R*.55],[cx+R*.80,cy]], 0.82);
-        poly([[cx+R*1.18,cy-R*.30],[cx+R*1.82,cy-R*.25],[cx+R*1.98,cy],[cx+R*1.82,cy+R*.25],[cx+R*1.18,cy+R*.30],[cx+R*1.38,cy]], 0.74);
-        poly([[cx+R*1.72,cy-R*.16],[cx+R*2.28,cy-R*.12],[cx+R*2.38,cy],[cx+R*2.28,cy+R*.12],[cx+R*1.72,cy+R*.16],[cx+R*1.98,cy]], 0.62);
-        poly([[cx+R*2.38,cy-R*.06],[cx+R*2.38,cy+R*.06],[cx+R*2.82,cy]], 0.72);
-        for (const [jx,jw] of [[cx+R*.50,R*.52],[cx+R*1.18,R*.38],[cx+R*1.72,R*.24]] as [number,number][]) {
-          poly([[jx-jw*0.06,cy-jw*1.18],[jx+jw*0.08,cy-jw*1.14],[jx,cy-jw*0.70],[jx-jw*0.12,cy-jw*0.60]], 0.65);
-          poly([[jx-jw*0.06,cy+jw*1.18],[jx+jw*0.08,cy+jw*1.14],[jx,cy+jw*0.70],[jx-jw*0.12,cy+jw*0.60]], 0.65);
-        }
-        poly([[cx-R*.60,cy-R*.50],[cx-R*.48,cy-R*.50],[cx-R*.68,cy-R*.92],[cx-R*.90,cy-R*1.02],[cx-R*1.00,cy-R*.80],[cx-R*.78,cy-R*.62]], 0.70);
-        poly([[cx-R*.60,cy+R*.50],[cx-R*.48,cy+R*.50],[cx-R*.68,cy+R*.92],[cx-R*.90,cy+R*1.02],[cx-R*1.00,cy+R*.80],[cx-R*.78,cy+R*.62]], 0.70);
-        for (let i = 0; i < 5; i++) { const sx = cx - R*0.48 + i * R*0.50; poly([[sx-R*.06,cy-R*.52],[sx+R*.06,cy-R*.52],[sx+R*.07,cy-R*.72],[sx-R*.07,cy-R*.72]], 0.60); }
-      }
-      break;
-    }
-
-    // ── 6  SPECTER ────────────────────────────────────────────────────────────
-    case 6: {
-      const v = getChassisVariant(n);
-      if (v === 0) {
-        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.58,cy+R*.14],[cx-R*2.75,cy],[cx-R*2.58,cy-R*.14]], 0.84);
-        poly([[cx-R*2.58,cy-R*.14],[cx-R*2.58,cy+R*.14],[cx-R*2.88,cy+R*.08],[cx-R*3.05,cy],[cx-R*2.88,cy-R*.08]], 0.82);
-        poly([[cx-R*1.52,cy-R*.10],[cx-R*1.52,cy+R*.08],[cx-R*2.08,cy-R*.62],[cx-R*1.90,cy-R*.78]], 0.72);
-        poly([[cx-R*2.08,cy-R*.62],[cx-R*1.90,cy-R*.78],[cx-R*2.30,cy-R*1.10],[cx-R*2.45,cy-R*.96]], 0.60);
-        poly([[cx-R*2.30,cy-R*1.10],[cx-R*2.20,cy-R*1.22],[cx-R*2.52,cy-R*1.42],[cx-R*2.60,cy-R*1.32]], 0.50);
-        poly([[cx+R*.30,cy-R*.24],[cx+R*.05,cy-R*.50],[cx+R*1.68,cy-R*1.98],[cx+R*1.82,cy-R*1.82]], 0.82);
-        poly([[cx+R*.88,cy-R*.84],[cx+R*.62,cy-R*1.08],[cx+R*1.20,cy-R*1.68],[cx+R*1.42,cy-R*1.44]], 0.68);
-        poly([[cx+R*1.68,cy-R*1.98],[cx+R*1.82,cy-R*1.82],[cx+R*2.00,cy-R*2.18],[cx+R*1.86,cy-R*2.34]], 0.78);
-        poly([[cx-R*.14,cy+R*.52],[cx+R*.14,cy+R*.52],[cx+R*.10,cy+R*2.25],[cx-R*.10,cy+R*2.25]], 0.82);
-        poly([[cx-R*.12,cy+R*1.28],[cx+R*.10,cy+R*1.22],[cx+R*.36,cy+R*1.72],[cx+R*.12,cy+R*1.78]], 0.68);
-        poly([[cx-R*.12,cy+R*2.20],[cx+R*.12,cy+R*2.20],[cx+R*.08,cy+R*2.58],[cx-R*.08,cy+R*2.58]], 0.78);
-        circ(cx,cy,R*0.58,0.45);
-      } else if (v === 1) {
-        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*1.88,cy+R*.14],[cx-R*1.88,cy-R*.14]], 0.84);
-        poly([[cx-R*1.88,cy-R*.12],[cx-R*1.88,cy+R*.06],[cx-R*2.78,cy-R*.72],[cx-R*2.62,cy-R*.88]], 0.78);
-        poly([[cx-R*2.38,cy-R*.38],[cx-R*2.28,cy-R*.52],[cx-R*2.75,cy-R*.92],[cx-R*2.85,cy-R*.80]], 0.62);
-        poly([[cx-R*2.78,cy-R*.72],[cx-R*2.62,cy-R*.88],[cx-R*2.95,cy-R*1.05],[cx-R*3.08,cy-R*.90]], 0.74);
-        poly([[cx-R*1.88,cy-R*.06],[cx-R*1.88,cy+R*.12],[cx-R*2.78,cy+R*.72],[cx-R*2.62,cy+R*.88]], 0.78);
-        poly([[cx-R*2.38,cy+R*.38],[cx-R*2.28,cy+R*.52],[cx-R*2.75,cy+R*.92],[cx-R*2.85,cy+R*.80]], 0.62);
-        poly([[cx-R*2.78,cy+R*.72],[cx-R*2.62,cy+R*.88],[cx-R*2.95,cy+R*1.05],[cx-R*3.08,cy+R*.90]], 0.74);
-        poly([[cx+R*.28,cy-R*.22],[cx+R*.05,cy-R*.50],[cx+R*.92,cy-R*1.42],[cx+R*1.08,cy-R*1.28]], 0.75);
-        poly([[cx+R*.55,cy-R*.75],[cx+R*.35,cy-R*1.00],[cx+R*.80,cy-R*1.38],[cx+R*.98,cy-R*1.15]], 0.62);
-        poly([[cx+R*.50,cy+R*.14],[cx+R*.50,cy-R*.14],[cx+R*1.30,cy-R*.10],[cx+R*1.30,cy+R*.10]], 0.68);
-        poly([[cx+R*1.30,cy-R*.10],[cx+R*1.30,cy+R*.10],[cx+R*1.62,cy+R*.55],[cx+R*1.44,cy+R*.68]], 0.60);
-        circ(cx,cy,R*0.58,0.45);
-      } else {
-        poly([[cx-R*.50,cy-R*.14],[cx-R*.50,cy+R*.14],[cx-R*2.58,cy+R*.14],[cx-R*2.75,cy],[cx-R*2.58,cy-R*.14]], 0.84);
-        poly([[cx-R*2.58,cy-R*.14],[cx-R*2.58,cy+R*.14],[cx-R*2.88,cy+R*.08],[cx-R*3.05,cy],[cx-R*2.88,cy-R*.08]], 0.80);
-        poly([[cx-R*1.48,cy-R*.10],[cx-R*1.48,cy+R*.08],[cx-R*1.92,cy-R*.52],[cx-R*1.78,cy-R*.68]], 0.68);
-        poly([[cx-R*1.00,cy-R*.10],[cx-R*1.00,cy+R*.08],[cx-R*1.38,cy-R*.40],[cx-R*1.25,cy-R*.55]], 0.60);
-        poly([[cx-R*.14,cy-R*.52],[cx+R*.14,cy-R*.52],[cx+R*.10,cy-R*2.18],[cx-R*.10,cy-R*2.18]], 0.82);
-        poly([[cx-R*.12,cy-R*2.14],[cx+R*.12,cy-R*2.14],[cx+R*.08,cy-R*2.52],[cx-R*.08,cy-R*2.52]], 0.78);
-        poly([[cx+R*.16,cy-R*1.02],[cx+R*.28,cy-R*.98],[cx+R*.50,cy-R*1.52],[cx+R*.36,cy-R*1.58]], 0.65);
-        poly([[cx+R*.50,cy-R*.13],[cx+R*.50,cy+R*.13],[cx+R*1.28,cy+R*.10],[cx+R*1.28,cy-R*.10]], 0.72);
-        poly([[cx+R*1.28,cy-R*.10],[cx+R*1.28,cy+R*.10],[cx+R*1.55,cy+R*.06],[cx+R*1.65,cy],[cx+R*1.55,cy-R*.06]], 0.70);
-        poly([[cx-R*.13,cy+R*.52],[cx+R*.13,cy+R*.52],[cx+R*.09,cy+R*1.85],[cx-R*.09,cy+R*1.85]], 0.80);
-        poly([[cx-R*.11,cy+R*1.80],[cx+R*.11,cy+R*1.80],[cx+R*.07,cy+R*2.18],[cx-R*.07,cy+R*2.18]], 0.75);
-        poly([[cx-R*.28,cy+R*1.02],[cx-R*.12,cy+R*.98],[cx-R*.20,cy+R*1.50],[cx-R*.36,cy+R*1.55]], 0.62);
-        circ(cx,cy,R*0.58,0.45);
-      }
-      break;
-    }
-
-    // ── 7  STALKER ────────────────────────────────────────────────────────────
-    default: {
-      const v = getChassisVariant(n);
-      if (v === 0) {
-        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.48,cy+R*.48],[cx-R*2.02,cy+R*.18],[cx-R*2.15,cy],[cx-R*2.02,cy-R*.18],[cx-R*1.48,cy-R*.48]], 0.80);
-        for (let i = 0; i < 5; i++) { const ty = cy - R*0.16 + i*R*0.08; poly([[cx-R*1.96,ty-R*.04],[cx-R*1.85,ty-R*.04],[cx-R*1.90,ty+R*.11]], 0.72); }
-        poly([[cx-R*.92,cy-R*.30],[cx-R*.68,cy-R*.30],[cx-R*.75,cy-R*1.48],[cx-R*.85,cy-R*1.48]], 0.76);
-        poly([[cx-R*.94,cy-R*.28],[cx-R*.66,cy-R*.28],[cx-R*.66,cy-R*.44],[cx-R*.94,cy-R*.44]], 0.65);
-        poly([[cx-R*.02,cy-R*.29],[cx+R*.18,cy-R*.28],[cx+R*.12,cy-R*1.08],[cx-R*.02,cy-R*1.08]], 0.68);
-        poly([[cx-R*.04,cy-R*.28],[cx+R*.20,cy-R*.28],[cx+R*.20,cy-R*.44],[cx-R*.04,cy-R*.44]], 0.60);
-        poly([[cx+R*.76,cy-R*.24],[cx+R*.96,cy-R*.22],[cx+R*.88,cy-R*.82],[cx+R*.78,cy-R*.82]], 0.60);
-        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy-R*.72],[cx+R*1.62,cy-R*.95],[cx+R*1.28,cy-R*.62]], 0.72);
-        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy+R*.72],[cx+R*1.62,cy+R*.95],[cx+R*1.28,cy+R*.62]], 0.72);
-        poly([[cx-R*.88,cy+R*.30],[cx-R*.68,cy+R*.30],[cx-R*.75,cy+R*.95],[cx-R*.88,cy+R*.95]], 0.60);
-        poly([[cx-R*.02,cy+R*.28],[cx+R*.18,cy+R*.28],[cx+R*.12,cy+R*.80],[cx-R*.02,cy+R*.80]], 0.54);
-        poly([[cx+R*.76,cy+R*.24],[cx+R*.96,cy+R*.22],[cx+R*.88,cy+R*.62],[cx+R*.78,cy+R*.62]], 0.46);
-        poly([[cx+R*.22,cy-R*.28],[cx+R*.48,cy-R*.28],[cx+R*.56,cy-R*.56],[cx+R*.40,cy-R*.70],[cx+R*.16,cy-R*.56]], 0.62);
-        poly([[cx+R*.22,cy+R*.28],[cx+R*.48,cy+R*.28],[cx+R*.56,cy+R*.56],[cx+R*.40,cy+R*.70],[cx+R*.16,cy+R*.56]], 0.60);
-        poly([[cx-R*2.08,cy-R*.08],[cx-R*2.16,cy-R*.04],[cx-R*2.75,cy-R*.22],[cx-R*2.70,cy-R*.30]], 0.54);
-        poly([[cx-R*2.08,cy+R*.08],[cx-R*2.16,cy+R*.04],[cx-R*2.75,cy+R*.22],[cx-R*2.70,cy+R*.30]], 0.54);
-      } else if (v === 1) {
-        poly([[cx-R*1.15,cy-R*.30],[cx-R*1.15,cy+R*.30],[cx-R*1.55,cy+R*.52],[cx-R*2.18,cy+R*.20],[cx-R*2.35,cy],[cx-R*2.18,cy-R*.20],[cx-R*1.55,cy-R*.52]], 0.82);
-        for (let i = 0; i < 6; i++) { const ty = cy - R*0.22 + i*R*0.09; poly([[cx-R*2.08,ty-R*.04],[cx-R*1.95,ty-R*.04],[cx-R*2.01,ty+R*.12]], 0.74); }
-        poly([[cx-R*.82,cy-R*.30],[cx-R*.52,cy-R*.30],[cx-R*.62,cy-R*1.72],[cx-R*.75,cy-R*1.72]], 0.78);
-        poly([[cx-R*.84,cy-R*.28],[cx-R*.50,cy-R*.28],[cx-R*.50,cy-R*.44],[cx-R*.84,cy-R*.44]], 0.65);
-        poly([[cx+R*.12,cy-R*.28],[cx+R*.40,cy-R*.28],[cx+R*.28,cy-R*1.28],[cx+R*.10,cy-R*1.28]], 0.68);
-        poly([[cx+R*.10,cy-R*.28],[cx+R*.42,cy-R*.28],[cx+R*.42,cy-R*.44],[cx+R*.10,cy-R*.44]], 0.60);
-        poly([[cx-R*.80,cy+R*.30],[cx-R*.55,cy+R*.30],[cx-R*.62,cy+R*1.05],[cx-R*.78,cy+R*1.05]], 0.62);
-        poly([[cx+R*.12,cy+R*.28],[cx+R*.40,cy+R*.28],[cx+R*.28,cy+R*.88],[cx+R*.10,cy+R*.88]], 0.55);
-        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.98,cy-R*.80],[cx+R*1.70,cy-R*1.00],[cx+R*1.28,cy-R*.65]], 0.76);
-        poly([[cx+R*.25,cy-R*.28],[cx+R*.52,cy-R*.28],[cx+R*.60,cy-R*.58],[cx+R*.42,cy-R*.72],[cx+R*.18,cy-R*.58]], 0.64);
-        poly([[cx+R*.25,cy+R*.28],[cx+R*.52,cy+R*.28],[cx+R*.60,cy+R*.58],[cx+R*.42,cy+R*.72],[cx+R*.18,cy+R*.58]], 0.62);
-        poly([[cx-R*2.20,cy-R*.10],[cx-R*2.28,cy-R*.05],[cx-R*2.88,cy-R*.24],[cx-R*2.84,cy-R*.33]], 0.55);
-        poly([[cx-R*2.20,cy+R*.10],[cx-R*2.28,cy+R*.05],[cx-R*2.88,cy+R*.24],[cx-R*2.84,cy+R*.33]], 0.55);
-        poly([[cx-R*2.18,cy-R*.02],[cx-R*2.28,cy+R*.02],[cx-R*2.95,cy-R*.02],[cx-R*2.95,cy+R*.06]], 0.45);
-      } else {
-        poly([[cx-R*1.05,cy-R*.29],[cx-R*.88,cy-R*.29],[cx-R*.92,cy-R*.68],[cx-R*1.00,cy-R*.68]], 0.55);
-        poly([[cx-R*.50,cy-R*.29],[cx-R*.28,cy-R*.28],[cx-R*.35,cy-R*.98],[cx-R*.50,cy-R*.98]], 0.64);
-        poly([[cx+R*.02,cy-R*.28],[cx+R*.25,cy-R*.28],[cx+R*.15,cy-R*1.25],[cx-R*.02,cy-R*1.25]], 0.72);
-        poly([[cx+R*.72,cy-R*.24],[cx+R*.98,cy-R*.24],[cx+R*.88,cy-R*1.62],[cx+R*.75,cy-R*1.62]], 0.82);
-        poly([[cx-R*1.05,cy-R*.28],[cx-R*.88,cy-R*.28],[cx-R*.88,cy-R*.42],[cx-R*1.05,cy-R*.42]], 0.50);
-        poly([[cx-R*.52,cy-R*.28],[cx-R*.26,cy-R*.28],[cx-R*.26,cy-R*.43],[cx-R*.52,cy-R*.43]], 0.58);
-        poly([[cx,cy-R*.28],[cx+R*.27,cy-R*.28],[cx+R*.27,cy-R*.45],[cx,cy-R*.45]], 0.65);
-        poly([[cx+R*.70,cy-R*.24],[cx+R*1.00,cy-R*.24],[cx+R*1.00,cy-R*.41],[cx+R*.70,cy-R*.41]], 0.75);
-        poly([[cx-R*1.05,cy+R*.29],[cx-R*.88,cy+R*.29],[cx-R*.92,cy+R*.52],[cx-R*1.00,cy+R*.52]], 0.45);
-        poly([[cx-R*.50,cy+R*.29],[cx-R*.28,cy+R*.28],[cx-R*.35,cy+R*.72],[cx-R*.50,cy+R*.72]], 0.52);
-        poly([[cx+R*.02,cy+R*.28],[cx+R*.25,cy+R*.28],[cx+R*.15,cy+R*.88],[cx-R*.02,cy+R*.88]], 0.60);
-        poly([[cx+R*.72,cy+R*.24],[cx+R*.98,cy+R*.24],[cx+R*.88,cy+R*1.12],[cx+R*.75,cy+R*1.12]], 0.68);
-        poly([[cx+R*1.35,cy-R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy-R*.62],[cx+R*1.62,cy-R*.82],[cx+R*1.25,cy-R*.58]], 0.72);
-        poly([[cx+R*1.35,cy+R*.18],[cx+R*1.52,cy],[cx+R*1.88,cy+R*.62],[cx+R*1.62,cy+R*.82],[cx+R*1.25,cy+R*.58]], 0.60);
-        poly([[cx+R*1.38,cy-R*.10],[cx+R*1.38,cy+R*.10],[cx+R*1.72,cy+R*.08],[cx+R*1.72,cy-R*.08]], 0.55);
-        poly([[cx+R*.30,cy-R*.26],[cx+R*.52,cy-R*.26],[cx+R*.60,cy-R*.52],[cx+R*.42,cy-R*.62],[cx+R*.22,cy-R*.50]], 0.60);
-        poly([[cx+R*.30,cy+R*.26],[cx+R*.52,cy+R*.26],[cx+R*.60,cy+R*.52],[cx+R*.42,cy+R*.62],[cx+R*.22,cy+R*.50]], 0.58);
-      }
-      break;
-    }
-  }
-
-  ctx.restore();
+// T1 CHASSIS_FRAME
+function drawT1(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),rW=R*2.0,sep=R*[0.48,0.62,0.38][v],rH=R*0.10,nX=[4,5,3][v];
+  frect(ctx,cx-rW,cy-sep-rH,rW*2,rH*2,f,g,A);
+  frect(ctx,cx-rW,cy+sep-rH,rW*2,rH*2,f,g,A);
+  for (let i=0;i<=nX;i++){const rx=cx-rW+i*(rW*2/nX);frect(ctx,rx-R*0.055,cy-sep,R*0.11,sep*2,f,g,A-0.12);}
+  fpoly(ctx,[[cx-rW,cy-sep*1.1],[cx-rW,cy+sep*1.1],[cx-rW-R*0.22,cy+sep*0.6],[cx-rW-R*0.22,cy-sep*0.6]],f,g,A+0.04);
+  gun(ctx,cx-rW-R*0.22,cy,R*0.80,R*0.065,f,g,A);
+  fpoly(ctx,[[cx+rW,cy-sep*1.3],[cx+rW+R*0.40,cy-sep*0.85],[cx+rW+R*0.40,cy+sep*0.85],[cx+rW,cy+sep*1.3]],f,g,A-0.06);
+  const nM=v===2?1:2;
+  for (let i=0;i<nM;i++){const bx=cx-rW*0.50+i*rW*0.70;const bh=sep*(0.50+nh(n,8+i)*0.30);frect(ctx,bx-R*0.17,cy-bh,R*0.34,bh*2,f,g,A-0.14);}
+  for (let i=0;i<3;i++){const wx=cx-rW*0.68+i*rW*0.68;fcirc(ctx,wx,cy+sep+R*0.26,R*0.21,f,g,A-0.16);fcirc(ctx,wx,cy-sep-R*0.26,R*0.21,f,g,A-0.16);}
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 7c  Tertiary surface detail overlays
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function drawChassisTertiary(
-  ctx:   CanvasRenderingContext2D,
-  cx: number, cy: number,
-  n:     number, R: number,
-  flash: boolean,
-): void {
-  const chassis = getChassisType(n);
-  ctx.save();
-  ctx.globalAlpha = flash ? 0.50 : 0.18;
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-  ctx.lineWidth   = 0.65;
-  ctx.shadowBlur  = 0;
-
-  const line = (x1: number, y1: number, x2: number, y2: number) => {
-    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-  };
-  const ring = (x: number, y: number, r: number) => {
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
-  };
-
-  switch (chassis) {
-    case 0: {
-      for (let i = 0; i < 3; i++) {
-        const sf = 0.35 + i*0.35;
-        line(cx-R*0.18, cy-R*sf*0.30, cx+R*0.30*sf, cy-R*2.05*sf);
-        line(cx-R*0.18, cy+R*sf*0.30, cx+R*0.30*sf, cy+R*2.05*sf);
-      }
-      line(cx-R*0.50, cy, cx+R*1.05, cy);
-      ctx.beginPath(); ctx.ellipse(cx+R*0.28, cy-R*0.72, R*0.11, R*0.20, 0, 0, Math.PI*2); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(cx+R*0.28, cy+R*0.72, R*0.11, R*0.20, 0, 0, Math.PI*2); ctx.stroke();
-      for (let i = 0; i < 4; i++) { const t = i/3; line(cx+R*(0.10+t*0.28), cy-R*(3.00-t*0.28), cx+R*(0.20+t*0.28), cy-R*(2.93-t*0.28)); }
-      break;
-    }
-    case 1: {
-      for (let i = 0; i < 3; i++) {
-        const t = 0.22 + i*0.24;
-        const sx = cx - R*0.82 + R*t*1.72; const sy = cy - R*0.24 - R*t*1.30;
-        ctx.beginPath(); ctx.arc(sx, sy+R*0.32, R*0.34, Math.PI*1.18, Math.PI*1.82); ctx.stroke();
-      }
-      ring(cx-R*1.28, cy-R*1.30, R*0.13); ring(cx-R*1.28, cy-R*1.30, R*0.06);
-      ctx.setLineDash([R*0.12, R*0.08]); line(cx-R*1.08, cy, cx+R*0.90, cy); ctx.setLineDash([]);
-      break;
-    }
-    case 2: {
-      ctx.strokeRect(cx+R*0.26, cy-R*0.29, R*0.32, R*0.22);
-      ctx.strokeRect(cx+R*0.28, cy-R*0.61, R*0.28, R*0.18);
-      ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (i/6)*Math.PI*2 - Math.PI/6;
-        i === 0 ? ctx.moveTo(cx+R*0.52*Math.cos(a), cy+R*0.52*Math.sin(a)) : ctx.lineTo(cx+R*0.52*Math.cos(a), cy+R*0.52*Math.sin(a));
-      }
-      ctx.closePath(); ctx.stroke();
-      for (let i = 0; i < 6; i++) { const a = (i/6)*Math.PI*2 - Math.PI/6; ring(cx+R*0.82*Math.cos(a), cy+R*0.82*Math.sin(a), R*0.05); }
-      line(cx-R*0.85, cy-R*0.14, cx-R*2.12, cy-R*0.26); line(cx-R*0.85, cy+R*0.14, cx-R*2.12, cy+R*0.26);
-      break;
-    }
-    case 3: {
-      ring(cx, cy, R*0.28); ring(cx, cy, R*0.50);
-      const bx = cx - R*1.65;
-      line(bx, cy-R*0.12, bx, cy+R*0.12); line(bx-R*0.14, cy, bx+R*0.14, cy); ring(bx, cy, R*0.10);
-      for (let i = 0; i < 3; i++) { const rx = cx - R*(0.78 + i*0.54); line(rx, cy-R*0.20, rx, cy+R*0.20); }
-      break;
-    }
-    case 4: {
-      ctx.beginPath(); ctx.arc(cx+R*0.52, cy, R*1.10, Math.PI*0.62, Math.PI*1.38); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx+R*0.52, cy, R*1.45, Math.PI*0.68, Math.PI*1.32); ctx.stroke();
-      ring(cx-R*0.68, cy-R*1.08, R*0.14); ring(cx-R*0.68, cy-R*1.08, R*0.07); ring(cx+R*0.98, cy, R*0.11);
-      for (let i = 0; i < 7; i++) {
-        const t = i/6; const angle = Math.PI*1.18 + t*Math.PI*1.64; const baseX = cx + R*0.52;
-        const mx = baseX + R*1.36*Math.cos(angle); const my = cy + R*1.36*Math.sin(angle);
-        line(mx, my, mx-Math.cos(angle)*R*0.12, my-Math.sin(angle)*R*0.12);
-      }
-      break;
-    }
-    case 5: {
-      line(cx+R*0.48, cy-R*0.62, cx+R*0.48, cy+R*0.62);
-      line(cx+R*1.30, cy-R*0.38, cx+R*1.30, cy+R*0.38);
-      line(cx+R*1.90, cy-R*0.22, cx+R*1.90, cy+R*0.22);
-      ring(cx+R*0.65, cy, R*0.18); ring(cx+R*1.50, cy, R*0.13); ring(cx+R*2.05, cy, R*0.09);
-      line(cx-R*0.65, cy-R*0.72, cx+R*2.08, cy); line(cx-R*0.65, cy+R*0.72, cx+R*2.08, cy);
-      ring(cx-R*0.92, cy-R*0.35, R*0.05); ring(cx-R*0.92, cy, R*0.05); ring(cx-R*0.92, cy+R*0.35, R*0.05);
-      break;
-    }
-    case 6: {
-      ctx.beginPath();
-      ctx.moveTo(cx, cy-R*0.34); ctx.lineTo(cx+R*0.30, cy); ctx.lineTo(cx, cy+R*0.34); ctx.lineTo(cx-R*0.30, cy);
-      ctx.closePath(); ctx.stroke();
-      for (let i = 1; i <= 3; i++) { const fx = cx - R*i*0.55; line(fx, cy-R*0.08, fx-R*0.14, cy-R*0.24); line(fx, cy+R*0.08, fx-R*0.14, cy+R*0.24); }
-      ring(cx, cy, R*0.68);
-      break;
-    }
-    default: {
-      ctx.setLineDash([R*0.14, R*0.09]); line(cx-R*1.15, cy, cx+R*1.52, cy); ctx.setLineDash([]);
-      ring(cx-R*0.85, cy, R*0.08); ring(cx-R*0.20, cy, R*0.08); ring(cx+R*0.45, cy, R*0.08); ring(cx+R*1.10, cy, R*0.08);
-      for (let i = 0; i < 6; i++) { const tx = cx - R*1.05 + i*R*0.40; line(tx, cy-R*0.30, tx+R*0.05, cy-R*0.42); }
-      line(cx-R*2.05, cy, cx-R*2.72, cy-R*0.18); line(cx-R*2.05, cy, cx-R*2.65, cy+R*0.18);
-      break;
-    }
+// T2 MULTI_HULL
+function drawT2(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),sep=R*[0.80,1.05,0.62][v],hL=R*[1.80,1.55,2.0][v],hH=R*[0.28,0.38,0.24][v];
+  for (const s of [-1,1] as const){
+    const hy=cy+s*sep;
+    ctx.save();ctx.globalAlpha=A;ctx.fillStyle=f;ctx.shadowColor=g;ctx.shadowBlur=6;
+    ctx.beginPath();ctx.moveTo(cx-hL,hy);
+    ctx.bezierCurveTo(cx-hL,hy-hH*0.55,cx-hH*1.6,hy-hH,cx,hy-hH);
+    ctx.bezierCurveTo(cx+hH*1.8,hy-hH,cx+hL*0.9,hy-hH*0.38,cx+hL,hy);
+    ctx.bezierCurveTo(cx+hL*0.9,hy+hH*0.38,cx+hH*1.8,hy+hH,cx,hy+hH);
+    ctx.bezierCurveTo(cx-hH*1.6,hy+hH,cx-hL,hy+hH*0.55,cx-hL,hy);
+    ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.20)';ctx.lineWidth=0.85;ctx.stroke();ctx.restore();
+    gun(ctx,cx-hL,hy,R*0.58,R*0.055,f,g,A);
+    ctx.save();ctx.globalAlpha=0.18;ctx.strokeStyle='rgba(255,255,255,0.9)';ctx.lineWidth=0.55;
+    for (let i=1;i<=3;i++){const rx=cx-hL+i*(hL*2/4);ctx.beginPath();ctx.moveTo(rx,hy-hH*0.9);ctx.lineTo(rx,hy+hH*0.9);ctx.stroke();}
+    ctx.restore();
   }
-
-  ctx.restore();
+  const bW=R*[0.18,0.24,0.15][v];
+  frect(ctx,cx-bW,cy-sep+hH,bW*2,(sep-hH)*2,f,g,A-0.24);
+  fpoly(ctx,[[cx-bW*2.5,cy-R*0.20],[cx-bW*2.5,cy+R*0.20],[cx-bW*4.0,cy]],f,g,A-0.10);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 8  Archetype overlay renderers
-// ═══════════════════════════════════════════════════════════════════════════════
-
-type OverlayFn = (
-  ctx: CanvasRenderingContext2D,
-  cx: number, cy: number,
-  R: number, lobes: number, spikes: boolean[],
-  profile: VirusModelProfile, alpha: number,
-) => void;
-
-const overlayBiological: OverlayFn = (ctx, cx, cy, R, lobes, spikes, _p, alpha) => {
-  ctx.save();
-  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.55})`;
-  for (let i = 0; i < lobes; i++) {
-    const angle = (i / lobes) * Math.PI * 2 - Math.PI / 2;
-    ctx.beginPath(); ctx.arc(cx + R*0.62*Math.cos(angle), cy + R*0.62*Math.sin(angle), R*0.09, 0, Math.PI*2); ctx.fill();
-  }
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.30})`; ctx.lineWidth = 0.8;
-  for (let i = 0; i < 8; i++) {
-    if (!spikes[i]) {
-      const angle = (i / 8) * Math.PI * 2 - Math.PI / 2;
-      ctx.beginPath(); ctx.arc(cx + R*0.55*Math.cos(angle), cy + R*0.55*Math.sin(angle), R*0.07, 0, Math.PI*2); ctx.stroke();
-    }
-  }
-  ctx.beginPath(); ctx.arc(cx, cy, R*0.38, 0, Math.PI*2);
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.25})`; ctx.lineWidth = 1; ctx.stroke();
-  ctx.restore();
-};
-
-const overlayHumanoid: OverlayFn = (ctx, cx, cy, R, _l, _s, p, alpha) => {
-  ctx.save();
-  ctx.fillStyle = `rgba(255,255,255,${alpha * 0.80})`;
-  ctx.beginPath(); ctx.arc(cx - R*0.18, cy - R*0.30, R*0.08, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + R*0.18, cy - R*0.30, R*0.08, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.35})`; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx, cy - R*0.28, R*0.32, Math.PI, 0); ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.20 * p.symmetryLevel})`;
-  ctx.beginPath(); ctx.moveTo(cx, cy - R*0.7); ctx.lineTo(cx, cy + R*0.7); ctx.stroke();
-  ctx.restore();
-};
-
-const overlayAnimal: OverlayFn = (ctx, cx, cy, R, _l, _s, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.50})`; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(cx-R*0.40,cy-R*0.55); ctx.lineTo(cx-R*0.55,cy-R*0.90); ctx.lineTo(cx-R*0.20,cy-R*0.60); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx+R*0.40,cy-R*0.55); ctx.lineTo(cx+R*0.55,cy-R*0.90); ctx.lineTo(cx+R*0.20,cy-R*0.60); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(cx,cy+R*0.80); ctx.quadraticCurveTo(cx+R*0.55,cy+R*1.10,cx+R*0.40,cy+R*1.40);
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.35})`; ctx.lineWidth = 1; ctx.stroke();
-  ctx.restore();
-};
-
-const overlayInsectoid: OverlayFn = (ctx, cx, cy, R, _l, spikes, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.55})`; ctx.lineWidth = 1;
-  for (let i = 0; i < 8; i++) {
-    if (spikes[i]) {
-      const angle = (i/8)*Math.PI*2 - Math.PI/2;
-      const x0 = cx+R*0.90*Math.cos(angle); const y0 = cy+R*0.90*Math.sin(angle);
-      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(cx+R*1.35*Math.cos(angle-0.15),cy+R*1.35*Math.sin(angle-0.15)); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(cx+R*1.35*Math.cos(angle+0.15),cy+R*1.35*Math.sin(angle+0.15)); ctx.stroke();
-    }
-  }
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.28})`; ctx.lineWidth = 0.8;
-  ctx.setLineDash([3,3]); ctx.beginPath(); ctx.arc(cx,cy,R*0.55,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-  ctx.restore();
-};
-
-const overlayMechanical: OverlayFn = (ctx, cx, cy, R, lobes, _s, p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.45})`; ctx.lineWidth = 1.5;
-  for (let i = 0; i < lobes; i++) {
-    const angle = (i/lobes)*Math.PI*2 - Math.PI/2;
-    const r0=R*0.82; const r1=R*1.05;
-    ctx.beginPath();
-    ctx.moveTo(cx+r0*Math.cos(angle-0.12),cy+r0*Math.sin(angle-0.12));
-    ctx.lineTo(cx+r1*Math.cos(angle-0.12),cy+r1*Math.sin(angle-0.12));
-    ctx.lineTo(cx+r1*Math.cos(angle+0.12),cy+r1*Math.sin(angle+0.12));
-    ctx.lineTo(cx+r0*Math.cos(angle+0.12),cy+r0*Math.sin(angle+0.12));
-    ctx.stroke();
-  }
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.18*p.mechanicalLevel})`; ctx.lineWidth = 0.7;
-  for (let d = -R; d <= R; d += R*0.30) {
-    ctx.beginPath(); ctx.moveTo(cx+d,cy-R); ctx.lineTo(cx+d,cy+R); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx-R,cy+d); ctx.lineTo(cx+R,cy+d); ctx.stroke();
-  }
-  ctx.restore();
-};
-
-const overlayArmored: OverlayFn = (ctx, cx, cy, R, lobes, _s, p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.55})`; ctx.lineWidth = R*0.12*(0.5+p.armorLevel*0.5);
-  ctx.beginPath(); ctx.arc(cx,cy,R*0.92,0,Math.PI*2); ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.30})`; ctx.lineWidth = 1;
-  for (let i = 0; i < lobes; i++) {
-    const angle = ((i+0.5)/lobes)*Math.PI*2 - Math.PI/2;
-    ctx.beginPath(); ctx.moveTo(cx+R*0.40*Math.cos(angle),cy+R*0.40*Math.sin(angle)); ctx.lineTo(cx+R*0.88*Math.cos(angle),cy+R*0.88*Math.sin(angle)); ctx.stroke();
-  }
-  ctx.restore();
-};
-
-const overlayChystalline: OverlayFn = (ctx, cx, cy, R, lobes, spikes, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.50})`; ctx.lineWidth = 0.9;
-  const sides = lobes + 2;
-  const pts: [number,number][] = [];
-  for (let i = 0; i < sides; i++) { const a=(i/sides)*Math.PI*2-Math.PI/2; pts.push([cx+R*0.82*Math.cos(a),cy+R*0.82*Math.sin(a)]); }
-  ctx.beginPath(); pts.forEach(([px,py],i)=>i===0?ctx.moveTo(px,py):ctx.lineTo(px,py)); ctx.closePath(); ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.22})`;
-  for (let i = 0; i < Math.floor(sides/2); i++) {
-    ctx.beginPath(); ctx.moveTo(pts[i][0],pts[i][1]); ctx.lineTo(pts[(i+Math.floor(sides/2))%sides][0],pts[(i+Math.floor(sides/2))%sides][1]); ctx.stroke();
-  }
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.70})`;
-  for (let i = 0; i < 8; i++) {
-    if (spikes[i]) { const a=(i/8)*Math.PI*2-Math.PI/2; ctx.beginPath(); ctx.arc(cx+R*1.20*Math.cos(a),cy+R*1.20*Math.sin(a),R*0.05,0,Math.PI*2); ctx.fill(); }
-  }
-  ctx.restore();
-};
-
-const overlayMineral: OverlayFn = (ctx, cx, cy, R, _l, _s, _p, alpha) => {
-  ctx.save();
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.28})`;
-  for (let i = 0; i < 12; i++) {
-    const a=normalizedHash(i,31)*Math.PI*2; const d=normalizedHash(i,37)*R*0.70; const dr=R*0.05+normalizedHash(i,41)*R*0.04;
-    ctx.beginPath(); ctx.arc(cx+d*Math.cos(a),cy+d*Math.sin(a),dr,0,Math.PI*2); ctx.fill();
-  }
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.30})`; ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  for (let i = 0; i <= 8; i++) { const a=(i/8)*Math.PI*2-Math.PI/2; i===0?ctx.moveTo(cx+R*0.45*Math.cos(a),cy+R*0.45*Math.sin(a)):ctx.lineTo(cx+R*0.45*Math.cos(a),cy+R*0.45*Math.sin(a)); }
-  ctx.stroke();
-  ctx.restore();
-};
-
-const overlayPlant: OverlayFn = (ctx, cx, cy, R, lobes, _s, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.45})`; ctx.lineWidth = 1;
-  for (let i = 0; i < lobes; i++) {
-    const a=(i/lobes)*Math.PI*2-Math.PI/2; const px=cx+R*0.70*Math.cos(a); const py=cy+R*0.70*Math.sin(a);
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.bezierCurveTo(cx+R*1.10*Math.cos(a-0.35),cy+R*1.10*Math.sin(a-0.35),cx+R*1.10*Math.cos(a+0.35),cy+R*1.10*Math.sin(a+0.35),px,py); ctx.stroke();
-  }
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.28})`;
-  ctx.beginPath(); ctx.moveTo(cx,cy+R*0.85); ctx.quadraticCurveTo(cx+R*0.50,cy+R*1.20,cx+R*0.25,cy+R*1.50); ctx.stroke();
-  ctx.restore();
-};
-
-const overlaySynthetic: OverlayFn = (ctx, cx, cy, R, _l, _s, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.50})`; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx,cy,R*0.35,0,Math.PI*2); ctx.stroke();
-  for (let i = 0; i < 12; i++) {
-    const a=(i/12)*Math.PI*2-Math.PI/2; const r0=R*(i%3===0?0.75:0.80); const r1=R*0.90;
-    ctx.strokeStyle = `rgba(255,255,255,${alpha*(i%3===0?0.55:0.25)})`; ctx.lineWidth = i%3===0?1.2:0.7;
-    ctx.beginPath(); ctx.moveTo(cx+r0*Math.cos(a),cy+r0*Math.sin(a)); ctx.lineTo(cx+r1*Math.cos(a),cy+r1*Math.sin(a)); ctx.stroke();
-  }
-  ctx.restore();
-};
-
-const overlayRobotic: OverlayFn = (ctx, cx, cy, R, lobes, _s, p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.60})`; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx,cy,R*0.22,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.20})`; ctx.fill();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.30*p.mechanicalLevel})`; ctx.lineWidth = 0.8;
-  for (let i = 0; i < lobes; i++) {
-    const a=(i/lobes)*Math.PI*2-Math.PI/2;
-    ctx.beginPath(); ctx.moveTo(cx+R*0.22*Math.cos(a),cy+R*0.22*Math.sin(a)); ctx.lineTo(cx+R*0.80*Math.cos(a),cy+R*0.80*Math.sin(a)); ctx.stroke();
-  }
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.60})`;
-  for (let i = 0; i < 3; i++) { const a=(i/3)*Math.PI*2-Math.PI/2; ctx.beginPath(); ctx.arc(cx+R*0.55*Math.cos(a),cy+R*0.55*Math.sin(a),R*0.05,0,Math.PI*2); ctx.fill(); }
-  ctx.restore();
-};
-
-const overlayAmorphous: OverlayFn = (ctx, cx, cy, R, _l, _s, _p, alpha) => {
-  ctx.save();
-  ctx.globalAlpha = alpha*0.25; ctx.fillStyle = 'rgba(255,255,255,0.40)';
-  ctx.beginPath(); ctx.ellipse(cx+R*0.20,cy+R*0.15,R*0.75,R*0.60,0.4,0,Math.PI*2); ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.20})`; ctx.lineWidth = 1;
-  ctx.setLineDash([2,4]); ctx.beginPath(); ctx.arc(cx,cy,R*0.50,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-  ctx.restore();
-};
-
-const overlayGeometric: OverlayFn = (ctx, cx, cy, R, lobes, _s, _p, alpha) => {
-  ctx.save();
-  const sides = Math.max(3,lobes);
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.55})`; ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 0; i <= sides; i++) { const a=(i/sides)*Math.PI*2-Math.PI/2; i===0?ctx.moveTo(cx+R*0.88*Math.cos(a),cy+R*0.88*Math.sin(a)):ctx.lineTo(cx+R*0.88*Math.cos(a),cy+R*0.88*Math.sin(a)); }
-  ctx.stroke();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.28})`;
-  ctx.beginPath();
-  for (let i = 0; i <= sides; i++) { const a=(i/sides)*Math.PI*2-Math.PI/2+Math.PI/sides; i===0?ctx.moveTo(cx+R*0.48*Math.cos(a),cy+R*0.48*Math.sin(a)):ctx.lineTo(cx+R*0.48*Math.cos(a),cy+R*0.48*Math.sin(a)); }
-  ctx.stroke();
-  ctx.restore();
-};
-
-const overlayEnergy: OverlayFn = (ctx, cx, cy, R, lobes, _s, p, alpha) => {
-  ctx.save();
-  const rayCount = lobes * 2;
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.35*p.energyLevel})`; ctx.lineWidth = 0.8;
-  for (let i = 0; i < rayCount; i++) {
-    const a=(i/rayCount)*Math.PI*2-Math.PI/2;
-    ctx.beginPath(); ctx.moveTo(cx+R*0.30*Math.cos(a),cy+R*0.30*Math.sin(a)); ctx.lineTo(cx+R*(0.80+normalizedHash(i,17)*0.40)*Math.cos(a),cy+R*(0.80+normalizedHash(i,17)*0.40)*Math.sin(a)); ctx.stroke();
-  }
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.70})`; ctx.beginPath(); ctx.arc(cx,cy,R*0.18,0,Math.PI*2); ctx.fill();
-  ctx.restore();
-};
-
-const overlayCybernetic: OverlayFn = (ctx, cx, cy, R, _l, spikes, _p, alpha) => {
-  ctx.save();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.45})`; ctx.lineWidth = 0.8;
-  const routes = [
-    [[-R*0.15,-R*0.15],[-R*0.15,-R*0.55],[-R*0.45,-R*0.55]],
-    [[R*0.15,-R*0.15],[R*0.15,-R*0.40],[R*0.50,-R*0.40]],
-    [[0,R*0.20],[0,R*0.55],[-R*0.30,R*0.55]],
+// T3 POD_CLUSTER
+function drawT3(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),nP=[4,5,4][v];
+  const formations:P2[][]=[
+    [[-1.0,0],[-0.1,-0.85],[-0.1,0.85],[0.9,0]],
+    [[-1.0,0],[-0.25,-0.90],[-0.25,0.90],[0.65,-0.48],[0.65,0.48]],
+    [[-1.0,0],[0.0,-0.95],[0.0,0.95],[1.0,0]],
   ];
-  for (const route of routes) {
-    ctx.beginPath(); route.forEach(([dx,dy],i)=>i===0?ctx.moveTo(cx+dx,cy+dy):ctx.lineTo(cx+dx,cy+dy)); ctx.stroke();
-    const [ex,ey]=route[route.length-1]; const ps=R*0.07; ctx.strokeRect(cx+ex-ps,cy+ey-ps,ps*2,ps*2);
+  const form=formations[v],sizes=[0.38,0.27,0.27,0.23,0.22];
+  for (let i=1;i<nP;i++){const px=cx+form[i][0]*R*1.85,py=cy+form[i][1]*R*1.85;sline(ctx,cx,cy,px,py,f,A-0.38,R*0.075);}
+  if (nP>=4) sline(ctx,cx+form[1][0]*R*1.85,cy+form[1][1]*R*1.85,cx+form[2][0]*R*1.85,cy+form[2][1]*R*1.85,f,A-0.46,R*0.055);
+  for (let i=0;i<nP;i++){
+    const px=cx+form[i][0]*R*1.85,py=cy+form[i][1]*R*1.85;
+    const pr=R*(sizes[i]||0.22)*(1+nh(n,10+i)*0.20);
+    fell(ctx,px,py,pr*1.30,pr*(v===2?0.60:0.80),f,g,A-i*0.04);
+    if (i===0) gun(ctx,px-pr*1.30,py,R*0.58,R*0.055,f,g,A);
   }
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.50})`;
-  for (let i = 0; i < 8; i++) { if (spikes[i]) { const a=(i/8)*Math.PI*2-Math.PI/2; ctx.beginPath(); ctx.arc(cx+R*0.62*Math.cos(a),cy+R*0.62*Math.sin(a),R*0.05,0,Math.PI*2); ctx.fill(); } }
-  ctx.restore();
-};
+}
 
-const overlaySkeleetal: OverlayFn = (ctx, cx, cy, R, lobes, _s, _p, alpha) => {
-  ctx.save();
-  ctx.fillStyle = `rgba(0,0,0,${alpha*0.45})`; ctx.beginPath(); ctx.arc(cx,cy,R*0.28,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.40})`; ctx.lineWidth = 1;
-  const ribCount = Math.min(lobes,6);
-  for (let i = 0; i < ribCount; i++) {
-    const startA=((i-0.35)/ribCount)*Math.PI*2-Math.PI/2; const endA=((i+0.35)/ribCount)*Math.PI*2-Math.PI/2;
-    ctx.beginPath(); ctx.arc(cx,cy,R*0.55,startA,endA); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx,cy,R*0.72,startA,endA); ctx.stroke();
+// T4 SEGMENTED_CHAIN
+function drawT4(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),nSeg=[5,6,4][v],pitch=R*[0.92,0.80,1.02][v];
+  const totalW=pitch*(nSeg-1),startX=cx+totalW/2;
+  const segScale=[0.52,0.46,0.42,0.38,0.34,0.30];
+  for (let i=0;i<nSeg;i++){
+    const sx=startX-i*pitch;
+    const sRx=R*(segScale[i]||0.28)*(i===0?1.12:1.0),sRy=R*(segScale[i]||0.28);
+    fell(ctx,sx,cy,sRx,sRy,f,g,A-i*0.05);
+    if (i<nSeg-1){const nRx=R*(segScale[i+1]||0.28);frect(ctx,sx-pitch+nRx*0.88,cy-R*0.06,pitch-sRx*0.88-nRx*0.88,R*0.12,f,g,A-0.36);}
+    if (i===0) gun(ctx,sx+sRx,cy,R*0.68,R*0.065,f,g,A);
+    if (i===nSeg-1) fpoly(ctx,[[sx-sRx,cy-sRy*0.55],[sx-sRx-R*0.30,cy-sRy*0.80],[sx-sRx-R*0.30,cy+sRy*0.80],[sx-sRx,cy+sRy*0.55]],f,g,A-0.16,3);
+  }
+}
+
+// T5 EXOSKELETON
+function drawT5(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),nRib=[6,5,7][v],innW=R*[0.60,0.70,0.55][v],innH=R*[0.44,0.52,0.40][v];
+  const ribExt=R*[0.68,0.58,0.75][v],ribW=R*0.075;
+  fell(ctx,cx,cy,innW,innH,f,g,A-0.10);
+  for (let i=0;i<nRib;i++){
+    const a=(i/nRib)*Math.PI*2-Math.PI/2;
+    const bx=cx+innW*Math.cos(a),by=cy+innH*Math.sin(a);
+    const ex=cx+(innW+ribExt)*Math.cos(a),ey=cy+(innH+ribExt)*Math.sin(a);
+    ctx.save();ctx.globalAlpha=A;ctx.strokeStyle=f;ctx.lineWidth=ribW*2;ctx.shadowColor=g;ctx.shadowBlur=5;
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(ex,ey);ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.20)';ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(ex,ey);ctx.stroke();ctx.restore();
+    fcirc(ctx,ex,ey,ribW*1.2,f,g,A-0.12);
+  }
+  gun(ctx,cx-innW,cy,R*0.78,R*0.065,f,g,A);
+}
+
+// T6 WALKER_FRAME
+function drawT6(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),nPair=[3,4,2][v],legSpan=R*[1.42,1.70,1.20][v];
+  const bodyW=R*[0.72,0.65,0.90][v],bodyH=R*0.38,bodyY=cy-R*0.65;
+  for (let i=0;i<nPair;i++){
+    const t=nPair>1?i/(nPair-1):0.5,lx=cx-legSpan+t*legSpan*2;
+    for (const s of [-1,1] as const){
+      const kx=lx+s*R*0.20,ky=bodyY+bodyH+R*0.58;
+      const fx=lx+s*R*0.38,fy=ky+R*(0.52+nh(n,12+i)*0.28);
+      fpoly(ctx,[[lx-R*0.06,bodyY+bodyH],[lx+R*0.06,bodyY+bodyH],[kx+R*0.07,ky],[kx-R*0.07,ky]],f,g,A-0.13);
+      fcirc(ctx,kx,ky,R*0.09,f,g,A-0.10);
+      fpoly(ctx,[[kx-R*0.06,ky],[kx+R*0.06,ky],[fx+R*0.06,fy],[fx-R*0.06,fy]],f,g,A-0.17);
+      fpoly(ctx,[[fx-R*0.20,fy],[fx+R*0.20,fy],[fx+R*0.17,fy+R*0.13],[fx-R*0.17,fy+R*0.13]],f,g,A-0.22);
+    }
+  }
+  frect(ctx,cx-bodyW,bodyY,bodyW*2,bodyH*2,f,g,A);
+  gun(ctx,cx-bodyW,bodyY+bodyH,R*0.72,R*0.065,f,g,A);
+  fell(ctx,cx,bodyY-R*0.12,R*0.26,R*0.17,f,g,A-0.10);
+}
+
+// T7 CRAWLER_BED
+function drawT7(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),trkW=R*[2.35,2.60,2.10][v],trkH=R*[0.32,0.40,0.28][v];
+  const hullW=R*[0.75,0.85,0.65][v],hullH=R*[0.50,0.58,0.42][v];
+  fpoly(ctx,[[cx-trkW-R*0.12,cy-trkH],[cx+trkW+R*0.12,cy-trkH],[cx+trkW,cy+trkH],[cx-trkW,cy+trkH]],f,g,A-0.04);
+  ctx.save();ctx.globalAlpha=0.28;ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=R*0.08;
+  for (let i=0;i<=14;i++){const tx=cx-trkW+i*(trkW*2/14);ctx.beginPath();ctx.moveTo(tx,cy-trkH+R*0.03);ctx.lineTo(tx,cy+trkH-R*0.03);ctx.stroke();}
+  ctx.restore();
+  fcirc(ctx,cx-trkW,cy,trkH*0.60,f,g,A-0.06);fcirc(ctx,cx+trkW,cy,trkH*0.60,f,g,A-0.06);
+  for (const dx of [cx-trkW*0.50,cx,cx+trkW*0.50]) fcirc(ctx,dx,cy,trkH*0.35,f,g,A-0.20);
+  frect(ctx,cx-hullW,cy-trkH-hullH,hullW*2,hullH,f,g,A+0.04);
+  fell(ctx,cx-hullW*0.28,cy-trkH-hullH-R*0.22,R*0.30,R*0.20,f,g,A-0.06);
+  gun(ctx,cx-hullW*0.28-R*0.30,cy-trkH-hullH-R*0.22,R*0.92,R*0.065,f,g,A);
+}
+
+// T8 RING_STRUCTURE
+function drawT8(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),oR=R*[1.28,1.48,1.12][v],ringW=R*[0.20,0.18,0.24][v],iR=oR-ringW*2.2,nSpk=[4,6,3][v];
+  ctx.save();ctx.globalAlpha=A;ctx.strokeStyle=f;ctx.lineWidth=ringW*2.2;ctx.shadowColor=g;ctx.shadowBlur=10;
+  ctx.beginPath();ctx.arc(cx,cy,oR-ringW,0,Math.PI*2);ctx.stroke();ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.22)';ctx.lineWidth=0.85;
+  ctx.beginPath();ctx.arc(cx,cy,oR,0,Math.PI*2);ctx.stroke();
+  ctx.beginPath();ctx.arc(cx,cy,iR,0,Math.PI*2);ctx.stroke();ctx.restore();
+  for (let i=0;i<nSpk;i++){
+    const a=(i/nSpk)*Math.PI*2;
+    ctx.save();ctx.globalAlpha=A-0.14;ctx.strokeStyle=f;ctx.lineWidth=R*0.11;ctx.shadowColor=g;ctx.shadowBlur=4;
+    ctx.beginPath();ctx.moveTo(cx+iR*0.22*Math.cos(a),cy+iR*0.22*Math.sin(a));ctx.lineTo(cx+iR*Math.cos(a),cy+iR*Math.sin(a));ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.16)';ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.moveTo(cx+iR*0.22*Math.cos(a),cy+iR*0.22*Math.sin(a));ctx.lineTo(cx+iR*Math.cos(a),cy+iR*Math.sin(a));ctx.stroke();ctx.restore();
+  }
+  fcirc(ctx,cx,cy,iR*0.26,f,g,A-0.12);
+  gun(ctx,cx-oR,cy,R*0.72,R*0.065,f,g,A);
+  for (const s of [-1,1] as const){const ta=s*0.40;fell(ctx,cx+oR*Math.cos(ta)+R*0.16,cy+oR*Math.sin(ta),R*0.20,R*0.10,f,g,A-0.18);}
+}
+
+// T9 BOOM_FRAME
+function drawT9(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),boomL=R*[2.20,1.85,2.55][v],boomW=R*0.085,bodyHW=R*0.35;
+  const boomDefs:[number,boolean][]=v===2
+    ?[[Math.PI,true],[0,false],[-Math.PI/2,false],[Math.PI/2,false]]
+    :[[Math.PI,true],[0,false],[-Math.PI/2,false],...(v===0?[]:[[Math.PI/2,false]] as [number,boolean][])];
+  for (const [angle,isWeapon] of boomDefs){
+    const bx=cx+bodyHW*Math.cos(angle),by=cy+bodyHW*Math.sin(angle);
+    const ex=cx+boomL*Math.cos(angle),ey=cy+boomL*Math.sin(angle);
+    ctx.save();ctx.globalAlpha=A-0.10;ctx.strokeStyle=f;ctx.lineWidth=boomW*2.2;ctx.shadowColor=g;ctx.shadowBlur=5;
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(ex,ey);ctx.stroke();ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(255,255,255,0.16)';ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(ex,ey);ctx.stroke();ctx.restore();
+    if (isWeapon) gun(ctx,ex,ey,R*0.65,R*0.065,f,g,A);
+    else fcirc(ctx,ex,ey,R*0.16,f,g,A-0.14);
+  }
+  frect(ctx,cx-bodyHW,cy-bodyHW*0.72,bodyHW*2,bodyHW*1.44,f,g,A+0.02);
+}
+
+// T10 SHELL_CORE
+function drawT10(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),oR=R*[1.15,1.28,1.05][v],nSides=[6,8,5][v];
+  const pts:P2[]=[];
+  for (let i=0;i<nSides;i++){const a=(i/nSides)*Math.PI*2-Math.PI/2;pts.push([cx+oR*Math.cos(a),cy+oR*Math.sin(a)]);}
+  ctx.save();ctx.globalAlpha=A-0.20;ctx.strokeStyle=f;ctx.lineWidth=R*0.15;ctx.shadowColor=g;ctx.shadowBlur=7;
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();ctx.stroke();ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.22)';ctx.lineWidth=0.85;
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);ctx.closePath();ctx.stroke();ctx.restore();
+  const cR=oR*0.52;
+  if (v===0) fpoly(ctx,[[cx-cR,cy],[cx,cy-cR*0.75],[cx+cR,cy],[cx,cy+cR*0.75]],f,g,A);
+  else if (v===1) fcirc(ctx,cx,cy,cR,f,g,A);
+  else frect(ctx,cx-cR*0.88,cy-cR*0.65,cR*1.76,cR*1.30,f,g,A);
+  ctx.save();ctx.globalAlpha=A-0.32;ctx.strokeStyle=f;ctx.lineWidth=R*0.065;
+  for (let i=1;i<nSides;i+=2){const a=(i/nSides)*Math.PI*2-Math.PI/2;ctx.beginPath();ctx.moveTo(cx+cR*Math.cos(a),cy+cR*Math.sin(a));ctx.lineTo(cx+oR*0.90*Math.cos(a),cy+oR*0.90*Math.sin(a));ctx.stroke();}
+  ctx.restore();
+  gun(ctx,cx-oR,cy,R*0.80,R*0.065,f,g,A);
+}
+
+// T11 DISTRIBUTED_NODE
+function drawT11(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),nN=[6,7,5][v];
+  const nodes:P2[]=[];
+  for (let i=0;i<nN;i++){const a=(i/nN)*Math.PI*2+nh(n,30+i)*0.5-0.25;const d=R*(0.82+nh(n,50+i)*0.68);nodes.push([cx+d*Math.cos(a),cy+d*Math.sin(a)]);}
+  for (let i=0;i<nN;i++){const ni=(i+1)%nN;sline(ctx,nodes[i][0],nodes[i][1],nodes[ni][0],nodes[ni][1],f,A-0.30,R*0.082);}
+  for (let i=0;i<Math.floor(nN/2);i++){const ni=(i+2)%nN;sline(ctx,nodes[i][0],nodes[i][1],nodes[ni][0],nodes[ni][1],f,A-0.44,R*0.060);}
+  const nSizes=[0.28,0.24,0.22,0.20,0.20,0.18,0.18];
+  for (let i=0;i<nN;i++){const nr=R*(nSizes[i]||0.16)*(1+nh(n,70+i)*0.22);fell(ctx,nodes[i][0],nodes[i][1],nr,nr*[0.90,0.70,0.85][v],f,g,A-i*0.04);}
+  let li=0;for (let i=1;i<nN;i++) if (nodes[i][0]<nodes[li][0]) li=i;
+  gun(ctx,nodes[li][0]-R*(nSizes[li]||0.20),nodes[li][1],R*0.55,R*0.055,f,g,A);
+}
+
+// T12 WING_BODY
+function drawT12(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),span=R*[2.10,2.55,1.80][v],swp=[0.55,0.28,0.78][v],fL=R*0.58,fH=R*0.13;
+  for (const s of [-1,1] as const){
+    fpoly(ctx,[[cx-fL,cy+s*fH],[cx-fL*swp,cy+s*span],[cx+fL*0.62,cy+s*span*0.52],[cx+fL,cy+s*fH]],f,g,A-0.06);
+    fell(ctx,cx-fL*swp+R*0.10,cy+s*span,R*0.17,R*0.10,f,g,A-0.18);
+    ctx.save();ctx.globalAlpha=A-0.22;ctx.strokeStyle='rgba(255,255,255,0.65)';ctx.lineWidth=0.8;
+    ctx.beginPath();ctx.moveTo(cx-fL,cy+s*fH);ctx.lineTo(cx-fL*swp,cy+s*span);ctx.stroke();ctx.restore();
+  }
+  ctx.save();ctx.globalAlpha=A;ctx.fillStyle=f;ctx.shadowColor=g;ctx.shadowBlur=6;
+  ctx.beginPath();
+  ctx.moveTo(cx-fL*1.22,cy);
+  ctx.bezierCurveTo(cx-fL*1.22,cy-fH*0.88,cx-fH,cy-fH,cx,cy-fH);
+  ctx.bezierCurveTo(cx+fH*1.5,cy-fH,cx+fL*1.05,cy-fH*0.38,cx+fL*1.18,cy);
+  ctx.bezierCurveTo(cx+fL*1.05,cy+fH*0.38,cx+fH*1.5,cy+fH,cx,cy+fH);
+  ctx.bezierCurveTo(cx-fH,cy+fH,cx-fL*1.22,cy+fH*0.88,cx-fL*1.22,cy);
+  ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.22)';ctx.lineWidth=0.85;ctx.stroke();ctx.restore();
+  gun(ctx,cx-fL*1.22,cy,R*0.68,R*0.055,f,g,A);
+  for (const s of [-1,1] as const) fell(ctx,cx+fL*0.55,cy+s*fH*2.4,R*0.26,R*0.11,f,g,A-0.15);
+}
+
+// T13 ASYMMETRIC
+function drawT13(ctx: Ctx, cx: number, cy: number, R: number, n: number, f: string, g: string, A: number): void {
+  const v=TV(n),side=nh(n,0x5A)<0.5?-1:1,bigY=cy+side*R*0.62,smY=cy-side*R*0.72;
+  ctx.save();ctx.globalAlpha=A;ctx.fillStyle=f;ctx.shadowColor=g;ctx.shadowBlur=8;
+  ctx.beginPath();
+  ctx.moveTo(cx-R*1.55,bigY);
+  ctx.bezierCurveTo(cx-R*1.55,bigY-R*0.68,cx-R*0.18,bigY-R*0.72,cx+R*0.88,bigY-R*0.55);
+  ctx.lineTo(cx+R*1.10,bigY-R*0.20);ctx.lineTo(cx+R*1.10,bigY+R*0.55);
+  ctx.bezierCurveTo(cx+R*0.22,bigY+R*0.70,cx-R*1.55,bigY+R*0.62,cx-R*1.55,bigY);
+  ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+  ctx.strokeStyle='rgba(255,255,255,0.20)';ctx.lineWidth=0.85;ctx.stroke();ctx.restore();
+  if (v===1) fell(ctx,cx-R*0.32,smY,R*0.62,R*0.30,f,g,A-0.14);
+  else fpoly(ctx,[[cx-R*0.90,smY-R*0.28],[cx+R*0.34,smY-R*0.24],[cx+R*0.52,smY+R*0.28],[cx-R*0.72,smY+R*0.28]],f,g,A-0.14);
+  fpoly(ctx,[[cx-R*0.82,bigY-side*R*0.46],[cx-R*0.56,bigY-side*R*0.46],[cx-R*0.20,smY+side*R*0.26],[cx-R*0.46,smY+side*R*0.26]],f,g,A-0.30);
+  gun(ctx,cx-R*1.55,bigY,R*0.78,R*0.065,f,g,A);
+  fpoly(ctx,[[cx+R*0.88,bigY+side*R*0.32],[cx+R*1.10,bigY+side*R*0.32],[cx+R*1.28,bigY+side*R*0.75],[cx+R*0.75,bigY+side*R*0.75]],f,g,A-0.12);
+}
+
+// §7  Class mark overlay
+function drawClassMark(ctx: Ctx, cx: number, cy: number, R: number, cls: VirusClass): void {
+  ctx.save();ctx.globalAlpha=0.28;ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=0.75;ctx.shadowBlur=0;
+  switch (cls){
+    case 'prime':
+      for (let i=0;i<6;i++){const a=(i/6)*Math.PI*2;ctx.beginPath();ctx.moveTo(cx+R*0.12*Math.cos(a),cy+R*0.12*Math.sin(a));ctx.lineTo(cx+R*0.28*Math.cos(a),cy+R*0.28*Math.sin(a));ctx.stroke();}
+      break;
+    case 'power-of-two': ctx.strokeRect(cx-R*0.16,cy-R*0.16,R*0.32,R*0.32); break;
+    case 'perfect-square': ctx.beginPath();ctx.arc(cx,cy,R*0.22,0,Math.PI*2);ctx.stroke(); break;
+    case 'even-composite':
+      ctx.beginPath();ctx.moveTo(cx-R*0.24,cy-R*0.10);ctx.lineTo(cx+R*0.24,cy-R*0.10);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(cx-R*0.24,cy+R*0.10);ctx.lineTo(cx+R*0.24,cy+R*0.10);ctx.stroke(); break;
+    case 'odd-composite':{const t=R*0.20;ctx.beginPath();ctx.moveTo(cx,cy-t);ctx.lineTo(cx+t*0.87,cy+t*0.5);ctx.lineTo(cx-t*0.87,cy+t*0.5);ctx.closePath();ctx.stroke();break;}
   }
   ctx.restore();
-};
+}
 
-const overlayFluid: OverlayFn = (ctx, cx, cy, R, _l, _s, _p, alpha) => {
-  ctx.save();
-  const grad = ctx.createRadialGradient(cx-R*0.15,cy-R*0.15,0,cx,cy,R*0.70);
-  grad.addColorStop(0,`rgba(255,255,255,${alpha*0.40})`); grad.addColorStop(0.6,`rgba(255,255,255,${alpha*0.10})`); grad.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx,cy,R*0.70,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.30})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx,cy,R*0.60,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle = `rgba(255,255,255,${alpha*0.25})`; ctx.beginPath(); ctx.ellipse(cx+R*1.10,cy,R*0.12,R*0.08,0,0,Math.PI*2); ctx.fill();
-  ctx.restore();
-};
-
-const ARCHETYPE_OVERLAYS: Record<VirusArchetype, OverlayFn> = {
-  biological:  overlayBiological,
-  humanoid:    overlayHumanoid,
-  animal:      overlayAnimal,
-  insectoid:   overlayInsectoid,
-  mechanical:  overlayMechanical,
-  armored:     overlayArmored,
-  crystalline: overlayChystalline,
-  mineral:     overlayMineral,
-  plant:       overlayPlant,
-  synthetic:   overlaySynthetic,
-  robotic:     overlayRobotic,
-  amorphous:   overlayAmorphous,
-  geometric:   overlayGeometric,
-  energy:      overlayEnergy,
-  cybernetic:  overlayCybernetic,
-  skeletal:    overlaySkeleetal,
-  fluid:       overlayFluid,
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 9  Main draw entry point
-// ═══════════════════════════════════════════════════════════════════════════════
+// §8  Main draw entry point — signature unchanged
+const TOPO_DRAW = [drawT0,drawT1,drawT2,drawT3,drawT4,drawT5,drawT6,drawT7,drawT8,drawT9,drawT10,drawT11,drawT12,drawT13];
 
 export function drawVirus(
-  ctx:   CanvasRenderingContext2D,
-  cx:    number,
-  cy:    number,
-  n:     number,
-  cell:  number,
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number,
+  n: number, cell: number,
   flash: boolean,
-  green  = false,
+  green = false,
 ): void {
-  const cls = green ? 'even-composite' : getVirusClass(n);
-  const fill = green ? (flash ? '#f0fdf4' : '#4ade80') : (flash ? CLASS_FLASH[cls] : CLASS_FILL[cls]);
-  const glow = green ? 'rgba(74,222,128,0.50)' : CLASS_GLOW[cls];
-  const R0 = cell * 0.22;
-  const k  = cell * 0.016;
-  const R  = getVirusRadius(n, R0, k);
-
-  // 1a. Secondary anatomy (behind primary core)
-  drawChassisSecondary(ctx, cx, cy, n, R, fill, glow, flash);
-
-  // 1b. Primary core chassis
-  buildChassisPath(ctx, cx, cy, n, R);
-  ctx.shadowColor = glow; ctx.shadowBlur = flash ? 4 : 10;
-  ctx.fillStyle = fill; ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = flash ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1; ctx.stroke();
-
-  // 1c. Tertiary surface detail overlays
-  if (!green) drawChassisTertiary(ctx, cx, cy, n, R, flash);
-
-  // 2. Class-specific decorations
-  if (!green) {
-    if (cls === 'perfect-square' || cls === 'power-of-two') {
-      ctx.beginPath(); ctx.arc(cx, cy, R*0.40, 0, Math.PI*2);
-      ctx.strokeStyle = flash ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.45)';
-      ctx.lineWidth = 1.5; ctx.stroke();
-    }
-    if (cls === 'prime') {
-      const L = getVirusLobes(n);
-      ctx.strokeStyle = flash ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.22)';
-      ctx.lineWidth = 0.8;
-      for (let i = 0; i < L; i++) {
-        const angle = (i/L)*Math.PI*2 - Math.PI/2;
-        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+R*0.58*Math.cos(angle),cy+R*0.58*Math.sin(angle)); ctx.stroke();
-      }
-    }
-    if (cls === 'power-of-two') {
-      ctx.beginPath(); ctx.arc(cx, cy, R*0.70, 0, Math.PI*2);
-      ctx.strokeStyle = flash ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.18)';
-      ctx.lineWidth = 1; ctx.stroke();
-    }
-  }
-
-  // 3. Archetype overlays
-  if (!flash && !green) {
-    const profile = getVirusModelProfile(n);
-    const lobes   = getVirusLobes(n);
-    const spikes  = getVirusSpikes(n);
-    ARCHETYPE_OVERLAYS[profile.primaryArchetype](ctx, cx, cy, R, lobes, spikes, profile, profile.primaryWeight * 0.80);
-    if (profile.secondaryWeight > 0.15) {
-      ARCHETYPE_OVERLAYS[profile.secondaryArchetype](ctx, cx, cy, R, lobes, spikes, profile, profile.secondaryWeight * 0.45);
-    }
-  }
+  const cls  = green ? 'even-composite' as VirusClass : getVirusClass(n);
+  const fill = green ? (flash ? '#f0fdf4' : '#4ade80') : (flash ? FLASH_C[cls] : FILL_C[cls]);
+  const glow = green ? 'rgba(74,222,128,0.50)' : GLOW_C[cls];
+  const R    = cell * 0.22 + cell * 0.016 * Math.log2(n + 1);
+  const topo = getTopology(n);
+  const A    = flash ? 0.92 : 0.84;
+  ctx.save();
+  TOPO_DRAW[topo](ctx, cx, cy, R, n, fill, glow, A);
+  if (!green && !flash) drawClassMark(ctx, cx, cy, R, cls);
+  ctx.restore();
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// § 10  Perceptual diversity system
-// ═══════════════════════════════════════════════════════════════════════════════
+// §9  Silhouette validation
+export function drawVirusSilhouette(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, n: number, cell: number,
+): void {
+  const R = cell * 0.22 + cell * 0.016 * Math.log2(n + 1);
+  ctx.save();
+  TOPO_DRAW[getTopology(n)](ctx, cx, cy, R, n, '#000000', '#000000', 1.0);
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(cx - R * 3.5, cy - R * 3.5, R * 7, R * 7);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+}
 
-/** 9-axis perceptual fingerprint for one virus integer. */
+export function runSilhouetteDiversityTest(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  const seeds=[37,14,25,63,47,18,71,40,53,29,89,56,100,172,121,94,200,160,213,177];
+  const C=5,cW=w/C,cH=h/4,cell=Math.min(cW,cH)*0.52;
+  const names=['MONO','FRAME','MHULL','PODS','CHAIN','EXO','WALK','CRAWL','RING','BOOM','SHELL','NODES','WING','ASYM'];
+  ctx.fillStyle='#f0f4f8';ctx.fillRect(0,0,w,h);
+  ctx.fillStyle='#1e293b';ctx.font=`${Math.round(cell*0.10)}px monospace`;ctx.textAlign='center';
+  ctx.fillText('SILHOUETTE DIVERSITY TEST',w/2,cell*0.09);
+  const topoSet=new Set<number>();
+  for (let i=0;i<seeds.length;i++){
+    const seed=seeds[i],col=i%C,row=Math.floor(i/C);
+    const ex=cW*(col+0.5),ey=cH*(row+0.5)+cell*0.08;
+    const t=getTopology(seed);topoSet.add(t);
+    drawVirusSilhouette(ctx,ex,ey,seed,cell);
+    ctx.fillStyle='#334155';ctx.font=`${Math.round(cell*0.085)}px monospace`;ctx.textAlign='center';
+    ctx.fillText(`T${t} ${names[t]}`,ex,ey+cell*0.35);
+  }
+  const passed=topoSet.size>=10;
+  ctx.font=`${Math.round(cell*0.095)}px monospace`;ctx.textAlign='center';
+  ctx.fillStyle=passed?'#064e3b':'#7f1d1d';
+  ctx.fillText(`${passed?'PASS':'FAIL'} -- ${topoSet.size}/14 topologies: ${[...topoSet].map(t=>names[t]).join(' ')}`,w/2,h-cell*0.12);
+  console.log('[SilhouetteTest]',passed?'PASS':'FAIL',[...topoSet].map(t=>names[t]));
+}
+
+// §10  MorphSig + diversity helpers
 export interface MorphSig {
-  chassis:    number; // 0–7
-  variant:    number; // 0–2
-  cls:        number; // 0–4 VirusClass ordinal
-  armor:      number; // 0–3
-  organic:    number; // 0–3
-  archetype:  number; // 0–3 bucketed
-  lobes:      number; // 0–5
-  spikePat:   number; // 0–7
-  sizeBucket: number; // 0–2
+  topology: number; variant: number; cls: number; aspectGroup: number; massCenter: number;
 }
-
-const VIRUS_CLASS_ORDER: VirusClass[] = [
-  'prime','power-of-two','perfect-square','even-composite','odd-composite',
+const TOPO_META:[number,number][]=[
+  [2,0],[2,1],[2,1],[4,2],[2,0],[4,1],[0,2],[2,1],[4,2],[4,2],[4,1],[4,2],[1,0],[1,3],
 ];
+const VC_O:VirusClass[]=['prime','power-of-two','perfect-square','even-composite','odd-composite'];
 
 export function getMorphSig(n: number): MorphSig {
-  return {
-    chassis:    getChassisType(n),
-    variant:    getChassisVariant(n),
-    cls:        VIRUS_CLASS_ORDER.indexOf(getVirusClass(n)),
-    armor:      Math.floor(normalizedHash(n, 6) * 4),
-    organic:    Math.floor(normalizedHash(n, 7) * 4),
-    archetype:  Math.floor(normalizedHash(n, 1) * 4),
-    lobes:      getVirusLobes(n) - 3,
-    spikePat:   n & 7,
-    sizeBucket: Math.floor(normalizedHash(n, 51) * 3),
-  };
+  const t=getTopology(n);
+  return {topology:t,variant:TV(n),cls:VC_O.indexOf(getVirusClass(n)),aspectGroup:TOPO_META[t][0],massCenter:TOPO_META[t][1]};
 }
-
 export function morphDistance(a: MorphSig, b: MorphSig): number {
-  let d = 0;
-  d += (a.chassis    !== b.chassis    ? 1 : 0) * 0.35;
-  d += (a.cls        !== b.cls        ? 1 : 0) * 0.20;
-  d += (a.variant    !== b.variant    ? 1 : 0) * 0.15;
-  d += (a.archetype  !== b.archetype  ? 1 : 0) * 0.10;
-  d += (a.lobes      !== b.lobes      ? 1 : 0) * 0.08;
-  d += (a.spikePat   !== b.spikePat   ? 1 : 0) * 0.05;
-  d += (a.armor      !== b.armor      ? 1 : 0) * 0.04;
-  d += (a.organic    !== b.organic    ? 1 : 0) * 0.02;
-  d += (a.sizeBucket !== b.sizeBucket ? 1 : 0) * 0.01;
+  let d=0;
+  d+=(a.topology!==b.topology?1:0)*0.55;d+=(a.aspectGroup!==b.aspectGroup?1:0)*0.18;
+  d+=(a.massCenter!==b.massCenter?1:0)*0.12;d+=(a.cls!==b.cls?1:0)*0.10;d+=(a.variant!==b.variant?1:0)*0.05;
   return d;
 }
-
 export function selectDiverseSeed(waveSigs: MorphSig[], crossHistory: MorphSig[]): number {
-  let best = -1;
-  let bestScore = -1;
-  for (let attempt = 0; attempt < 16; attempt++) {
-    const seed = Math.floor(Math.random() * 255) + 1;
-    const sig  = getMorphSig(seed);
-    let waveMin = 1.0;
-    for (const ws of waveSigs) { const d = morphDistance(sig, ws); if (d < waveMin) waveMin = d; }
-    let histMin = 1.0;
-    for (const hs of crossHistory) { const d = morphDistance(sig, hs); if (d < histMin) histMin = d; }
-    const score = waveMin * 0.70 + histMin * 0.30;
-    if (score > bestScore) { bestScore = score; best = seed; }
+  const all=[...crossHistory.slice(-6),...waveSigs];let best=-1,bestScore=-1;
+  for (let attempt=0;attempt<32;attempt++){
+    const seed=Math.floor(Math.random()*255)+1,sig=getMorphSig(seed);
+    let wMin=1.0;for (const ws of all){const d=morphDistance(sig,ws);if (d<wMin) wMin=d;}
+    const sharedTopo=all.filter(ws=>ws.topology===sig.topology).length;
+    const score=wMin*Math.pow(0.55,sharedTopo);
+    if (score>bestScore){bestScore=score;best=seed;}
   }
-  return best > 0 ? best : Math.floor(Math.random() * 255) + 1;
+  return best>0?best:Math.floor(Math.random()*255)+1;
+}
+
+const SPAWN_WIN=12,MIN_DIST=0.18,MAX_SAME_T=3;
+const _hist:MorphSig[]=[];
+export function registerSpawn(sig: MorphSig): void {_hist.push(sig);if (_hist.length>SPAWN_WIN) _hist.shift();}
+export function clearSpawnHistory(): void {_hist.length=0;}
+export function pickDiverseSeed(): number {
+  let best=-1,bestScore=-Infinity;
+  for (let i=0;i<40;i++){
+    const seed=1+((i*97+Math.floor(Math.random()*22))%255),sig=getMorphSig(seed);
+    const tC=_hist.filter(s=>s.topology===sig.topology).length;
+    if (tC>=MAX_SAME_T) continue;
+    let minD=1.0;for (const s of _hist){const d=morphDistance(sig,s);if (d<minD) minD=d;}
+    if (minD<MIN_DIST) continue;
+    const sc=minD*Math.pow(0.50,tC);if (sc>bestScore){bestScore=sc;best=seed;}
+  }
+  return best>0?best:1+Math.floor(Math.random()*255);
+}
+
+// §11  Distribution validator
+export function validateDistribution(sampleSize=256):{topoCounts:number[];maxTopoFrac:number;uniqueTopologies:number;passed:boolean;} {
+  const tc=new Array(N_TOPO).fill(0);
+  for (let i=0;i<sampleSize;i++) tc[getTopology(Math.floor(Math.random()*255)+1)]++;
+  const maxTC=Math.max(...tc),maxFrac=maxTC/sampleSize,unique=tc.filter(c=>c>0).length;
+  const passed=maxFrac<=0.14&&unique>=12;
+  if (!passed) console.warn('[Morphology] FAIL',{maxFrac:maxFrac.toFixed(3),tc});
+  else console.log('[Morphology] OK -- unique:',unique,'maxFrac:',maxFrac.toFixed(3));
+  return {topoCounts:tc,maxTopoFrac:maxFrac,uniqueTopologies:unique,passed};
+}
+
+// §12  Legacy shims
+export function getVirusRadius(n: number, R0: number, k: number): number {return R0+k*Math.log2(n+1);}
+
+const ARCHS:VirusArchetype[]=[
+  'biological','humanoid','animal','insectoid','mechanical','armored','crystalline',
+  'mineral','plant','synthetic','robotic','amorphous','geometric','energy','cybernetic','skeletal','fluid',
+];
+export function getVirusModelProfile(value: number): VirusModelProfile {
+  const pi=Math.floor(nh(value,1)*ARCHS.length);
+  let si=Math.floor(nh(value,2)*ARCHS.length);if (si===pi) si=(si+1)%ARCHS.length;
+  const pw=0.6+nh(value,3)*0.4;
+  return {
+    primaryArchetype:ARCHS[pi],secondaryArchetype:ARCHS[si],primaryWeight:pw,secondaryWeight:1-pw,
+    structureLevel:nh(value,4),symmetryLevel:nh(value,5),armorLevel:nh(value,6),
+    organicLevel:nh(value,7),mechanicalLevel:nh(value,8),crystallineLevel:nh(value,9),energyLevel:nh(value,10),
+  };
+}
+export function getCompatibilityScore(profile: VirusModelProfile, model: VirusVisualModel, lobes: number, symmetryLevel: number): number {
+  const am=model.archetypes.includes(profile.primaryArchetype)?1:model.archetypes.includes(profile.secondaryArchetype)?0.5:0;
+  const minL=model.compatibleFeatures.minLobes??3,maxL=model.compatibleFeatures.maxLobes??8;
+  const [sMin,sMax]=model.compatibleFeatures.symmetryRange??[0,1];
+  return am*0.40+(lobes>=minL&&lobes<=maxL?1:0)*0.25+(symmetryLevel>=sMin&&symmetryLevel<=sMax?1:0)*0.15;
 }
