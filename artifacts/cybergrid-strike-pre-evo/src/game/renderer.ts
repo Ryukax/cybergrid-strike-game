@@ -2,6 +2,17 @@ import type { GameState, BoardMetrics } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 
+const NICHE_COLORS: Record<string, string> = {
+  scout: '#67e8f9',
+  bulwark: '#fbbf24',
+  hunter: '#fb7185',
+  swarm: '#a3e635',
+  regenerator: '#4ade80',
+  phase: '#c084fc',
+  symbiote: '#f472b6',
+  opportunist: '#fb923c',
+};
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -226,7 +237,34 @@ export function draw(
       playerRow: state.player.row,
       playerDist: Math.abs(e.colPos - state.player.col),
     };
-    drawVirus(ctx, ex, ey, e.value ?? 6, m.cell, e.flash > 0, false, now, ectx);
+    const genome = e.genome;
+    const drawCell = m.cell * (genome?.sizeScale ?? 1);
+    if (genome) {
+      const nicheColor = NICHE_COLORS[genome.niche] ?? '#fda4af';
+      ctx.save();
+      ctx.globalAlpha = 0.32 + genome.fusionLevel * 0.12;
+      ctx.strokeStyle = nicheColor;
+      ctx.lineWidth = 1.3 + genome.fusionLevel;
+      ctx.setLineDash(genome.niche === 'phase' ? [3, 4] : []);
+      ctx.beginPath();
+      ctx.arc(ex, ey, drawCell * (0.31 + genome.fusionLevel * 0.04), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      genome.mutations.forEach((_, index) => {
+        const angle = now * 0.0012 + (index / Math.max(1, genome.mutations.length)) * Math.PI * 2;
+        ctx.fillStyle = nicheColor;
+        ctx.beginPath();
+        ctx.arc(
+          ex + Math.cos(angle) * drawCell * 0.34,
+          ey + Math.sin(angle) * drawCell * 0.34,
+          1.4 + genome.fusionLevel * 0.5,
+          0,
+          Math.PI * 2,
+        );
+        ctx.fill();
+      });
+    }
+    drawVirus(ctx, ex, ey, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);

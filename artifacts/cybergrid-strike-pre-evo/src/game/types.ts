@@ -1,4 +1,22 @@
 export type GameMode = 'classic' | 'vs';
+export type EnemyNiche =
+  | 'scout' | 'bulwark' | 'hunter' | 'swarm'
+  | 'regenerator' | 'phase' | 'symbiote' | 'opportunist';
+export type EnemyMutation =
+  | 'accelerated' | 'armored' | 'miniature'
+  | 'gigantic' | 'volatile' | 'resilient';
+
+export interface EnemyGenome {
+  niche: EnemyNiche;
+  generation: number;
+  mutations: EnemyMutation[];
+  speedScale: number;
+  hpBonus: number;
+  sizeScale: number;
+  regeneration: number;
+  phaseChance: number;
+  fusionLevel: number;
+}
 
 export interface Bullet {
   colPos: number;
@@ -19,6 +37,9 @@ export interface Enemy {
   value: number;
   /** Shared by enemies spawned as one coordinated attack formation. */
   formationId?: number;
+  genome?: EnemyGenome;
+  maxHp?: number;
+  regenerationCharge?: number;
 }
 
 export interface Particle {
@@ -60,6 +81,7 @@ export interface GameState {
   enemySpawnTimer: number;
   enemyFormationId: number;
   enemyFormationStep: number;
+  lanePressure: [number, number, number];
   moveFlash: number;
   // Status timers — original
   slowTimer: number;

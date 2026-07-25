@@ -38,6 +38,7 @@ import {
   playMove, playAutoToggle, playCardReady, playAbility,
 } from '../game/audio';
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
+import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 
@@ -80,6 +81,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     enemySpawnTimer: 0.4,
     enemyFormationId: 0,
     enemyFormationStep: 0,
+    lanePressure: [0, 0, 0],
     moveFlash: 0,
     slowTimer: 0,
     overclockTimer: 0,
@@ -931,10 +933,16 @@ export default function Game() {
     s.enemySpawnTimer -= dt;
     if (s.enemySpawnTimer <= 0) {
       const formation = ENEMY_FORMATIONS[(s.wave + s.enemyFormationId) % ENEMY_FORMATIONS.length];
-      const row = formation[s.enemyFormationStep];
-      const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
-      const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
       const value = pickDiverseSeed();
+      const genome = createGenome(value, s.wave, s.enemyFormationId);
+      const row = selectAdaptiveRow(
+        genome,
+        formation[s.enemyFormationStep],
+        s.player.row,
+        s.lanePressure,
+      );
+      const speed = (1.15 + Math.min(0.55, (s.wave - 1) * 0.08)) * genome.speedScale;
+      const hp = (Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1) + genome.hpBonus;
       registerSpawn(getMorphSig(value));
       s.enemies.push({
         colPos: 5.6,
@@ -944,6 +952,9 @@ export default function Game() {
         flash: 0,
         value,
         formationId: s.enemyFormationId,
+        genome,
+        maxHp: hp,
+        regenerationCharge: 0,
       });
 
       s.enemyFormationStep++;
@@ -969,6 +980,14 @@ export default function Game() {
       const speedScale = s.freezeTimer > 0 ? 0 : s.blizzardTimer > 0 ? 0.15 : s.slowTimer > 0 ? 0.45 : s.overdriveTimer > 0 ? 2.5 : 1;
       e.colPos -= e.speed * speedScale * dt;
       e.flash = Math.max(0, e.flash - dt);
+      if (e.genome?.regeneration && e.hp < (e.maxHp ?? e.hp)) {
+        e.regenerationCharge = (e.regenerationCharge ?? 0) + e.genome.regeneration * dt;
+        if (e.regenerationCharge >= 1) {
+          e.hp++;
+          e.regenerationCharge -= 1;
+          e.flash = 0.06;
+        }
+      }
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
         if (s.shieldCharges > 0) {
           s.shieldCharges--;
@@ -986,16 +1005,43 @@ export default function Game() {
       }
     }
 
+    // Compatible species that converge in one lane can fuse into a stronger hybrid.
+    for (let i = 0; i < s.enemies.length; i++) {
+      const a = s.enemies[i];
+      if (a.colPos < -1 || !a.genome) continue;
+      for (let j = i + 1; j < s.enemies.length; j++) {
+        const b = s.enemies[j];
+        if (b.colPos < -1 || !b.genome || a.row !== b.row) continue;
+        if (Math.abs(a.colPos - b.colPos) > 0.28) continue;
+        if (!canFuse(a.genome, b.genome, a.value + b.value + s.wave)) continue;
+        a.genome = fuseGenomes(a.genome, b.genome);
+        a.value = ((a.value * 31) ^ b.value) % 255 || 1;
+        a.hp = Math.min(8, a.hp + b.hp);
+        a.maxHp = a.hp;
+        a.speed = (a.speed + b.speed) * 0.5;
+        a.flash = 0.16;
+        b.colPos = -9;
+        registerSpawn(getMorphSig(a.value));
+        break;
+      }
+    }
+
     // Bullet–enemy collisions
     for (const b of s.bullets) {
       for (const e of s.enemies) {
         if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
           if (!b.pierce) b.colPos = 99;
           e.hp -= b.power ?? 1;
+          if (e.genome?.phaseChance && Math.random() < e.genome.phaseChance) {
+            e.hp += b.power ?? 1;
+            e.flash = 0.04;
+            continue;
+          }
           e.flash = 0.08;
           if (e.hp <= 0) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
             e.colPos = -9;
+            s.lanePressure[e.row] = Math.min(6, s.lanePressure[e.row] + 1);
             s.score += s.overdriveTimer > 0 ? 300 : 100;
             if (s.score % 500 === 0) s.wave++;
             if (s.drainTimer > 0) { s.hp++; }
@@ -1026,6 +1072,9 @@ export default function Game() {
     }
 
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
+    for (let row = 0; row < 3; row++) {
+      s.lanePressure[row] = Math.max(0, s.lanePressure[row] - dt * 0.09);
+    }
 
     for (const p of s.particles) {
       p.life -= dt;
