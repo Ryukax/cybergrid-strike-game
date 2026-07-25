@@ -209,21 +209,46 @@ function drawCreatureOrMachine(
   accent: string,
   flash: boolean,
   now: number,
+  niche: string,
 ): void {
-  const archetype = Math.floor(visualGene(seed, 500) * 8);
+  const nicheArchetypes: Record<string, number[]> = {
+    scout: [5, 1, 2],
+    bulwark: [0, 4, 7],
+    hunter: [2, 1, 7],
+    swarm: [1, 6, 3],
+    regenerator: [3, 6, 2],
+    phase: [7, 5, 6],
+    symbiote: [6, 3, 4],
+    opportunist: [0, 5, 2],
+  };
+  const palette: Record<string, [number, number, number]> = {
+    scout: [188, 82, 58],
+    bulwark: [42, 64, 42],
+    hunter: [350, 76, 46],
+    swarm: [88, 70, 44],
+    regenerator: [142, 58, 40],
+    phase: [274, 72, 62],
+    symbiote: [322, 68, 54],
+    opportunist: [24, 78, 48],
+  };
+  const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7];
+  const archetype = pool[Math.floor(visualGene(seed, 500) * pool.length)];
   const r = cell * (0.2 + visualGene(seed, 501) * 0.07);
-  const hue = Math.floor(visualGene(seed, 502) * 360);
-  const body = flash ? '#fff' : `hsl(${hue} 68% ${40 + Math.floor(visualGene(seed, 503) * 20)}%)`;
-  const detail = flash ? '#fff' : `hsl(${(hue + 70 + Math.floor(visualGene(seed, 504) * 100)) % 360} 82% 68%)`;
+  const [baseHue, saturation, lightness] = palette[niche] ?? [Math.floor(visualGene(seed, 502) * 360), 68, 48];
+  const hue = (baseHue + (visualGene(seed, 502) - 0.5) * 28 + 360) % 360;
+  const body = flash ? '#fff' : `hsl(${hue} ${saturation}% ${lightness + Math.floor(visualGene(seed, 503) * 12)}%)`;
+  const detail = flash ? '#fff' : `hsl(${(hue + 38 + visualGene(seed, 504) * 34) % 360} ${Math.min(96, saturation + 12)}% ${Math.min(82, lightness + 28)}%)`;
   const gait = Math.sin(now * 0.007 + seed) * r * 0.08;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = accent;
   ctx.fillStyle = body;
-  ctx.lineWidth = Math.max(1.2, r * 0.09);
+  ctx.lineWidth = niche === 'bulwark' ? Math.max(2.5, r * 0.16) : niche === 'scout' ? Math.max(0.8, r * 0.055) : Math.max(1.2, r * 0.09);
   ctx.shadowColor = accent;
-  ctx.shadowBlur = 8;
+  ctx.shadowBlur = niche === 'phase' ? 16 : niche === 'bulwark' ? 2 : 8;
+  ctx.globalAlpha = niche === 'phase' ? 0.62 : 1;
+  if (niche === 'phase') ctx.setLineDash([4, 3]);
 
   if (archetype === 0) {
     // Robot: chassis, head, articulated legs, antenna and sensor array.
@@ -328,6 +353,35 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = '#06101e';
     ctx.beginPath(); ctx.arc(-r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.arc(r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.setLineDash([]);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = detail;
+  ctx.strokeStyle = detail;
+  ctx.lineWidth = Math.max(1, r * 0.07);
+  if (niche === 'bulwark') {
+    for (const x of [-0.42, 0, 0.42]) ctx.strokeRect(x * r, -r * 0.42, r * 0.28, r * 0.84);
+  } else if (niche === 'regenerator') {
+    for (let spore = 0; spore < 5; spore++) {
+      const angle = spore / 5 * Math.PI * 2 + now * 0.0004;
+      ctx.beginPath(); ctx.arc(Math.cos(angle) * r * 0.72, Math.sin(angle) * r * 0.72, r * 0.07, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (niche === 'symbiote') {
+    ctx.beginPath(); ctx.arc(-r * 0.35, 0, r * 0.16, 0, Math.PI * 2); ctx.arc(r * 0.35, 0, r * 0.16, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-r * 0.2, 0); ctx.lineTo(r * 0.2, 0); ctx.stroke();
+  } else if (niche === 'swarm') {
+    for (let mote = 0; mote < 4; mote++) {
+      const angle = mote / 4 * Math.PI * 2 + now * 0.001;
+      ctx.beginPath(); ctx.arc(Math.cos(angle) * r * 0.9, Math.sin(angle) * r * 0.9, r * 0.08, 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (niche === 'scout') {
+    ctx.beginPath(); ctx.moveTo(-r * 0.55, -r * 0.15); ctx.lineTo(-r * 0.82, 0); ctx.lineTo(-r * 0.55, r * 0.15); ctx.stroke();
+  } else if (niche === 'hunter') {
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(-r * 0.55, side * r * 0.18); ctx.lineTo(-r * 0.92, side * r * 0.38); ctx.stroke();
+    }
+  } else if (niche === 'opportunist') {
+    ctx.beginPath(); ctx.moveTo(-r * 0.5, 0); ctx.lineTo(0, 0); ctx.lineTo(0, -r * 0.45); ctx.moveTo(0, 0); ctx.lineTo(r * 0.5, r * 0.35); ctx.stroke();
   }
   ctx.restore();
 }
@@ -611,6 +665,7 @@ export function draw(
       genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
       e.flash > 0,
       now,
+      genome?.niche ?? 'hunter',
     );
     ctx.restore();
     if (e.hp > 1) {
