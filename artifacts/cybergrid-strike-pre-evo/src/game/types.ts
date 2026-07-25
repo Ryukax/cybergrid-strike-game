@@ -141,6 +141,7 @@ export interface GameState {
   cardTimer: number;
   cardsReady: boolean;
   cardSelectionOpen: boolean;
+  rotateUsedThisHand: boolean;
   usedInHand: string[];   // ability IDs used in the current hand
   // Entities
   player: Player;

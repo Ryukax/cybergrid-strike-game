@@ -142,6 +142,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     cardTimer: 0,
     cardsReady: false,
     cardSelectionOpen: false,
+    rotateUsedThisHand: false,
     usedInHand: [],
     player: { col: 1, row: 1, fireCooldown: 0 },
     bullets: [],
@@ -169,6 +170,7 @@ interface HudData {
   shieldCharges: number;
   cardsReady: boolean;
   cardSelectionOpen: boolean;
+  rotateUsedThisHand: boolean;
   cardTimer: number;
   cardOptions: string[];
   usedInHand: string[];
@@ -398,7 +400,7 @@ export default function Game() {
 
   const [hud, setHud] = useState<HudData>({
     hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
-    cardsReady: false, cardSelectionOpen: false, cardTimer: 0,
+    cardsReady: false, cardSelectionOpen: false, rotateUsedThisHand: false, cardTimer: 0,
     cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
     gameMode: 'classic', npcHp: NPC_HP, npcShieldCharges: 0, playerWon: false,
@@ -416,6 +418,7 @@ export default function Game() {
       shieldCharges: s.shieldCharges,
       cardsReady: s.cardsReady,
       cardSelectionOpen: s.cardSelectionOpen,
+      rotateUsedThisHand: s.rotateUsedThisHand,
       cardTimer: s.cardTimer,
       cardOptions: [...s.currentCardOptions],
       usedInHand: [...s.usedInHand],
@@ -664,6 +667,7 @@ export default function Game() {
       s.usedInHand = [];
       s.cardsReady = true;
       s.cardSelectionOpen = true;
+      s.rotateUsedThisHand = false;
       s.cardTimer = CARD_CHARGE_TIME;
       playAbility(type);
       s.abilityCooldowns[type] = ability.cooldown;
@@ -884,11 +888,13 @@ export default function Game() {
   const rotateHand = useCallback(() => {
     const s = stateRef.current;
     if (!s.running) return;
+    if (s.rotateUsedThisHand) return;
     // Guard: disabled once all cards in the current hand have been used
     const allUsed = s.cardsReady && s.currentCardOptions.length > 0 &&
       s.currentCardOptions.every((id) => s.usedInHand.includes(id));
     if (allUsed) return;
     ensureAudio();
+    s.rotateUsedThisHand = true;
     s.cardsReady = false;
     s.cardSelectionOpen = false;
     s.cardTimer = 0;
@@ -1077,6 +1083,7 @@ export default function Game() {
       if (s.cardTimer >= CARD_CHARGE_TIME) {
         s.cardsReady = true;
         s.cardSelectionOpen = true;
+        s.rotateUsedThisHand = false;
         s.usedInHand = [];
         playCardReady();
         showMessage('Ability Cards loaded! Use them, then hand resets.', false);
@@ -1863,13 +1870,17 @@ export default function Game() {
           <button
             id="rotateHandBtn"
             className="control-btn"
-            disabled={hud.cardsReady && hud.cardOptions.length > 0 && hud.cardOptions.every((id) => hud.usedInHand.includes(id))}
+            disabled={hud.rotateUsedThisHand || (
+              hud.cardsReady
+              && hud.cardOptions.length > 0
+              && hud.cardOptions.every((id) => hud.usedInHand.includes(id))
+            )}
             onPointerDown={(ev) => {
               ev.stopPropagation();
               rotateHand();
             }}
           >
-            ↻ ROTATE
+            {hud.rotateUsedThisHand ? 'ROTATE USED' : '↻ ROTATE'}
           </button>
         )}
       </div>
@@ -1950,7 +1961,7 @@ export default function Game() {
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
                 <div className="menu-control-row"><span>Abilities</span><span>Use all 3 cards, then hand resets</span></div>
-                <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — reset timer (disabled once all 3 used)</span></div>
+                <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — once per hand, then locked until the next deal</span></div>
               </div>
             </div>
           ) : (
