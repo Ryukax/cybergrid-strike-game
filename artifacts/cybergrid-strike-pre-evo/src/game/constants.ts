@@ -1,6 +1,6 @@
 import type { Ability } from './types';
 
-export const CARD_CHARGE_TIME = 15;
+export const CARD_CHARGE_TIME = 12;
 
 // VS mode NPC tuning
 export const NPC_HP = 8;
