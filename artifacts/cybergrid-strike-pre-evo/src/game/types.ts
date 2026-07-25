@@ -17,6 +17,8 @@ export interface Enemy {
   flash: number;
   /** Integer 1–255; determines virus morphology via Virus Morphology Encoding Standard v1 */
   value: number;
+  /** Shared by enemies spawned as one coordinated attack formation. */
+  formationId?: number;
 }
 
 export interface Particle {
@@ -56,6 +58,8 @@ export interface GameState {
   hp: number;
   timer: number;
   enemySpawnTimer: number;
+  enemyFormationId: number;
+  enemyFormationStep: number;
   moveFlash: number;
   // Status timers — original
   slowTimer: number;
