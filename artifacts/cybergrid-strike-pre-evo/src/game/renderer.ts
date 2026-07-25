@@ -982,7 +982,8 @@ export function draw(
     ctx.save();
     ctx.translate(ex, ey);
     if (genome) {
-      const sprite = getProceduralVirusSprite(e.value ?? 6, genome);
+      const visualSeed = (e.value ?? 6) + (e.formationId ?? 0) * 257;
+      const sprite = getProceduralVirusSprite(visualSeed, genome);
       const spriteWidth = drawCell * 1.48;
       const spriteHeight = drawCell * 0.99;
       ctx.save();

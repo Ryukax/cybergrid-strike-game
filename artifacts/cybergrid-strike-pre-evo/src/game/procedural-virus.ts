@@ -5,6 +5,10 @@ const SPRITE_SIZE = 48;
 const QUANTIZED_SIZE = 40;
 const OUTPUT_WIDTH = 240;
 const OUTPUT_HEIGHT = 160;
+const BODY_VARIANTS: Array<[number, number]> = [
+  [1, 1], [1.15, 0.88], [0.86, 1.1],
+  [1.2, 0.96], [0.82, 1.05], [0.94, 0.9],
+];
 const spriteCache = new Map<string, HTMLCanvasElement>();
 const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
@@ -89,36 +93,35 @@ function drawFitted(
   seed: number,
   genome: EnemyGenome,
 ): void {
-  const narrow = 0.91 + gene(seed, 31) * 0.12;
-  const tall = 0.92 + gene(seed, 32) * 0.1;
-  const width = 45 * narrow;
-  const height = 45 * tall;
+  const [widthProfile, heightProfile] = BODY_VARIANTS[Math.floor(gene(seed, 30) * BODY_VARIANTS.length)];
+  const width = 40 * widthProfile;
+  const height = 43 * heightProfile;
   const x = (SPRITE_SIZE - width) / 2 + (gene(seed, 33) - 0.5) * 1.5;
   const y = SPRITE_SIZE - height - 1;
-  const generationShift = Math.min(18, genome.generation * 5);
-  const nicheShift: Record<string, number> = {
-    scout: 8, bulwark: -5, hunter: 0, swarm: 12,
-    regenerator: 16, phase: 24, symbiote: -18, opportunist: -9,
-  };
-  ctx.filter = [
-    `hue-rotate(${(nicheShift[genome.niche] ?? 0) + generationShift}deg)`,
-    `saturate(${0.9 + Math.min(0.25, genome.generation * 0.06)})`,
-    `contrast(${1.05 + Math.min(0.18, genome.fusionLevel * 0.05)})`,
-  ].join(' ');
+  ctx.filter = genomeFilter(genome, seed);
   ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, x, y, width, height);
   ctx.filter = 'none';
 }
 
-function genomeFilter(genome: EnemyGenome): string {
+function genomeFilter(genome: EnemyGenome, seed: number): string {
   const generationShift = Math.min(18, genome.generation * 5);
   const nicheShift: Record<string, number> = {
     scout: 8, bulwark: -5, hunter: 0, swarm: 12,
     regenerator: 16, phase: 24, symbiote: -18, opportunist: -9,
   };
+  const materialFilter = [
+    'brightness(1)',
+    'saturate(0.7) contrast(1.14) brightness(0.94)',
+    'sepia(0.3) saturate(1.08) brightness(0.92)',
+    'saturate(0.58) contrast(1.3) brightness(0.76)',
+    'hue-rotate(34deg) saturate(1.24)',
+    'saturate(0.5) contrast(1.08) brightness(1.14)',
+  ][Math.floor(gene(seed, 205) * 6)];
   return [
     `hue-rotate(${(nicheShift[genome.niche] ?? 0) + generationShift}deg)`,
     `saturate(${0.9 + Math.min(0.25, genome.generation * 0.06)})`,
     `contrast(${1.08 + Math.min(0.2, genome.fusionLevel * 0.05)})`,
+    materialFilter,
   ].join(' ');
 }
 
@@ -161,7 +164,7 @@ function graft(
   graftMask(ctx, seed, region);
   ctx.clip();
   ctx.globalAlpha = alpha;
-  ctx.filter = genomeFilter(genome);
+  ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
     // Normalize every donor's head/sensor mass into a shared upper socket.
     ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
@@ -249,13 +252,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
   const flank = source(flankBase, () => render(canvas, seed, genome));
-  const compositionTier = genome.fusionLevel > 0
-    ? 3
-    : genome.generation >= 2
-      ? 2
-      : genome.generation === 1 || gene(seed, 180) < 0.24
-        ? 1
-        : 0;
+  const isAdapted = genome.generation > 0 || gene(seed, 180) < 0.24;
 
   if (!ready(primary)) return;
 
@@ -271,10 +268,10 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // deterministic thresholds preserve some pure base organisms in the ecology.
   const adaptHead = genome.niche === 'hunter' || genome.niche === 'phase'
     || genome.niche === 'opportunist' || gene(seed, 181) > 0.5;
-  if (compositionTier >= 2 || (compositionTier === 1 && adaptHead)) {
+  if (genome.fusionLevel === 0 && isAdapted && adaptHead) {
     graft(ctx, head, seed + 31, genome, 'head', 0.96);
   }
-  if (compositionTier >= 2 || (compositionTier === 1 && !adaptHead)) {
+  if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
     graft(ctx, locomotion, seed + 37, genome, 'locomotion', 0.94);
   }
   if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {
