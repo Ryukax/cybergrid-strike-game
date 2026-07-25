@@ -941,14 +941,19 @@ export default function Game() {
       const livingEnemies = s.enemies.filter((enemy) => enemy.colPos >= -1);
       const lanePopulation: [number, number, number] = [0, 0, 0];
       const population: Record<string, number> = {};
+      const basePopulation: Record<string, number> = {};
       for (const enemy of livingEnemies) {
         lanePopulation[enemy.row]++;
-        if (enemy.genome) population[enemy.genome.niche] = (population[enemy.genome.niche] ?? 0) + 1;
+        if (enemy.genome) {
+          population[enemy.genome.niche] = (population[enemy.genome.niche] ?? 0) + 1;
+          basePopulation[enemy.genome.baseElement] = (basePopulation[enemy.genome.baseElement] ?? 0) + 1;
+        }
       }
       const genome = createGenome(value, s.wave, s.enemyFormationId, {
         playerRow: s.player.row,
         lanePressure: s.lanePressure,
         population,
+        basePopulation,
         lanePopulation,
       });
       const concurrentSignal =

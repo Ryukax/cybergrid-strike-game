@@ -5,9 +5,14 @@ export type EnemyNiche =
 export type EnemyMutation =
   | 'accelerated' | 'armored' | 'miniature'
   | 'gigantic' | 'volatile' | 'resilient';
+export type EnemyBaseElement =
+  | 'robot' | 'insect' | 'beast' | 'plant' | 'crystal' | 'golem'
+  | 'drone' | 'cephalopod' | 'skeleton' | 'avian' | 'serpent'
+  | 'vehicle' | 'fungus';
 
 export interface EnemyGenome {
   niche: EnemyNiche;
+  baseElement: EnemyBaseElement;
   generation: number;
   mutations: EnemyMutation[];
   speedScale: number;
