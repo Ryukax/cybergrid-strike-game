@@ -202,6 +202,85 @@ function drawModularEntity(
   ctx.restore();
 }
 
+function drawCrossoverModules(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  radius: number,
+  primary: number,
+  color: string,
+  now: number,
+): void {
+  const moduleCount = 1 + Math.floor(visualGene(seed, 700) * 3);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1, radius * 0.075);
+  ctx.globalAlpha = 0.84;
+  for (let slot = 0; slot < moduleCount; slot++) {
+    let module = Math.floor(visualGene(seed, 710 + slot) * 8);
+    if (module === primary) module = (module + 1 + slot) % 8;
+    const scale = 0.72 + visualGene(seed, 720 + slot) * 0.5;
+    if (module === 0) {
+      // Machine sensor package.
+      ctx.strokeRect(-radius * 0.24 * scale, -radius * 0.3, radius * 0.48 * scale, radius * 0.22);
+      ctx.beginPath(); ctx.moveTo(0, -radius * 0.3); ctx.lineTo(0, -radius * 0.62 * scale); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -radius * 0.7 * scale, radius * 0.08, 0, Math.PI * 2); ctx.fill();
+    } else if (module === 1) {
+      // Insect wings.
+      ctx.globalAlpha = 0.34;
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.ellipse(radius * 0.18, side * radius * 0.48, radius * 0.52 * scale, radius * 0.18, side * 0.38, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+      ctx.globalAlpha = 0.84;
+    } else if (module === 2) {
+      // Beast horns and tail.
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(-radius * 0.34, side * radius * 0.22); ctx.lineTo(-radius * 0.72 * scale, side * radius * 0.55); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.moveTo(radius * 0.42, 0); ctx.quadraticCurveTo(radius * scale, -radius * 0.5, radius * 1.15 * scale, 0); ctx.stroke();
+    } else if (module === 3) {
+      // Leaves and root filaments.
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.ellipse(side * radius * 0.5, radius * 0.16, radius * 0.34 * scale, radius * 0.13, side * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(side * radius * 0.18, radius * 0.38); ctx.quadraticCurveTo(side * radius * 0.5, radius * 0.72, side * radius * 0.82, radius * 0.9); ctx.stroke();
+      }
+    } else if (module === 4) {
+      // Crystal armor growths.
+      const shards = 2 + Math.floor(visualGene(seed, 730 + slot) * 4);
+      for (let shard = 0; shard < shards; shard++) {
+        const angle = -Math.PI * 0.85 + shard / Math.max(1, shards - 1) * Math.PI * 0.7;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * radius * 0.35, Math.sin(angle) * radius * 0.35);
+        ctx.lineTo(Math.cos(angle) * radius * (0.8 + scale * 0.32), Math.sin(angle) * radius * (0.8 + scale * 0.32));
+        ctx.lineTo(Math.cos(angle + 0.18) * radius * 0.38, Math.sin(angle + 0.18) * radius * 0.38);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+    } else if (module === 5) {
+      // Drone rotors or thrusters.
+      for (const side of [-1, 1]) {
+        const x = side * radius * 0.78 * scale;
+        ctx.beginPath(); ctx.moveTo(side * radius * 0.3, 0); ctx.lineTo(x, 0); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(x, 0, radius * 0.3, radius * 0.07, now * 0.018, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (module === 6) {
+      // Cephalopod tendrils.
+      const tendrils = 2 + Math.floor(visualGene(seed, 740 + slot) * 4);
+      for (let tendril = 0; tendril < tendrils; tendril++) {
+        const x = (tendril - (tendrils - 1) / 2) * radius * 0.22;
+        ctx.beginPath(); ctx.moveTo(x, radius * 0.3); ctx.quadraticCurveTo(x + Math.sin(now * 0.006 + tendril) * radius * 0.3, radius * 0.72, x + radius * (visualGene(seed, 750 + tendril) - 0.5), radius * scale); ctx.stroke();
+      }
+    } else {
+      // Skeletal ribs and external spine.
+      ctx.beginPath(); ctx.moveTo(-radius * 0.52, 0); ctx.lineTo(radius * 0.52, 0); ctx.stroke();
+      for (let rib = 0; rib < 3; rib++) {
+        const y = -radius * 0.26 + rib * radius * 0.26;
+        ctx.beginPath(); ctx.arc(0, y, radius * (0.3 + rib * 0.07), 0, Math.PI); ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
 function drawCreatureOrMachine(
   ctx: CanvasRenderingContext2D,
   seed: number,
@@ -356,6 +435,7 @@ function drawCreatureOrMachine(
   }
   ctx.setLineDash([]);
   ctx.shadowBlur = 0;
+  drawCrossoverModules(ctx, seed, r, archetype, detail, now);
   ctx.fillStyle = detail;
   ctx.strokeStyle = detail;
   ctx.lineWidth = Math.max(1, r * 0.07);
