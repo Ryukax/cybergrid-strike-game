@@ -996,11 +996,11 @@ export function draw(
         ctx,
         e.value ?? 6,
         drawCell,
-        genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
+        '#fb7185',
         e.flash > 0,
         now,
-        genome?.niche ?? 'hunter',
-        genome,
+        'hunter',
+        undefined,
       );
     }
     ctx.restore();

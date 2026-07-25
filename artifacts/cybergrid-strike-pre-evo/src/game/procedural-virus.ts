@@ -1,7 +1,6 @@
 import type { EnemyBaseElement, EnemyGenome } from './types';
 
 const CACHE_LIMIT = 192;
-const SOURCE_SIZE = 256;
 const SPRITE_SIZE = 48;
 const QUANTIZED_SIZE = 40;
 const OUTPUT_WIDTH = 240;
@@ -11,6 +10,7 @@ const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+  'cyborg', 'mech', 'nanite', 'data-wraith',
 ];
 
 function gene(seed: number, salt: number): number {
@@ -58,7 +58,7 @@ function drawFitted(
     `saturate(${0.9 + Math.min(0.25, genome.generation * 0.06)})`,
     `contrast(${1.05 + Math.min(0.18, genome.fusionLevel * 0.05)})`,
   ].join(' ');
-  ctx.drawImage(image, 0, 0, SOURCE_SIZE, SOURCE_SIZE, x, y, width, height);
+  ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, x, y, width, height);
   ctx.filter = 'none';
 }
 
@@ -117,10 +117,11 @@ function graft(
   ctx.filter = genomeFilter(genome);
   if (region === 'head') {
     // Normalize every donor's head/sensor mass into a shared upper socket.
-    ctx.drawImage(image, 0, 0, SOURCE_SIZE, 150, 3, 0, 42, 25);
+    ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
   } else if (region === 'locomotion') {
     // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
-    ctx.drawImage(image, 0, 112, SOURCE_SIZE, 144, 1, 21, 46, 27);
+    const cropY = image.naturalHeight * 0.44;
+    ctx.drawImage(image, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
   } else {
     drawFitted(ctx, image, seed, genome);
   }
@@ -196,10 +197,12 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const headPool: EnemyBaseElement[] = [
     'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
     'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+    'cyborg', 'mech', 'nanite', 'data-wraith',
   ];
   const locomotionPool: EnemyBaseElement[] = [
     'robot', 'insect', 'beast', 'plant', 'golem',
     'drone', 'cephalopod', 'avian', 'serpent', 'vehicle',
+    'cyborg', 'mech', 'nanite', 'data-wraith',
   ];
   const headBase = headPool[Math.floor(gene(seed, 160) * headPool.length)];
   const locomotionBase = locomotionPool[Math.floor(gene(seed, 165) * locomotionPool.length)];

@@ -22,16 +22,17 @@ const MUTATIONS: EnemyMutation[] = [
 const BASE_ELEMENTS: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+  'cyborg', 'mech', 'nanite', 'data-wraith',
 ];
 const NICHE_BASES: Record<EnemyNiche, EnemyBaseElement[]> = {
-  scout: ['drone', 'insect', 'beast', 'avian'],
-  bulwark: ['robot', 'crystal', 'golem', 'skeleton', 'vehicle'],
-  hunter: ['beast', 'insect', 'skeleton', 'serpent'],
-  swarm: ['insect', 'cephalopod', 'plant', 'fungus'],
+  scout: ['drone', 'insect', 'beast', 'avian', 'nanite'],
+  bulwark: ['robot', 'crystal', 'golem', 'skeleton', 'vehicle', 'mech'],
+  hunter: ['beast', 'insect', 'skeleton', 'serpent', 'cyborg', 'mech'],
+  swarm: ['insect', 'cephalopod', 'plant', 'fungus', 'nanite'],
   regenerator: ['plant', 'cephalopod', 'beast', 'fungus'],
-  phase: ['skeleton', 'drone', 'cephalopod', 'serpent'],
-  symbiote: ['cephalopod', 'plant', 'crystal', 'golem', 'fungus'],
-  opportunist: ['robot', 'drone', 'beast', 'vehicle'],
+  phase: ['skeleton', 'drone', 'cephalopod', 'serpent', 'data-wraith', 'nanite'],
+  symbiote: ['cephalopod', 'plant', 'crystal', 'golem', 'fungus', 'cyborg'],
+  opportunist: ['robot', 'drone', 'beast', 'vehicle', 'cyborg', 'mech'],
 };
 
 function hash01(seed: number, salt: number): number {
