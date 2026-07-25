@@ -221,6 +221,8 @@ export default function Game() {
   const menuScreenRef = useRef<'main' | 'customization'>('main');
   const [menuSelection, setMenuSelection] = useState(0);
   const menuSelectionRef = useRef(0);
+  const [pauseSelection, setPauseSelection] = useState(0);
+  const pauseSelectionRef = useRef(0);
   const menuNavCooldownRef = useRef(0);
 
   // Player skin
@@ -1435,9 +1437,19 @@ export default function Game() {
       const gp = gamepadRef.current;
       if (gp.fire && !gp.prevFire) document.getElementById('playAgainBtn')?.click();
     } else if (phaseRef.current === 'playing' && pausedRef.current) {
-      // Still poll gamepad so Start button can unpause
       handleGamepad();
       const gp = gamepadRef.current;
+      menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
+      if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
+        const direction = gp.moveY > 0 ? 1 : -1;
+        pauseSelectionRef.current = (pauseSelectionRef.current + direction + 2) % 2;
+        setPauseSelection(pauseSelectionRef.current);
+        menuNavCooldownRef.current = 0.22;
+      }
+      if (gp.fire && !gp.prevFire) {
+        const ids = ['pauseResumeBtn', 'pauseMenuBtn'];
+        document.getElementById(ids[pauseSelectionRef.current])?.click();
+      }
       if (gp.start && !gp.prevStart) togglePause();
     }
 
@@ -1553,6 +1565,11 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
     pausedRef.current = !pausedRef.current;
+    if (pausedRef.current) {
+      pauseSelectionRef.current = 0;
+      setPauseSelection(0);
+      menuNavCooldownRef.current = 0;
+    }
     lastTimeRef.current = 0; // reset so dt doesn't spike on resume
     setPaused(pausedRef.current);
   }, []);
@@ -1565,6 +1582,7 @@ export default function Game() {
     phaseRef.current = 'menu';
     menuScreenRef.current = 'main';
     menuSelectionRef.current = 0;
+    pauseSelectionRef.current = 0;
     pausedRef.current = false;
     // Reset reward accumulator for new session
     rewardAccRef.current.reset();
@@ -1573,6 +1591,7 @@ export default function Game() {
     setPaused(false);
     setMenuScreen('main');
     setMenuSelection(0);
+    setPauseSelection(0);
     setPhase('menu');
     updateHud();
   }, [updateHud]);
@@ -1969,9 +1988,17 @@ export default function Game() {
             <div id="pauseTitle">PAUSED</div>
             <button
               id="pauseResumeBtn"
-              onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
+              className={pauseSelection === 0 ? 'gamepad-selected' : ''}
+              onClick={(ev) => { ev.stopPropagation(); togglePause(); }}
             >
               ▶ RESUME
+            </button>
+            <button
+              id="pauseMenuBtn"
+              className={pauseSelection === 1 ? 'gamepad-selected' : ''}
+              onClick={(ev) => { ev.stopPropagation(); restart(); }}
+            >
+              MAIN MENU
             </button>
           </div>
         </div>
