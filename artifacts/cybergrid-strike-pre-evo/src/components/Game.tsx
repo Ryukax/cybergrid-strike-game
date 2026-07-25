@@ -1027,7 +1027,9 @@ export default function Game() {
         if (Math.abs(a.colPos - b.colPos) > 0.28) continue;
         if (!canFuse(a.genome, b.genome, a.value + b.value + s.wave)) continue;
         a.genome = fuseGenomes(a.genome, b.genome);
-        a.value = ((a.value * 31) ^ b.value) % 255 || 1;
+        // Fusion creates a new procedural identity instead of collapsing back
+        // into the old 1–255 catalog.
+        a.value = (((a.value * 1664525) ^ (b.value * 1013904223) ^ (s.wave * 69069)) >>> 0) % 0x7ffffffe + 1;
         a.hp = Math.min(8, a.hp + b.hp);
         a.maxHp = a.hp;
         a.speed = (a.speed + b.speed) * 0.5;

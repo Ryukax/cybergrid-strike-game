@@ -58,6 +58,7 @@ export function isPrime(n: number): boolean {
 export function isPerfectSquare(n: number): boolean { const s = Math.round(Math.sqrt(n)); return s*s===n; }
 export function isPowerOfTwo(n: number): boolean { return n > 0 && (n & (n-1)) === 0; }
 export function getVirusClass(n: number): VirusClass {
+  if (n > 65535) return (['prime','power-of-two','perfect-square','even-composite','odd-composite'] as VirusClass[])[Math.floor(nh(n, 0xC1A5) * 5)];
   if (isPrime(n)) return 'prime'; if (isPowerOfTwo(n)) return 'power-of-two';
   if (isPerfectSquare(n)) return 'perfect-square'; if (n%2===0) return 'even-composite'; return 'odd-composite';
 }
@@ -84,9 +85,7 @@ export function getVirusColors(n: number, flash: boolean): {fill:string;glow:str
 export const PHYLUM = (n: number): number => Math.floor(nh(n, 0xF00D) * 6);
 export const CLADE  = (n: number): number => Math.floor(nh(n, 0xC1AD) * 4);
 export const STAGE  = (n: number): number => {
-  const base = Math.min(3, Math.floor(n / 64));
-  const jitter = Math.floor(nh(n, 0x5715) * 2.99) - 1;
-  return Math.max(0, Math.min(3, base + jitter));
+  return Math.floor(nh(n, 0x5715) * 4);
 };
 export const MICRO  = (n: number): number => Math.floor(nh(n, 0xBABE) * 3);
 const N_TOPO = 24;
@@ -119,7 +118,7 @@ function lineageColors(n: number, flash: boolean, green?: boolean): LColor {
     const p2 = (p1 + 1 + Math.floor(nh(n, 0xC1A2) * 4)) % 5;
     h = ((PH_HUE[p1] + PH_HUE[p2]) / 2 + 360) % 360;
   } else {
-    h = (PH_HUE[ph] + CL_HUE_S[cl] + 360) % 360;
+    h = (PH_HUE[ph] + CL_HUE_S[cl] + (nh(n, 0xC010) - 0.5) * 58 + 360) % 360;
   }
   const pIdx = ph < 5 ? ph : 2;
   const s = PH_SAT[pIdx] * ST_SAT_M[st];
@@ -1512,16 +1511,18 @@ export function morphDistance(a: MorphSig, b: MorphSig): number {
   return d;
 }
 
-const SPAWN_WIN=20, MAX_SAME_PHYLUM=2, MAX_SAME_SILO=1;
+const SPAWN_WIN=12, MAX_SAME_PHYLUM=3, MAX_SAME_SILO=1;
 const _hist: MorphSig[]=[];
+const _recentSeeds: number[]=[];
 
 export function registerSpawn(sig: MorphSig): void { _hist.push(sig); if (_hist.length>SPAWN_WIN) _hist.shift(); }
-export function clearSpawnHistory(): void { _hist.length=0; }
+export function clearSpawnHistory(): void { _hist.length=0; _recentSeeds.length=0; }
 
 export function pickDiverseSeed(): number {
   let best=-1, bestScore=-Infinity;
-  for (let i=0; i<88; i++) {
-    const seed=1+((i*97+Math.floor(Math.random()*41))%255);
+  for (let i=0; i<192; i++) {
+    const seed=1+Math.floor(Math.random()*0x7ffffffe);
+    if (_recentSeeds.includes(seed)) continue;
     const sig=getMorphSig(seed);
     const phC=_hist.filter(s=>s.phylum===sig.phylum).length;
     const sfC=_hist.filter(s=>s.silhouetteFamily===sig.silhouetteFamily).length;
@@ -1529,24 +1530,27 @@ export function pickDiverseSeed(): number {
     // Hard exclusion: too many of same phylum OR same silhouette family recently
     if (phC>=MAX_SAME_PHYLUM||sfC>=MAX_SAME_SILO) continue;
     let minD=1.0; for (const s of _hist) { const d=morphDistance(sig,s); if (d<minD) minD=d; }
-    const score=minD*Math.pow(0.42,phC)*Math.pow(0.55,sfC)*Math.pow(0.90,stC)+(sig.phylum===5?0.11:0);
+    const score=minD*Math.pow(0.52,phC)*Math.pow(0.48,sfC)*Math.pow(0.88,stC)+nh(seed,0xD1CE)*0.08+(sig.phylum===5?0.11:0);
     if (score>bestScore) { bestScore=score; best=seed; }
   }
-  return best>0 ? best : 1+Math.floor(Math.random()*255);
+  const chosen=best>0 ? best : 1+Math.floor(Math.random()*0x7ffffffe);
+  _recentSeeds.push(chosen);
+  if (_recentSeeds.length>64) _recentSeeds.shift();
+  return chosen;
 }
 
 export function selectDiverseSeed(waveSigs: MorphSig[], crossHistory: MorphSig[]): number {
   const all=[...crossHistory.slice(-8),...waveSigs];
   let best=-1, bestScore=-1;
   for (let attempt=0; attempt<72; attempt++) {
-    const seed=Math.floor(Math.random()*255)+1, sig=getMorphSig(seed);
+    const seed=Math.floor(Math.random()*0x7ffffffe)+1, sig=getMorphSig(seed);
     let wMin=1.0; for (const ws of all) { const d=morphDistance(sig,ws); if (d<wMin) wMin=d; }
     const phS=all.filter(ws=>ws.phylum===sig.phylum).length;
     const sfS=all.filter(ws=>ws.silhouetteFamily===sig.silhouetteFamily).length;
     const score=wMin*Math.pow(0.48,phS)*Math.pow(0.60,sfS);
     if (score>bestScore) { bestScore=score; best=seed; }
   }
-  return best>0 ? best : Math.floor(Math.random()*255)+1;
+  return best>0 ? best : Math.floor(Math.random()*0x7ffffffe)+1;
 }
 
 // ═══════════════════════════════════════════════════════════
