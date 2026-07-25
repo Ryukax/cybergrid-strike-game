@@ -39,8 +39,36 @@ import {
 } from '../game/audio';
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
+import { getEnemyMovementClass, type EnemyMovementClass } from '../game/procedural-virus';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
+const AIR_CLASSES = new Set<EnemyMovementClass>(['flier', 'hover', 'spectral']);
+const FLUID_CLASSES = new Set<EnemyMovementClass>(['aquatic', 'serpentine', 'tentacled']);
+const GROUNDED_CLASSES = new Set<EnemyMovementClass>(['biped', 'quadruped', 'arthropod', 'burrower', 'vehicle', 'fortress']);
+const HEAVY_CLASSES = new Set<EnemyMovementClass>(['fortress', 'vehicle', 'rooted']);
+const CYBER_BASES = new Set([
+  'robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite',
+  'data-wraith', 'turret', 'fish', 'mole',
+]);
+
+function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {
+  return enemy.genome ? getEnemyMovementClass(enemy.genome.baseElement) : undefined;
+}
+
+function isCyberEnemy(enemy: GameState['enemies'][number]): boolean {
+  return Boolean(enemy.genome && CYBER_BASES.has(enemy.genome.baseElement));
+}
+
+function genomeSignature(enemy: GameState['enemies'][number]): string | undefined {
+  const genome = enemy.genome;
+  if (!genome) return undefined;
+  return [
+    genome.baseElement,
+    genome.niche,
+    [...genome.mutations].sort().join('+') || 'baseline',
+    `fusion-${genome.fusionLevel}`,
+  ].join(':');
+}
 
 function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): string[] {
   const source = enabledIds
@@ -74,7 +102,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     enemyFormationId: 0,
     lanePressure: [0, 0, 0],
     ecosystemStats: {
-      speciesSeen: [],
+      entitySignatures: [],
       mutationDiscoveries: 0,
       maxGeneration: 0,
       totalFusions: 0,
@@ -100,6 +128,9 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     magnetTimer: 0,
     berserkTimer: 0,
     critTimer: 0,
+    signalJamTimer: 0,
+    stasisGateTimer: 0,
+    adaptiveAmmoTimer: 0,
     cardTimer: 0,
     cardsReady: false,
     cardSelectionOpen: false,
@@ -378,7 +409,7 @@ export default function Game() {
       npcShieldCharges: s.npc.shieldCharges,
       playerWon: s.playerWon,
       ecosystem: {
-        species: s.ecosystemStats.speciesSeen.length,
+        species: s.ecosystemStats.entitySignatures.length,
         mutations: s.ecosystemStats.mutationDiscoveries,
         generation: s.ecosystemStats.maxGeneration,
         fusions: s.ecosystemStats.totalFusions,
@@ -531,7 +562,13 @@ export default function Game() {
       for (let row = 0; row < 3; row++) fireBullet(row, { power: 1, big: true });
       showMessage('Mirror — one big shot on every lane!', 1500);
     } else if (type === 'scramble') {
-      for (const enemy of s.enemies) { enemy.colPos = Math.min(5.8, enemy.colPos + 0.8); enemy.flash = 0.1; }
+      for (const enemy of s.enemies) {
+        const movement = movementClassOf(enemy);
+        const push = movement && HEAVY_CLASSES.has(movement) ? 0.35 : movement && AIR_CLASSES.has(movement) ? 1.05 : 0.8;
+        enemy.colPos = Math.min(5.8, enemy.colPos + push);
+        enemy.formationId = undefined;
+        enemy.flash = 0.1;
+      }
       showMessage('Scramble knocked viruses back!', 1500);
 
     // ── Instant / no new state ──────────────────────────────────────────────
@@ -555,7 +592,7 @@ export default function Game() {
     } else if (type === 'purge') {
       let kills = 0;
       for (const enemy of s.enemies) {
-        if (enemy.hp <= 1) {
+        if (enemy.hp <= 1 || (enemy.genome?.fusionLevel ?? 0) > 0 || (enemy.genome?.mutations.length ?? 0) >= 4) {
           if (m) addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#c4b5fd');
           enemy.colPos = -9;
           s.score += 100;
@@ -632,8 +669,15 @@ export default function Game() {
     // ── New instant abilities ──────────────────────────────────────────────
     } else if (type === 'emp') {
       let hit = 0;
-      for (const e of s.enemies) { if (e.hp > 1) { e.hp = 1; e.flash = 0.12; hit++; } }
-      showMessage(`EMP — ${hit} virus${hit !== 1 ? 'es' : ''} weakened to 1 HP!`, 1500);
+      for (const e of s.enemies) {
+        if (isCyberEnemy(e)) {
+          e.hp = Math.max(1, e.hp - 3);
+          e.flash = 0.12;
+          hit++;
+        }
+      }
+      s.signalJamTimer = Math.max(s.signalJamTimer, 4);
+      showMessage(`EMP disabled ${hit} cyber entit${hit === 1 ? 'y' : 'ies'}!`, 1500);
 
     } else if (type === 'snipe') {
       s.bullets.push({ colPos: s.player.col + 0.55, row: s.player.row, speed: 16, power: 5, big: true, pierce: true });
@@ -641,7 +685,12 @@ export default function Game() {
       showMessage('Sniper — power-5 mega-shot fired!', 1200);
 
     } else if (type === 'gravity') {
-      for (const e of s.enemies) { e.row = s.player.row; e.flash = 0.12; }
+      for (const e of s.enemies) {
+        const movement = movementClassOf(e);
+        if (!movement || !HEAVY_CLASSES.has(movement)) e.row = s.player.row;
+        if (movement && AIR_CLASSES.has(movement)) e.colPos = Math.min(5.8, e.colPos + 0.9);
+        e.flash = 0.12;
+      }
       showMessage('Gravity — all viruses pulled to your row!', 1500);
 
     } else if (type === 'chain') {
@@ -678,7 +727,11 @@ export default function Game() {
       showMessage(`Cluster — ${kills} most-advanced virus${kills !== 1 ? 'es' : ''} eliminated!`, 1500);
 
     } else if (type === 'rowshuffle') {
-      for (const e of s.enemies) { e.row = Math.floor(Math.random() * 3); e.flash = 0.1; }
+      for (const e of s.enemies) {
+        const movement = movementClassOf(e);
+        if (movement !== 'rooted' && movement !== 'fortress') e.row = Math.floor(Math.random() * 3);
+        e.flash = 0.1;
+      }
       showMessage('Row Chaos — viruses scrambled to random rows!', 1500);
 
     // ── New timer-based abilities ──────────────────────────────────────────
@@ -719,6 +772,73 @@ export default function Game() {
     } else if (type === 'crit') {
       s.critTimer = 5;
       showMessage('Crit Boost — 40% chance of triple damage for 5s!', 1500);
+    } else if (type === 'flak') {
+      let hits = 0;
+      for (const e of s.enemies) {
+        const movement = movementClassOf(e);
+        if (movement && AIR_CLASSES.has(movement)) {
+          e.hp -= 2; e.colPos = Math.min(5.8, e.colPos + 0.75); e.flash = 0.14; hits++;
+          if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+        }
+      }
+      showMessage(`Flak Grid grounded ${hits} airborne entit${hits === 1 ? 'y' : 'ies'}!`, 1500);
+    } else if (type === 'groundwire') {
+      let hits = 0;
+      for (const e of s.enemies) {
+        const movement = movementClassOf(e);
+        if (movement && GROUNDED_CLASSES.has(movement)) {
+          e.hp -= HEAVY_CLASSES.has(movement) ? 1 : 2;
+          e.colPos = Math.min(5.8, e.colPos + (HEAVY_CLASSES.has(movement) ? 0.35 : 0.7));
+          e.flash = 0.14; hits++;
+          if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+        }
+      }
+      showMessage(`Groundwire shocked ${hits} grounded entit${hits === 1 ? 'y' : 'ies'}!`, 1500);
+    } else if (type === 'signaljam') {
+      s.signalJamTimer = 6;
+      showMessage('Signal Jam disabled cyber traits and fusion for 6s!', 1500);
+    } else if (type === 'undertow') {
+      let hits = 0;
+      for (const e of s.enemies) {
+        const movement = movementClassOf(e);
+        if (movement && FLUID_CLASSES.has(movement)) {
+          e.row = s.player.row; e.colPos = Math.min(5.8, e.colPos + 1.25); e.flash = 0.14; hits++;
+        }
+      }
+      showMessage(`Undertow redirected ${hits} fluid-bodied entit${hits === 1 ? 'y' : 'ies'}!`, 1500);
+    } else if (type === 'separate') {
+      let split = 0;
+      for (const e of s.enemies) {
+        if (!e.genome || e.genome.fusionLevel <= 0) continue;
+        e.genome = {
+          ...e.genome,
+          fusionLevel: Math.max(0, e.genome.fusionLevel - 1),
+          generation: Math.max(0, e.genome.generation - 1),
+          mutations: e.genome.mutations.slice(0, Math.max(0, e.genome.mutations.length - 2)),
+          hpBonus: Math.max(0, e.genome.hpBonus - 1),
+        };
+        e.hp = Math.max(1, Math.ceil(e.hp * 0.55));
+        e.maxHp = Math.max(e.hp, Math.ceil((e.maxHp ?? e.hp) * 0.65));
+        e.flash = 0.16; split++;
+      }
+      showMessage(`Separation destabilized ${split} fusion${split === 1 ? '' : 's'}!`, 1500);
+    } else if (type === 'interceptor') {
+      const target = [...s.enemies].filter((e) => e.colPos > -1)
+        .sort((a, b) => (a.colPos - b.colPos) || (b.speed - a.speed))[0];
+      if (target) {
+        target.hp -= 6; target.flash = 0.18;
+        if (target.hp <= 0) { target.colPos = -9; s.score += 100; playScore(); }
+        showMessage('Interceptor struck the leading threat!', 1500);
+      } else {
+        showMessage('Interceptor found no target.', 1000);
+      }
+    } else if (type === 'stasisgate') {
+      s.stasisGateTimer = 7;
+      for (const e of s.enemies) e.stasisTriggered = false;
+      showMessage('Stasis Gate armed at the center boundary for 7s!', 1500);
+    } else if (type === 'adaptive') {
+      s.adaptiveAmmoTimer = 7;
+      showMessage('Adaptive Ammo matched every target anatomy for 7s!', 1500);
     }
 
     playAbility(type);
@@ -842,16 +962,27 @@ export default function Game() {
     s.magnetTimer    = Math.max(0, s.magnetTimer - dt);
     s.berserkTimer   = Math.max(0, s.berserkTimer - dt);
     s.critTimer      = Math.max(0, s.critTimer - dt);
+    s.signalJamTimer = Math.max(0, s.signalJamTimer - dt);
+    s.stasisGateTimer = Math.max(0, s.stasisGateTimer - dt);
+    s.adaptiveAmmoTimer = Math.max(0, s.adaptiveAmmoTimer - dt);
     if (s.pulseTimer > 0) {
       s.pulseTimer = Math.max(0, s.pulseTimer - dt);
       s.pulseTick  = Math.max(0, s.pulseTick  - dt);
       if (s.pulseTick <= 0) {
-        for (const e of s.enemies) { e.colPos = Math.min(5.8, e.colPos + 0.5); e.flash = 0.06; }
+        for (const e of s.enemies) {
+          const movement = movementClassOf(e);
+          const push = movement && HEAVY_CLASSES.has(movement) ? 0.18 : movement === 'spectral' ? 0.28 : 0.65;
+          e.colPos = Math.min(5.8, e.colPos + push);
+          e.flash = 0.06;
+        }
         s.pulseTick = 1.5;
       }
     }
     if (s.magnetTimer > 0) {
-      for (const e of s.enemies) e.colPos = Math.min(5.8, e.colPos + 0.4 * dt);
+      for (const e of s.enemies) {
+        const pull = isCyberEnemy(e) ? 0.62 : e.genome?.fusionLevel ? 0.2 : 0.05;
+        e.colPos = Math.min(5.8, e.colPos + pull * dt);
+      }
     }
     if (s.regenTimer > 0) {
       s.regenTimer = Math.max(0, s.regenTimer - dt);
@@ -970,8 +1101,14 @@ export default function Game() {
       );
       const speed = (1.15 + Math.min(0.55, (s.wave - 1) * 0.08)) * genome.speedScale;
       const hp = (Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1) + genome.hpBonus;
-      if (!s.ecosystemStats.speciesSeen.includes(genome.niche)) {
-        s.ecosystemStats.speciesSeen.push(genome.niche);
+      const discoverySignature = [
+        genome.baseElement,
+        genome.niche,
+        [...genome.mutations].sort().join('+') || 'baseline',
+        `fusion-${genome.fusionLevel}`,
+      ].join(':');
+      if (!s.ecosystemStats.entitySignatures.includes(discoverySignature)) {
+        s.ecosystemStats.entitySignatures.push(discoverySignature);
       }
       s.ecosystemStats.mutationDiscoveries += genome.mutations.length;
       s.ecosystemStats.maxGeneration = Math.max(s.ecosystemStats.maxGeneration, genome.generation);
@@ -1007,10 +1144,28 @@ export default function Game() {
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     for (const e of s.enemies) {
       if (!Number.isFinite(e.speed) || e.speed < 0.15) e.speed = 0.85;
-      const speedScale = s.freezeTimer > 0 ? 0.08 : s.blizzardTimer > 0 ? 0.2 : s.slowTimer > 0 ? 0.45 : s.overdriveTimer > 0 ? 2.5 : 1;
+      const movement = movementClassOf(e);
+      const isFastMover = movement === 'flier' || movement === 'hover' || movement === 'quadruped'
+        || movement === 'arthropod' || movement === 'aquatic';
+      let speedScale = s.overdriveTimer > 0 ? 2.5 : 1;
+      if (s.slowTimer > 0) speedScale = isFastMover ? 0.32 : 0.55;
+      if (s.blizzardTimer > 0) {
+        speedScale = movement === 'flier' || movement === 'aquatic'
+          ? 0.1
+          : movement === 'burrower' ? 0.42 : 0.2;
+      }
+      if (s.freezeTimer > 0) speedScale = 0.08;
+      if (s.signalJamTimer > 0 && isCyberEnemy(e)) speedScale *= 0.32;
       e.colPos -= e.speed * speedScale * dt;
+      if (s.stasisGateTimer > 0 && !e.stasisTriggered && e.colPos <= 3.1) {
+        e.stasisTriggered = true;
+        e.hp -= e.speed >= 1.55 ? 3 : 1;
+        e.colPos = Math.min(5.8, e.colPos + (e.speed >= 1.55 ? 0.9 : 0.35));
+        e.flash = 0.16;
+        if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+      }
       e.flash = Math.max(0, e.flash - dt);
-      if (e.genome?.regeneration && e.hp < (e.maxHp ?? e.hp)) {
+      if (e.genome?.regeneration && s.freezeTimer <= 0 && !(s.signalJamTimer > 0 && isCyberEnemy(e)) && e.hp < (e.maxHp ?? e.hp)) {
         e.regenerationCharge = (e.regenerationCharge ?? 0) + e.genome.regeneration * dt;
         if (e.regenerationCharge >= 1) {
           e.hp++;
@@ -1043,6 +1198,7 @@ export default function Game() {
         const b = s.enemies[j];
         if (b.colPos < -1 || !b.genome || a.row !== b.row) continue;
         if (Math.abs(a.colPos - b.colPos) > 0.28) continue;
+        if (s.signalJamTimer > 0 && (isCyberEnemy(a) || isCyberEnemy(b))) continue;
         if (!canFuse(a.genome, b.genome, a.value + b.value + s.wave)) continue;
         a.genome = fuseGenomes(a.genome, b.genome);
         s.ecosystemStats.totalFusions++;
@@ -1055,6 +1211,10 @@ export default function Game() {
         a.speed = (a.speed + b.speed) * 0.5;
         a.flash = 0.16;
         b.colPos = -9;
+        const fusedSignature = genomeSignature(a);
+        if (fusedSignature && !s.ecosystemStats.entitySignatures.includes(fusedSignature)) {
+          s.ecosystemStats.entitySignatures.push(fusedSignature);
+        }
         registerSpawn(getMorphSig(a.value));
         break;
       }
@@ -1065,9 +1225,18 @@ export default function Game() {
       for (const e of s.enemies) {
         if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
           if (!b.pierce) b.colPos = 99;
-          e.hp -= b.power ?? 1;
-          if (e.genome?.phaseChance && Math.random() < e.genome.phaseChance) {
-            e.hp += b.power ?? 1;
+          const movement = movementClassOf(e);
+          let damage = b.power ?? 1;
+          if (s.adaptiveAmmoTimer > 0) {
+            if (movement === 'fortress' || e.genome?.mutations.includes('armored')) damage += 2;
+            else if (movement === 'spectral' || movement === 'colony' || isCyberEnemy(e)) damage += 1;
+          }
+          e.hp -= damage;
+          const phaseSuppressed = s.freezeTimer > 0
+            || (s.signalJamTimer > 0 && isCyberEnemy(e))
+            || (s.adaptiveAmmoTimer > 0 && movement === 'spectral');
+          if (!phaseSuppressed && e.genome?.phaseChance && Math.random() < e.genome.phaseChance) {
+            e.hp += damage;
             e.flash = 0.04;
             continue;
           }

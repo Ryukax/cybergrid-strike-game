@@ -46,6 +46,7 @@ export interface Enemy {
   genome?: EnemyGenome;
   maxHp?: number;
   regenerationCharge?: number;
+  stasisTriggered?: boolean;
 }
 
 export interface Particle {
@@ -88,7 +89,7 @@ export interface GameState {
   enemyFormationId: number;
   lanePressure: [number, number, number];
   ecosystemStats: {
-    speciesSeen: EnemyNiche[];
+    entitySignatures: string[];
     mutationDiscoveries: number;
     maxGeneration: number;
     totalFusions: number;
@@ -116,6 +117,9 @@ export interface GameState {
   magnetTimer: number;     // pushes enemies toward right edge
   berserkTimer: number;    // very fast fire rate
   critTimer: number;       // 40% chance of 3× damage per bullet
+  signalJamTimer: number;
+  stasisGateTimer: number;
+  adaptiveAmmoTimer: number;
   // Card system
   cardTimer: number;
   cardsReady: boolean;

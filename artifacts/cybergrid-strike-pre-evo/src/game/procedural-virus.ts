@@ -18,10 +18,11 @@ const CHARACTER_BASES = new Set<EnemyBaseElement>(['crab', 'owl', 'fox', 'snail'
 // facing right, so normalize them before they enter any composition socket.
 const RIGHT_FACING_SOURCES = new Set<EnemyBaseElement>(['cyborg', 'data-wraith']);
 
-type BodyType =
+export type EnemyMovementClass =
   | 'biped' | 'quadruped' | 'arthropod' | 'flier'
   | 'hover' | 'serpentine' | 'tentacled' | 'rooted'
   | 'colony' | 'aquatic' | 'burrower' | 'vehicle' | 'fortress' | 'spectral';
+type BodyType = EnemyMovementClass;
 
 const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
   robot: 'biped', skeleton: 'biped', cyborg: 'biped',
@@ -37,6 +38,10 @@ const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
   golem: 'fortress', crystal: 'fortress', mech: 'fortress', turret: 'fortress',
   'data-wraith': 'spectral',
 };
+
+export function getEnemyMovementClass(base: EnemyBaseElement): EnemyMovementClass {
+  return BODY_TYPE[base];
+}
 
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
   biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl'],
