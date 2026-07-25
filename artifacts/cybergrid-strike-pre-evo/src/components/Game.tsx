@@ -50,7 +50,6 @@ const HEAVY_CLASSES = new Set<EnemyMovementClass>(['fortress', 'vehicle', 'roote
 const CYBER_BASES = new Set([
   'robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite',
   'data-wraith', 'turret', 'fish', 'mole',
-  'capsid', 'phage', 'parasite', 'spore',
 ]);
 
 function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {

@@ -13,7 +13,9 @@ const QUANTIZED_SIZE = 40;
 const OUTPUT_WIDTH = 240;
 const OUTPUT_HEIGHT = 160;
 const spriteCache = new Map<string, HTMLCanvasElement>();
-type ComponentSource = 'gremlin' | 'jelly' | 'beetle' | 'automaton';
+type ComponentSource =
+  | 'gremlin' | 'jelly' | 'beetle' | 'automaton'
+  | 'capsid' | 'phage' | 'parasite' | 'spore';
 type VisualSource = EnemyBaseElement | ComponentSource;
 const sourceCache = new Map<VisualSource, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
@@ -21,11 +23,9 @@ const BASES: EnemyBaseElement[] = [
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
   'cyborg', 'mech', 'nanite', 'data-wraith',
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
-  'capsid', 'phage', 'parasite', 'spore',
 ];
 const CHARACTER_BASES = new Set<EnemyBaseElement>([
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
-  'capsid', 'phage', 'parasite', 'spore',
 ]);
 // All enemies advance from right to left. These source paintings were authored
 // facing right, so normalize them before they enter any composition socket.
@@ -40,12 +40,12 @@ type BodyType = EnemyMovementClass;
 const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
   robot: 'biped', skeleton: 'biped', cyborg: 'biped',
   beast: 'quadruped', fox: 'quadruped',
-  insect: 'arthropod', crab: 'arthropod', phage: 'arthropod', parasite: 'arthropod',
+  insect: 'arthropod', crab: 'arthropod',
   avian: 'flier', owl: 'flier',
-  drone: 'hover', capsid: 'hover',
+  drone: 'hover',
   serpent: 'serpentine', snail: 'serpentine',
   cephalopod: 'tentacled',
-  plant: 'rooted', fungus: 'colony', nanite: 'colony', spore: 'colony',
+  plant: 'rooted', fungus: 'colony', nanite: 'colony',
   fish: 'aquatic', mole: 'burrower',
   vehicle: 'vehicle',
   golem: 'fortress', crystal: 'fortress', mech: 'fortress', turret: 'fortress',
@@ -75,6 +75,19 @@ const COMPONENT_LIBRARY: ComponentDefinition[] = [
   { source: 'automaton', role: 'head', domains: ['machine', 'cyber', 'mineral'] },
   { source: 'automaton', role: 'locomotion', domains: ['machine', 'cyber'] },
   { source: 'automaton', role: 'flank', domains: ['machine', 'cyber', 'mineral'] },
+  // Cyber-virus paintings are vocabulary sheets, never spawnable whole families.
+  // Their coherent regions are clipped into generic functional sockets.
+  { source: 'capsid', role: 'head', domains: ['cyber', 'machine', 'spectral'] },
+  { source: 'capsid', role: 'flank', domains: ['cyber', 'machine', 'mineral', 'chitin'] },
+  { source: 'phage', role: 'head', domains: ['cyber', 'machine', 'spectral'] },
+  { source: 'phage', role: 'locomotion', domains: ['cyber', 'machine', 'chitin', 'fauna'] },
+  { source: 'phage', role: 'flank', domains: ['cyber', 'machine', 'mineral'] },
+  { source: 'parasite', role: 'head', domains: ['cyber', 'chitin', 'fauna', 'spectral'] },
+  { source: 'parasite', role: 'locomotion', domains: ['cyber', 'chitin', 'fauna', 'fluid'] },
+  { source: 'parasite', role: 'flank', domains: ['cyber', 'chitin', 'mineral'] },
+  { source: 'spore', role: 'head', domains: ['cyber', 'flora', 'spectral', 'fluid'] },
+  { source: 'spore', role: 'locomotion', domains: ['cyber', 'flora', 'fluid', 'machine'] },
+  { source: 'spore', role: 'flank', domains: ['cyber', 'flora', 'mineral'] },
 ];
 
 function selectComponent(
@@ -89,13 +102,13 @@ function selectComponent(
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
   biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl'],
   quadruped: ['beast', 'fox', 'serpent', 'cyborg', 'owl'],
-  arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite', 'phage', 'parasite', 'capsid'],
+  arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite'],
   flier: ['avian', 'owl', 'drone', 'insect', 'data-wraith'],
-  hover: ['drone', 'robot', 'nanite', 'crystal', 'data-wraith', 'capsid', 'spore', 'phage'],
+  hover: ['drone', 'robot', 'nanite', 'crystal', 'data-wraith'],
   serpentine: ['serpent', 'snail', 'cephalopod', 'drone', 'data-wraith'],
   tentacled: ['cephalopod', 'fungus', 'plant', 'nanite', 'data-wraith'],
   rooted: ['plant', 'fungus', 'crystal', 'cephalopod', 'golem'],
-  colony: ['fungus', 'nanite', 'plant', 'insect', 'crystal', 'spore', 'capsid', 'parasite'],
+  colony: ['fungus', 'nanite', 'plant', 'insect', 'crystal'],
   aquatic: ['fish', 'cephalopod', 'serpent', 'drone', 'crystal'],
   burrower: ['mole', 'beast', 'crab', 'golem', 'cyborg'],
   vehicle: ['vehicle', 'robot', 'drone', 'mech', 'crab'],
@@ -106,13 +119,13 @@ const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
 const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
   biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech'],
   quadruped: ['beast', 'fox', 'insect', 'cyborg', 'golem'],
-  arthropod: ['insect', 'crab', 'nanite', 'vehicle', 'phage', 'parasite'],
+  arthropod: ['insect', 'crab', 'nanite', 'vehicle'],
   flier: ['avian', 'owl', 'drone', 'insect'],
-  hover: ['drone', 'nanite', 'data-wraith', 'vehicle', 'capsid', 'spore'],
+  hover: ['drone', 'nanite', 'data-wraith', 'vehicle'],
   serpentine: ['serpent', 'snail', 'cephalopod', 'nanite'],
   tentacled: ['cephalopod', 'plant', 'fungus', 'nanite'],
   rooted: ['plant', 'fungus', 'crystal', 'cephalopod'],
-  colony: ['fungus', 'nanite', 'insect', 'plant', 'spore', 'capsid', 'parasite'],
+  colony: ['fungus', 'nanite', 'insect', 'plant'],
   aquatic: ['fish', 'serpent', 'cephalopod', 'drone'],
   burrower: ['mole', 'crab', 'beast', 'golem'],
   vehicle: ['vehicle', 'mech', 'drone', 'crab'],
@@ -145,7 +158,6 @@ const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   avian: 1.02, robot: 1.04, crystal: 1.06, cyborg: 1.08,
   beast: 1.1, vehicle: 1.13, golem: 1.18, mech: 1.2,
   'data-wraith': 1.05,
-  capsid: 0.98, phage: 1.06, parasite: 1.08, spore: 0.96,
 };
 
 export function getBaseVisualScale(base: EnemyBaseElement): number {
@@ -166,18 +178,6 @@ export function getEntityMotion(base: EnemyBaseElement, now: number, seed: numbe
   const wave = (speed: number) => Math.sin(now * speed + phase);
   const pulse = (speed: number) => (Math.sin(now * speed + phase) + 1) / 2;
 
-  if (base === 'capsid') {
-    return { x: wave(0.006) * 1.4, y: wave(0.01) * 2.1 - 1, scaleX: 1 + wave(0.008) * 0.025, scaleY: 1 - wave(0.008) * 0.025, glow: pulse(0.014) };
-  }
-  if (base === 'phage') {
-    return { x: wave(0.018) * 1.8, y: -Math.abs(wave(0.036)) * 1.1, scaleX: 1.018, scaleY: 0.982, glow: pulse(0.012) };
-  }
-  if (base === 'parasite') {
-    return { x: wave(0.014) * 1.5, y: -Math.abs(wave(0.028)) * 1.4, scaleX: 1 + pulse(0.01) * 0.025, scaleY: 0.98, glow: pulse(0.011) };
-  }
-  if (base === 'spore') {
-    return { x: wave(0.005) * 1.1, y: wave(0.008) * 2.6 - 1.2, scaleX: 1 + wave(0.006) * 0.035, scaleY: 1 - wave(0.006) * 0.028, glow: pulse(0.01) };
-  }
   if (base === 'crab') {
     return { x: wave(0.012) * 2.2, y: Math.abs(wave(0.024)) * -1.2, scaleX: 1.02, scaleY: 0.98, glow: pulse(0.006) };
   }

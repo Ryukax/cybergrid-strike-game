@@ -9,8 +9,7 @@ export type EnemyBaseElement =
   | 'robot' | 'insect' | 'beast' | 'plant' | 'crystal' | 'golem'
   | 'drone' | 'cephalopod' | 'skeleton' | 'avian' | 'serpent'
   | 'vehicle' | 'fungus' | 'cyborg' | 'mech' | 'nanite' | 'data-wraith'
-  | 'crab' | 'owl' | 'fox' | 'snail' | 'fish' | 'mole' | 'turret'
-  | 'capsid' | 'phage' | 'parasite' | 'spore';
+  | 'crab' | 'owl' | 'fox' | 'snail' | 'fish' | 'mole' | 'turret';
 
 export interface EnemyGenome {
   niche: EnemyNiche;

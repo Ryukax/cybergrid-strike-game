@@ -16,8 +16,7 @@ export const ELEMENT_DOMAIN: Record<EnemyBaseElement, ElementDomain> = {
   plant: 'flora', fungus: 'flora',
   crystal: 'mineral', golem: 'mineral',
   robot: 'machine', drone: 'machine', vehicle: 'machine', mech: 'machine', turret: 'machine',
-  cyborg: 'cyber', nanite: 'cyber', capsid: 'cyber', phage: 'cyber',
-  parasite: 'cyber', spore: 'cyber',
+  cyborg: 'cyber', nanite: 'cyber',
   skeleton: 'spectral', 'data-wraith': 'spectral',
   cephalopod: 'fluid', serpent: 'fluid', snail: 'fluid', fish: 'fluid',
 };
