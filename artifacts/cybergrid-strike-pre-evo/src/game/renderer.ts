@@ -321,11 +321,11 @@ function drawCreatureOrMachine(
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = accent;
+  ctx.strokeStyle = niche === 'phase' ? accent : '#0f172a';
   ctx.fillStyle = body;
   ctx.lineWidth = niche === 'bulwark' ? Math.max(2.5, r * 0.16) : niche === 'scout' ? Math.max(0.8, r * 0.055) : Math.max(1.2, r * 0.09);
   ctx.shadowColor = accent;
-  ctx.shadowBlur = niche === 'phase' ? 16 : niche === 'bulwark' ? 2 : 8;
+  ctx.shadowBlur = niche === 'phase' ? 7 : 0;
   ctx.globalAlpha = niche === 'phase' ? 0.62 : 1;
   if (niche === 'phase') ctx.setLineDash([4, 3]);
 
@@ -435,7 +435,6 @@ function drawCreatureOrMachine(
   }
   ctx.setLineDash([]);
   ctx.shadowBlur = 0;
-  drawCrossoverModules(ctx, seed, r, archetype, detail, now);
   ctx.fillStyle = detail;
   ctx.strokeStyle = detail;
   ctx.lineWidth = Math.max(1, r * 0.07);
@@ -863,41 +862,19 @@ export function draw(
         ctx.stroke();
         ctx.restore();
       }
-      genome.mutations.forEach((mutation, index) => {
-        const angle = now * 0.0012 + (index / Math.max(1, genome.mutations.length)) * Math.PI * 2;
-        const mx = ex + Math.cos(angle) * drawCell * 0.36;
-        const my = ey + Math.sin(angle) * drawCell * 0.36;
-        const markerSize = 2.5 + visualGene(e.value, index + 80) * 2.5;
-        ctx.fillStyle = nicheColor;
-        ctx.beginPath();
-        if (mutation === 'armored' || mutation === 'gigantic') {
-          ctx.rect(mx - markerSize, my - markerSize, markerSize * 2, markerSize * 2);
-        } else if (mutation === 'volatile') {
-          for (let point = 0; point < 8; point++) {
-            const radius = point % 2 === 0 ? markerSize * 1.7 : markerSize * 0.65;
-            const a = angle + point * Math.PI / 4;
-            const px = mx + Math.cos(a) * radius;
-            const py = my + Math.sin(a) * radius;
-            if (point === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-        } else {
-          ctx.arc(mx, my, markerSize, 0, Math.PI * 2);
-        }
-        ctx.fill();
-      });
     }
     // Bodies are assembled from independent procedural modules; no finite base
     // sprite or morphology catalog is used for hostile entities.
     ctx.save();
     ctx.translate(ex, ey);
-    drawPixelBestiary(
+    drawCreatureOrMachine(
       ctx,
       e.value ?? 6,
       drawCell,
-      genome?.niche ?? 'hunter',
+      genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
       e.flash > 0,
       now,
+      genome?.niche ?? 'hunter',
     );
     ctx.restore();
     if (e.hp > 1) {
