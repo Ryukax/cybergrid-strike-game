@@ -4,6 +4,8 @@ const CACHE_LIMIT = 192;
 const SOURCE_SIZE = 256;
 const SPRITE_SIZE = 48;
 const QUANTIZED_SIZE = 40;
+const OUTPUT_WIDTH = 240;
+const OUTPUT_HEIGHT = 160;
 const spriteCache = new Map<string, HTMLCanvasElement>();
 const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
@@ -182,8 +184,10 @@ function shadeStructure(ctx: CanvasRenderingContext2D, seed: number, genome: Ene
 }
 
 function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): void {
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+  const stage = document.createElement('canvas');
+  stage.width = SPRITE_SIZE;
+  stage.height = SPRITE_SIZE;
+  const ctx = stage.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
 
   const primary = source(genome.baseElement, () => render(canvas, seed, genome));
@@ -245,10 +249,18 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   low.width = QUANTIZED_SIZE; low.height = QUANTIZED_SIZE;
   const lowCtx = low.getContext('2d')!;
   lowCtx.imageSmoothingEnabled = true;
-  lowCtx.drawImage(canvas, 0, 0, QUANTIZED_SIZE, QUANTIZED_SIZE);
+  lowCtx.drawImage(stage, 0, 0, QUANTIZED_SIZE, QUANTIZED_SIZE);
   ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(low, 0, 0, QUANTIZED_SIZE, QUANTIZED_SIZE, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
+
+  // Final sprites use a true 3:2, 240×160 surface. The square anatomical stage
+  // remains undistorted in the center while the side field accommodates wings,
+  // tails, weapons and later fusion extensions.
+  const output = canvas.getContext('2d')!;
+  output.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+  output.imageSmoothingEnabled = false;
+  output.drawImage(stage, 0, 0, SPRITE_SIZE, SPRITE_SIZE, 40, 0, 160, 160);
 }
 
 export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTMLCanvasElement {
@@ -257,8 +269,8 @@ export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTM
   if (cached) return cached;
 
   const canvas = document.createElement('canvas');
-  canvas.width = SPRITE_SIZE;
-  canvas.height = SPRITE_SIZE;
+  canvas.width = OUTPUT_WIDTH;
+  canvas.height = OUTPUT_HEIGHT;
   render(canvas, seed, genome);
   spriteCache.set(key, canvas);
   if (spriteCache.size > CACHE_LIMIT) spriteCache.delete(spriteCache.keys().next().value!);

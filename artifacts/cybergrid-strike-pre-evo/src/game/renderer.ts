@@ -983,12 +983,13 @@ export function draw(
     ctx.translate(ex, ey);
     if (genome) {
       const sprite = getProceduralVirusSprite(e.value ?? 6, genome);
-      const spriteSize = drawCell * 1.12;
+      const spriteWidth = drawCell * 1.48;
+      const spriteHeight = drawCell * 0.99;
       ctx.save();
       ctx.imageSmoothingEnabled = false;
       ctx.globalAlpha = genome.niche === 'phase' ? 0.72 : 1;
       if (e.flash > 0) ctx.filter = 'brightness(1.8)';
-      ctx.drawImage(sprite, -spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize);
+      ctx.drawImage(sprite, -spriteWidth / 2, -spriteHeight / 2, spriteWidth, spriteHeight);
       ctx.restore();
     } else {
       drawCreatureOrMachine(
