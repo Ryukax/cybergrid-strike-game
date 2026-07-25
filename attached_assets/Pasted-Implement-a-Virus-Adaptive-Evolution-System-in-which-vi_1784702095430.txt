@@ -1,0 +1,144 @@
+Implement a Virus Adaptive Evolution System in which virus populations consistently evolve toward compositions better suited to the conditions encountered as waves progress.
+
+Core Principle
+
+Virus morphology is not static and should not evolve through arbitrary tier upgrades. Each successive wave should apply evolutionary pressure based on:
+
+* Player behavior and combat style
+* Damage types received
+* Weapons and abilities used against viruses
+* Virus survival duration
+* Successful attacks against the player
+* Environmental or map conditions
+* Movement requirements
+* Population performance of previous morphologies
+* Current wave difficulty and progression
+
+The game should continuously track which virus traits perform well and use that information to influence the composition of future generations.
+
+Adaptive Trait Model
+
+Represent every virus as a composition of independently variable traits, such as:
+
+* body structure
+* size
+* armor
+* density
+* speed
+* acceleration
+* maneuverability
+* attack range
+* attack frequency
+* projectile behavior
+* regeneration
+* resistance
+* sensory/detection radius
+* aggression
+* evasiveness
+* replication behavior
+* special abilities
+
+These traits should be universally combinable rather than tied to fixed named classes.
+
+A virus therefore evolves by modifying its trait composition, allowing entirely different functional forms to emerge from the same underlying system.
+
+Evolution Between Waves
+
+At the end of each wave:
+
+1. Evaluate the performance of every virus phenotype.
+2. Determine which traits contributed to survival, damage dealt, successful positioning, or other useful outcomes.
+3. Increase the probability that successful traits appear in subsequent waves.
+4. Reduce the probability of repeatedly unsuccessful traits.
+5. Introduce controlled mutation so new configurations can emerge.
+6. Allow combinations of successful traits to produce hybrid descendants.
+7. Preserve enough variation that the population does not converge permanently on a single optimal form.
+
+The next wave should therefore be generated approximately as:
+
+Next Population = Selection(Previous Population) + Mutation + Recombination + Difficulty Pressure
+
+Counter-Adaptation
+
+The system should recognize persistent player strategies.
+
+Examples:
+
+* Repeated ranged attacks favor faster, evasive, shielded, or projectile-resistant viruses.
+* Heavy close-range damage favors spacing behavior, armor, knockback resistance, or ranged attacks.
+* Highly mobile players favor predictive attacks, greater tracking capability, area denial, or interception behavior.
+* Repeated use of one damage type gradually favors resistance to that damage type.
+* Defensive player behavior may favor siege, swarming, penetration, or sustained-pressure traits.
+
+Adaptation should be gradual rather than instantaneous. A player strategy should create evolutionary pressure over several encounters before becoming strongly reflected in the population.
+
+Population-Level Evolution
+
+Do not make every virus evolve identically.
+
+Each wave should contain an ecosystem of related variants:
+
+* dominant adaptations that address current conditions
+* specialized variants exploiting particular player weaknesses
+* generalist variants
+* experimental mutations
+* occasional ancestral or previously successful forms
+
+Successful mutations can become increasingly common over later waves.
+
+This allows the population itself to evolve while preserving meaningful visual and mechanical diversity.
+
+Morphology Integration
+
+The existing Virus Morphology Encoding Standard should visually encode these evolved properties.
+
+A virus’s appearance must be generated from its actual functional composition wherever practical.
+
+For example:
+
+* armor changes structural thickness or plating
+* speed produces more streamlined or directional geometry
+* sensory capability affects antennae, eyes, or detection structures
+* attack specialization alters appendages or weapon-like structures
+* regeneration creates visibly organic or redundant structures
+* defensive specialization creates compact or reinforced morphology
+
+The exact visual mappings should remain universal and procedural rather than relying on specific hard-coded archetypes.
+
+Progression Pressure
+
+Wave number should increase the evolutionary search space rather than simply multiplying health and damage.
+
+Earlier waves:
+
+* fewer active traits
+* simpler combinations
+* larger mutation constraints
+
+Later waves:
+
+* more simultaneous traits
+* stronger specialization
+* greater hybridization
+* increasingly sophisticated counter-adaptation
+* access to rare structural mutations and emergent compositions
+
+Difficulty scaling may still increase baseline statistics, but the primary progression mechanism should be increasing adaptive suitability and compositional complexity.
+
+Anti-Stagnation Rules
+
+Prevent evolution from collapsing into one permanently dominant build.
+
+Use:
+
+* mutation floors
+* diminishing returns on excessive specialization
+* ecological niches
+* population diversity requirements
+* changing selection pressures
+* counter-traits
+* occasional disruptive mutations
+
+The intended result is that the player should be able to observe the virus population becoming progressively better adapted to both the player and the environment.
+
+By later waves, viruses should feel like descendants of earlier populations that have undergone sustained artificial evolution—not merely stronger enemies spawned from a difficulty table.

@@ -1,0 +1,362 @@
+The v4 morphology rewrite is still visually converging to the same form.
+
+Do not make another incremental adjustment to the current architecture system.
+
+The problem is now visual, not architectural on paper:
+
+Even though the code contains 10 body architectures, the rendered result still looks like the same central blob/star with minor contour differences.
+
+I need the viruses to become visibly and constructively distinct at gameplay scale.
+
+PRIMARY REQUIREMENT
+
+A virus's main silhouette must be different BEFORE:
+- spikes
+- armor
+- weapons
+- sensors
+- glow
+- line decoration
+- refinement layers
+
+Temporarily disable all secondary structures and render ONLY the primary body architecture.
+
+Then verify that each architecture is visibly distinct as a solid silhouette.
+
+I should be able to distinguish:
+
+compact
+elongated
+forwardWeighted
+rearWeighted
+segmented
+ring
+radialCore
+splitCore
+winged
+shielded
+
+from their silhouettes alone.
+
+If two architectures look similar at the game's actual rendered size, they are not sufficiently distinct.
+
+DO NOT use small proportional differences.
+
+For example:
+
+BAD:
+compact = ellipse 1.0 × 0.9
+elongated = ellipse 1.2 × 0.8
+
+These will look effectively identical on the board.
+
+GOOD:
+compact = one dense central mass
+
+elongated = clearly stretched multi-length body with a major directional axis
+
+forwardWeighted = large frontal wedge or hammer-like head with narrow rear body
+
+rearWeighted = large rear propulsion mass with narrow forward projection
+
+segmented = clearly separated connected modules
+
+ring = obvious hollow center
+
+radialCore = angular hub with sparse structural arms, NOT a flower
+
+splitCore = two clearly separated dominant masses connected by a bridge
+
+winged = narrow central fuselage with dominant lateral surfaces
+
+shielded = broad frontal wall or crescent with protected rear core
+
+The silhouettes must exaggerate structural differences enough to remain readable at small gameplay size.
+
+REMOVE RADIAL DEFAULT BIAS
+
+The biggest remaining visual problem is that too many forms still fall back to radial or star-like construction.
+
+Do not use:
+- sinusoidal radius deformation
+- repeated petals
+- evenly spaced lobes
+- universal radial spikes
+- star polygons as a generic fallback
+
+Radial symmetry does not mean star-shaped.
+
+A radial virus can instead be:
+- a disk
+- a ring
+- a hub with 3 major arms
+- a triangular radial frame
+- a square radial frame
+- a hexagonal shell
+
+Use low-count, large structures.
+
+Do not use many small repeated protrusions.
+
+BODY ARCHITECTURE MUST CHANGE TOPOLOGY
+
+Do not interpret architecture as changing only:
+- width
+- height
+- radius
+- point count
+
+Architecture should change the topology.
+
+Examples:
+
+compact:
+1 connected mass
+
+segmented:
+3 visibly distinct masses
+
+splitCore:
+2 dominant masses
+
+ring:
+1 closed loop with empty center
+
+winged:
+1 central fuselage + 2 dominant lateral masses
+
+shielded:
+1 rear core + 1 distinct frontal shield mass
+
+forwardWeighted:
+2 masses, with frontal mass much larger than rear mass
+
+rearWeighted:
+2 masses, with rear mass much larger than front mass
+
+This should produce fundamentally different silhouettes.
+
+USE BODY NODES AS REAL GEOMETRY
+
+The existing BodyNode concept should become the source of the rendered silhouette.
+
+Do not calculate BodyNodes and then still draw a generic body path.
+
+For each architecture:
+
+construct explicit BodyNodes
+
+then render those nodes and their bridges directly.
+
+For example:
+
+segmented:
+
+[o]---[o]---[o]
+
+splitCore:
+
+[o]====[o]
+
+forwardWeighted:
+
+[ LARGE FRONT ]---[small rear]
+
+winged:
+
+     [wing]
+       |
+[wing]-[core]-[wing]
+
+The final outline should come from those masses.
+
+Do not wrap them inside a universal enclosing blob.
+
+NO UNIVERSAL OUTER HULL
+
+This is critical.
+
+Do not compute a single outer path that encloses all body masses.
+
+That will cause every architecture to collapse back into a blob.
+
+Allow:
+- visible gaps
+- narrow bridges
+- negative space
+- separated lobes
+- hollow centers
+
+when the architecture requires them.
+
+The body does not have to be one smooth continuous outline.
+
+NEGATIVE SPACE
+
+Use negative space as a major structural tool.
+
+Examples:
+
+ring:
+clear empty center
+
+splitCore:
+visible gap around the bridge
+
+winged:
+open spaces between wings and core
+
+segmented:
+visible separations between modules
+
+shielded:
+clear distinction between shield and protected core
+
+Negative space will make the architectures much more readable than adding more contour detail.
+
+STRUCTURAL SCALE
+
+Increase the size difference between major masses.
+
+Do not use subtle differences such as 10–20%.
+
+Use stronger ratios.
+
+Examples:
+
+forwardWeighted:
+front mass = 2.0–2.5× rear mass
+
+rearWeighted:
+rear mass = 2.0–2.5× forward mass
+
+winged:
+lateral span = 2.5–3× core width
+
+elongated:
+length = 2.5–3× height
+
+shielded:
+shield width = 2× core width
+
+splitCore:
+core separation = approximately one core diameter
+
+segmented:
+clear individual modules with narrow connectors
+
+READABILITY TEST
+
+Add a temporary debug mode:
+
+MORPHOLOGY_SILHOUETTE_DEBUG = true
+
+When enabled:
+
+- render every virus in flat white
+- disable glow
+- disable interior lines
+- disable spikes
+- disable sensors
+- disable weapons
+- disable armor
+- disable class decorations
+- disable refinement decorations
+
+Spawn one example of every architecture in a grid.
+
+Take a screenshot.
+
+Do not consider the morphology rewrite complete unless all 10 architectures are clearly distinguishable in that screenshot at the same scale used during normal gameplay.
+
+After the silhouettes pass, re-enable structures one layer at a time:
+
+1. locomotion
+2. weapons
+3. armor
+4. sensors
+5. refinement
+
+Each added layer must preserve the underlying silhouette.
+
+SECONDARY STRUCTURES MUST NOT DOMINATE
+
+The screenshot currently shows secondary protrusions making several viruses look star-shaped.
+
+Limit secondary structures so they do not redefine the body.
+
+Use:
+- maximum 1 primary weapon system
+- maximum 1 locomotion system
+- maximum 1 armor system
+- maximum 1 sensor system
+
+Secondary structures should generally occupy less visual area than the primary body architecture.
+
+Exception:
+A phenotype whose defining function is a wing, shield, or large weapon may integrate that structure into the primary body itself.
+
+ARCHITECTURE SHOULD BE FUNCTIONAL
+
+Examples:
+
+High-speed pursuit:
+elongated or forwardWeighted
+
+Heavy defensive:
+shielded or compact
+
+Regenerative:
+segmented or splitCore
+
+Radial area control:
+ring or radialCore
+
+Evasive:
+winged
+
+Heavy ranged:
+rearWeighted or elongated
+
+Do not allow every phenotype to fall back to radialCore.
+
+Audit deriveArchitecture() and print/debug how often each architecture is selected.
+
+If most viruses resolve to only 2–3 architectures, rebalance the thresholds.
+
+TARGET DISTRIBUTION
+
+At early waves, the system should still allow several visibly distinct body plans.
+
+Within one evolutionary lineage, forms should gradually converge.
+
+But across different functional phenotypes, architecture must remain meaningfully different.
+
+So:
+
+same lineage
+→ similar architecture
+
+different functional role
+→ different architecture
+
+Do not use homogeneity as a reason to make every virus share the same silhouette.
+
+FINAL ACCEPTANCE CRITERIA
+
+The rewrite is successful only if:
+
+1. I can identify body architecture from silhouette alone.
+2. Ring has obvious negative space.
+3. Segmented has visibly separate modules.
+4. SplitCore has two dominant masses.
+5. Winged has a strong lateral span.
+6. ForwardWeighted and rearWeighted are visually opposite.
+7. Shielded visibly has a protected core and frontal shield.
+8. RadialCore does not look like a flower or generic star.
+9. Secondary appendages do not make all forms converge back into radial shapes.
+10. At gameplay scale, viruses no longer look like variants of the same central blob.
+
+Do not add more architectures until these 10 are visually distinct.
+
+Fix the actual rendered silhouettes first.

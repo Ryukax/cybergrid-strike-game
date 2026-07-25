@@ -1,0 +1,493 @@
+The latest morphology rewrite improved structural coherence, but the viruses still visually resolve into overly uniform models. In the current screenshot, most viruses still share essentially the same rounded/lobed/star-like base body with different appendages added on top.
+
+Refactor the morphology system again so that the primary body architecture itself is phenotype-driven.
+
+The objective is NOT to restore random procedural shapes.
+
+The objective is to create a small but expressive system of constructively distinct body architectures, where each virus’s entire silhouette follows from its traits, functional requirements, evolutionary lineage, and symmetry.
+
+Core Problem
+
+The current system appears to do approximately this:
+
+Generic rounded/lobed body
+→ Apply selected symmetry
+→ Add locomotion
+→ Add weapon
+→ Add armor
+→ Add sensor
+
+This produces coherent attachments but still makes every virus look like a decorated variation of the same object.
+
+Replace this with:
+
+Traits
+→ Functional architecture
+→ Symmetry
+→ Primary mass distribution
+→ Body topology
+→ Attachment anchors
+→ Functional structures
+→ Refinement
+
+The body must no longer be a universal generic blob underneath the phenotype.
+
+1. Introduce Primary Body Architectures
+
+Create several procedural body architectures that describe how the virus’s mass is fundamentally organized.
+
+These are NOT enemy classes and should not be selected randomly.
+
+Examples of structural architectures:
+
+type BodyArchitecture =
+  | "compact"
+  | "elongated"
+  | "forwardWeighted"
+  | "rearWeighted"
+  | "segmented"
+  | "ring"
+  | "radialCore"
+  | "splitCore"
+  | "winged"
+  | "shielded";
+
+The phenotype system should select or interpolate between architectures based on actual functional traits.
+
+Examples:
+
+High speed + pursuit:
+elongated or forwardWeighted
+
+High armor + low speed:
+compact or shielded
+
+Radial attack coverage:
+radialCore or ring
+
+High agility:
+winged, narrow, or distributed lateral mass
+
+Regeneration:
+segmented or splitCore
+
+Heavy ranged weapon:
+rearWeighted body supporting a forward weapon axis
+
+Do not randomly select architectures.
+
+Derive them deterministically from phenotype values.
+
+2. Stop Using One Universal Base Outline
+
+Remove any system where all viruses begin from the same:
+
+* sinusoidal circle
+* rounded polygon
+* star
+* flower
+* uniformly lobed radial path
+
+A virus’s outer contour should be constructed from its body architecture.
+
+For example:
+
+Compact
+
+Broad central mass with a short major axis.
+
+   _____
+ /       \
+|    ●    |
+ \_______/
+
+Elongated
+
+Clear forward/rear axis.
+
+<====●====>
+
+Forward Weighted
+
+Large attack-facing mass tapering toward the rear.
+
+   ___
+ /████\
+<██████==--
+ \████/
+
+Segmented
+
+Several connected structural masses.
+
+(●)-(●)-(●)
+
+Ring
+
+Mass distributed around a central void or core.
+
+  _____
+ /  ○  \
+ \_____/
+
+Split Core
+
+Two or more major masses connected by a structural bridge.
+
+(●)==(●)
+
+These diagrams are conceptual only. Preserve the game’s existing visual style.
+
+3. Symmetry Must Govern Architecture, Not Replace It
+
+Symmetry remains determined once.
+
+However:
+
+bodyArchitecture + symmetry
+
+must jointly determine the final topology.
+
+Examples:
+
+A bilateral elongated virus should have a strong longitudinal axis.
+
+A radial elongated architecture should not simply become a flower.
+
+Instead, it may become radial spokes around an elongated or ring-like central organization if functionally justified.
+
+A radial compact organism might use a true central hub.
+
+An asymmetric forward-weighted organism should have a deliberately offset primary mass.
+
+Do not take a body polygon and run a generic symmetry operation over it.
+
+Construct the body directly under the selected symmetry.
+
+4. Establish a Primary Axis
+
+Every non-radial virus should have a meaningful primary axis.
+
+Define:
+
+interface MorphologyFrame {
+  forward: Vec2;
+  right: Vec2;
+  center: Vec2;
+}
+
+Use this frame throughout morphology construction.
+
+The virus should have a visually understandable:
+
+* front
+* rear
+* left/right
+* center of mass
+
+Weapons should generally attach relative to forward.
+
+Propulsion should generally relate to -forward.
+
+Lateral movement structures should use right and -right.
+
+Sensors should occupy locations useful for detection.
+
+This should make the silhouette read as an engineered or evolved structure rather than a rotated procedural decal.
+
+5. Use Mass Distribution
+
+Add a concept of primary mass distribution.
+
+For example:
+
+interface BodyMassLayout {
+  coreMass: number;
+  frontMass: number;
+  rearMass: number;
+  lateralMass: number;
+  radialMass: number;
+}
+
+Derive these values from phenotype traits.
+
+Examples:
+
+Heavy frontal armor:
+
+frontMass ↑
+
+Large rear propulsion:
+
+rearMass ↑
+
+High lateral maneuverability:
+
+lateralMass ↑
+
+Radial defense:
+
+radialMass ↑
+
+The visual body contour should reflect this mass distribution.
+
+6. Build the Body From Major Masses
+
+Instead of generating one complicated path, construct viruses from 1–4 major integrated masses.
+
+For example:
+
+interface BodyNode {
+  position: Vec2;
+  radiusX: number;
+  radiusY: number;
+  rotation: number;
+  role:
+    | "core"
+    | "front"
+    | "rear"
+    | "lateral"
+    | "segment";
+}
+
+Blend or connect these masses into one readable organism.
+
+This allows genuinely different silhouettes without returning to arbitrary random geometry.
+
+Examples:
+
+Fast attacker:
+
+small rear mass
+      ↓
+  ( )====[>]
+          ↑
+     forward mass
+
+Heavy defensive organism:
+
+   _________
+ /           \
+|    CORE     |
+ \___________/
+
+Regenerative segmented organism:
+
+(●)==(●)==(●)
+
+Agile lateral organism:
+
+     /\
+<===●===>
+     \/
+
+7. Attachment Anchors Must Come From Body Construction
+
+Once the body is built, calculate explicit attachment anchors.
+
+For example:
+
+interface MorphologyAnchors {
+  front: Vec2;
+  rear: Vec2;
+  left: Vec2;
+  right: Vec2;
+  radial: Vec2[];
+  surface: Vec2[];
+}
+
+Weapons, armor, fins, sensors, and propulsion should attach to those anchors.
+
+Do not independently calculate appendage locations using unrelated trigonometric formulas.
+
+This ensures the secondary anatomy belongs to the body.
+
+8. Allow Structural Integration
+
+Functional components should sometimes alter the primary body rather than merely sitting on top of it.
+
+Examples:
+
+Heavy frontal weapon:
+
+The front of the body should grow around and support the weapon.
+
+Heavy armor:
+
+The body contour should become broader where armor exists.
+
+Large propulsion:
+
+Rear mass should narrow or extend into the propulsion assembly.
+
+High sensory specialization:
+
+The front or perimeter may develop a dedicated sensory region.
+
+The result should feel like:
+
+body evolved around function
+
+rather than:
+
+body + icon representing function
+
+9. Eliminate the Persistent Flower/Star Silhouette
+
+Specifically inspect the existing base body renderer for:
+
+* repeated radial lobes
+* sinusoidal radius modulation
+* evenly spaced peaks
+* universal star deformation
+* petal-like geometry
+
+These are making unrelated viruses visually converge into flower/star shapes.
+
+Radial symmetry should NOT automatically mean “flower.”
+
+A radial virus may instead be:
+
+* circular armored hub
+* ring
+* polygonal shell
+* central disk with sparse arms
+* multi-core arrangement
+* radial shield architecture
+
+Use lobes only when the phenotype explicitly benefits from lobed geometry.
+
+10. Reduce Decorative Refinement Until Base Silhouette Is Correct
+
+Temporarily reduce or disable:
+
+* crown rings
+* apex spines
+* tiny surface nodes
+* decorative linework
+* excessive glow overlays
+
+during the initial morphology pass.
+
+First ensure that viruses can be distinguished as black silhouettes.
+
+Perform this conceptual test:
+
+If every virus were rendered as a single solid white silhouette with no internal details, could I still identify meaningful differences in their function and evolutionary architecture?
+
+If the answer is no, the morphology system is not yet sufficiently structural.
+
+11. Preserve Homogeneity Within Lineages
+
+Do not interpret this request as demanding maximum variation.
+
+The virus population should still converge evolutionarily.
+
+Viruses sharing a dominant phenotype should share:
+
+* primary architecture
+* mass layout
+* symmetry
+* main axis
+* major attachment positions
+
+Variants should modify proportions and functional structures without becoming unrelated shapes.
+
+Therefore:
+
+Different phenotype → meaningfully different architecture
+Same phenotype lineage → recognizable shared architecture
+
+This is the desired balance.
+
+12. Recommended Architecture
+
+Refactor toward something conceptually similar to:
+
+interface VirusPhenotype {
+  symmetry: SymmetryType;
+  architecture: BodyArchitecture;
+  frame: MorphologyFrame;
+  massLayout: BodyMassLayout;
+  bodyNodes: BodyNode[];
+  anchors: MorphologyAnchors;
+  locomotion: LocomotionStructure[];
+  weapons: WeaponStructure[];
+  armor: ArmorStructure[];
+  sensors: SensorStructure[];
+}
+
+Generation sequence:
+
+const phenotype = derivePhenotype(traits, evolution);
+phenotype.symmetry = deriveSymmetry(phenotype);
+phenotype.architecture = deriveArchitecture(phenotype);
+phenotype.frame = deriveFrame(phenotype);
+phenotype.massLayout = deriveMassLayout(phenotype);
+phenotype.bodyNodes = constructPrimaryMasses(phenotype);
+phenotype.anchors = deriveAnchorsFromBody(phenotype);
+phenotype.locomotion = constructLocomotion(phenotype);
+phenotype.weapons = constructWeapons(phenotype);
+phenotype.armor = constructArmor(phenotype);
+phenotype.sensors = constructSensors(phenotype);
+
+Then:
+
+renderVirus(phenotype);
+
+The renderer must consume the completed structural definition.
+
+It should not invent additional morphology independently.
+
+13. Determinism
+
+For the same:
+
+* genome
+* phenotype
+* evolutionary lineage
+* refinement level
+
+the virus should render the same fundamental body.
+
+Randomness may be used only for subtle variation.
+
+Do not use randomness to choose:
+
+* body architecture
+* symmetry
+* primary axis
+* weapon placement
+* locomotion layout
+
+These should be functionally derived.
+
+14. Desired Visual Result
+
+Looking at the board, I should be able to see genuinely different coherent body organizations.
+
+For example:
+
+One virus may be a compact armored hub.
+
+Another may be a narrow pursuit organism.
+
+Another may have a segmented regenerative architecture.
+
+Another may be a radial defensive structure.
+
+Another may be a forward-heavy ranged organism.
+
+They should still share the game’s visual language and evolutionary ancestry where appropriate.
+
+The objective is:
+
+structural diversity without randomness
+
+and:
+
+lineage homogeneity without visual uniformity.
+
+Do not solve the current uniformity by simply increasing the number of random shape parameters.
+
+Solve it by making the virus’s primary mass topology and silhouette a direct consequence of its phenotype.

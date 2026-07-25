@@ -1,0 +1,28 @@
+kind = "web"
+    previewPath = "/cybergrid-strike-pre-evo/"
+    title = "CyberGrid Strike (Pre-Evolution)"
+    version = "1.0.0"
+    id = "artifacts/cybergrid-strike-fitted"
+    router = "path"
+
+    [[services]]
+    name = "web"
+    paths = [ "/cybergrid-strike-pre-evo/" ]
+    localPort = 23735
+
+    [services.development]
+    run = "pnpm --filter @workspace/cybergrid-strike-pre-evo run dev"
+
+    [services.production]
+    build = [ "pnpm", "--filter", "@workspace/cybergrid-strike-pre-evo", "run", "build" ]
+    serve = "static"
+    publicDir = "artifacts/cybergrid-strike-pre-evo/dist/public"
+
+    [[services.production.rewrites]]
+    from = "/*"
+    to = "/index.html"
+
+    [services.env]
+    PORT = "23735"
+    BASE_PATH = "/cybergrid-strike-pre-evo/"
+    

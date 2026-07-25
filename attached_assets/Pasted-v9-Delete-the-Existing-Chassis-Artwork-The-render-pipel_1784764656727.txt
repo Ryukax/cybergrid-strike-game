@@ -1,0 +1,279 @@
+v9 — Delete the Existing Chassis Artwork
+The render pipeline is proven correct.
+Do not audit it again.
+The current authored chassis shapes themselves are visually unacceptable.
+They still use the same underlying design language:
+central mass
++
+multiple rounded protrusions
++
+rough radial symmetry
++
+soft continuous contour
+This is why the game still looks like flowers and starfish.
+The fix is now purely a shape-design rewrite.
+Hard prohibition
+Do not use any of the current v7 chassis polygon coordinates.
+Delete them.
+Do not “refine” them.
+Do not preserve their silhouettes.
+Start from zero.
+ 
+⸻
+ 
+1. Build chassis from primitive silhouette families that cannot become flowers
+Use these mandatory base silhouettes:
+INTERCEPTOR
+long narrow fuselage
+
+STRIKER
+forward-pointing wedge
+
+ARTILLERY
+rear block + long barrel
+
+TANK
+wide rectangle
+
+RAMMER
+large front triangle
+
+TURRET
+base block + directional barrel
+
+CARRIER
+large elongated hull
+
+SWARM
+small dart
+
+CONTROLLER
+asymmetric body + antenna mast
+
+ADAPTIVE
+combination of two above
+Do not begin with a circle.
+Do not begin with an ellipse.
+Do not begin with a radial polygon.
+ 
+⸻
+ 
+2. Enforce extreme aspect ratios
+At least half of all chassis should have:
+width / height >= 1.8
+or:
+height / width >= 1.8
+Examples:
+interceptor: 54 × 20
+artillery:   64 × 18
+tank:        42 × 34
+rammer:      48 × 28
+carrier:     58 × 32
+A roughly 1:1 silhouette should be the exception.
+The current enemies remain too close to circular.
+ 
+⸻
+ 
+3. Ban rounded radial appendage distribution
+No chassis may have:
+3 rounded lobes around a center
+4 rounded lobes around a center
+5 rounded lobes around a center
+6 rounded lobes around a center
+No equally spaced appendages.
+No evenly distributed wings.
+No “petal” geometry.
+Directional units must be longitudinal.
+ 
+⸻
+ 
+4. Create front, middle, and rear zones
+Every directional chassis must explicitly occupy:
+FRONT ZONE
+MIDDLE ZONE
+REAR ZONE
+Example:
+ARTILLERY
+
+FRONT            MIDDLE         REAR
+───────────────▶[MOUNT][████████]
+     barrel               chassis
+Example:
+INTERCEPTOR
+
+      nose
+       ▼
+   ─────────
+  / FUSELAGE \
+ <            >
+      ||||
+     ENGINE
+At least 60% of the visual mass should lie along one dominant axis.
+ 
+⸻
+ 
+5. No circular center motif
+Remove:
+central circle
+central ring
+core circle
+inner orb
+from the majority of chassis.
+These details are one of the strongest reasons the game reads as “virus flowers.”
+Use circles only where functionally necessary.
+For example:
+wheel
+turret bearing
+energy node
+sensor dome
+Not as the universal body center.
+ 
+⸻
+ 
+6. Use hard angular geometry
+For the next version, temporarily ban curves.
+Use only:
+rectangles
+trapezoids
+triangles
+straight-edged polygons
+bars
+No:
+arc()
+ellipse()
+quadraticCurveTo()
+bezierCurveTo()
+This is temporary but important.
+The goal is to force the visual language away from organic flowers.
+Once the shapes read correctly, selective curves can be reintroduced later.
+ 
+⸻
+ 
+7. Use substantially different bounding boxes
+The screenshot shows too many units occupying approximately the same circular footprint.
+Required approximate bounds:
+Interceptor   60×20
+Striker       44×26
+Artillery     70×18
+Tank          40×36
+Rammer        50×30
+Turret        36×30
+Carrier       62×38
+Swarm         22×10
+Controller    34×52
+Adaptive      variable
+Do not normalize these into a common radius.
+The renderer should accept:
+visualWidth
+visualHeight
+instead of deriving everything from R.
+ 
+⸻
+ 
+8. Make the unit function occupy the silhouette
+The defining gameplay feature should dominate the entire shape.
+Examples:
+Artillery:
+barrel = 40–50% of total width
+
+Rammer:
+prow = 35–50% of total mass
+
+Carrier:
+payload bays = visually obvious
+
+Tank:
+armor = outermost dominant geometry
+
+Interceptor:
+engines + fuselage dominate
+
+Controller:
+sensor mast visibly changes overall silhouette
+Do not represent functionality using tiny interior lines or small decorative shapes.
+At this scale, internal details disappear.
+ 
+⸻
+ 
+9. Remove organic overlays during final rendering
+The screenshots still show soft curves and radial line effects.
+Even if these are “only additive,” they reinforce the flower appearance.
+Temporarily disable:
+radial tendrils
+curved interior lines
+halo rings
+central circles
+symmetric decorative marks
+organic veins
+Keep only:
+base chassis
+one outline
+simple glow
+health bar
+ 
+⸻
+ 
+10. Test with a strict visual target
+The next live screenshot should look approximately like this:
+INTERCEPTOR
+
+────────▶
+    ╲╱
+    ██
+
+
+ARTILLERY
+
+──────────────[████]
+
+
+TANK
+
+┌────────┐
+│ ██████ │──▶
+└────────┘
+
+
+RAMMER
+
+     /\
+    /  \
+███/    \
+
+
+CARRIER
+
+[□][████████][□]
+   ○  ○  ○
+
+
+CONTROLLER
+
+     │
+     │
+[██████]──▶
+Not literally these ASCII shapes, but this level of structural differentiation.
+ 
+⸻
+ 
+11. New acceptance criteria
+Do not evaluate chassis one at a time.
+Take a live screenshot containing at least six enemies.
+Fail immediately if:
+* more than one enemy resembles a flower
+* more than one enemy resembles a starfish
+* more than two enemies have a central circle
+* more than two enemies have roughly 1:1 aspect ratio
+* more than two enemies use radial symmetry
+* the longest and widest enemies differ by less than 40%
+* artillery does not visibly have a long barrel
+* rammer does not visibly have a dominant front
+* tank is not visibly boxier than interceptor
+No subjective “✓ readable” statements.
+The screenshot itself is the acceptance test.
+ 
+⸻
+ 
+The important correction now is:
+v8 proved the pipeline works. It did not prove the artwork works.
+Your latest screenshots show that the live game is indeed rendering the new system—but the new shapes were designed using essentially the same visual vocabulary as before. The next iteration needs to destroy that vocabulary entirely: no radial bodies, no central circles, no lobed silhouettes, extreme aspect-ratio diversity, and hard directional geometry.

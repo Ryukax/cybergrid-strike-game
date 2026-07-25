@@ -1,0 +1,317 @@
+Implement a universal morphology-to-model interpretation system for incoming viruses.
+
+Each virus already has a numerical value and procedurally generated geometry. Extend the system so that every curve, contour, lobe, geodesic, spike, notch, ring, symmetry pattern, and structural feature can be mapped to the nearest plausible visual model.
+
+The system must not be limited to fixed examples such as “iron” or “hominiform.” Instead, define a general set of model archetypes and allow each virus integer to deterministically resolve into one archetype or a coherent combination of several archetypes.
+
+Examples of possible archetypes include:
+
+* biological
+* humanoid
+* animal-like
+* insectoid
+* mechanical
+* armored
+* crystalline
+* mineral
+* plant-like
+* aquatic
+* synthetic
+* robotic
+* amorphous
+* geometric
+* energy-based
+* cybernetic
+* architectural
+* skeletal
+* fluid
+* hybrid
+
+These are examples, not hard limits. The architecture should allow new archetypes to be added without rewriting the core morphology system.
+
+Define a general model profile:
+
+type VirusArchetype =
+  | "biological"
+  | "humanoid"
+  | "animal"
+  | "insectoid"
+  | "mechanical"
+  | "armored"
+  | "crystalline"
+  | "mineral"
+  | "plant"
+  | "synthetic"
+  | "robotic"
+  | "amorphous"
+  | "geometric"
+  | "energy"
+  | "cybernetic"
+  | "skeletal"
+  | "fluid";
+interface VirusModelProfile {
+  primaryArchetype: VirusArchetype;
+  secondaryArchetype?: VirusArchetype;
+  primaryWeight: number;   // 0.0 to 1.0
+  secondaryWeight: number; // 0.0 to 1.0
+  structureLevel: number;  // rigid/defined vs loose/amorphous
+  symmetryLevel: number;
+  armorLevel: number;
+  organicLevel: number;
+  mechanicalLevel: number;
+  crystallineLevel: number;
+  energyLevel: number;
+}
+
+Generate the profile deterministically from the virus integer.
+
+The same numerical value must always produce the same model profile.
+
+Do not use uncontrolled random generation at render time.
+
+Use a seeded or integer-derived mapping function.
+
+Example:
+
+function normalizedHash(value: number, salt: number): number {
+  const x = Math.sin(value * 12.9898 + salt * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+Use the resulting values to determine archetype selection and structural properties.
+
+For example:
+
+function getVirusModelProfile(value: number): VirusModelProfile {
+  const archetypes: VirusArchetype[] = [
+    "biological",
+    "humanoid",
+    "animal",
+    "insectoid",
+    "mechanical",
+    "armored",
+    "crystalline",
+    "mineral",
+    "plant",
+    "synthetic",
+    "robotic",
+    "amorphous",
+    "geometric",
+    "energy",
+    "cybernetic",
+    "skeletal",
+    "fluid",
+  ];
+  const primaryIndex =
+    Math.floor(normalizedHash(value, 1) * archetypes.length);
+  let secondaryIndex =
+    Math.floor(normalizedHash(value, 2) * archetypes.length);
+  if (secondaryIndex === primaryIndex) {
+    secondaryIndex = (secondaryIndex + 1) % archetypes.length;
+  }
+  const primaryWeight =
+    0.6 + normalizedHash(value, 3) * 0.4;
+  const secondaryWeight =
+    1 - primaryWeight;
+  return {
+    primaryArchetype: archetypes[primaryIndex],
+    secondaryArchetype: archetypes[secondaryIndex],
+    primaryWeight,
+    secondaryWeight,
+    structureLevel: normalizedHash(value, 4),
+    symmetryLevel: normalizedHash(value, 5),
+    armorLevel: normalizedHash(value, 6),
+    organicLevel: normalizedHash(value, 7),
+    mechanicalLevel: normalizedHash(value, 8),
+    crystallineLevel: normalizedHash(value, 9),
+    energyLevel: normalizedHash(value, 10),
+  };
+}
+
+The important principle is:
+
+Virus Integer
+    ↓
+Numerical Morphology
+    ↓
+Geometric Constraints
+    ↓
+Archetype Profile
+    ↓
+Nearest Plausible Physical Interpretation
+    ↓
+Final Coherent Virus Model
+
+The existing numerical morphology must remain authoritative.
+
+Do not replace the cryptographic geometry.
+
+Instead, interpret it.
+
+For every generated structural feature, determine the nearest plausible representation within the selected archetype profile.
+
+Examples:
+
+Large lateral lobe
+→ arm
+→ wing
+→ blade
+→ armor plate
+→ crystal branch
+→ mechanical appendage
+→ fin
+→ root
+→ energy projection
+Central upper protrusion
+→ head
+→ sensor
+→ cockpit
+→ crystal crown
+→ flower structure
+→ antenna cluster
+→ energy core
+Concentric inner ring
+→ internal organ
+→ reactor
+→ eye
+→ shield generator
+→ crystal core
+→ mechanical joint
+→ energy nucleus
+Binary spike
+→ horn
+→ claw
+→ antenna
+→ blade
+→ armor spike
+→ crystal extrusion
+→ exhaust structure
+→ energy discharge
+Binary notch
+→ joint
+→ mouth
+→ vent
+→ armor gap
+→ socket
+→ structural recess
+→ missing material
+
+The renderer should select the interpretation that best matches both:
+
+1. the existing mathematical geometry;
+2. the active archetype profile.
+
+For hybrid viruses, combine archetypes coherently.
+
+Examples:
+
+biological + mechanical
+→ cybernetic organism
+humanoid + crystalline
+→ humanoid crystal entity
+animal + armored
+→ plated beast
+plant + mechanical
+→ mechanical botanical organism
+fluid + energy
+→ unstable plasma-like entity
+skeletal + robotic
+→ exposed mechanical frame
+geometric + biological
+→ organism whose anatomy follows strict mathematical symmetry
+
+The hybrid system should not simply overlay two unrelated visual styles.
+
+Instead, one archetype should modify the physical interpretation of the other.
+
+For example:
+
+Primary: humanoid
+Secondary: crystalline
+Result:
+A recognizable humanoid structure whose limbs, armor, joints, or body surfaces are formed from crystal.
+
+Not:
+
+Humanoid sprite + random crystals placed on top.
+
+Preserve all existing Virus Morphology Encoding Standard properties:
+
+* numerical value
+* logarithmic size
+* lobe count
+* binary spike/notch encoding
+* mathematical class
+* symmetry information
+* cryptographic relationships
+
+These numerical properties should constrain the final physical design.
+
+For example:
+
+High symmetry
+→ more balanced body plan
+Low symmetry
+→ asymmetrical limbs or structures
+Many lobes
+→ more appendages, armor segments, branches, or structural divisions
+High spike count
+→ more outward projections
+High notch count
+→ more recessed structures or articulated joints
+
+The system should also support discrete model families when actual image assets or 3D models are introduced later.
+
+Example architecture:
+
+interface VirusVisualModel {
+  id: string;
+  archetypes: VirusArchetype[];
+  compatibleFeatures: {
+    minLobes?: number;
+    maxLobes?: number;
+    symmetryRange?: [number, number];
+    armorRange?: [number, number];
+  };
+}
+
+A virus can then select the nearest compatible model:
+
+Generated Morphology
+    ↓
+Archetype Profile
+    ↓
+Available Model Library
+    ↓
+Compatibility Score
+    ↓
+Highest-Scoring Model
+    ↓
+Procedural Adjustments
+
+Use a weighted compatibility score rather than exact matching.
+
+Conceptually:
+
+score =
+  archetypeMatch * 0.40 +
+  geometryMatch * 0.25 +
+  symmetryMatch * 0.15 +
+  materialMatch * 0.10 +
+  structuralMatch * 0.10;
+
+This allows the system to round each theoretically unique morphology to the nearest practical model while retaining meaningful differences between virus values.
+
+The primary design rule is:
+
+Every integer should generate a mathematically consistent morphology, but the renderer may approximate that morphology using the nearest plausible physical model available.
+
+Therefore:
+
+Exact Numerical Identity
+        +
+Approximate Physical Representation
+        =
+Practical Procedural Virus Design
+
+The goal is to create a universal system where any numerical virus can resolve into a coherent creature, machine, object, organism, structure, elemental entity, or hybrid without requiring a unique hand-built model for every possible integer.

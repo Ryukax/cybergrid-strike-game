@@ -1,0 +1,218 @@
+Refactor the virus morphology system so viruses form constructively concise, structurally relevant body plans instead of appearing as random odd shapes whose geometry is repeatedly overwritten by different symmetry rules.
+
+The primary goal is to make each virus look intentionally constructed.
+
+Core Principle
+
+Do not generate a shape first and then force a symmetry mode on top of it.
+
+Instead, determine the virus’s structural organization first, then generate all anatomy according to that organization.
+
+Use this hierarchy:
+
+Functional Traits → Body Plan → Structural Layout → Symmetry → Anatomy → Surface Detail
+
+Symmetry must be part of the body plan from the beginning, not a final transformation applied after generation.
+
+Eliminate Random Shape Overwriting
+
+Remove morphology logic where:
+
+* unrelated primitives are randomly combined
+* one symmetry mode replaces or distorts another
+* appendages are placed without structural context
+* mutations completely overwrite the established silhouette
+* later rendering passes contradict earlier geometry
+* decorative randomness dominates functional design
+
+Every virus should have one coherent primary structural plan.
+
+Subsequent rendering stages should refine that plan rather than replace it.
+
+Constructually Concise Body Plans
+
+Each virus should be generated from a limited number of coordinated structural regions.
+
+For example:
+
+* central core
+* primary body mass
+* locomotion structures
+* attack structures
+* defensive structures
+* sensory structures
+
+Only include structures that are relevant to the virus’s actual traits.
+
+Do not add appendages simply to make the virus look more complex.
+
+A virus with no ranged attack should not have prominent cannon-like structures.
+
+A virus with low sensory capability should not generate an excessive sensor array.
+
+A heavily armored virus should visibly prioritize protective mass and plating.
+
+A fast virus should prioritize a body plan compatible with movement.
+
+The silhouette should communicate function.
+
+Structural Relevance
+
+Every major visible feature should have a reason to exist.
+
+Associate morphology directly with:
+
+* movement behavior
+* attack behavior
+* defense
+* armor
+* speed
+* regeneration
+* sensory capability
+* range
+* aggression
+* evolved adaptations
+
+If a feature cannot be tied to one of these systems, omit it or reduce it to minor decorative detail.
+
+Symmetry System
+
+Choose symmetry once during phenotype generation.
+
+Examples:
+
+* bilateral
+* radial
+* rotational
+* asymmetric
+
+Then build the entire anatomy under that symmetry constraint.
+
+Do not apply multiple incompatible symmetry passes.
+
+For example:
+
+A bilateral virus should generate paired structures around a stable axis.
+
+A radial virus should place repeated structures around a central core.
+
+An asymmetric virus should still follow a deliberate mass balance and functional orientation.
+
+Symmetry mutations should happen only as explicit evolutionary events.
+
+When symmetry changes, regenerate the affected structural layout coherently rather than visually distorting the previous body.
+
+Preserve Structural Hierarchy
+
+Generate anatomy in a stable order.
+
+Recommended order:
+
+1. Determine body plan.
+2. Determine orientation.
+3. Determine symmetry.
+4. Create primary mass.
+5. Attach locomotion structures.
+6. Attach combat structures.
+7. Add defensive structures.
+8. Add sensory structures.
+9. Add secondary surface detail.
+
+Each stage must respect previous stages.
+
+Later stages may extend the body but must not overwrite its primary silhouette.
+
+Reduce Shape Noise
+
+Avoid excessive:
+
+* spikes
+* lobes
+* random curves
+* overlapping polygons
+* disconnected protrusions
+* arbitrary asymmetry
+* decorative nodes
+* nested symmetry effects
+
+Prefer fewer, larger, more meaningful structures.
+
+The virus should read clearly at gameplay scale.
+
+A concise shape with five meaningful components is preferable to a shape with twenty unrelated details.
+
+Evolutionary Modification
+
+Evolution should modify existing structures incrementally.
+
+Allowed evolutionary changes include:
+
+* enlarging a useful structure
+* reducing an ineffective structure
+* strengthening armor placement
+* extending attack range
+* duplicating a successful paired appendage
+* increasing locomotion efficiency
+* changing body proportion
+* replacing one structure with a more suitable equivalent
+
+Avoid completely random regeneration between generations.
+
+Descendants should remain visually recognizable as descendants.
+
+Dominant Body Plan
+
+Maintain a dominant body plan for each evolving population.
+
+The dominant body plan should define:
+
+* base silhouette
+* symmetry
+* core arrangement
+* attachment zones
+* locomotion architecture
+* weapon placement
+
+Mutations should operate inside this structural framework unless a major evolutionary transition occurs.
+
+This prevents every wave from producing unrelated shapes.
+
+Rendering Rule
+
+The renderer should receive a finalized morphology definition.
+
+Do not let the renderer independently invent geometry.
+
+For example:
+
+interface VirusMorphology {
+  orientation: number;
+  symmetry: SymmetryType;
+  core: CoreStructure;
+  primaryMass: BodyStructure[];
+  locomotion: LocomotionStructure[];
+  weapons: WeaponStructure[];
+  armor: ArmorStructure[];
+  sensors: SensorStructure[];
+}
+
+Generate this structure first.
+
+Then render it deterministically.
+
+The renderer should interpret the morphology, not redesign it.
+
+Desired Result
+
+Viruses should look:
+
+* coherent
+* intentional
+* evolutionarily related
+* mechanically relevant
+* structurally concise
+* visually readable
+
+They should no longer appear like arbitrary procedural shapes with conflicting symmetry transformations.
+
+The final appearance should resemble a deliberately evolved synthetic organism built around a functional body plan, with symmetry serving that body plan rather than overwriting it.

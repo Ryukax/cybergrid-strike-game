@@ -1,0 +1,140 @@
+v10 — Forensic Pixel Verification
+Stop making morphology changes.
+The live screenshots contradict the implementation report.
+The code claims:
+no circles
+no flowers
+no radial symmetry
+hard angular chassis
+artillery long barrel
+tank rectangular
+swarm dart
+The screenshot visibly shows:
+rounded lobes
+star/flower silhouettes
+central circles
+radial symmetry
+soft organic contours
+Therefore, one of these must be true:
+1. The screenshot is not from the build being described.
+2. The edited chassis code is not actually committed/saved.
+3. The screenshot was captured before the final edit.
+4. Another source file is restoring old artwork.
+5. The running process did not reload.
+6. The agent is evaluating a debug screenshot different from the user-visible screenshot.
+Do not speculate. Prove it.
+Step 1 — Add impossible visual watermark
+Inside the actual live drawVirus() function, before anything else:
+ctx.fillStyle = "#00ff00";
+ctx.fillRect(x - 30, y - 3, 60, 6);
+
+ctx.fillStyle = "#ff00ff";
+ctx.fillRect(x - 3, y - 30, 6, 60);
+
+return;
+Every enemy must become a giant green/magenta cross.
+Take the screenshot from the same phone/browser URL the user is viewing.
+Do not use an internal debug preview.
+If the user’s phone still shows flowers, the served build is not the edited build.
+ 
+⸻
+ 
+Step 2 — Put the Git commit/hash onscreen
+Render:
+BUILD HASH: <actual git commit>
+in the game UI.
+Also render:
+MORPH VERSION: V10
+The screenshot must visibly contain both.
+Then run:
+git rev-parse HEAD
+and confirm the displayed hash matches.
+ 
+⸻
+ 
+Step 3 — Prove the exact source file contents
+Print the exact deployed drawVirus() and drawChassis() functions to the terminal.
+Do not summarize them.
+Verify that the code currently on disk contains the claimed v9 geometry.
+Then search:
+grep -R "arc(" src
+grep -R "ellipse(" src
+grep -R "bezierCurveTo" src
+grep -R "quadraticCurveTo" src
+grep -R "drawVirus" src
+grep -R "drawChassis" src
+Any remaining morphology-related use must be identified.
+ 
+⸻
+ 
+Step 4 — Kill and restart the dev server
+Do not rely on hot reload.
+Fully stop the process.
+Restart it.
+Then hard-refresh the phone page.
+If a service worker exists, unregister it.
+If Vite cache exists, clear it.
+Then capture a fresh screenshot.
+ 
+⸻
+ 
+Step 5 — Replace each chassis with an unmistakable label shape
+Do not use “artistic” geometry.
+Use shapes so extreme that confusion is impossible:
+interceptor = 80×8 horizontal rectangle
+striker = giant triangle
+artillery = 100×6 line + square
+tank = 40×40 square
+rammer = 60×40 triangle
+turret = 50×10 T
+carrier = 80×30 rectangle
+swarm = 10×4 rectangle
+controller = 8×70 vertical bar
+adaptive = 60×8 Z
+No glow.
+No outline.
+No overlays.
+No gradients.
+No curves.
+Take a live screenshot.
+If the screenshot still shows flowers, the issue is unquestionably deployment/runtime mismatch.
+ 
+⸻
+ 
+Step 6 — Compare screenshot to expected geometry programmatically
+Do not self-certify with text like:
+passes ✓
+Instead, save the live screenshot and inspect it directly.
+For each visible enemy, manually identify its bounding box and aspect ratio.
+The expected result should contain obvious extreme geometry:
+80×8
+100×6
+40×40
+8×70
+If all visible units remain roughly 30×30, the test fails.
+ 
+⸻
+ 
+Step 7 — Only after runtime identity is proven, restore artwork
+Do not restore v9 until the absurd geometry appears on the user’s actual phone screenshot.
+That is the gate.
+The required evidence is:
+Screenshot 1:
+green/magenta crosses only
+
+Screenshot 2:
+BUILD HASH + MORPH VERSION visible
+
+Screenshot 3:
+absurd extreme geometry visible on actual phone
+
+Screenshot 4:
+final chassis after restoring artwork
+No screenshot from an internal desktop preview counts.
+ 
+⸻
+ 
+The critical finding now is this:
+The code description and the visible pixels are mutually incompatible.
+So the next task is not morphology design. It is to establish a cryptographic/runtime chain of custody from source code → running process → served bundle → phone browser → screenshot.
+Until that chain is proven, every further “v11 morphology rewrite” is wasted effort.
