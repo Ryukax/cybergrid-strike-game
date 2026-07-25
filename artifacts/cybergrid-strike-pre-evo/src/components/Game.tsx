@@ -1204,7 +1204,11 @@ export default function Game() {
         }
       }
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
-        if (s.shieldCharges > 0) {
+        const eloIsIntangible = playerSkinRef.current === 'gem' && !s.autoBuster;
+        if (eloIsIntangible) {
+          // Elo phases while automation is disabled. The enemy continues
+          // through the occupied cell without damage or consuming a shield.
+        } else if (s.shieldCharges > 0) {
           s.shieldCharges--;
           e.colPos = -9;
           showMessage('Shield absorbed a hit!', 1200);
@@ -1721,7 +1725,14 @@ export default function Game() {
       {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem') && (
         <div
           ref={spriteWrapRef}
-          style={{ position: 'absolute', pointerEvents: 'none', transform: 'translate(-50%,-50%)' }}
+          style={{
+            position: 'absolute',
+            pointerEvents: 'none',
+            transform: 'translate(-50%,-50%)',
+            opacity: playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
+            filter: playerSkin === 'gem' && !hud.autoBuster ? 'drop-shadow(0 0 8px #a78bfa)' : 'none',
+            transition: 'opacity 150ms ease, filter 150ms ease',
+          }}
         >
           <canvas
             ref={spriteCanvasRef}
@@ -1914,7 +1925,7 @@ export default function Game() {
                   { id: 'default', label: 'Default', preview: null },
                   { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
-                  { id: 'gem',     label: 'Gem',     preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
+                  { id: 'gem',     label: 'Elo',     preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
