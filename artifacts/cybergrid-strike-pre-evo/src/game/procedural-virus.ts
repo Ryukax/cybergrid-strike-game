@@ -15,16 +15,18 @@ const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
   'cyborg', 'mech', 'nanite', 'data-wraith',
+  'crab', 'owl', 'fox', 'snail',
 ];
+const CHARACTER_BASES = new Set<EnemyBaseElement>(['crab', 'owl', 'fox', 'snail']);
 
 type BodyType = 'humanoid' | 'quadruped' | 'aerial' | 'serpentine' | 'rooted' | 'vehicle';
 
 const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
   robot: 'humanoid', golem: 'humanoid', skeleton: 'humanoid',
   cyborg: 'humanoid', mech: 'humanoid', 'data-wraith': 'humanoid',
-  insect: 'quadruped', beast: 'quadruped',
-  drone: 'aerial', avian: 'aerial',
-  serpent: 'serpentine', cephalopod: 'serpentine', nanite: 'serpentine',
+  insect: 'quadruped', beast: 'quadruped', crab: 'quadruped', fox: 'quadruped',
+  drone: 'aerial', avian: 'aerial', owl: 'aerial',
+  serpent: 'serpentine', cephalopod: 'serpentine', nanite: 'serpentine', snail: 'serpentine',
   plant: 'rooted', fungus: 'rooted', crystal: 'rooted',
   vehicle: 'vehicle',
 };
@@ -49,6 +51,7 @@ const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
 
 const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
+  crab: 0.92, owl: 0.9, fox: 0.94, snail: 0.9,
   plant: 0.96, skeleton: 0.98, serpent: 1, cephalopod: 1,
   avian: 1.02, robot: 1.04, crystal: 1.06, cyborg: 1.08,
   beast: 1.1, vehicle: 1.13, golem: 1.18, mech: 1.2,
@@ -93,7 +96,8 @@ function drawFitted(
   seed: number,
   genome: EnemyGenome,
 ): void {
-  const [widthProfile, heightProfile] = BODY_VARIANTS[Math.floor(gene(seed, 30) * BODY_VARIANTS.length)];
+  const variantPool = CHARACTER_BASES.has(genome.baseElement) ? BODY_VARIANTS.slice(0, 2) : BODY_VARIANTS;
+  const [widthProfile, heightProfile] = variantPool[Math.floor(gene(seed, 30) * variantPool.length)];
   const width = 40 * widthProfile;
   const height = 43 * heightProfile;
   const x = (SPRITE_SIZE - width) / 2 + (gene(seed, 33) - 0.5) * 1.5;
@@ -109,14 +113,19 @@ function genomeFilter(genome: EnemyGenome, seed: number): string {
     scout: 8, bulwark: -5, hunter: 0, swarm: 12,
     regenerator: 16, phase: 24, symbiote: -18, opportunist: -9,
   };
-  const materialFilter = [
+  const materialOptions = CHARACTER_BASES.has(genome.baseElement) ? [
+    'brightness(1)',
+    'saturate(0.84) contrast(1.08)',
+    'hue-rotate(12deg) saturate(1.06)',
+  ] : [
     'brightness(1)',
     'saturate(0.7) contrast(1.14) brightness(0.94)',
     'sepia(0.3) saturate(1.08) brightness(0.92)',
     'saturate(0.58) contrast(1.3) brightness(0.76)',
     'hue-rotate(34deg) saturate(1.24)',
     'saturate(0.5) contrast(1.08) brightness(1.14)',
-  ][Math.floor(gene(seed, 205) * 6)];
+  ];
+  const materialFilter = materialOptions[Math.floor(gene(seed, 205) * materialOptions.length)];
   return [
     `hue-rotate(${(nicheShift[genome.niche] ?? 0) + generationShift}deg)`,
     `saturate(${0.9 + Math.min(0.25, genome.generation * 0.06)})`,
@@ -247,7 +256,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const bodyType = BODY_TYPE[genome.baseElement];
   const headBase = selectDifferent(COMPATIBLE_HEADS[bodyType], genome.baseElement, gene(seed, 160));
   const locomotionBase = selectDifferent(COMPATIBLE_LOCOMOTION[bodyType], genome.baseElement, gene(seed, 165));
-  const fusionPool = BASES.filter((base) => BODY_TYPE[base] !== bodyType);
+  const fusionPool = BASES.filter((base) => !CHARACTER_BASES.has(base) && BODY_TYPE[base] !== bodyType);
   const flankBase = fusionPool[Math.floor(gene(seed, 170) * fusionPool.length)] ?? genome.baseElement;
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));

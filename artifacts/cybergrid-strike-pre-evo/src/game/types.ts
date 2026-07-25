@@ -8,7 +8,8 @@ export type EnemyMutation =
 export type EnemyBaseElement =
   | 'robot' | 'insect' | 'beast' | 'plant' | 'crystal' | 'golem'
   | 'drone' | 'cephalopod' | 'skeleton' | 'avian' | 'serpent'
-  | 'vehicle' | 'fungus' | 'cyborg' | 'mech' | 'nanite' | 'data-wraith';
+  | 'vehicle' | 'fungus' | 'cyborg' | 'mech' | 'nanite' | 'data-wraith'
+  | 'crab' | 'owl' | 'fox' | 'snail';
 
 export interface EnemyGenome {
   niche: EnemyNiche;
