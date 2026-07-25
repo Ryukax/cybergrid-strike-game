@@ -508,7 +508,9 @@ function drawCreatureOrMachine(
   ctx.strokeStyle = detail;
   ctx.lineWidth = Math.max(1, r * 0.07);
   if (niche === 'bulwark') {
-    for (const x of [-0.42, 0, 0.42]) ctx.strokeRect(x * r, -r * 0.42, r * 0.28, r * 0.84);
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(side * r * 0.42, -r * 0.12, r * 0.16, Math.PI, Math.PI * 2); ctx.fill();
+    }
   } else if (niche === 'regenerator') {
     ctx.beginPath(); ctx.moveTo(0, -r * 0.55); ctx.lineTo(0, r * 0.5);
     ctx.moveTo(0, -r * 0.15); ctx.lineTo(-r * 0.42, -r * 0.38);
@@ -534,8 +536,10 @@ function drawCreatureOrMachine(
     ctx.fillStyle = detail;
     ctx.lineWidth = Math.max(1.2, r * 0.09);
     if (genome.mutations.includes('armored')) {
-      ctx.strokeRect(-r * 0.58, -r * 0.42, r * 1.16, r * 0.84);
-      ctx.strokeRect(-r * 0.38, -r * 0.58, r * 0.76, r * 1.16);
+      for (let plate = -1; plate <= 1; plate++) {
+        const x = plate * r * 0.28;
+        ctx.beginPath(); ctx.arc(x, -r * 0.28, r * 0.19, Math.PI, Math.PI * 2); ctx.fill();
+      }
     }
     if (genome.mutations.includes('accelerated')) {
       for (const side of [-1, 1]) {
@@ -551,27 +555,25 @@ function drawCreatureOrMachine(
     }
     const generationLayers = Math.min(3, genome.generation);
     for (let layer = 0; layer < generationLayers; layer++) {
-      ctx.globalAlpha = 0.3 + layer * 0.14;
-      ctx.beginPath(); ctx.ellipse(0, 0, r * (0.48 + layer * 0.1), r * (0.34 + layer * 0.08), 0, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
+      const x = (layer - (generationLayers - 1) / 2) * r * 0.24;
+      ctx.beginPath(); ctx.moveTo(x - r * 0.1, -r * 0.4); ctx.lineTo(x, -r * (0.56 + layer * 0.04)); ctx.lineTo(x + r * 0.1, -r * 0.4); ctx.closePath(); ctx.fill();
     }
     ctx.globalAlpha = niche === 'phase' ? 0.62 : 1;
     if (genome.generation > 0 || genome.fusionLevel > 0) {
-      // One compatibility-safe inherited module attaches at a defined body zone.
-      const inheritedModule = Math.floor(visualGene(seed, 910 + genome.generation) * 4);
-      if (inheritedModule === 0) {
-        ctx.beginPath(); ctx.moveTo(0, -r * 0.45); ctx.lineTo(0, -r * 0.82); ctx.stroke();
-        ctx.fillRect(-r * 0.09, -r * 0.96, r * 0.18, r * 0.18);
-      } else if (inheritedModule === 1) {
+      // Inheritance uses base-specific attachment zones, never centered overlays.
+      if ([0, 6, 11].includes(archetype)) {
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.36); ctx.lineTo(0, -r * 0.72); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, -r * 0.8, r * 0.1, 0, Math.PI * 2); ctx.fill();
+      } else if ([1, 2, 9, 10].includes(archetype)) {
         for (const side of [-1, 1]) {
-          ctx.beginPath(); ctx.moveTo(side * r * 0.35, -r * 0.1); ctx.lineTo(side * r * 0.88, -r * 0.42); ctx.lineTo(side * r * 0.58, r * 0.12); ctx.closePath(); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(side * r * 0.22, -r * 0.28); ctx.lineTo(side * r * 0.48, -r * 0.62); ctx.lineTo(side * r * 0.56, -r * 0.12); ctx.closePath(); ctx.fill();
         }
-      } else if (inheritedModule === 2) {
-        for (const side of [-1, 1]) {
-          ctx.beginPath(); ctx.moveTo(side * r * 0.42, -r * 0.3); ctx.lineTo(side * r * 0.65, -r * 0.75); ctx.lineTo(side * r * 0.18, -r * 0.48); ctx.closePath(); ctx.fill();
-        }
+      } else if ([3, 7, 12].includes(archetype)) {
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.34); ctx.quadraticCurveTo(r * 0.24, -r * 0.62, r * 0.42, -r * 0.5); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(r * 0.48, -r * 0.48, r * 0.14, r * 0.08, -0.3, 0, Math.PI * 2); ctx.fill();
       } else {
         for (const side of [-1, 1]) {
-          ctx.beginPath(); ctx.ellipse(side * r * 0.5, r * 0.18, r * 0.28, r * 0.11, side * 0.45, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(side * r * 0.32, r * 0.2); ctx.quadraticCurveTo(side * r * 0.48, r * 0.5, side * r * 0.7, r * 0.55); ctx.stroke();
         }
       }
     }
