@@ -1,4 +1,10 @@
 import type { EnemyBaseElement, EnemyGenome } from './types';
+import {
+  compatibleFusionDonors,
+  ELEMENT_DOMAIN,
+  getFusionOutcome,
+  type FusionRole,
+} from './element-matrix';
 
 const CACHE_LIMIT = 192;
 const SPRITE_SIZE = 48;
@@ -276,7 +282,7 @@ function genomeFilter(genome: EnemyGenome, seed: number): string {
   ].join(' ');
 }
 
-type MatrixRegion = 'head' | 'locomotion' | 'flank';
+type MatrixRegion = FusionRole;
 
 function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRegion): void {
   ctx.beginPath();
@@ -394,16 +400,24 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   ctx.imageSmoothingEnabled = true;
 
   const primary = source(genome.baseElement, () => render(canvas, seed, genome));
-  // Composition matrix: 13 chassis × 13 head/sensor sets × 10 locomotion
-  // sets × 13 fusion flanks, before niche, generation, scale and mutations.
+  // Deliberate composition matrix: the chassis remains primary while every
+  // secondary element contributes through a sanctioned functional socket.
   const bodyType = BODY_TYPE[genome.baseElement];
-  const headBase = selectDifferent(COMPATIBLE_HEADS[bodyType], genome.baseElement, gene(seed, 160));
-  const locomotionBase = selectDifferent(COMPATIBLE_LOCOMOTION[bodyType], genome.baseElement, gene(seed, 165));
-  const fusionPool = BASES.filter((base) => !CHARACTER_BASES.has(base) && BODY_TYPE[base] !== bodyType);
-  const flankBase = fusionPool[Math.floor(gene(seed, 170) * fusionPool.length)] ?? genome.baseElement;
+  const headPool = COMPATIBLE_HEADS[bodyType].filter((base) =>
+    ELEMENT_DOMAIN[base] === ELEMENT_DOMAIN[genome.baseElement]);
+  const locomotionPool = COMPATIBLE_LOCOMOTION[bodyType].filter((base) =>
+    ELEMENT_DOMAIN[base] === ELEMENT_DOMAIN[genome.baseElement]);
+  const headBase = selectDifferent(headPool, genome.baseElement, gene(seed, 160));
+  const locomotionBase = selectDifferent(locomotionPool, genome.baseElement, gene(seed, 165));
+  const fusionPool = compatibleFusionDonors(genome.baseElement, BASES);
+  const generatedFusionBase = fusionPool[Math.floor(gene(seed, 170) * fusionPool.length)] ?? genome.baseElement;
+  const fusionBase = genome.fusionElement && getFusionOutcome(genome.baseElement, genome.fusionElement)
+    ? genome.fusionElement
+    : generatedFusionBase;
+  const fusionOutcome = getFusionOutcome(genome.baseElement, fusionBase);
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
-  const flank = source(flankBase, () => render(canvas, seed, genome));
+  const fusion = source(fusionBase, () => render(canvas, seed, genome));
   const isAdapted = genome.generation > 0 || gene(seed, 180) < 0.24;
 
   if (!ready(primary)) return;
@@ -426,8 +440,8 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
     graft(ctx, locomotion, locomotionBase, seed + 37, genome, 'locomotion', 0.94);
   }
-  if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {
-    graft(ctx, flank, flankBase, seed + 41, genome, 'flank', 0.9);
+  if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
+    graft(ctx, fusion, fusionBase, seed + 41, genome, fusionOutcome.role, 0.9);
 
     // A restrained seam makes the graft read as connected engineered anatomy.
     ctx.save();
@@ -464,7 +478,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
 }
 
 export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTMLCanvasElement {
-  const key = `${seed}:${genome.niche}:${genome.baseElement}:${genome.generation}:${genome.fusionLevel}:${genome.mutations.join(',')}`;
+  const key = `${seed}:${genome.niche}:${genome.baseElement}:${genome.fusionElement ?? 'pure'}:${genome.generation}:${genome.fusionLevel}:${genome.mutations.join(',')}`;
   const cached = spriteCache.get(key);
   if (cached) return cached;
 

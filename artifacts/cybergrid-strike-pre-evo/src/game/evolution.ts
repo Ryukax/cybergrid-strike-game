@@ -1,4 +1,5 @@
 import type { EnemyGenome, EnemyNiche, EnemyMutation, EnemyBaseElement } from './types';
+import { getFusionOutcome } from './element-matrix';
 
 const NICHES: EnemyNiche[] = [
   'scout',
@@ -133,13 +134,9 @@ export function createGenome(
     sizeScale: Math.max(0.62, Math.min(1.38, sizeScale)),
     regeneration,
     phaseChance,
-    fusionLevel:
-      context &&
-      wave >= 2 &&
-      (niche === 'symbiote' || Math.max(...context.lanePopulation) >= 3) &&
-      hash01(seed + context.playerRow * 23 + context.lanePressure.reduce((a, b) => a + b, 0), 97) < 0.46
-        ? 1
-        : 0,
+    // Fusion is earned by two compatible living parents meeting in play.
+    // Fresh spawns never invent an unseen secondary element.
+    fusionLevel: 0,
   };
 }
 
@@ -165,15 +162,18 @@ export function selectAdaptiveRow(
 
 export function canFuse(a: EnemyGenome, b: EnemyGenome, seed: number): boolean {
   if (a.fusionLevel >= 2 || b.fusionLevel >= 2) return false;
+  if (!getFusionOutcome(a.baseElement, b.baseElement) && !getFusionOutcome(b.baseElement, a.baseElement)) return false;
   if (a.niche === 'symbiote' || b.niche === 'symbiote') return true;
   return hash01(seed, 91) < 0.14 + (a.generation + b.generation) * 0.012;
 }
 
 export function fuseGenomes(a: EnemyGenome, b: EnemyGenome): EnemyGenome {
   const mutations = [...new Set([...a.mutations, ...b.mutations])].slice(0, 5);
+  const primary = a.fusionLevel >= b.fusionLevel ? a : b;
+  const secondary = primary === a ? b : a;
   return {
-    niche: a.fusionLevel >= b.fusionLevel ? a.niche : b.niche,
-    baseElement: a.fusionLevel >= b.fusionLevel ? a.baseElement : b.baseElement,
+    niche: primary.niche,
+    baseElement: primary.baseElement,
     generation: Math.max(a.generation, b.generation) + 1,
     mutations,
     speedScale: Math.min(1.55, (a.speedScale + b.speedScale) * 0.52),
@@ -182,5 +182,6 @@ export function fuseGenomes(a: EnemyGenome, b: EnemyGenome): EnemyGenome {
     regeneration: Math.max(a.regeneration, b.regeneration),
     phaseChance: Math.max(a.phaseChance, b.phaseChance),
     fusionLevel: Math.max(a.fusionLevel, b.fusionLevel) + 1,
+    fusionElement: secondary.baseElement,
   };
 }

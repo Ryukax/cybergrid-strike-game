@@ -64,6 +64,7 @@ function genomeSignature(enemy: GameState['enemies'][number]): string | undefine
   if (!genome) return undefined;
   return [
     genome.baseElement,
+    genome.fusionElement ?? 'pure',
     genome.niche,
     [...genome.mutations].sort().join('+') || 'baseline',
     `fusion-${genome.fusionLevel}`,
@@ -816,6 +817,7 @@ export default function Game() {
           generation: Math.max(0, e.genome.generation - 1),
           mutations: e.genome.mutations.slice(0, Math.max(0, e.genome.mutations.length - 2)),
           hpBonus: Math.max(0, e.genome.hpBonus - 1),
+          fusionElement: e.genome.fusionLevel <= 1 ? undefined : e.genome.fusionElement,
         };
         e.hp = Math.max(1, Math.ceil(e.hp * 0.55));
         e.maxHp = Math.max(e.hp, Math.ceil((e.maxHp ?? e.hp) * 0.65));
@@ -1103,6 +1105,7 @@ export default function Game() {
       const hp = (Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1) + genome.hpBonus;
       const discoverySignature = [
         genome.baseElement,
+        genome.fusionElement ?? 'pure',
         genome.niche,
         [...genome.mutations].sort().join('+') || 'baseline',
         `fusion-${genome.fusionLevel}`,

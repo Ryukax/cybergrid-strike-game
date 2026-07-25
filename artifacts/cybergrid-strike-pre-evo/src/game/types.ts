@@ -22,6 +22,7 @@ export interface EnemyGenome {
   regeneration: number;
   phaseChance: number;
   fusionLevel: number;
+  fusionElement?: EnemyBaseElement;
 }
 
 export interface Bullet {
