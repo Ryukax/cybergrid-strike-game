@@ -73,6 +73,12 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     enemySpawnTimer: 0.4,
     enemyFormationId: 0,
     lanePressure: [0, 0, 0],
+    ecosystemStats: {
+      speciesSeen: [],
+      mutationDiscoveries: 0,
+      maxGeneration: 0,
+      totalFusions: 0,
+    },
     moveFlash: 0,
     slowTimer: 0,
     overclockTimer: 0,
@@ -372,10 +378,10 @@ export default function Game() {
       npcShieldCharges: s.npc.shieldCharges,
       playerWon: s.playerWon,
       ecosystem: {
-        species: new Set(s.enemies.flatMap((enemy) => enemy.genome?.niche ?? [])).size,
-        mutations: s.enemies.reduce((total, enemy) => total + (enemy.genome?.mutations.length ?? 0), 0),
-        generation: s.enemies.reduce((max, enemy) => Math.max(max, enemy.genome?.generation ?? 0), 0),
-        fusions: s.enemies.filter((enemy) => (enemy.genome?.fusionLevel ?? 0) > 0).length,
+        species: s.ecosystemStats.speciesSeen.length,
+        mutations: s.ecosystemStats.mutationDiscoveries,
+        generation: s.ecosystemStats.maxGeneration,
+        fusions: s.ecosystemStats.totalFusions,
       },
     }));
   }, []);
@@ -602,7 +608,7 @@ export default function Game() {
     // ── Timer-based ─────────────────────────────────────────────────────────
     } else if (type === 'freeze') {
       s.freezeTimer = 4;
-      showMessage('Freeze — all viruses halted for 4s!', 1500);
+      showMessage('Freeze — all viruses reduced to a crawl for 4s!', 1500);
     } else if (type === 'blizzard') {
       s.blizzardTimer = 10;
       showMessage('Blizzard — extreme slowdown for 10s!', 1500);
@@ -857,11 +863,11 @@ export default function Game() {
       }
     }
 
-    // Throttled HUD tick: refresh cooldown display at most once per second
+    // Stable session metrics update twice per second; their values only increase.
     hudTickRef.current += dt;
-    if (hudTickRef.current >= 1) {
+    if (hudTickRef.current >= 0.5) {
       hudTickRef.current = 0;
-      if (s.cardsReady) updateHud();
+      updateHud();
     }
 
     for (const a of ABILITY_POOL) {
@@ -959,6 +965,12 @@ export default function Game() {
       );
       const speed = (1.15 + Math.min(0.55, (s.wave - 1) * 0.08)) * genome.speedScale;
       const hp = (Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1) + genome.hpBonus;
+      if (!s.ecosystemStats.speciesSeen.includes(genome.niche)) {
+        s.ecosystemStats.speciesSeen.push(genome.niche);
+      }
+      s.ecosystemStats.mutationDiscoveries += genome.mutations.length;
+      s.ecosystemStats.maxGeneration = Math.max(s.ecosystemStats.maxGeneration, genome.generation);
+      if (genome.fusionLevel > 0) s.ecosystemStats.totalFusions++;
       registerSpawn(getMorphSig(value));
       s.enemies.push({
         colPos: 5.6,
@@ -989,7 +1001,8 @@ export default function Game() {
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     for (const e of s.enemies) {
-      const speedScale = s.freezeTimer > 0 ? 0 : s.blizzardTimer > 0 ? 0.15 : s.slowTimer > 0 ? 0.45 : s.overdriveTimer > 0 ? 2.5 : 1;
+      if (!Number.isFinite(e.speed) || e.speed < 0.15) e.speed = 0.85;
+      const speedScale = s.freezeTimer > 0 ? 0.08 : s.blizzardTimer > 0 ? 0.2 : s.slowTimer > 0 ? 0.45 : s.overdriveTimer > 0 ? 2.5 : 1;
       e.colPos -= e.speed * speedScale * dt;
       e.flash = Math.max(0, e.flash - dt);
       if (e.genome?.regeneration && e.hp < (e.maxHp ?? e.hp)) {
@@ -1027,6 +1040,8 @@ export default function Game() {
         if (Math.abs(a.colPos - b.colPos) > 0.28) continue;
         if (!canFuse(a.genome, b.genome, a.value + b.value + s.wave)) continue;
         a.genome = fuseGenomes(a.genome, b.genome);
+        s.ecosystemStats.totalFusions++;
+        s.ecosystemStats.maxGeneration = Math.max(s.ecosystemStats.maxGeneration, a.genome.generation);
         // Fusion creates a new procedural identity instead of collapsing back
         // into the old 1–255 catalog.
         a.value = (((a.value * 1664525) ^ (b.value * 1013904223) ^ (s.wave * 69069)) >>> 0) % 0x7ffffffe + 1;
@@ -1492,9 +1507,9 @@ export default function Game() {
       {phase === 'playing' && (
         <div id="ecosystemHud">
           <span className="ecosystemTitle">EVOLVING ECOSYSTEM</span>
-          <span>SPECIES <b>{hud.ecosystem.species}</b></span>
-          <span>MUTATIONS <b>{hud.ecosystem.mutations}</b></span>
-          <span>GEN <b>{hud.ecosystem.generation}</b></span>
+          <span>DISCOVERED <b>{hud.ecosystem.species}</b></span>
+          <span>TRAITS <b>{hud.ecosystem.mutations}</b></span>
+          <span>MAX GEN <b>{hud.ecosystem.generation}</b></span>
           <span className={hud.ecosystem.fusions > 0 ? 'fusionActive' : ''}>
             FUSIONS <b>{hud.ecosystem.fusions}</b>
           </span>

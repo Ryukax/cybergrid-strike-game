@@ -81,6 +81,12 @@ export interface GameState {
   enemySpawnTimer: number;
   enemyFormationId: number;
   lanePressure: [number, number, number];
+  ecosystemStats: {
+    speciesSeen: EnemyNiche[];
+    mutationDiscoveries: number;
+    maxGeneration: number;
+    totalFusions: number;
+  };
   moveFlash: number;
   // Status timers — original
   slowTimer: number;
