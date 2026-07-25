@@ -312,8 +312,15 @@ function drawCreatureOrMachine(
     opportunist: [24, 78, 48],
   };
   const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-  const archetype = pool[Math.floor(visualGene(seed, 500) * pool.length)];
-  const r = cell * (0.24 + visualGene(seed, 501) * 0.075);
+  const baseElementIds: Record<string, number> = {
+    robot: 0, insect: 1, beast: 2, plant: 3, crystal: 4, golem: 5,
+    drone: 6, cephalopod: 7, skeleton: 8, avian: 9, serpent: 10,
+    vehicle: 11, fungus: 12,
+  };
+  const archetype = genome?.baseElement
+    ? baseElementIds[genome.baseElement]
+    : pool[Math.floor(visualGene(seed, 500) * pool.length)];
+  const r = cell * (0.3 + visualGene(seed, 501) * 0.075);
   const [baseHue, saturation, lightness] = palette[niche] ?? [Math.floor(visualGene(seed, 502) * 360), 68, 48];
   const hue = (baseHue + (visualGene(seed, 502) - 0.5) * 28 + 360) % 360;
   const body = flash ? '#fff' : `hsl(${hue} ${saturation}% ${lightness + Math.floor(visualGene(seed, 503) * 12)}%)`;
@@ -986,7 +993,7 @@ export function draw(
     ctx.restore();
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
-      ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);
+      ctx.fillRect(ex - 6, ey - m.cell * 0.43, 12, 3);
     }
   }
 

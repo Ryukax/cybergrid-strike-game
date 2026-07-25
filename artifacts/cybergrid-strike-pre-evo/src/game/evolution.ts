@@ -1,4 +1,4 @@
-import type { EnemyGenome, EnemyNiche, EnemyMutation } from './types';
+import type { EnemyGenome, EnemyNiche, EnemyMutation, EnemyBaseElement } from './types';
 
 const NICHES: EnemyNiche[] = [
   'scout',
@@ -19,6 +19,20 @@ const MUTATIONS: EnemyMutation[] = [
   'volatile',
   'resilient',
 ];
+const BASE_ELEMENTS: EnemyBaseElement[] = [
+  'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
+  'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+];
+const NICHE_BASES: Record<EnemyNiche, EnemyBaseElement[]> = {
+  scout: ['drone', 'insect', 'beast', 'avian'],
+  bulwark: ['robot', 'crystal', 'golem', 'skeleton', 'vehicle'],
+  hunter: ['beast', 'insect', 'skeleton', 'serpent'],
+  swarm: ['insect', 'cephalopod', 'plant', 'fungus'],
+  regenerator: ['plant', 'cephalopod', 'beast', 'fungus'],
+  phase: ['skeleton', 'drone', 'cephalopod', 'serpent'],
+  symbiote: ['cephalopod', 'plant', 'crystal', 'golem', 'fungus'],
+  opportunist: ['robot', 'drone', 'beast', 'vehicle'],
+};
 
 function hash01(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453;
@@ -33,6 +47,7 @@ export function createGenome(
     playerRow: number;
     lanePressure: [number, number, number];
     population: Partial<Record<EnemyNiche, number>>;
+    basePopulation: Partial<Record<EnemyBaseElement, number>>;
     lanePopulation: [number, number, number];
   },
 ): EnemyGenome {
@@ -60,6 +75,18 @@ export function createGenome(
     }
   } else {
     niche = NICHES[Math.floor(hash01(seed + formationId * 17, 11) * NICHES.length)];
+  }
+  const preferredBases = NICHE_BASES[niche];
+  const baseWeights = BASE_ELEMENTS.map((candidate, index) => {
+    const scarcity = 1 / (1 + (context?.basePopulation[candidate] ?? 0) * 2.4);
+    const affinity = preferredBases.includes(candidate) ? 2.2 : 0.45;
+    return scarcity * affinity * (0.82 + hash01(seed + formationId, 120 + index) * 0.36);
+  });
+  let basePick = hash01(seed + formationId * 23 + wave * 41, 119) * baseWeights.reduce((a, b) => a + b, 0);
+  let baseElement = BASE_ELEMENTS[BASE_ELEMENTS.length - 1];
+  for (let index = 0; index < BASE_ELEMENTS.length; index++) {
+    basePick -= baseWeights[index];
+    if (basePick <= 0) { baseElement = BASE_ELEMENTS[index]; break; }
   }
   const mutationChance = Math.min(0.92, 0.42 + wave * 0.04);
   const mutations: EnemyMutation[] = [];
@@ -96,6 +123,7 @@ export function createGenome(
 
   return {
     niche,
+    baseElement,
     generation,
     mutations,
     speedScale: Math.max(0.72, speedScale),
@@ -143,6 +171,7 @@ export function fuseGenomes(a: EnemyGenome, b: EnemyGenome): EnemyGenome {
   const mutations = [...new Set([...a.mutations, ...b.mutations])].slice(0, 5);
   return {
     niche: a.fusionLevel >= b.fusionLevel ? a.niche : b.niche,
+    baseElement: a.fusionLevel >= b.fusionLevel ? a.baseElement : b.baseElement,
     generation: Math.max(a.generation, b.generation) + 1,
     mutations,
     speedScale: Math.min(1.55, (a.speedScale + b.speedScale) * 0.52),
