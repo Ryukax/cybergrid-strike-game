@@ -32,13 +32,16 @@ export function createGenome(
 ): EnemyGenome {
   const generation = Math.max(0, Math.floor((wave - 1) / 2));
   const niche = NICHES[Math.floor(hash01(seed + formationId * 17, 11) * NICHES.length)];
-  const mutationChance = Math.min(0.72, 0.08 + wave * 0.028);
+  const mutationChance = Math.min(0.92, 0.42 + wave * 0.04);
   const mutations: EnemyMutation[] = [];
 
   for (let i = 0; i < MUTATIONS.length; i++) {
-    if (hash01(seed + generation * 31, 40 + i) < mutationChance * (i === 0 ? 0.42 : 0.22)) {
+    if (hash01(seed + generation * 31, 40 + i) < mutationChance * (i === 0 ? 0.72 : 0.38)) {
       mutations.push(MUTATIONS[i]);
     }
+  }
+  if (mutations.length === 0 && formationId % 3 === 0) {
+    mutations.push(MUTATIONS[Math.abs(seed + formationId) % MUTATIONS.length]);
   }
 
   let speedScale = 1;
@@ -71,7 +74,7 @@ export function createGenome(
     sizeScale: Math.max(0.62, Math.min(1.38, sizeScale)),
     regeneration,
     phaseChance,
-    fusionLevel: 0,
+    fusionLevel: wave >= 2 && formationId % 5 === 4 ? 1 : 0,
   };
 }
 

@@ -144,6 +144,7 @@ interface HudData {
   npcHp: number;
   npcShieldCharges: number;
   playerWon: boolean;
+  ecosystem: { species: number; mutations: number; generation: number; fusions: number };
 }
 
 export default function Game() {
@@ -356,6 +357,7 @@ export default function Game() {
     cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
     gameMode: 'classic', npcHp: NPC_HP, npcShieldCharges: 0, playerWon: false,
+    ecosystem: { species: 0, mutations: 0, generation: 0, fusions: 0 },
   });
 
   const updateHud = useCallback(() => {
@@ -378,6 +380,12 @@ export default function Game() {
       npcHp: s.npc.hp,
       npcShieldCharges: s.npc.shieldCharges,
       playerWon: s.playerWon,
+      ecosystem: {
+        species: new Set(s.enemies.flatMap((enemy) => enemy.genome?.niche ?? [])).size,
+        mutations: s.enemies.reduce((total, enemy) => total + (enemy.genome?.mutations.length ?? 0), 0),
+        generation: s.enemies.reduce((max, enemy) => Math.max(max, enemy.genome?.generation ?? 0), 0),
+        fusions: s.enemies.filter((enemy) => (enemy.genome?.fusionLevel ?? 0) > 0).length,
+      },
     }));
   }, []);
 
@@ -1474,6 +1482,18 @@ export default function Game() {
           <div className="panel">Wave {hud.wave}</div>
         )}
       </div>
+
+      {phase === 'playing' && (
+        <div id="ecosystemHud">
+          <span className="ecosystemTitle">EVOLVING ECOSYSTEM</span>
+          <span>SPECIES <b>{hud.ecosystem.species}</b></span>
+          <span>MUTATIONS <b>{hud.ecosystem.mutations}</b></span>
+          <span>GEN <b>{hud.ecosystem.generation}</b></span>
+          <span className={hud.ecosystem.fusions > 0 ? 'fusionActive' : ''}>
+            FUSIONS <b>{hud.ecosystem.fusions}</b>
+          </span>
+        </div>
+      )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
       <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
