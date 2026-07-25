@@ -466,6 +466,162 @@ function drawCreatureOrMachine(
   ctx.restore();
 }
 
+function drawPixelBestiary(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  cell: number,
+  niche: string,
+  flash: boolean,
+  now: number,
+): void {
+  const familyPools: Record<string, number[]> = {
+    scout: [1, 2, 5],
+    bulwark: [0, 4, 7],
+    hunter: [1, 2, 7],
+    swarm: [1, 3, 6],
+    regenerator: [2, 3, 6],
+    phase: [5, 6, 7],
+    symbiote: [3, 4, 6],
+    opportunist: [0, 2, 5],
+  };
+  const nicheHues: Record<string, number> = {
+    scout: 190, bulwark: 42, hunter: 350, swarm: 92,
+    regenerator: 142, phase: 276, symbiote: 320, opportunist: 24,
+  };
+  const pool = familyPools[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7];
+  const family = pool[Math.floor(visualGene(seed, 800) * pool.length)];
+  const unit = Math.max(2, Math.round(cell / 18));
+  const hue = (nicheHues[niche] ?? 200) + Math.floor((visualGene(seed, 801) - 0.5) * 24);
+  const primary = flash ? '#fff' : `hsl(${hue} 68% 48%)`;
+  const light = flash ? '#fff' : `hsl(${(hue + 34) % 360} 82% 68%)`;
+  const dark = flash ? '#dbeafe' : `hsl(${hue} 58% 24%)`;
+  const ink = '#07111f';
+  const gait = Math.round(Math.sin(now * 0.008 + seed) * unit);
+  const block = (x: number, y: number, w: number, h: number, color = primary) => {
+    ctx.fillStyle = ink;
+    ctx.fillRect(Math.round(x * unit) - 1, Math.round(y * unit) - 1, Math.round(w * unit) + 2, Math.round(h * unit) + 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x * unit), Math.round(y * unit), Math.round(w * unit), Math.round(h * unit));
+  };
+  const pixel = (x: number, y: number, color = light, size = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(x * unit), Math.round(y * unit), unit * size, unit * size);
+  };
+  const line = (points: Array<[number, number]>, color = dark, width = 1) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, unit * width);
+    ctx.beginPath();
+    points.forEach(([x, y], index) => index ? ctx.lineTo(Math.round(x * unit), Math.round(y * unit)) : ctx.moveTo(Math.round(x * unit), Math.round(y * unit)));
+    ctx.stroke();
+  };
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.translate(-unit * 0.5, -unit * 0.5);
+
+  if (family === 0) {
+    // Robot kit: compatible chassis, head, legs/treads and sensor variants.
+    const treaded = visualGene(seed, 810) > 0.52;
+    block(-4, -2, 8, 5);
+    block(-2.5, -5, 5, 3, dark);
+    const eyes = 1 + Math.floor(visualGene(seed, 811) * 3);
+    for (let eye = 0; eye < eyes; eye++) pixel(-1.5 + eye * 1.5, -4, light);
+    block(-5, -1, 1, 3, light); block(4, -1, 1, 3, light);
+    if (treaded) {
+      block(-4.5, 3, 9, 2, dark);
+      for (const x of [-3, -1, 1, 3]) pixel(x, 3.5, light);
+    } else {
+      for (const x of [-2.5, 2.5]) line([[x, 3], [x, 5 + gait / unit], [x - 1, 6 + gait / unit]], light);
+    }
+    line([[0, -5], [0, -7]], light); pixel(-0.5, -8, light);
+  } else if (family === 1) {
+    // Insect kit: segmented body with compatible wings, mandibles and six legs.
+    block(-4, -2, 3, 4, dark); block(-1, -2.5, 3, 5); block(2, -2, 3, 4, primary);
+    pixel(-4.5, -1, light); pixel(-4.5, 1, light);
+    for (const x of [-2, 0, 2]) {
+      line([[x, -1], [x - 1, -4], [x - 2, -5]], light);
+      line([[x, 1], [x - 1, 4], [x - 2, 5]], light);
+    }
+    if (visualGene(seed, 812) > 0.3) {
+      block(-0.5, -5.5, 4, 2, light);
+      block(-0.5, 3.5, 4, 2, light);
+    }
+    line([[-4, -1], [-6, -3]], light); line([[-4, 1], [-6, 3]], light);
+  } else if (family === 2) {
+    // Beast kit: torso, directional head, four legs, ears/horns and tail.
+    block(-3, -2.5, 7, 5);
+    block(-6, -2, 3, 4, dark);
+    pixel(-5.5, -1, light);
+    const horned = visualGene(seed, 813) > 0.5;
+    if (horned) { line([[-5, -2], [-6, -5]], light); line([[-3.5, -2], [-4, -5]], light); }
+    else { block(-6, -4, 1.5, 2, light); block(-4.5, -4, 1.5, 2, light); }
+    for (const x of [-2, 2.5]) {
+      line([[x, 2], [x + gait / unit, 5], [x - 1, 6]], dark);
+      line([[x + 1, 2], [x + 1 - gait / unit, 5], [x + 2, 6]], dark);
+    }
+    line([[4, -1], [6, -3], [7, -1]], light);
+  } else if (family === 3) {
+    // Plant kit: stem, leaf pairs, roots and one of several trap blossoms.
+    line([[0, 5], [0, -1]], dark, 1.5);
+    block(-3, -5, 6, 4);
+    const jaw = visualGene(seed, 814) > 0.45;
+    if (jaw) {
+      block(-4, -5, 4, 1.5, light); block(0, -2.5, 4, 1.5, light);
+      for (const x of [-3, -1, 1, 3]) pixel(x, -3.5, ink);
+    } else {
+      for (const [x, y] of [[-4, -5], [3, -5], [-4, -2], [3, -2]]) block(x, y, 2, 2, light);
+    }
+    block(-4, 0, 3, 1.5, light); block(1, 1.5, 3, 1.5, light);
+    for (const x of [-3, 0, 3]) line([[0, 5], [x, 7]], dark);
+  } else if (family === 4) {
+    // Crystal golem kit: block torso with coherent shard armor and limbs.
+    block(-3, -3, 6, 7, dark);
+    block(-2, -6, 4, 3, primary);
+    pixel(-1.5, -5, light); pixel(0.5, -5, light);
+    block(-5, -2, 2, 5, primary); block(3, -2, 2, 5, primary);
+    block(-3, 4, 2, 3, primary); block(1, 4, 2, 3, primary);
+    for (const x of [-3, 0, 3]) line([[x, -3], [x, -7 - visualGene(seed, 815 + x) * 2]], light, 1.5);
+    pixel(-1, -1, light, 2);
+  } else if (family === 5) {
+    // Drone kit: hull, coherent rotor/thruster locomotion and sensor payload.
+    block(-4, -2, 8, 4, dark);
+    block(-2, -3, 4, 6, primary);
+    pixel(-1.5, -1, light); pixel(0.5, -1, light);
+    const rotors = visualGene(seed, 820) > 0.45;
+    for (const side of [-1, 1]) {
+      line([[side * 4, 0], [side * 6, 0]], light);
+      if (rotors) line([[side * 8, -1], [side * 4, -1]], light, 1.5);
+      else block(side < 0 ? -8 : 6, -1, 2, 2, light);
+    }
+    block(-1, 2, 2, 2, light);
+  } else if (family === 6) {
+    // Cephalopod kit: mantle, eyes and coherent tentacle locomotion.
+    block(-3, -5, 6, 6);
+    block(-4, -3, 8, 3, primary);
+    pixel(-2, -3, light); pixel(1, -3, light);
+    const tentacles = 4 + Math.floor(visualGene(seed, 821) * 4);
+    for (let tentacle = 0; tentacle < tentacles; tentacle++) {
+      const x = -3 + tentacle * 6 / Math.max(1, tentacles - 1);
+      line([[x, 1], [x + (tentacle % 2 ? gait : -gait) / unit, 4], [x + (tentacle % 2 ? 1 : -1), 6]], tentacle % 2 ? light : dark);
+    }
+  } else {
+    // Skeleton kit: skull, spine, ribs and articulated limbs.
+    block(-2, -6, 4, 3, light);
+    pixel(-1.5, -5, ink); pixel(0.5, -5, ink);
+    line([[0, -3], [0, 4]], light, 1.5);
+    const ribs = 3 + Math.floor(visualGene(seed, 822) * 3);
+    for (let rib = 0; rib < ribs; rib++) {
+      const y = -2 + rib * 1.3;
+      line([[0, y], [-3, y + 1], [0, y + 1]], primary);
+      line([[0, y], [3, y + 1], [0, y + 1]], primary);
+    }
+    line([[0, -1], [-5, 1 + gait / unit]], light); line([[0, -1], [5, 1 - gait / unit]], light);
+    line([[0, 4], [-3, 7]], light); line([[0, 4], [3, 7]], light);
+  }
+
+  ctx.restore();
+}
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -733,19 +889,15 @@ export function draw(
     }
     // Bodies are assembled from independent procedural modules; no finite base
     // sprite or morphology catalog is used for hostile entities.
-    const aspectX = 0.68 + visualGene(e.value, 21) * 0.72;
-    const aspectY = 0.72 + visualGene(e.value, 22) * 0.62;
     ctx.save();
     ctx.translate(ex, ey);
-    ctx.scale(aspectX, aspectY);
-    drawCreatureOrMachine(
+    drawPixelBestiary(
       ctx,
       e.value ?? 6,
       drawCell,
-      genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
+      genome?.niche ?? 'hunter',
       e.flash > 0,
       now,
-      genome?.niche ?? 'hunter',
     );
     ctx.restore();
     if (e.hp > 1) {
