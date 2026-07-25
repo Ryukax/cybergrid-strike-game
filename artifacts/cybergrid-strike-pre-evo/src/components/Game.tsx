@@ -42,14 +42,6 @@ import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/e
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 
-const ENEMY_FORMATIONS = [
-  [0, 1, 2], // descending sweep
-  [2, 1, 0], // ascending sweep
-  [1, 0, 2], // center-led wedge
-  [1, 2, 0], // mirrored wedge
-  [0, 2, 1], // split flank, center anchor
-] as const;
-
 function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): string[] {
   const source = enabledIds
     ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
@@ -80,7 +72,6 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     timer: 0,
     enemySpawnTimer: 0.4,
     enemyFormationId: 0,
-    enemyFormationStep: 0,
     lanePressure: [0, 0, 0],
     moveFlash: 0,
     slowTimer: 0,
@@ -940,14 +931,31 @@ export default function Game() {
     // Spawn enemies
     s.enemySpawnTimer -= dt;
     if (s.enemySpawnTimer <= 0) {
-      const formation = ENEMY_FORMATIONS[(s.wave + s.enemyFormationId) % ENEMY_FORMATIONS.length];
       const value = pickDiverseSeed();
-      const genome = createGenome(value, s.wave, s.enemyFormationId);
+      const livingEnemies = s.enemies.filter((enemy) => enemy.colPos >= -1);
+      const lanePopulation: [number, number, number] = [0, 0, 0];
+      const population: Record<string, number> = {};
+      for (const enemy of livingEnemies) {
+        lanePopulation[enemy.row]++;
+        if (enemy.genome) population[enemy.genome.niche] = (population[enemy.genome.niche] ?? 0) + 1;
+      }
+      const genome = createGenome(value, s.wave, s.enemyFormationId, {
+        playerRow: s.player.row,
+        lanePressure: s.lanePressure,
+        population,
+        lanePopulation,
+      });
+      const concurrentSignal =
+        value + s.enemyFormationId * 7 + s.player.row * 13 +
+        Math.round(s.lanePressure.reduce((sum, pressure) => sum + pressure, 0) * 11) +
+        livingEnemies.length * 17;
+      const candidateRow = Math.abs(concurrentSignal) % 3;
       const row = selectAdaptiveRow(
         genome,
-        formation[s.enemyFormationStep],
+        candidateRow,
         s.player.row,
         s.lanePressure,
+        lanePopulation,
       );
       const speed = (1.15 + Math.min(0.55, (s.wave - 1) * 0.08)) * genome.speedScale;
       const hp = (Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1) + genome.hpBonus;
@@ -965,16 +973,12 @@ export default function Game() {
         regenerationCharge: 0,
       });
 
-      s.enemyFormationStep++;
-      if (s.enemyFormationStep >= formation.length) {
-        s.enemyFormationStep = 0;
-        s.enemyFormationId++;
-        // A readable beat between squads; shrinks gently as waves advance.
-        s.enemySpawnTimer = Math.max(0.9, 1.55 - s.wave * 0.03);
-      } else {
-        // Tight, even spacing keeps each squad visually grouped.
-        s.enemySpawnTimer = Math.max(0.36, 0.5 - s.wave * 0.008);
-      }
+      s.enemyFormationId++;
+      // Population density, combat pressure, and wave intensity all affect cadence.
+      const pressure = s.lanePressure.reduce((sum, lane) => sum + lane, 0);
+      const densityBrake = Math.max(0, livingEnemies.length - 5) * 0.07;
+      const pressureBoost = Math.min(0.24, pressure * 0.012);
+      s.enemySpawnTimer = Math.max(0.48, 1.12 - s.wave * 0.025 + densityBrake - pressureBoost);
     }
 
     // Move bullets
