@@ -41,6 +41,14 @@ import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morph
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 
+const ENEMY_FORMATIONS = [
+  [0, 1, 2], // descending sweep
+  [2, 1, 0], // ascending sweep
+  [1, 0, 2], // center-led wedge
+  [1, 2, 0], // mirrored wedge
+  [0, 2, 1], // split flank, center anchor
+] as const;
+
 function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): string[] {
   const source = enabledIds
     ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
@@ -70,6 +78,8 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     hp: 5,
     timer: 0,
     enemySpawnTimer: 0.4,
+    enemyFormationId: 0,
+    enemyFormationStep: 0,
     moveFlash: 0,
     slowTimer: 0,
     overclockTimer: 0,
@@ -919,15 +929,33 @@ export default function Game() {
 
     // Spawn enemies
     s.enemySpawnTimer -= dt;
-    const spawnDelay = Math.max(0.6, 1.25 - s.wave * 0.05);
     if (s.enemySpawnTimer <= 0) {
-      s.enemySpawnTimer = spawnDelay;
-      const row = Math.floor(Math.random() * 3);
+      const formation = ENEMY_FORMATIONS[(s.wave + s.enemyFormationId) % ENEMY_FORMATIONS.length];
+      const row = formation[s.enemyFormationStep];
       const speed = 1.15 + Math.min(0.55, (s.wave - 1) * 0.08);
       const hp = Math.random() < 0.2 + Math.min(0.25, s.wave * 0.03) ? 2 : 1;
       const value = pickDiverseSeed();
       registerSpawn(getMorphSig(value));
-      s.enemies.push({ colPos: 5.6, row, speed, hp, flash: 0, value });
+      s.enemies.push({
+        colPos: 5.6,
+        row,
+        speed,
+        hp,
+        flash: 0,
+        value,
+        formationId: s.enemyFormationId,
+      });
+
+      s.enemyFormationStep++;
+      if (s.enemyFormationStep >= formation.length) {
+        s.enemyFormationStep = 0;
+        s.enemyFormationId++;
+        // A readable beat between squads; shrinks gently as waves advance.
+        s.enemySpawnTimer = Math.max(0.9, 1.55 - s.wave * 0.03);
+      } else {
+        // Tight, even spacing keeps each squad visually grouped.
+        s.enemySpawnTimer = Math.max(0.36, 0.5 - s.wave * 0.008);
+      }
     }
 
     // Move bullets

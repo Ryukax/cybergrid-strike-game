@@ -189,6 +189,33 @@ export function draw(
 
   // Red enemies (classic + VS)
   const now = performance.now();
+
+  // Formation links make coordinated squads legible without obscuring morphology.
+  const formations = new Map<number, typeof state.enemies>();
+  for (const enemy of state.enemies) {
+    if (enemy.formationId === undefined || enemy.colPos < -1) continue;
+    const members = formations.get(enemy.formationId) ?? [];
+    members.push(enemy);
+    formations.set(enemy.formationId, members);
+  }
+  for (const members of formations.values()) {
+    if (members.length < 2) continue;
+    members.sort((a, b) => a.colPos - b.colPos);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(251,113,133,0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    members.forEach((enemy, index) => {
+      const x = m.x + (enemy.colPos + 0.5) * m.cell;
+      const y = m.y + (enemy.row + 0.5) * m.cell;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
   for (const e of state.enemies) {
     const ex = m.x + (e.colPos + 0.5) * m.cell;
     const ey = m.y + (e.row + 0.5) * m.cell;
