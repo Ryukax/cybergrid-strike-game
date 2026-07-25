@@ -193,13 +193,14 @@ export default function Game() {
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
   const touchDpadRef = useRef({ up: false, down: false, left: false, right: false });
   const gamepadRef = useRef({
-    moveX: 0, moveY: 0,
+    moveX: 0, moveY: 0, prevMoveX: 0,
     fire: false, prevFire: false,
     cardX: false, prevCardX: false,   // button 2 → card slot 0
     cardY: false, prevCardY: false,   // button 3 → card slot 1
     cardB: false, prevCardB: false,   // button 1 → card slot 2
     rotate: false, prevRotate: false, // button 8/17 → rotate hand
     start: false, prevStart: false,   // button 9 → pause
+    l1: false, prevL1: false,         // button 4 → combo modifier
     connected: false,
   });
   const controllerCooldownRef = useRef(0);
@@ -253,6 +254,7 @@ export default function Game() {
   const GEM_MOVE_FRAME_MS  = 75;  // ms per move frame
   // true = mirror sprite horizontally (left move, parallel to gun axis)
   const gemMoveMirrorRef   = useRef(false);
+  const eloAttackDirectionRef = useRef<1 | -1>(1);
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
   // rocketFrameRef: -1 = idle (show gifFramesRef[0]), 0–N = attack frame index into gifAttackFramesRef.
@@ -464,10 +466,25 @@ export default function Game() {
       s.pierceShots = Math.max(0, s.pierceShots - 1);
     }
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
-    s.bullets.push({ colPos: s.player.col + 0.55, row, speed: 8.5, power, big, pierce });
+    const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+    s.bullets.push({
+      colPos: s.player.col + direction * 0.55,
+      row,
+      speed: direction * 8.5,
+      power,
+      big,
+      pierce,
+    });
     if (s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
-      s.bullets.push({ colPos: s.player.col + 0.55, row: echoRow, speed: 8.5, power: Math.max(1, power - 1), big: false, pierce: false });
+      s.bullets.push({
+        colPos: s.player.col + direction * 0.55,
+        row: echoRow,
+        speed: direction * 8.5,
+        power: Math.max(1, power - 1),
+        big: false,
+        pierce: false,
+      });
     }
     playShot();
     if (playerSkinRef.current === 'rocket') rocketShootFlash();
@@ -478,10 +495,7 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
-    // Mirror state: only update on horizontal moves; vertical moves inherit the last h-direction
-    if (playerSkinRef.current === 'gem' && col !== s.player.col) {
-      gemMoveMirrorRef.current = col > s.player.col;
-    }
+    // Elo retains her facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
     s.moveFlash = 0.15;
@@ -894,13 +908,14 @@ export default function Game() {
     if (!gp) {
       if (g.connected) {
         g.connected = false;
-        g.moveX = 0; g.moveY = 0;
+        g.moveX = 0; g.moveY = 0; g.prevMoveX = 0;
         g.fire = false; g.prevFire = false;
         g.cardX = false; g.prevCardX = false;
         g.cardY = false; g.prevCardY = false;
         g.cardB = false; g.prevCardB = false;
         g.rotate = false; g.prevRotate = false;
         g.start = false; g.prevStart = false;
+        g.l1 = false; g.prevL1 = false;
       }
       return;
     }
@@ -911,6 +926,7 @@ export default function Game() {
     if (buttonPressed(12)) moveY = -1; else if (buttonPressed(13)) moveY = 1;
     if (Math.abs(moveX) < deadzone) moveX = 0;
     if (Math.abs(moveY) < deadzone) moveY = 0;
+    g.prevMoveX = g.moveX;
     g.prevFire = g.fire;
     g.fire = buttonPressed(0);            // A only
     g.prevCardX = g.cardX; g.cardX = buttonPressed(2);  // X → slot 0
@@ -919,6 +935,7 @@ export default function Game() {
     g.prevRotate = g.rotate;
     g.rotate = buttonPressed(8) || buttonPressed(17);   // View / ellipsis / share
     g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
+    g.prevL1 = g.l1; g.l1 = buttonPressed(4);          // L1 modifier
     g.moveX = moveX;
     g.moveY = moveY;
     g.connected = true;
@@ -939,10 +956,21 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
+    const eloFlipCombo = playerSkinRef.current === 'gem'
+      && gp.moveX < -0.15
+      && ((gp.prevMoveX >= -0.15 && gp.l1) || (gp.l1 && !gp.prevL1));
+    if (eloFlipCombo) {
+      eloAttackDirectionRef.current = eloAttackDirectionRef.current === 1 ? -1 : 1;
+      gemMoveMirrorRef.current = eloAttackDirectionRef.current === -1;
+      showMessage(
+        eloAttackDirectionRef.current === 1 ? 'Elo facing right' : 'Elo facing left',
+        900,
+      );
+    }
     let dx = 0, dy = 0;
     if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
     if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
-    if (Math.abs(gp.moveX) > 0.15) dx = gp.moveX > 0 ? 1 : -1;
+    if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
     if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
@@ -955,7 +983,16 @@ export default function Game() {
     }
     if (gp.fire && !fireHeldRef.current) manualBuster();
     fireHeldRef.current = gp.fire;
-    if (gp.rotate && !gp.prevRotate) rotateHand();
+    if (gp.rotate && !gp.prevRotate) {
+      if (gp.l1) {
+        s.autoBuster = !s.autoBuster;
+        playAutoToggle();
+        updateHud();
+        showMessage(`Auto Fire: ${s.autoBuster ? 'ON' : 'OFF'}`, 900);
+      } else {
+        rotateHand();
+      }
+    }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
     if (s.cardsReady && s.cardSelectionOpen) {
@@ -1167,7 +1204,7 @@ export default function Game() {
 
     // Move bullets
     for (const b of s.bullets) b.colPos += b.speed * dt;
-    s.bullets = s.bullets.filter((b) => b.colPos < 6.4);
+    s.bullets = s.bullets.filter((b) => b.colPos > -0.6 && b.colPos < 6.4);
 
     // Move enemies
     const canvas = canvasRef.current;
@@ -1549,6 +1586,8 @@ export default function Game() {
 
   const startGame = useCallback((mode: GameMode = 'classic') => {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
+    eloAttackDirectionRef.current = 1;
+    gemMoveMirrorRef.current = false;
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'playing';
