@@ -1,6 +1,7 @@
 import type { GameState, BoardMetrics, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
+import { getProceduralVirusSprite } from './procedural-virus';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -12,42 +13,6 @@ const NICHE_COLORS: Record<string, string> = {
   symbiote: '#f472b6',
   opportunist: '#fb923c',
 };
-
-const bestiarySprites = new Map<string, HTMLImageElement>();
-
-function getBestiarySprite(baseElement: string): HTMLImageElement {
-  const cached = bestiarySprites.get(baseElement);
-  if (cached) return cached;
-  const sprite = new Image();
-  sprite.decoding = 'async';
-  sprite.src = `${import.meta.env.BASE_URL}enemies/${baseElement}.png`;
-  bestiarySprites.set(baseElement, sprite);
-  return sprite;
-}
-
-function drawBestiarySprite(
-  ctx: CanvasRenderingContext2D,
-  genome: EnemyGenome,
-  cell: number,
-  flash: boolean,
-): boolean {
-  const sprite = getBestiarySprite(genome.baseElement);
-  if (!sprite.complete || sprite.naturalWidth === 0) return false;
-  const size = cell * 1.24;
-  const filters: string[] = [];
-  if (flash) filters.push('brightness(1.8)');
-  if (genome.generation > 0) filters.push(`hue-rotate(${Math.min(42, genome.generation * 12)}deg)`);
-  if (genome.mutations.includes('armored')) filters.push('contrast(1.18)');
-  if (genome.mutations.includes('volatile')) filters.push('saturate(1.35)');
-  if (genome.niche === 'phase') filters.push('opacity(0.68)');
-  ctx.save();
-  ctx.filter = filters.join(' ') || 'none';
-  ctx.shadowColor = NICHE_COLORS[genome.niche] ?? '#fb7185';
-  ctx.shadowBlur = genome.fusionLevel > 0 ? 8 : 3;
-  ctx.drawImage(sprite, -size / 2, -size / 2, size, size);
-  ctx.restore();
-  return true;
-}
 
 function visualGene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
@@ -1016,8 +981,16 @@ export function draw(
     // sprite or morphology catalog is used for hostile entities.
     ctx.save();
     ctx.translate(ex, ey);
-    const drewSprite = genome ? drawBestiarySprite(ctx, genome, drawCell, e.flash > 0) : false;
-    if (!drewSprite) {
+    if (genome) {
+      const sprite = getProceduralVirusSprite(e.value ?? 6, genome);
+      const spriteSize = drawCell * 1.12;
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.globalAlpha = genome.niche === 'phase' ? 0.72 : 1;
+      if (e.flash > 0) ctx.filter = 'brightness(1.8)';
+      ctx.drawImage(sprite, -spriteSize / 2, -spriteSize / 2, spriteSize, spriteSize);
+      ctx.restore();
+    } else {
       drawCreatureOrMachine(
         ctx,
         e.value ?? 6,
