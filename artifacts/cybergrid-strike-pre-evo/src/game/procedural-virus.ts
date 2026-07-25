@@ -135,6 +135,20 @@ const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
   spectral: ['data-wraith', 'skeleton', 'cephalopod', 'nanite'],
 };
 
+// Locomotion is an independent functional layer, not a synonym for body type.
+// Each class deliberately spans several mechanisms so a torso may receive
+// wheels/treads, hover propulsion, tails, roots, tentacles or distinct legs.
+const CLASS_LOCOMOTION: Record<EnemyGenome['enemyClass'], EnemyBaseElement[]> = {
+  skirmisher: ['vehicle', 'drone', 'avian', 'insect', 'fish', 'serpent'],
+  guardian: ['vehicle', 'turret', 'mech', 'golem', 'crab', 'snail'],
+  predator: ['beast', 'fox', 'mole', 'serpent', 'cephalopod', 'vehicle'],
+  replicator: ['insect', 'nanite', 'fungus', 'cephalopod', 'drone', 'crab'],
+  mender: ['plant', 'fungus', 'snail', 'cephalopod', 'drone', 'golem'],
+  infiltrator: ['data-wraith', 'drone', 'serpent', 'mole', 'fish', 'vehicle'],
+  support: ['plant', 'cephalopod', 'snail', 'robot', 'drone', 'vehicle'],
+  scavenger: ['vehicle', 'mole', 'crab', 'fox', 'nanite', 'serpent'],
+};
+
 const BODY_PROFILES: Record<BodyType, Array<[number, number]>> = {
   biped: [[0.82, 1.12], [0.92, 1.06], [0.76, 1.16]],
   quadruped: [[1.18, 0.84], [1.28, 0.78], [1.08, 0.92]],
@@ -416,7 +430,21 @@ function graft(
   } else if (region === 'locomotion') {
     // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
     const cropY = image.naturalHeight * 0.44;
-    drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
+    if (base === 'vehicle' || base === 'turret') {
+      // Wide low wheel/tread carriage.
+      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 0, 27, 48, 19);
+    } else if (base === 'drone' || base === 'avian' || base === 'data-wraith') {
+      // Compact aerial/hover propulsion with clearance under the core.
+      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 4, 23, 40, 21);
+    } else if (base === 'serpent' || base === 'snail' || base === 'fish') {
+      // Long tail, keel or muscular foot.
+      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 0, 25, 48, 21);
+    } else if (base === 'cephalopod' || base === 'plant' || base === 'fungus' || base === 'jelly') {
+      // Deep tentacle/root cluster.
+      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 3, 18, 42, 30);
+    } else {
+      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
+    }
   } else {
     drawFitted(ctx, image, base, seed, genome);
   }
@@ -519,7 +547,12 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // color and refine the sockets, allowing broad combinations without asking
   // a complete authored family painting to serve as the final creature.
   const headPool = COMPATIBLE_HEADS[bodyType];
-  const locomotionPool = COMPATIBLE_LOCOMOTION[bodyType];
+  const locomotionPool = [
+    ...new Set([
+      ...CLASS_LOCOMOTION[genome.enemyClass],
+      ...COMPATIBLE_LOCOMOTION[bodyType],
+    ]),
+  ];
   const headBase = selectDifferent(headPool, genome.baseElement, gene(seed, 160));
   const locomotionBase = selectDifferent(locomotionPool, genome.baseElement, gene(seed, 165));
   const fusionPool = compatibleFusionDonors(genome.baseElement, BASES);
