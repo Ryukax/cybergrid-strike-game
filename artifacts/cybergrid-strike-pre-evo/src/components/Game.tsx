@@ -40,6 +40,7 @@ import {
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
 import { getEnemyMovementClass, type EnemyMovementClass } from '../game/procedural-virus';
+import { ELEMENT_DOMAIN } from '../game/element-matrix';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 const AIR_CLASSES = new Set<EnemyMovementClass>(['flier', 'hover', 'spectral']);
@@ -108,6 +109,9 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
       maxGeneration: 0,
       totalFusions: 0,
     },
+    recentBaseElements: [],
+    recentBodyClasses: [],
+    recentElementDomains: [],
     moveFlash: 0,
     slowTimer: 0,
     overclockTimer: 0,
@@ -1088,6 +1092,9 @@ export default function Game() {
         population,
         basePopulation,
         lanePopulation,
+        recentBases: s.recentBaseElements,
+        recentBodyClasses: s.recentBodyClasses,
+        recentElementDomains: s.recentElementDomains,
       });
       const concurrentSignal =
         value + s.enemyFormationId * 7 + s.player.row * 13 +
@@ -1113,6 +1120,12 @@ export default function Game() {
       if (!s.ecosystemStats.entitySignatures.includes(discoverySignature)) {
         s.ecosystemStats.entitySignatures.push(discoverySignature);
       }
+      s.recentBaseElements.push(genome.baseElement);
+      s.recentBodyClasses.push(getEnemyMovementClass(genome.baseElement));
+      s.recentElementDomains.push(ELEMENT_DOMAIN[genome.baseElement]);
+      if (s.recentBaseElements.length > 48) s.recentBaseElements.shift();
+      if (s.recentBodyClasses.length > 24) s.recentBodyClasses.shift();
+      if (s.recentElementDomains.length > 18) s.recentElementDomains.shift();
       s.ecosystemStats.mutationDiscoveries += genome.mutations.length;
       s.ecosystemStats.maxGeneration = Math.max(s.ecosystemStats.maxGeneration, genome.generation);
       if (genome.fusionLevel > 0) s.ecosystemStats.totalFusions++;

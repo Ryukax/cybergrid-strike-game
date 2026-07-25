@@ -96,6 +96,9 @@ export interface GameState {
     maxGeneration: number;
     totalFusions: number;
   };
+  recentBaseElements: EnemyBaseElement[];
+  recentBodyClasses: string[];
+  recentElementDomains: string[];
   moveFlash: number;
   // Status timers — original
   slowTimer: number;

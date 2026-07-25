@@ -1,5 +1,7 @@
 import type { EnemyGenome, EnemyNiche, EnemyMutation, EnemyBaseElement } from './types';
 import { getFusionOutcome } from './element-matrix';
+import { ELEMENT_DOMAIN } from './element-matrix';
+import { getEnemyMovementClass } from './procedural-virus';
 
 const NICHES: EnemyNiche[] = [
   'scout',
@@ -53,6 +55,9 @@ export function createGenome(
     population: Partial<Record<EnemyNiche, number>>;
     basePopulation: Partial<Record<EnemyBaseElement, number>>;
     lanePopulation: [number, number, number];
+    recentBases?: EnemyBaseElement[];
+    recentBodyClasses?: string[];
+    recentElementDomains?: string[];
   },
 ): EnemyGenome {
   const generation = Math.max(0, Math.floor((wave - 1) / 2));
@@ -84,7 +89,20 @@ export function createGenome(
   const baseWeights = BASE_ELEMENTS.map((candidate, index) => {
     const scarcity = 1 / (1 + (context?.basePopulation[candidate] ?? 0) * 2.4);
     const affinity = preferredBases.includes(candidate) ? 2.2 : 0.45;
-    return scarcity * affinity * (0.82 + hash01(seed + formationId, 120 + index) * 0.36);
+    const recentBaseCount = context?.recentBases?.filter((base) => base === candidate).length ?? 0;
+    const bodyClass = getEnemyMovementClass(candidate);
+    const recentBodyCount = context?.recentBodyClasses?.filter((body) => body === bodyClass).length ?? 0;
+    const domain = ELEMENT_DOMAIN[candidate];
+    const recentDomainCount = context?.recentElementDomains?.filter((item) => item === domain).length ?? 0;
+    const recency = 1 / (
+      1
+      + recentBaseCount * 2.8
+      + recentBodyCount * 0.48
+      + recentDomainCount * 0.2
+    );
+    const unseenBonus = recentBaseCount === 0 ? 2.4 : 1;
+    return scarcity * affinity * recency * unseenBonus
+      * (0.82 + hash01(seed + formationId, 120 + index) * 0.36);
   });
   let basePick = hash01(seed + formationId * 23 + wave * 41, 119) * baseWeights.reduce((a, b) => a + b, 0);
   let baseElement = BASE_ELEMENTS[BASE_ELEMENTS.length - 1];

@@ -259,10 +259,12 @@ function drawFitted(
   genome: EnemyGenome,
 ): void {
   const bodyType = BODY_TYPE[genome.baseElement];
-  const variantPool = CHARACTER_BASES.has(genome.baseElement)
-    ? BODY_PROFILES[bodyType].slice(0, 2)
-    : BODY_PROFILES[bodyType];
-  const [widthProfile, heightProfile] = variantPool[Math.floor(gene(seed, 30) * variantPool.length)];
+  const variantPool = BODY_PROFILES[bodyType];
+  const [baseWidthProfile, baseHeightProfile] = variantPool[Math.floor(gene(seed, 30) * variantPool.length)];
+  // Independent, bounded anatomy genes multiply each authored scaffold into
+  // broad/compact, lean/tall and juvenile/heavy expressions without distortion.
+  const widthProfile = baseWidthProfile * (0.9 + gene(seed, 31) * 0.2);
+  const heightProfile = baseHeightProfile * (0.91 + gene(seed, 32) * 0.18);
   const width = 40 * widthProfile;
   const height = 43 * heightProfile;
   const x = (SPRITE_SIZE - width) / 2 + (gene(seed, 33) - 0.5) * 1.5;
@@ -282,6 +284,11 @@ function genomeFilter(genome: EnemyGenome, seed: number): string {
     'brightness(1)',
     'saturate(0.84) contrast(1.08)',
     'hue-rotate(12deg) saturate(1.06)',
+    'hue-rotate(-16deg) saturate(0.9) brightness(1.06)',
+    'sepia(0.18) saturate(1.12) contrast(1.06)',
+    'hue-rotate(28deg) saturate(0.78) contrast(1.14)',
+    'saturate(1.22) brightness(0.94)',
+    'saturate(0.64) contrast(1.18) brightness(1.08)',
   ] : [
     'brightness(1)',
     'saturate(0.7) contrast(1.14) brightness(0.94)',
@@ -378,6 +385,31 @@ function shadeStructure(ctx: CanvasRenderingContext2D, seed: number, genome: Ene
   shadow.addColorStop(1, 'rgba(0,5,18,0.30)');
   ctx.fillStyle = shadow;
   ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+
+  const marking = Math.floor(gene(seed, 260) * 8);
+  const markHue = Math.floor(gene(seed, 261) * 360);
+  ctx.strokeStyle = `hsla(${markHue}, 88%, 72%, 0.34)`;
+  ctx.fillStyle = `hsla(${markHue}, 82%, 65%, 0.25)`;
+  ctx.lineWidth = 1.2 + gene(seed, 262);
+  if (marking === 0) {
+    for (let y = 11; y < 42; y += 8) { ctx.beginPath(); ctx.moveTo(7, y); ctx.lineTo(41, y - 5); ctx.stroke(); }
+  } else if (marking === 1) {
+    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(10 + gene(seed, 270 + i) * 28, 9 + gene(seed, 280 + i) * 31, 1.4 + gene(seed, 290 + i) * 2.2, 0, Math.PI * 2); ctx.fill(); }
+  } else if (marking === 2) {
+    ctx.beginPath(); ctx.moveTo(8, 28); ctx.lineTo(18, 19); ctx.lineTo(26, 27); ctx.lineTo(40, 14); ctx.stroke();
+  } else if (marking === 3) {
+    for (let x = 10; x < 42; x += 9) { ctx.fillRect(x, 8, 2, 34); }
+  } else if (marking === 4) {
+    ctx.beginPath(); ctx.arc(24, 23, 11, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(24, 23, 5, 0, Math.PI * 2); ctx.stroke();
+  } else if (marking === 5) {
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(7, 13 + i * 10); ctx.quadraticCurveTo(24, 5 + i * 12, 41, 13 + i * 10); ctx.stroke(); }
+  } else if (marking === 6) {
+    ctx.beginPath(); ctx.moveTo(24, 5); ctx.lineTo(24, 42); ctx.stroke();
+    ctx.fillRect(17, 16, 14, 3); ctx.fillRect(14, 29, 20, 3);
+  } else {
+    for (let i = 0; i < 4; i++) { ctx.fillRect(8 + i * 9, 10 + (i % 2) * 15, 6, 6); }
+  }
 
   if (genome.mutations.includes('armored')) {
     ctx.fillStyle = 'rgba(8,14,24,0.28)';
