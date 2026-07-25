@@ -66,6 +66,46 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'interceptor', name: 'INTERCEPTOR',   desc: 'Strike the fastest advancing enemy with a power-6 shot', cooldown: 8 },
   { id: 'stasisgate',  name: 'STASIS GATE',   desc: 'For 7s, fast enemies take damage crossing the center boundary', cooldown: 14 },
   { id: 'adaptive',    name: 'ADAPTIVE AMMO', desc: 'Bullets exploit armor, spectral, colony and cyber weaknesses for 7s', cooldown: 15 },
+
+  // Projectile expansion
+  { id: 'ricochet', name: 'RICOCHET', desc: 'Fire piercing shots into your row and both adjacent rows', cooldown: 10 },
+  { id: 'rearguard', name: 'REARGUARD', desc: 'Fire powerful shots in both facing directions', cooldown: 11 },
+  { id: 'arcweb', name: 'ARC WEB', desc: 'Chain damage through the four most advanced enemies', cooldown: 12 },
+  { id: 'splitter', name: 'SPLITTER', desc: 'Launch two piercing shots down every lane', cooldown: 12 },
+  { id: 'seeker', name: 'SEEKER', desc: 'Strike the most dangerous living target regardless of lane', cooldown: 10 },
+  { id: 'shattershot', name: 'SHATTERSHOT', desc: 'Break armor and heavily damage resilient enemies', cooldown: 11 },
+  { id: 'marksman', name: 'MARKSMAN', desc: 'Long-range power shot deals more damage to distant targets', cooldown: 9 },
+  { id: 'returnfire', name: 'RETURN FIRE', desc: 'Damage every enemy already inside the center boundary', cooldown: 14 },
+
+  // Locomotion counters
+  { id: 'oilslick', name: 'OIL SLICK', desc: 'Wheel and vehicle forms skid backward', cooldown: 10 },
+  { id: 'rootsnare', name: 'ROOT SNARE', desc: 'Trap grounded movers and suppress their speed', cooldown: 13 },
+  { id: 'sonicnet', name: 'SONIC NET', desc: 'Ground and damage airborne enemies', cooldown: 11 },
+  { id: 'depthcharge', name: 'DEPTH CHARGE', desc: 'Expose and damage every burrowing enemy', cooldown: 10 },
+  { id: 'anchorfield', name: 'ANCHOR FIELD', desc: 'Freeze heavy bodies while lighter enemies recoil', cooldown: 15 },
+  { id: 'tailclamp', name: 'TAIL CLAMP', desc: 'Cripple serpentine and aquatic locomotion', cooldown: 10 },
+  { id: 'tanglewire', name: 'TANGLEWIRE', desc: 'Damage rooted and tentacled entities', cooldown: 12 },
+  { id: 'trafficjam', name: 'TRAFFIC JAM', desc: 'Vehicles and machines stagger backward into formation', cooldown: 13 },
+
+  // Elemental matrix
+  { id: 'thermalshock', name: 'THERMAL SHOCK', desc: 'Fracture thermal and cryo affinities', cooldown: 13 },
+  { id: 'circuitarc', name: 'CIRCUIT ARC', desc: 'Arc through voltaic, mechanical and fluidic entities', cooldown: 12 },
+  { id: 'acidetch', name: 'ACID ETCH', desc: 'Remove armor before corrosive damage lands', cooldown: 13 },
+  { id: 'bloombind', name: 'BLOOM BIND', desc: 'Bind botanical enemies and share damage across them', cooldown: 14 },
+  { id: 'radiantmark', name: 'RADIANT MARK', desc: 'Reveal phase forms and damage void or spectral enemies', cooldown: 12 },
+  { id: 'voidaperture', name: 'VOID APERTURE', desc: 'Banish the leading enemy and return it weakened at the edge', cooldown: 15 },
+  { id: 'kineticram', name: 'KINETIC RAM', desc: 'Drive one lane backward and deal collision damage', cooldown: 11 },
+  { id: 'elementswap', name: 'ELEMENT SWAP', desc: 'Rotate enemy affinities to expose new weaknesses', cooldown: 14 },
+
+  // Evolution and fusion
+  { id: 'devolve', name: 'DEVOLVE', desc: 'Remove a generation, mutation and fusion level', cooldown: 14 },
+  { id: 'mutationlock', name: 'MUTATION LOCK', desc: 'Suppress regeneration and phase traits across the grid', cooldown: 16 },
+  { id: 'traittheft', name: 'TRAIT THEFT', desc: 'Steal vitality from the most mutated enemy', cooldown: 15 },
+  { id: 'quarantine', name: 'QUARANTINE', desc: 'Separate converging entities and prevent immediate fusion', cooldown: 12 },
+  { id: 'clonebreak', name: 'CLONE BREAK', desc: 'Damage every member of the most common species', cooldown: 13 },
+  { id: 'hybridtax', name: 'HYBRID TAX', desc: 'Damage and slow enemies for every fusion level', cooldown: 12 },
+  { id: 'forcedmolt', name: 'FORCED MOLT', desc: 'Strip armor and mutations but accelerate survivors', cooldown: 10 },
+  { id: 'catalyst', name: 'CATALYST', desc: 'Empower fused enemies, then mark them for triple score', cooldown: 16 },
 ];
 
 export const ABILITY_LOOKUP: Record<string, Ability> = Object.fromEntries(

@@ -43,6 +43,20 @@ import { getEnemyMovementClass, type EnemyMovementClass } from '../game/procedur
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
+const OFFENSE_ABILITY_IDS = new Set([
+  'shotgun', 'pierce', 'bomb', 'mirror', 'nuke', 'barrage', 'purge', 'surge',
+  'megabomb', 'double', 'voltage', 'snipe', 'chain', 'cluster', 'flak',
+  'groundwire', 'interceptor', 'adaptive', 'ricochet', 'rearguard', 'arcweb',
+  'splitter', 'seeker', 'shattershot', 'marksman', 'returnfire', 'thermalshock',
+  'circuitarc', 'acidetch', 'radiantmark', 'kineticram',
+]);
+const CONTROL_ABILITY_IDS = new Set([
+  'time', 'shield', 'scramble', 'warpback', 'armor', 'backdash', 'freeze',
+  'blizzard', 'regen', 'ghost', 'pulse', 'magnet', 'signaljam', 'undertow',
+  'stasisgate', 'oilslick', 'rootsnare', 'sonicnet', 'depthcharge',
+  'anchorfield', 'tailclamp', 'tanglewire', 'trafficjam', 'bloombind',
+  'voidaperture', 'quarantine',
+]);
 const AIR_CLASSES = new Set<EnemyMovementClass>(['flier', 'hover', 'spectral']);
 const FLUID_CLASSES = new Set<EnemyMovementClass>(['aquatic', 'serpentine', 'tentacled']);
 const GROUNDED_CLASSES = new Set<EnemyMovementClass>(['biped', 'quadruped', 'arthropod', 'burrower', 'vehicle', 'fortress']);
@@ -81,11 +95,28 @@ function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): str
     : ABILITY_POOL;
   // Need at least 1 enabled ability; fall back to full pool if somehow all disabled
   const pool = [...(source.length > 0 ? source : ABILITY_POOL)];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  const pick = (candidates: typeof pool, used: Set<string>) => {
+    const choices = candidates.filter((ability) => !used.has(ability.id));
+    const available = choices.length > 0 ? choices : pool.filter((ability) => !used.has(ability.id));
+    return available[Math.floor(Math.random() * available.length)];
+  };
+  const used = new Set<string>();
+  const offense = pick(pool.filter((ability) => OFFENSE_ABILITY_IDS.has(ability.id)), used);
+  if (offense) used.add(offense.id);
+  const control = pick(pool.filter((ability) => CONTROL_ABILITY_IDS.has(ability.id)), used);
+  if (control) used.add(control.id);
+  const wildcard = pick(
+    pool.filter((ability) =>
+      !OFFENSE_ABILITY_IDS.has(ability.id) && !CONTROL_ABILITY_IDS.has(ability.id)),
+    used,
+  );
+  if (wildcard) used.add(wildcard.id);
+  while (used.size < Math.min(3, pool.length)) {
+    const fallback = pick(pool, used);
+    if (!fallback) break;
+    used.add(fallback.id);
   }
-  let opts = pool.slice(0, 3).map((a) => a.id);
+  let opts = [...used].slice(0, 3);
   if (exclude && pool.length > 3) {
     let guard = 0;
     while (guard < 8 && opts.join('|') === exclude.join('|')) {
@@ -548,6 +579,26 @@ export default function Game() {
 
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
+    const living = () => s.enemies.filter((enemy) => enemy.colPos > -1);
+    const strike = (
+      predicate: (enemy: GameState['enemies'][number]) => boolean,
+      damage: number,
+      push = 0,
+    ) => {
+      let hits = 0;
+      for (const enemy of living()) {
+        if (!predicate(enemy)) continue;
+        enemy.hp -= damage;
+        enemy.colPos = Math.min(5.8, enemy.colPos + push);
+        enemy.flash = 0.16;
+        hits++;
+        if (enemy.hp <= 0) {
+          enemy.colPos = -9;
+          s.score += 100;
+        }
+      }
+      return hits;
+    };
 
     // ── Existing ────────────────────────────────────────────────────────────
     if (type === 'shotgun') {
@@ -873,6 +924,183 @@ export default function Game() {
     } else if (type === 'adaptive') {
       s.adaptiveAmmoTimer = 7;
       showMessage('Adaptive Ammo matched every target anatomy for 7s!', 1500);
+    } else if (type === 'ricochet') {
+      for (let row = 0; row < 3; row++) fireBullet(row, { power: 2, pierce: true });
+      showMessage('Ricochet covered every lane!', 1200);
+    } else if (type === 'rearguard') {
+      const original = eloAttackDirectionRef.current;
+      fireBullet(s.player.row, { power: 3, pierce: true });
+      if (playerSkinRef.current === 'gem') {
+        eloAttackDirectionRef.current = original === 1 ? -1 : 1;
+        fireBullet(s.player.row, { power: 3, pierce: true });
+        eloAttackDirectionRef.current = original;
+      } else {
+        s.bullets.push({ colPos: s.player.col - 0.55, row: s.player.row, speed: -8.5, power: 3, big: false, pierce: true });
+      }
+      showMessage('Rearguard fired in both directions!', 1200);
+    } else if (type === 'arcweb') {
+      const targets = living().sort((a, b) => a.colPos - b.colPos).slice(0, 4);
+      targets.forEach((enemy, index) => {
+        enemy.hp -= Math.max(1, 4 - index); enemy.flash = 0.16;
+        if (enemy.hp <= 0) { enemy.colPos = -9; s.score += 100; }
+      });
+      showMessage(`Arc Web chained through ${targets.length} targets!`, 1200);
+    } else if (type === 'splitter') {
+      for (let row = 0; row < 3; row++) {
+        fireBullet(row, { power: 2, pierce: true });
+        fireBullet(row, { power: 2, pierce: true });
+      }
+      showMessage('Splitter launched six projectiles!', 1200);
+    } else if (type === 'seeker') {
+      const target = living().sort((a, b) => (a.colPos - b.colPos) || (b.hp - a.hp))[0];
+      if (target) strike((enemy) => enemy === target, 5);
+      showMessage(target ? 'Seeker acquired the leading threat!' : 'Seeker found no target.', 1200);
+    } else if (type === 'shattershot') {
+      const hits = strike((enemy) =>
+        Boolean(enemy.genome?.mutations.includes('armored') || enemy.genome?.mutations.includes('resilient')),
+      4, 0.35);
+      showMessage(`Shattershot broke ${hits} armored targets!`, 1200);
+    } else if (type === 'marksman') {
+      const target = living().sort((a, b) => b.colPos - a.colPos)[0];
+      if (target) strike((enemy) => enemy === target, Math.max(3, Math.ceil(target.colPos)));
+      showMessage(target ? 'Marksman converted range into damage!' : 'Marksman found no target.', 1200);
+    } else if (type === 'returnfire') {
+      const hits = strike((enemy) => enemy.colPos <= 3.1, 3, 0.7);
+      showMessage(`Return Fire struck ${hits} boundary threats!`, 1200);
+    } else if (type === 'oilslick') {
+      const hits = strike((enemy) => movementClassOf(enemy) === 'vehicle', 1, 1.8);
+      showMessage(`Oil Slick sent ${hits} vehicles skidding!`, 1200);
+    } else if (type === 'rootsnare') {
+      const hits = strike((enemy) => {
+        const movement = movementClassOf(enemy);
+        return Boolean(movement && GROUNDED_CLASSES.has(movement));
+      }, 1, 0.9);
+      showMessage(`Root Snare trapped ${hits} grounded movers!`, 1200);
+    } else if (type === 'sonicnet') {
+      const hits = strike((enemy) => Boolean(movementClassOf(enemy) && AIR_CLASSES.has(movementClassOf(enemy)!)), 3, 0.6);
+      showMessage(`Sonic Net grounded ${hits} targets!`, 1200);
+    } else if (type === 'depthcharge') {
+      const hits = strike((enemy) => movementClassOf(enemy) === 'burrower', 5, 0.4);
+      showMessage(`Depth Charge exposed ${hits} burrowers!`, 1200);
+    } else if (type === 'anchorfield') {
+      const hits = strike((enemy) => Boolean(movementClassOf(enemy) && HEAVY_CLASSES.has(movementClassOf(enemy)!)), 2, 0.25);
+      for (const enemy of living()) if (!HEAVY_CLASSES.has(movementClassOf(enemy)!)) enemy.colPos = Math.min(5.8, enemy.colPos + 0.75);
+      showMessage(`Anchor Field locked ${hits} heavy bodies!`, 1200);
+    } else if (type === 'tailclamp') {
+      const hits = strike((enemy) => ['serpentine', 'aquatic'].includes(movementClassOf(enemy) ?? ''), 3, 1);
+      showMessage(`Tail Clamp crippled ${hits} movers!`, 1200);
+    } else if (type === 'tanglewire') {
+      const hits = strike((enemy) => ['rooted', 'tentacled'].includes(movementClassOf(enemy) ?? ''), 4, 0.4);
+      showMessage(`Tanglewire caught ${hits} entities!`, 1200);
+    } else if (type === 'trafficjam') {
+      const hits = strike((enemy) => movementClassOf(enemy) === 'vehicle' || isCyberEnemy(enemy), 2, 1.15);
+      showMessage(`Traffic Jam staggered ${hits} machines!`, 1200);
+    } else if (type === 'thermalshock') {
+      const hits = strike((enemy) => ['thermal', 'cryo'].includes(enemy.genome?.element ?? ''), 4, 0.5);
+      showMessage(`Thermal Shock fractured ${hits} affinities!`, 1200);
+    } else if (type === 'circuitarc') {
+      const hits = strike((enemy) =>
+        enemy.genome?.element === 'voltaic'
+        || ['mechanical', 'fluidic'].includes(enemy.genome?.entityType ?? ''),
+      3, 0.45);
+      showMessage(`Circuit Arc crossed ${hits} entities!`, 1200);
+    } else if (type === 'acidetch') {
+      const hits = strike((enemy) =>
+        enemy.genome?.element === 'corrosive' || enemy.genome?.mutations.includes('armored') === true,
+      3);
+      for (const enemy of living()) {
+        if (enemy.genome?.mutations.includes('armored')) {
+          enemy.genome.mutations = enemy.genome.mutations.filter((mutation) => mutation !== 'armored');
+        }
+      }
+      showMessage(`Acid Etch stripped ${hits} targets!`, 1200);
+    } else if (type === 'bloombind') {
+      const hits = strike((enemy) => enemy.genome?.entityType === 'botanical', 3, 0.8);
+      showMessage(`Bloom Bind linked ${hits} botanical forms!`, 1200);
+    } else if (type === 'radiantmark') {
+      const hits = strike((enemy) =>
+        enemy.genome?.element === 'void' || enemy.genome?.entityType === 'spectral',
+      4, 0.4);
+      showMessage(`Radiant Mark revealed ${hits} phase forms!`, 1200);
+    } else if (type === 'voidaperture') {
+      const target = living().sort((a, b) => a.colPos - b.colPos)[0];
+      if (target) { target.hp = Math.max(1, Math.ceil(target.hp / 2)); target.colPos = 5.8; target.flash = 0.2; }
+      showMessage(target ? 'Void Aperture returned the leader weakened!' : 'The aperture found no target.', 1200);
+    } else if (type === 'kineticram') {
+      const row = s.player.row;
+      const hits = strike((enemy) => enemy.row === row, 2, 1.5);
+      showMessage(`Kinetic Ram drove ${hits} enemies backward!`, 1200);
+    } else if (type === 'elementswap') {
+      const cycle = ['kinetic', 'thermal', 'cryo', 'voltaic', 'corrosive', 'radiant', 'void', 'bloom'] as const;
+      for (const enemy of living()) if (enemy.genome) {
+        enemy.genome.element = cycle[(cycle.indexOf(enemy.genome.element) + 1) % cycle.length];
+        enemy.flash = 0.12;
+      }
+      showMessage('Element Swap rotated every affinity!', 1200);
+    } else if (type === 'devolve') {
+      let hits = 0;
+      for (const enemy of living()) if (enemy.genome) {
+        enemy.genome.generation = Math.max(0, enemy.genome.generation - 1);
+        enemy.genome.fusionLevel = Math.max(0, enemy.genome.fusionLevel - 1);
+        enemy.genome.mutations = enemy.genome.mutations.slice(0, -1);
+        enemy.hp = Math.max(1, enemy.hp - 2); enemy.flash = 0.16; hits++;
+      }
+      showMessage(`Devolve regressed ${hits} entities!`, 1200);
+    } else if (type === 'mutationlock') {
+      s.signalJamTimer = Math.max(s.signalJamTimer, 8);
+      showMessage('Mutation Lock suppressed adaptive traits for 8s!', 1200);
+    } else if (type === 'traittheft') {
+      const target = living().sort((a, b) =>
+        (b.genome?.mutations.length ?? 0) - (a.genome?.mutations.length ?? 0))[0];
+      if (target) {
+        const traits = target.genome?.mutations.length ?? 0;
+        s.hp += Math.min(3, Math.max(1, traits));
+        target.genome && (target.genome.mutations = target.genome.mutations.slice(0, -1));
+        target.hp = Math.max(1, target.hp - 2);
+      }
+      showMessage(target ? 'Trait Theft converted adaptation into vitality!' : 'No traits available.', 1200);
+    } else if (type === 'quarantine') {
+      const row = s.player.row;
+      let offset = 0;
+      for (const enemy of living().filter((item) => item.row === row)) {
+        enemy.colPos = Math.min(5.8, enemy.colPos + offset * 0.55);
+        offset++;
+      }
+      s.signalJamTimer = Math.max(s.signalJamTimer, 4);
+      showMessage('Quarantine separated the current lane!', 1200);
+    } else if (type === 'clonebreak') {
+      const counts = new Map<string, number>();
+      for (const enemy of living()) {
+        const base = enemy.genome?.baseElement;
+        if (base) counts.set(base, (counts.get(base) ?? 0) + 1);
+      }
+      const species = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const hits = strike((enemy) => enemy.genome?.baseElement === species, 4);
+      showMessage(`Clone Break struck ${hits} related entities!`, 1200);
+    } else if (type === 'hybridtax') {
+      let hits = 0;
+      for (const enemy of living()) if ((enemy.genome?.fusionLevel ?? 0) > 0) {
+        const level = enemy.genome!.fusionLevel;
+        enemy.hp -= level * 2; enemy.speed *= 0.72; enemy.flash = 0.16; hits++;
+        if (enemy.hp <= 0) { enemy.colPos = -9; s.score += 100; }
+      }
+      showMessage(`Hybrid Tax penalized ${hits} fusions!`, 1200);
+    } else if (type === 'forcedmolt') {
+      let hits = 0;
+      for (const enemy of living()) if (enemy.genome && enemy.genome.mutations.length > 0) {
+        enemy.genome.mutations = enemy.genome.mutations.filter((mutation) => mutation !== 'armored');
+        enemy.genome.mutations = enemy.genome.mutations.slice(0, Math.max(0, enemy.genome.mutations.length - 1));
+        enemy.speed *= 1.18; enemy.hp = Math.max(1, enemy.hp - 2); enemy.flash = 0.16; hits++;
+      }
+      showMessage(`Forced Molt stripped ${hits} entities!`, 1200);
+    } else if (type === 'catalyst') {
+      let marked = 0;
+      for (const enemy of living()) if ((enemy.genome?.fusionLevel ?? 0) > 0) {
+        enemy.hp += 2; enemy.maxHp = Math.max(enemy.maxHp ?? enemy.hp, enemy.hp);
+        enemy.catalystMarked = true;
+        enemy.flash = 0.18; marked++;
+      }
+      showMessage(`Catalyst empowered ${marked} fusions for greater rewards!`, 1200);
     }
 
     playAbility(type);
@@ -1323,7 +1551,7 @@ export default function Game() {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
             e.colPos = -9;
             s.lanePressure[e.row] = Math.min(6, s.lanePressure[e.row] + 1);
-            s.score += s.overdriveTimer > 0 ? 300 : 100;
+            s.score += s.overdriveTimer > 0 || e.catalystMarked ? 300 : 100;
             if (s.score % 500 === 0) s.wave++;
             if (s.drainTimer > 0) { s.hp++; }
             if (s.overloadTimer > 0) {

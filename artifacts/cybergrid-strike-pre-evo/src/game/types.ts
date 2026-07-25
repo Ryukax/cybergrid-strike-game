@@ -61,6 +61,7 @@ export interface Enemy {
   maxHp?: number;
   regenerationCharge?: number;
   stasisTriggered?: boolean;
+  catalystMarked?: boolean;
 }
 
 export interface Particle {
