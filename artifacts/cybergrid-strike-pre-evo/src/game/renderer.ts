@@ -74,6 +74,134 @@ function drawGeneratedAppendages(
   ctx.restore();
 }
 
+function drawModularEntity(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  cell: number,
+  accent: string,
+  flash: boolean,
+  now: number,
+  hpFrac: number,
+): void {
+  const topology = Math.floor(visualGene(seed, 200) * 8);
+  const complexity = 3 + Math.floor(visualGene(seed, 201) * 7);
+  const radius = cell * (0.19 + visualGene(seed, 202) * 0.1);
+  const pulse = 1 + Math.sin(now * (0.0014 + visualGene(seed, 203) * 0.0018) + seed) * 0.045;
+  const hue = Math.floor(visualGene(seed, 204) * 360);
+  const fill = flash ? '#fff' : `hsl(${hue} 72% ${42 + Math.floor(visualGene(seed, 205) * 24)}%)`;
+  const secondary = `hsl(${(hue + 55 + Math.floor(visualGene(seed, 206) * 120)) % 360} 78% 64%)`;
+  ctx.save();
+  ctx.scale(pulse, pulse);
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 7 + visualGene(seed, 207) * 9;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.2 + visualGene(seed, 208) * 1.8;
+
+  if (topology === 0 || topology === 6) {
+    ctx.beginPath();
+    for (let point = 0; point < complexity; point++) {
+      const angle = point / complexity * Math.PI * 2;
+      const noise = topology === 6 ? 0.55 + visualGene(seed, 220 + point) * 0.75 : 0.82 + visualGene(seed, 220 + point) * 0.28;
+      const x = Math.cos(angle) * radius * noise;
+      const y = Math.sin(angle) * radius * noise;
+      if (point === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  } else if (topology === 1) {
+    const lobes = 2 + Math.floor(visualGene(seed, 240) * 6);
+    for (let lobe = 0; lobe < lobes; lobe++) {
+      const angle = lobe / lobes * Math.PI * 2;
+      const distance = radius * (0.25 + visualGene(seed, 250 + lobe) * 0.3);
+      const size = radius * (0.35 + visualGene(seed, 260 + lobe) * 0.35);
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(angle) * distance, Math.sin(angle) * distance, size, size * (0.6 + visualGene(seed, 270 + lobe) * 0.6), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (topology === 2) {
+    const segments = 3 + Math.floor(visualGene(seed, 280) * 5);
+    for (let segment = 0; segment < segments; segment++) {
+      const x = (segment - (segments - 1) / 2) * radius * 0.48;
+      const y = Math.sin(segment * 1.7 + seed) * radius * 0.2;
+      const size = radius * (0.34 + visualGene(seed, 290 + segment) * 0.2);
+      ctx.beginPath();
+      ctx.ellipse(x, y, size, size * 0.72, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (topology === 3) {
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * (0.35 + visualGene(seed, 310) * 0.28), 0, Math.PI * 2, true);
+    ctx.fill('evenodd');
+    ctx.stroke();
+  } else if (topology === 4) {
+    const shards = 3 + Math.floor(visualGene(seed, 320) * 6);
+    for (let shard = 0; shard < shards; shard++) {
+      const angle = shard / shards * Math.PI * 2;
+      const length = radius * (0.65 + visualGene(seed, 330 + shard) * 0.8);
+      const width = radius * (0.12 + visualGene(seed, 340 + shard) * 0.24);
+      ctx.beginPath();
+      ctx.moveTo(-Math.sin(angle) * width, Math.cos(angle) * width);
+      ctx.lineTo(Math.cos(angle) * length, Math.sin(angle) * length);
+      ctx.lineTo(Math.sin(angle) * width, -Math.cos(angle) * width);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (topology === 5) {
+    const gap = radius * (0.24 + visualGene(seed, 350) * 0.3);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(side * gap, 0, radius * 0.62, radius * (0.55 + visualGene(seed, 351) * 0.5), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else {
+    const arms = 3 + Math.floor(visualGene(seed, 360) * 6);
+    for (let arm = 0; arm < arms; arm++) {
+      const angle = arm / arms * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(angle - 0.22) * radius * 0.38, Math.sin(angle - 0.22) * radius * 0.38);
+      ctx.lineTo(Math.cos(angle) * radius * (0.9 + visualGene(seed, 370 + arm) * 0.55), Math.sin(angle) * radius * (0.9 + visualGene(seed, 370 + arm) * 0.55));
+      ctx.lineTo(Math.cos(angle + 0.22) * radius * 0.38, Math.sin(angle + 0.22) * radius * 0.38);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  ctx.shadowBlur = 0;
+  const coreMode = Math.floor(visualGene(seed, 390) * 5);
+  ctx.fillStyle = secondary;
+  if (coreMode === 0) {
+    ctx.beginPath(); ctx.arc(0, 0, radius * 0.3, 0, Math.PI * 2); ctx.fill();
+  } else if (coreMode === 1) {
+    ctx.fillRect(-radius * 0.26, -radius * 0.26, radius * 0.52, radius * 0.52);
+  } else if (coreMode === 2) {
+    ctx.beginPath();
+    ctx.moveTo(0, -radius * 0.38); ctx.lineTo(radius * 0.34, radius * 0.28); ctx.lineTo(-radius * 0.34, radius * 0.28); ctx.closePath(); ctx.fill();
+  } else if (coreMode === 3) {
+    const eyes = 2 + Math.floor(visualGene(seed, 391) * 4);
+    for (let eye = 0; eye < eyes; eye++) {
+      const angle = eye / eyes * Math.PI * 2;
+      ctx.beginPath(); ctx.arc(Math.cos(angle) * radius * 0.32, Math.sin(angle) * radius * 0.32, radius * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    ctx.strokeStyle = secondary;
+    ctx.lineWidth = radius * 0.12;
+    ctx.beginPath(); ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 1.5); ctx.stroke();
+  }
+  if (hpFrac < 0.5) {
+    ctx.globalAlpha = 0.35 + hpFrac;
+  }
+  ctx.restore();
+}
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -339,15 +467,23 @@ export function draw(
         ctx.fill();
       });
     }
-    // Every identity receives a persistent, seed-derived body transform. This
-    // amplifies anatomical differences at phone scale without changing hitboxes.
+    // Bodies are assembled from independent procedural modules; no finite base
+    // sprite or morphology catalog is used for hostile entities.
     const aspectX = 0.68 + visualGene(e.value, 21) * 0.72;
     const aspectY = 0.72 + visualGene(e.value, 22) * 0.62;
     ctx.save();
     ctx.translate(ex, ey);
     ctx.scale(aspectX, aspectY);
     drawGeneratedAppendages(ctx, e.value, drawCell, genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185');
-    drawVirus(ctx, 0, 0, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
+    drawModularEntity(
+      ctx,
+      e.value ?? 6,
+      drawCell,
+      genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
+      e.flash > 0,
+      now,
+      ectx.hpFrac,
+    );
     ctx.restore();
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
