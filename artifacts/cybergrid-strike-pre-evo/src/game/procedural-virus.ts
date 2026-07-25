@@ -1,64 +1,157 @@
-import type { EnemyGenome } from './types';
+import type { EnemyBaseElement, EnemyGenome } from './types';
 
-const CACHE_LIMIT = 160;
+const CACHE_LIMIT = 192;
 const spriteCache = new Map<string, HTMLCanvasElement>();
+const BASES: EnemyBaseElement[] = [
+  'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
+  'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+];
 
 function gene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
   return value - Math.floor(value);
 }
 
-function palette(genome: EnemyGenome, seed: number): [string, string, string] {
-  const nicheHue: Record<string, number> = {
+function palette(genome: EnemyGenome, seed: number): [string, string, string, string] {
+  const hues: Record<string, number> = {
     scout: 188, bulwark: 42, hunter: 350, swarm: 92,
     regenerator: 142, phase: 276, symbiote: 320, opportunist: 24,
   };
-  const hue = (nicheHue[genome.niche] + (gene(seed, 2) - 0.5) * 34 + 360) % 360;
+  const hue = (hues[genome.niche] + (gene(seed, 2) - 0.5) * 30 + 360) % 360;
   return [
-    `hsl(${hue} 70% 42%)`,
-    `hsl(${(hue + 38) % 360} 84% 66%)`,
-    `hsl(${hue} 58% 18%)`,
+    `hsl(${hue} 68% 40%)`,
+    `hsl(${(hue + 36) % 360} 88% 65%)`,
+    `hsl(${hue} 55% 14%)`,
+    `hsl(${(hue + 175) % 360} 76% 58%)`,
   ];
 }
 
-function circle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string): void {
-  ctx.fillStyle = fill;
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1.5;
+function poly(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, fill: string, stroke: string): void {
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.arc(x, y, Math.max(0.75, r), 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 
-function polygon(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, fill: string, stroke: string): void {
-  ctx.fillStyle = fill;
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+function oval(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, fill: string, stroke: string): void {
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
 }
 
-function thickLimb(
+function limb(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, width: number, fill: string, stroke: string): void {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const [color, w] of [[stroke, width + 2], [fill, width]] as Array<[string, number]>) {
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath();
+    points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.stroke();
+  }
+}
+
+function eye(ctx: CanvasRenderingContext2D, x: number, y: number, accent: string, outline: string): void {
+  oval(ctx, x, y, 1.7, 1.4, accent, outline);
+  ctx.fillStyle = outline; ctx.fillRect(x, y - 0.5, 1, 1);
+}
+
+function drawBase(
   ctx: CanvasRenderingContext2D,
-  from: [number, number],
-  bend: [number, number],
-  to: [number, number],
-  width: number,
-  color: string,
+  base: EnemyBaseElement,
+  seed: number,
+  body: string,
+  accent: string,
   outline: string,
+  secondary: string,
+  hybrid = false,
 ): void {
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = outline;
-  ctx.lineWidth = width + 2;
-  ctx.beginPath(); ctx.moveTo(...from); ctx.quadraticCurveTo(...bend, ...to); ctx.stroke();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.beginPath(); ctx.moveTo(...from); ctx.quadraticCurveTo(...bend, ...to); ctx.stroke();
+  const wobble = gene(seed, 21) > 0.5 ? 1 : -1;
+  ctx.globalAlpha = hybrid ? 0.88 : 1;
+
+  if (base === 'robot') {
+    limb(ctx, [[12, 18], [9, 24], [9, 29]], 3, body, outline);
+    limb(ctx, [[19, 18], [22, 24], [23, 29]], 3, body, outline);
+    limb(ctx, [[11, 13], [6, 17], [4, 22]], 3, body, outline);
+    limb(ctx, [[21, 13], [26, 16], [29, 14]], 3, body, outline);
+    poly(ctx, [[10, 9], [22, 9], [24, 20], [8, 20]], body, outline);
+    poly(ctx, [[12, 3], [21, 4], [21, 10], [11, 9]], accent, outline);
+    ctx.fillStyle = secondary; ctx.fillRect(14, 6, 5, 2);
+  } else if (base === 'insect') {
+    for (const side of [-1, 1]) for (let i = 0; i < 3; i++) {
+      limb(ctx, [[13 + i * 2, 14 + side * 2], [9 + i * 3, 16 + side * (5 + i)], [6 + i * 4, 17 + side * 10]], 1.8, body, outline);
+    }
+    oval(ctx, 17, 17, 7, 8, body, outline); oval(ctx, 10, 15, 4, 5, accent, outline);
+    poly(ctx, [[17, 10], [25, 6], [23, 15]], secondary, outline);
+    eye(ctx, 8, 14, secondary, outline);
+  } else if (base === 'beast') {
+    limb(ctx, [[11, 19], [9, 25], [7, 29]], 3.5, body, outline);
+    limb(ctx, [[20, 19], [22, 25], [25, 29]], 3.5, body, outline);
+    oval(ctx, 15, 17, 9, 6, body, outline); oval(ctx, 24, 13, 5, 5, accent, outline);
+    poly(ctx, [[22, 9], [23, 4], [26, 9]], accent, outline);
+    poly(ctx, [[26, 9], [29, 6], [28, 12]], accent, outline);
+    limb(ctx, [[7, 15], [3, 11], [2, 7 + wobble]], 2, body, outline); eye(ctx, 26, 12, secondary, outline);
+  } else if (base === 'plant') {
+    limb(ctx, [[16, 27], [15, 19], [16, 10]], 5, body, outline);
+    poly(ctx, [[14, 21], [5, 16], [8, 24]], accent, outline);
+    poly(ctx, [[17, 17], [27, 11], [24, 21]], accent, outline);
+    for (let i = 0; i < 5; i++) {
+      const angle = i / 5 * Math.PI * 2;
+      oval(ctx, 16 + Math.cos(angle) * 5, 9 + Math.sin(angle) * 4, 4, 2.4, i % 2 ? accent : secondary, outline);
+    }
+    oval(ctx, 16, 9, 3, 3, body, outline);
+    limb(ctx, [[15, 27], [9, 29]], 2, body, outline); limb(ctx, [[17, 27], [24, 29]], 2, body, outline);
+  } else if (base === 'crystal') {
+    poly(ctx, [[7, 26], [10, 8], [15, 18], [18, 3], [21, 18], [27, 10], [25, 27]], body, outline);
+    poly(ctx, [[10, 25], [15, 18], [18, 25]], accent, outline);
+    poly(ctx, [[18, 23], [21, 18], [24, 25]], secondary, outline);
+  } else if (base === 'golem') {
+    limb(ctx, [[10, 15], [5, 20], [4, 26]], 5, body, outline);
+    limb(ctx, [[22, 15], [27, 20], [28, 26]], 5, body, outline);
+    limb(ctx, [[13, 21], [11, 28]], 5, body, outline); limb(ctx, [[19, 21], [21, 28]], 5, body, outline);
+    poly(ctx, [[10, 9], [22, 8], [24, 21], [8, 21]], body, outline);
+    poly(ctx, [[12, 3], [21, 4], [23, 10], [10, 9]], accent, outline);
+    ctx.strokeStyle = secondary; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(13, 12); ctx.lineTo(17, 15); ctx.lineTo(15, 19); ctx.stroke();
+  } else if (base === 'drone') {
+    poly(ctx, [[9, 12], [15, 7], [23, 10], [26, 17], [19, 22], [10, 20], [6, 16]], body, outline);
+    poly(ctx, [[9, 12], [2, 8], [5, 16]], accent, outline);
+    poly(ctx, [[23, 11], [30, 7], [27, 16]], accent, outline);
+    oval(ctx, 16, 15, 4, 3, secondary, outline);
+    limb(ctx, [[11, 21], [9, 27]], 2.5, body, outline); limb(ctx, [[21, 21], [23, 27]], 2.5, body, outline);
+  } else if (base === 'cephalopod') {
+    oval(ctx, 16, 10, 8, 7, body, outline);
+    for (let i = 0; i < 5; i++) {
+      const x = 9 + i * 3.5;
+      limb(ctx, [[x, 15], [x + wobble * (i % 2 ? 3 : -3), 22], [x + (i - 2) * 1.5, 29]], 2.5, i % 2 ? accent : body, outline);
+    }
+    eye(ctx, 13, 9, secondary, outline); eye(ctx, 20, 9, secondary, outline);
+  } else if (base === 'skeleton') {
+    oval(ctx, 16, 6, 5, 4, accent, outline); eye(ctx, 14, 6, outline, outline); eye(ctx, 18, 6, outline, outline);
+    limb(ctx, [[16, 10], [16, 21]], 2, accent, outline);
+    for (let y = 12; y < 20; y += 3) limb(ctx, [[11, y], [21, y]], 1.4, accent, outline);
+    limb(ctx, [[12, 12], [6, 19], [5, 25]], 2, accent, outline); limb(ctx, [[20, 12], [26, 18], [28, 23]], 2, accent, outline);
+    limb(ctx, [[16, 21], [11, 28]], 2.5, accent, outline); limb(ctx, [[16, 21], [22, 28]], 2.5, accent, outline);
+  } else if (base === 'avian') {
+    poly(ctx, [[13, 12], [4, 5], [7, 17], [2, 23], [14, 19]], body, outline);
+    poly(ctx, [[19, 12], [28, 5], [25, 17], [30, 23], [18, 19]], body, outline);
+    oval(ctx, 16, 16, 5, 7, accent, outline); oval(ctx, 16, 8, 4, 4, body, outline);
+    poly(ctx, [[20, 8], [27, 10], [20, 12]], secondary, outline);
+    limb(ctx, [[14, 22], [12, 29]], 2, body, outline); limb(ctx, [[18, 22], [21, 29]], 2, body, outline); eye(ctx, 18, 7, secondary, outline);
+  } else if (base === 'serpent') {
+    limb(ctx, [[7, 26], [4, 20], [12, 18], [22, 22], [25, 15], [19, 11]], 6, body, outline);
+    oval(ctx, 20, 9, 6, 4, accent, outline);
+    poly(ctx, [[25, 9], [30, 12], [25, 13]], secondary, outline); eye(ctx, 21, 8, secondary, outline);
+  } else if (base === 'vehicle') {
+    poly(ctx, [[4, 14], [10, 8], [22, 8], [28, 14], [27, 23], [5, 23]], body, outline);
+    poly(ctx, [[11, 8], [14, 4], [21, 4], [23, 9]], accent, outline);
+    limb(ctx, [[7, 24], [25, 24]], 5, outline, outline);
+    for (let x = 8; x < 26; x += 5) oval(ctx, x, 24, 2, 2, accent, outline);
+    ctx.fillStyle = secondary; ctx.fillRect(4, 15, 4, 3);
+  } else {
+    limb(ctx, [[16, 14], [16, 28]], 5, body, outline);
+    oval(ctx, 16, 12, 11, 6, accent, outline);
+    poly(ctx, [[7, 11], [11, 4], [15, 10]], body, outline);
+    poly(ctx, [[17, 10], [22, 3], [25, 12]], secondary, outline);
+    for (const x of [11, 16, 21]) oval(ctx, x, 19, 1.2, 2, secondary, outline);
+    limb(ctx, [[15, 27], [10, 29]], 2, body, outline); limb(ctx, [[17, 27], [23, 29]], 2, body, outline);
+  }
+  ctx.globalAlpha = 1;
 }
 
 export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTMLCanvasElement {
@@ -67,120 +160,46 @@ export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTM
   if (cached) return cached;
 
   const canvas = document.createElement('canvas');
-  canvas.width = 48;
-  canvas.height = 48;
+  canvas.width = 64; canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.scale(2, 2);
+  ctx.imageSmoothingEnabled = false; ctx.scale(2, 2);
+  const [body, accent, outline, secondary] = palette(genome, seed);
 
-  const [body, accent, outline] = palette(genome, seed);
-  const plan = Math.floor(gene(seed, 10) * 7);
-  const cx = 12;
-  const cy = 12;
-  const rx = 5 + gene(seed, 11) * 2.8;
-  const ry = 4.2 + gene(seed, 12) * 3;
+  drawBase(ctx, genome.baseElement, seed, body, accent, outline, secondary);
 
-  // Solid locomotion is drawn before the body so attachment points remain hidden.
-  const limbCount = plan === 1 ? 4 : plan === 2 ? 0 : 2 + Math.floor(gene(seed, 13) * 4);
-  for (let limb = 0; limb < limbCount; limb++) {
-    const side = limb % 2 ? 1 : -1;
-    const rank = Math.floor(limb / 2);
-    const startX = cx - 2 + rank * 2.2;
-    const startY = cy + side * ry * 0.55;
-    thickLimb(
-      ctx,
-      [startX, startY],
-      [startX + (gene(seed, 30 + limb) - 0.5) * 4, cy + side * (ry + 3)],
-      [startX - 2 + gene(seed, 40 + limb) * 4, cy + side * (ry + 5.5)],
-      1.8 + gene(seed, 50 + limb) * 1.5,
-      body,
-      outline,
-    );
+  // Fusion contributes a recognizable, attached anatomical region from a second
+  // species instead of laying two complete sprites over one another.
+  if (genome.fusionLevel > 0) {
+    const donor = BASES[Math.floor(gene(seed, 170) * BASES.length)];
+    ctx.save();
+    ctx.beginPath();
+    const rightSide = gene(seed, 171) > 0.5;
+    ctx.rect(rightSide ? 17 : 1, 4, 14, 25);
+    ctx.clip();
+    ctx.translate(rightSide ? 6 : -6, 2);
+    ctx.scale(0.72, 0.72);
+    drawBase(ctx, donor, seed + 37, secondary, accent, outline, body, true);
+    ctx.restore();
   }
 
-  if (plan === 0) {
-    // Membrane cell: irregular but substantial, not a radial decoration.
-    const vertices = 7 + Math.floor(gene(seed, 60) * 5);
-    const points: Array<[number, number]> = [];
-    for (let point = 0; point < vertices; point++) {
-      const angle = point / vertices * Math.PI * 2;
-      const noise = 0.78 + gene(seed, 61 + point) * 0.34;
-      points.push([cx + Math.cos(angle) * rx * noise, cy + Math.sin(angle) * ry * noise]);
-    }
-    polygon(ctx, points, body, outline);
-  } else if (plan === 1) {
-    // Mechanical virus: coherent chassis and embedded ports.
-    polygon(ctx, [[5, 9], [9, 5], [17, 6], [20, 10], [18, 17], [9, 19], [5, 15]], body, outline);
-    ctx.fillStyle = accent;
-    ctx.fillRect(7, 9, 3, 3);
-    ctx.fillRect(14, 11, 4, 3);
-  } else if (plan === 2) {
-    // Crystalline virus: one connected mineral cluster.
-    const shards = 4 + Math.floor(gene(seed, 70) * 4);
-    for (let shard = 0; shard < shards; shard++) {
-      const x = 6 + shard * 12 / Math.max(1, shards - 1);
-      const top = 3 + gene(seed, 71 + shard) * 7;
-      polygon(ctx, [[x - 3, 18], [x, top], [x + 3, 18]], shard % 2 ? accent : body, outline);
-    }
-  } else if (plan === 3) {
-    // Segmented virus with a thick continuous body.
-    const segments = 4 + Math.floor(gene(seed, 80) * 4);
-    for (let segment = segments - 1; segment >= 0; segment--) {
-      const x = 5 + segment * 14 / Math.max(1, segments - 1);
-      const y = cy + Math.sin(segment * 1.2 + seed) * 2;
-      circle(ctx, x, y, 2.8 + (segments - segment) * 0.24, segment % 2 ? accent : body, outline);
-    }
-  } else if (plan === 4) {
-    // Colony virus: fused lobes share a central mass.
-    circle(ctx, cx, cy, 5.4, body, outline);
-    const lobes = 3 + Math.floor(gene(seed, 90) * 4);
-    for (let lobe = 0; lobe < lobes; lobe++) {
-      const angle = lobe / lobes * Math.PI * 2;
-      circle(ctx, cx + Math.cos(angle) * 4.2, cy + Math.sin(angle) * 3.6, 2.7, lobe % 2 ? accent : body, outline);
-    }
-  } else if (plan === 5) {
-    // Vascular virus: seed pod with broad integrated fins.
-    circle(ctx, cx, cy, 5.3, body, outline);
-    for (const side of [-1, 1]) {
-      polygon(ctx, [[cx - 2, cy + side], [cx - 8, cy + side * 5], [cx + 1, cy + side * 3]], accent, outline);
-    }
-    thickLimb(ctx, [cx + 4, cy], [cx + 8, cy - 2], [cx + 9, cy], 2.5, body, outline);
-  } else {
-    // Caged core: an energy organism with a solid shell.
-    circle(ctx, cx, cy, 6.2, body, outline);
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx, cy, 4.2, 0.2, Math.PI * 1.65); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx - 5, cy - 3); ctx.lineTo(cx + 5, cy + 3); ctx.stroke();
-  }
-
-  // Integrated core and surface structure.
-  const cores = 1 + (genome.fusionLevel > 0 ? 1 : 0);
-  for (let core = 0; core < cores; core++) {
-    const x = cx + (core - (cores - 1) / 2) * 4;
-    circle(ctx, x, cy - 0.5, 1.5 + gene(seed, 100 + core), accent, outline);
-  }
-
+  // Mutations alter structural regions, keeping every feature attached.
   if (genome.mutations.includes('armored')) {
-    ctx.strokeStyle = accent; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx, cy, 7.2, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
+    poly(ctx, [[7, 9], [16, 3], [25, 8], [22, 11], [16, 7], [10, 12]], accent, outline);
   }
   if (genome.mutations.includes('accelerated')) {
-    polygon(ctx, [[18, 8], [23, 5], [20, 11]], accent, outline);
-    polygon(ctx, [[18, 16], [23, 19], [20, 13]], accent, outline);
+    poly(ctx, [[5, 18], [1, 14], [2, 22]], secondary, outline);
+    poly(ctx, [[25, 18], [31, 14], [29, 22]], secondary, outline);
   }
   if (genome.mutations.includes('volatile')) {
-    ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(8, 8); ctx.lineTo(11, 11); ctx.lineTo(9, 15); ctx.moveTo(14, 7); ctx.lineTo(13, 11); ctx.lineTo(17, 14); ctx.stroke();
+    ctx.strokeStyle = secondary; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(11, 11); ctx.lineTo(15, 15); ctx.lineTo(12, 21); ctx.moveTo(20, 9); ctx.lineTo(17, 14); ctx.lineTo(22, 19); ctx.stroke();
   }
   if (genome.mutations.includes('resilient')) {
-    thickLimb(ctx, [8, 16], [12, 20], [17, 18], 1.6, accent, outline);
+    limb(ctx, [[10, 27], [16, 24], [23, 28]], 2, secondary, outline);
   }
 
-  // A small top-left highlight gives depth without increasing source resolution.
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx - 1, cy - 1, 4.5, Math.PI * 1.12, Math.PI * 1.62); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.48)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(9, 7); ctx.lineTo(14, 5); ctx.stroke();
 
   spriteCache.set(key, canvas);
   if (spriteCache.size > CACHE_LIMIT) spriteCache.delete(spriteCache.keys().next().value!);
