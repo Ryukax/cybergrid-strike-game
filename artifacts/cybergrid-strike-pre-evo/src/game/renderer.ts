@@ -13,6 +13,11 @@ const NICHE_COLORS: Record<string, string> = {
   opportunist: '#fb923c',
 };
 
+function visualGene(seed: number, salt: number): number {
+  const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
+  return value - Math.floor(value);
+}
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -241,37 +246,54 @@ export function draw(
     const drawCell = m.cell * (genome?.sizeScale ?? 1);
     if (genome) {
       const nicheColor = NICHE_COLORS[genome.niche] ?? '#fda4af';
-      ctx.save();
-      ctx.globalAlpha = 0.78;
-      ctx.shadowColor = nicheColor;
-      ctx.shadowBlur = 8 + genome.fusionLevel * 5;
-      ctx.strokeStyle = nicheColor;
-      ctx.lineWidth = 2.5 + genome.fusionLevel * 1.5;
-      ctx.setLineDash(genome.niche === 'phase' ? [3, 4] : []);
-      ctx.beginPath();
-      ctx.arc(ex, ey, drawCell * (0.31 + genome.fusionLevel * 0.04), 0, Math.PI * 2);
-      ctx.stroke();
       if (genome.fusionLevel > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.82;
+        ctx.shadowColor = nicheColor;
+        ctx.shadowBlur = 13;
+        ctx.strokeStyle = nicheColor;
+        ctx.lineWidth = 3 + genome.fusionLevel;
+        ctx.setLineDash([7, 3]);
         ctx.beginPath();
-        ctx.arc(ex, ey, drawCell * 0.42, 0, Math.PI * 2);
+        ctx.arc(ex, ey, drawCell * (0.38 + genome.fusionLevel * 0.04), now * 0.001, now * 0.001 + Math.PI * 1.65);
         ctx.stroke();
+        ctx.restore();
       }
-      ctx.restore();
-      genome.mutations.forEach((_, index) => {
+      genome.mutations.forEach((mutation, index) => {
         const angle = now * 0.0012 + (index / Math.max(1, genome.mutations.length)) * Math.PI * 2;
+        const mx = ex + Math.cos(angle) * drawCell * 0.36;
+        const my = ey + Math.sin(angle) * drawCell * 0.36;
+        const markerSize = 2.5 + visualGene(e.value, index + 80) * 2.5;
         ctx.fillStyle = nicheColor;
         ctx.beginPath();
-        ctx.arc(
-          ex + Math.cos(angle) * drawCell * 0.34,
-          ey + Math.sin(angle) * drawCell * 0.34,
-          3 + genome.fusionLevel,
-          0,
-          Math.PI * 2,
-        );
+        if (mutation === 'armored' || mutation === 'gigantic') {
+          ctx.rect(mx - markerSize, my - markerSize, markerSize * 2, markerSize * 2);
+        } else if (mutation === 'volatile') {
+          for (let point = 0; point < 8; point++) {
+            const radius = point % 2 === 0 ? markerSize * 1.7 : markerSize * 0.65;
+            const a = angle + point * Math.PI / 4;
+            const px = mx + Math.cos(a) * radius;
+            const py = my + Math.sin(a) * radius;
+            if (point === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+        } else {
+          ctx.arc(mx, my, markerSize, 0, Math.PI * 2);
+        }
         ctx.fill();
       });
     }
-    drawVirus(ctx, ex, ey, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
+    // Every identity receives a persistent, seed-derived body transform. This
+    // amplifies anatomical differences at phone scale without changing hitboxes.
+    const aspectX = 0.68 + visualGene(e.value, 21) * 0.72;
+    const aspectY = 0.72 + visualGene(e.value, 22) * 0.62;
+    const tilt = (visualGene(e.value, 23) - 0.5) * 0.9;
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(tilt);
+    ctx.scale(aspectX, aspectY);
+    drawVirus(ctx, 0, 0, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
+    ctx.restore();
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);
