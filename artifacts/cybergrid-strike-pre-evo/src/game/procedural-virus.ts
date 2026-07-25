@@ -3,6 +3,7 @@ import {
   compatibleFusionDonors,
   ELEMENT_DOMAIN,
   getFusionOutcome,
+  type ElementDomain,
   type FusionRole,
 } from './element-matrix';
 
@@ -12,21 +13,21 @@ const QUANTIZED_SIZE = 40;
 const OUTPUT_WIDTH = 240;
 const OUTPUT_HEIGHT = 160;
 const spriteCache = new Map<string, HTMLCanvasElement>();
-const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
+type ComponentSource = 'gremlin' | 'jelly' | 'beetle' | 'automaton';
+type VisualSource = EnemyBaseElement | ComponentSource;
+const sourceCache = new Map<VisualSource, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
   'cyborg', 'mech', 'nanite', 'data-wraith',
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
-  'gremlin', 'jelly', 'beetle', 'automaton',
 ];
 const CHARACTER_BASES = new Set<EnemyBaseElement>([
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
-  'gremlin', 'jelly', 'beetle', 'automaton',
 ]);
 // All enemies advance from right to left. These source paintings were authored
 // facing right, so normalize them before they enter any composition socket.
-const RIGHT_FACING_SOURCES = new Set<EnemyBaseElement>(['cyborg', 'data-wraith']);
+const RIGHT_FACING_SOURCES = new Set<VisualSource>(['cyborg', 'data-wraith']);
 
 export type EnemyMovementClass =
   | 'biped' | 'quadruped' | 'arthropod' | 'flier'
@@ -35,13 +36,13 @@ export type EnemyMovementClass =
 type BodyType = EnemyMovementClass;
 
 const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
-  robot: 'biped', skeleton: 'biped', cyborg: 'biped', gremlin: 'biped', automaton: 'biped',
+  robot: 'biped', skeleton: 'biped', cyborg: 'biped',
   beast: 'quadruped', fox: 'quadruped',
-  insect: 'arthropod', crab: 'arthropod', beetle: 'arthropod',
+  insect: 'arthropod', crab: 'arthropod',
   avian: 'flier', owl: 'flier',
   drone: 'hover',
   serpent: 'serpentine', snail: 'serpentine',
-  cephalopod: 'tentacled', jelly: 'tentacled',
+  cephalopod: 'tentacled',
   plant: 'rooted', fungus: 'colony', nanite: 'colony',
   fish: 'aquatic', mole: 'burrower',
   vehicle: 'vehicle',
@@ -53,14 +54,44 @@ export function getEnemyMovementClass(base: EnemyBaseElement): EnemyMovementClas
   return BODY_TYPE[base];
 }
 
+interface ComponentDefinition {
+  source: ComponentSource;
+  role: FusionRole;
+  domains: ElementDomain[];
+}
+
+// Former full characters are retained only as cropped anatomical vocabulary.
+// A definition is eligible only where that part has a practical body socket.
+const COMPONENT_LIBRARY: ComponentDefinition[] = [
+  { source: 'gremlin', role: 'head', domains: ['fauna', 'chitin'] },
+  { source: 'gremlin', role: 'locomotion', domains: ['fauna', 'flora'] },
+  { source: 'jelly', role: 'head', domains: ['fluid', 'spectral', 'cyber'] },
+  { source: 'jelly', role: 'locomotion', domains: ['fluid', 'flora', 'spectral'] },
+  { source: 'beetle', role: 'head', domains: ['chitin', 'mineral'] },
+  { source: 'beetle', role: 'locomotion', domains: ['chitin', 'fauna', 'machine'] },
+  { source: 'beetle', role: 'flank', domains: ['chitin', 'mineral', 'fauna', 'machine'] },
+  { source: 'automaton', role: 'head', domains: ['machine', 'cyber', 'mineral'] },
+  { source: 'automaton', role: 'locomotion', domains: ['machine', 'cyber'] },
+  { source: 'automaton', role: 'flank', domains: ['machine', 'cyber', 'mineral'] },
+];
+
+function selectComponent(
+  primary: EnemyBaseElement,
+  seed: number,
+): ComponentDefinition | undefined {
+  const domain = ELEMENT_DOMAIN[primary];
+  const candidates = COMPONENT_LIBRARY.filter((component) => component.domains.includes(domain));
+  return candidates[Math.floor(gene(seed, 310) * candidates.length)];
+}
+
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
-  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl', 'gremlin', 'automaton'],
+  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl'],
   quadruped: ['beast', 'fox', 'serpent', 'cyborg', 'owl'],
-  arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite', 'beetle'],
+  arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite'],
   flier: ['avian', 'owl', 'drone', 'insect', 'data-wraith'],
   hover: ['drone', 'robot', 'nanite', 'crystal', 'data-wraith'],
   serpentine: ['serpent', 'snail', 'cephalopod', 'drone', 'data-wraith'],
-  tentacled: ['cephalopod', 'fungus', 'plant', 'nanite', 'data-wraith', 'jelly'],
+  tentacled: ['cephalopod', 'fungus', 'plant', 'nanite', 'data-wraith'],
   rooted: ['plant', 'fungus', 'crystal', 'cephalopod', 'golem'],
   colony: ['fungus', 'nanite', 'plant', 'insect', 'crystal'],
   aquatic: ['fish', 'cephalopod', 'serpent', 'drone', 'crystal'],
@@ -71,13 +102,13 @@ const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
 };
 
 const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
-  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'gremlin', 'automaton'],
+  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech'],
   quadruped: ['beast', 'fox', 'insect', 'cyborg', 'golem'],
-  arthropod: ['insect', 'crab', 'nanite', 'vehicle', 'beetle'],
+  arthropod: ['insect', 'crab', 'nanite', 'vehicle'],
   flier: ['avian', 'owl', 'drone', 'insect'],
   hover: ['drone', 'nanite', 'data-wraith', 'vehicle'],
   serpentine: ['serpent', 'snail', 'cephalopod', 'nanite'],
-  tentacled: ['cephalopod', 'plant', 'fungus', 'nanite', 'jelly'],
+  tentacled: ['cephalopod', 'plant', 'fungus', 'nanite'],
   rooted: ['plant', 'fungus', 'crystal', 'cephalopod'],
   colony: ['fungus', 'nanite', 'insect', 'plant'],
   aquatic: ['fish', 'serpent', 'cephalopod', 'drone'],
@@ -108,7 +139,6 @@ const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
   crab: 0.92, owl: 0.9, fox: 0.94, snail: 0.9,
   fish: 1.04, mole: 1.08, turret: 1.16,
-  gremlin: 1.02, jelly: 0.98, beetle: 1.08, automaton: 1.12,
   plant: 0.96, skeleton: 0.98, serpent: 1, cephalopod: 1,
   avian: 1.02, robot: 1.04, crystal: 1.06, cyborg: 1.08,
   beast: 1.1, vehicle: 1.13, golem: 1.18, mech: 1.2,
@@ -144,18 +174,6 @@ export function getEntityMotion(base: EnemyBaseElement, now: number, seed: numbe
   }
   if (base === 'snail') {
     return { x: wave(0.002) * 1.4, y: wave(0.004) * 0.45, scaleX: 1 + wave(0.004) * 0.018, scaleY: 1 - wave(0.004) * 0.012, glow: pulse(0.003) };
-  }
-  if (base === 'gremlin') {
-    return { x: wave(0.011) * 1.5, y: -Math.abs(wave(0.011)) * 2.5, scaleX: 1 + wave(0.022) * 0.025, scaleY: 1 - wave(0.022) * 0.02, glow: pulse(0.009) };
-  }
-  if (base === 'jelly') {
-    return { x: wave(0.004) * 1.2, y: wave(0.007) * 2.8, scaleX: 1 + wave(0.01) * 0.04, scaleY: 1 - wave(0.01) * 0.035, glow: pulse(0.008) };
-  }
-  if (base === 'beetle') {
-    return { x: wave(0.015) * 1.8, y: -Math.abs(wave(0.03)) * 0.8, scaleX: 1.025, scaleY: 0.98, glow: pulse(0.011) };
-  }
-  if (base === 'automaton') {
-    return { x: wave(0.008) * 0.5, y: -Math.abs(wave(0.016)) * 1.3, scaleX: 1 + wave(0.008) * 0.012, scaleY: 1, glow: pulse(0.012) };
   }
   if (bodyType === 'aquatic') {
     return { x: wave(0.006) * 2.6, y: wave(0.009) * 1.5, scaleX: 1 + wave(0.01) * 0.025, scaleY: 1 - wave(0.01) * 0.018, glow: pulse(0.007) };
@@ -209,7 +227,7 @@ function selectDifferent(pool: EnemyBaseElement[], primary: EnemyBaseElement, va
   return choices[Math.floor(value * choices.length)] ?? primary;
 }
 
-function source(base: EnemyBaseElement, onReady: () => void): HTMLImageElement {
+function source(base: VisualSource, onReady: () => void): HTMLImageElement {
   const cached = sourceCache.get(base);
   if (cached) {
     if (!cached.complete) cached.addEventListener('load', onReady, { once: true });
@@ -230,7 +248,7 @@ function ready(image: HTMLImageElement): boolean {
 function drawOriented(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  base: EnemyBaseElement,
+  base: VisualSource,
   sx: number,
   sy: number,
   sw: number,
@@ -254,7 +272,7 @@ function drawOriented(
 function drawFitted(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  base: EnemyBaseElement,
+  base: VisualSource,
   seed: number,
   genome: EnemyGenome,
 ): void {
@@ -335,7 +353,7 @@ function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRe
 function graft(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
-  base: EnemyBaseElement,
+  base: VisualSource,
   seed: number,
   genome: EnemyGenome,
   region: MatrixRegion,
@@ -467,6 +485,10 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
   const fusion = source(fusionBase, () => render(canvas, seed, genome));
+  const component = selectComponent(genome.baseElement, seed);
+  const componentImage = component
+    ? source(component.source, () => render(canvas, seed, genome))
+    : undefined;
   const isAdapted = genome.generation > 0 || gene(seed, 180) < 0.24;
 
   if (!ready(primary)) return;
@@ -483,10 +505,13 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // deterministic thresholds preserve some pure base organisms in the ecology.
   const adaptHead = genome.niche === 'hunter' || genome.niche === 'phase'
     || genome.niche === 'opportunist' || gene(seed, 181) > 0.5;
-  if (genome.fusionLevel === 0 && isAdapted && adaptHead) {
+  const expressComponent = genome.fusionLevel === 0 && isAdapted
+    && component && componentImage && gene(seed, 312) < 0.58;
+  if (expressComponent) {
+    graft(ctx, componentImage, component.source, seed + 43, genome, component.role, 0.9);
+  } else if (genome.fusionLevel === 0 && isAdapted && adaptHead) {
     graft(ctx, head, headBase, seed + 31, genome, 'head', 0.96);
-  }
-  if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
+  } else if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
     graft(ctx, locomotion, locomotionBase, seed + 37, genome, 'locomotion', 0.94);
   }
   if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
