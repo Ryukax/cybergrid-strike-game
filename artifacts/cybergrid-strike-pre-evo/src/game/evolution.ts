@@ -29,9 +29,38 @@ export function createGenome(
   seed: number,
   wave: number,
   formationId: number,
+  context?: {
+    playerRow: number;
+    lanePressure: [number, number, number];
+    population: Partial<Record<EnemyNiche, number>>;
+    lanePopulation: [number, number, number];
+  },
 ): EnemyGenome {
   const generation = Math.max(0, Math.floor((wave - 1) / 2));
-  const niche = NICHES[Math.floor(hash01(seed + formationId * 17, 11) * NICHES.length)];
+  let niche: EnemyNiche;
+  if (context) {
+    const weights = NICHES.map((candidate, index) => {
+      const scarcity = 1 / (1 + (context.population[candidate] ?? 0) * 0.85);
+      let response = 1;
+      if (candidate === 'hunter') response += context.playerRow === 1 ? 0.75 : 0.35;
+      if (candidate === 'opportunist') response += Math.max(...context.lanePressure) * 0.12;
+      if (candidate === 'phase') response += Math.max(...context.lanePressure) * 0.09;
+      if (candidate === 'swarm') response += Math.max(0, 4 - context.lanePopulation.reduce((a, b) => a + b, 0)) * 0.14;
+      if (candidate === 'bulwark') response += wave * 0.035;
+      if (candidate === 'regenerator') response += context.lanePressure.reduce((a, b) => a + b, 0) * 0.025;
+      if (candidate === 'symbiote') response += context.lanePopulation.some((count) => count > 1) ? 0.7 : 0;
+      return Math.max(0.08, scarcity * response * (0.88 + hash01(seed + formationId, index + 3) * 0.24));
+    });
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let pick = hash01(seed + formationId * 17 + wave * 29, 11) * total;
+    niche = NICHES[NICHES.length - 1];
+    for (let i = 0; i < NICHES.length; i++) {
+      pick -= weights[i];
+      if (pick <= 0) { niche = NICHES[i]; break; }
+    }
+  } else {
+    niche = NICHES[Math.floor(hash01(seed + formationId * 17, 11) * NICHES.length)];
+  }
   const mutationChance = Math.min(0.92, 0.42 + wave * 0.04);
   const mutations: EnemyMutation[] = [];
 
@@ -40,7 +69,7 @@ export function createGenome(
       mutations.push(MUTATIONS[i]);
     }
   }
-  if (mutations.length === 0 && formationId % 3 === 0) {
+  if (mutations.length === 0 && hash01(seed + wave * 19 + formationId, 73) < mutationChance) {
     mutations.push(MUTATIONS[Math.abs(seed + formationId) % MUTATIONS.length]);
   }
 
@@ -74,24 +103,34 @@ export function createGenome(
     sizeScale: Math.max(0.62, Math.min(1.38, sizeScale)),
     regeneration,
     phaseChance,
-    fusionLevel: wave >= 2 && formationId % 5 === 4 ? 1 : 0,
+    fusionLevel:
+      context &&
+      wave >= 2 &&
+      (niche === 'symbiote' || Math.max(...context.lanePopulation) >= 3) &&
+      hash01(seed + context.playerRow * 23 + context.lanePressure.reduce((a, b) => a + b, 0), 97) < 0.46
+        ? 1
+        : 0,
   };
 }
 
 export function selectAdaptiveRow(
   genome: EnemyGenome,
-  formationRow: number,
+  candidateRow: number,
   playerRow: number,
   lanePressure: [number, number, number],
+  lanePopulation: [number, number, number] = [0, 0, 0],
 ): number {
   if (genome.niche === 'hunter') return playerRow;
   if (genome.niche === 'opportunist') {
+    const opportunity = lanePressure.map((pressure, row) => pressure + lanePopulation[row] * 0.7);
+    return opportunity.indexOf(Math.min(...opportunity));
+  }
+  if (genome.niche === 'swarm') return lanePopulation.indexOf(Math.min(...lanePopulation));
+  if (genome.niche === 'symbiote') return lanePopulation.indexOf(Math.max(...lanePopulation));
+  if (genome.niche === 'phase' && lanePressure[candidateRow] > 2.5) {
     return lanePressure.indexOf(Math.min(...lanePressure));
   }
-  if (genome.niche === 'phase' && lanePressure[formationRow] > 2.5) {
-    return lanePressure.indexOf(Math.min(...lanePressure));
-  }
-  return formationRow;
+  return candidateRow;
 }
 
 export function canFuse(a: EnemyGenome, b: EnemyGenome, seed: number): boolean {

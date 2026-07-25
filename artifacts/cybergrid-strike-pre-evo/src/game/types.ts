@@ -80,7 +80,6 @@ export interface GameState {
   timer: number;
   enemySpawnTimer: number;
   enemyFormationId: number;
-  enemyFormationStep: number;
   lanePressure: [number, number, number];
   moveFlash: number;
   // Status timers — original
