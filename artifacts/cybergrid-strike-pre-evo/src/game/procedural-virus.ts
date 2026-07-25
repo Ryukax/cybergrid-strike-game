@@ -14,6 +14,9 @@ const BASES: EnemyBaseElement[] = [
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
 ];
 const CHARACTER_BASES = new Set<EnemyBaseElement>(['crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret']);
+// All enemies advance from right to left. These source paintings were authored
+// facing right, so normalize them before they enter any composition socket.
+const RIGHT_FACING_SOURCES = new Set<EnemyBaseElement>(['cyborg', 'data-wraith']);
 
 type BodyType =
   | 'biped' | 'quadruped' | 'arthropod' | 'flier'
@@ -196,9 +199,34 @@ function ready(image: HTMLImageElement): boolean {
   return image.complete && image.naturalWidth > 0;
 }
 
+function drawOriented(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  base: EnemyBaseElement,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+): void {
+  if (!RIGHT_FACING_SOURCES.has(base)) {
+    ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
+    return;
+  }
+  ctx.save();
+  ctx.translate(dx * 2 + dw, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.restore();
+}
+
 function drawFitted(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
+  base: EnemyBaseElement,
   seed: number,
   genome: EnemyGenome,
 ): void {
@@ -212,7 +240,7 @@ function drawFitted(
   const x = (SPRITE_SIZE - width) / 2 + (gene(seed, 33) - 0.5) * 1.5;
   const y = SPRITE_SIZE - height - 1;
   ctx.filter = genomeFilter(genome, seed);
-  ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight, x, y, width, height);
+  drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight, x, y, width, height);
   ctx.filter = 'none';
 }
 
@@ -272,6 +300,7 @@ function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRe
 function graft(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
+  base: EnemyBaseElement,
   seed: number,
   genome: EnemyGenome,
   region: MatrixRegion,
@@ -285,13 +314,13 @@ function graft(
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
     // Normalize every donor's head/sensor mass into a shared upper socket.
-    ctx.drawImage(image, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
+    drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
   } else if (region === 'locomotion') {
     // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
     const cropY = image.naturalHeight * 0.44;
-    ctx.drawImage(image, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
+    drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
   } else {
-    drawFitted(ctx, image, seed, genome);
+    drawFitted(ctx, image, base, seed, genome);
   }
   ctx.filter = 'none';
   ctx.restore();
@@ -379,7 +408,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ctx.translate(-1.5, 1);
     ctx.scale(1.07, 0.96);
   }
-  drawFitted(ctx, primary, seed, genome);
+  drawFitted(ctx, primary, genome.baseElement, seed, genome);
   ctx.restore();
 
   // Every genome may express a distinct head and locomotion package. The
@@ -387,13 +416,13 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const adaptHead = genome.niche === 'hunter' || genome.niche === 'phase'
     || genome.niche === 'opportunist' || gene(seed, 181) > 0.5;
   if (genome.fusionLevel === 0 && isAdapted && adaptHead) {
-    graft(ctx, head, seed + 31, genome, 'head', 0.96);
+    graft(ctx, head, headBase, seed + 31, genome, 'head', 0.96);
   }
   if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
-    graft(ctx, locomotion, seed + 37, genome, 'locomotion', 0.94);
+    graft(ctx, locomotion, locomotionBase, seed + 37, genome, 'locomotion', 0.94);
   }
   if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {
-    graft(ctx, flank, seed + 41, genome, 'flank', 0.9);
+    graft(ctx, flank, flankBase, seed + 41, genome, 'flank', 0.9);
 
     // A restrained seam makes the graft read as connected engineered anatomy.
     ctx.save();
