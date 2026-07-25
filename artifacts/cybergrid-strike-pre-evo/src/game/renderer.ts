@@ -18,6 +18,62 @@ function visualGene(seed: number, salt: number): number {
   return value - Math.floor(value);
 }
 
+function drawGeneratedAppendages(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  radius: number,
+  color: string,
+): void {
+  const count = 2 + Math.floor(visualGene(seed, 30) * 6);
+  const mode = Math.floor(visualGene(seed, 31) * 4);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.72;
+  ctx.lineCap = 'round';
+  for (let index = 0; index < count; index++) {
+    const baseAngle = (index / count) * Math.PI * 2;
+    const angle = baseAngle + (visualGene(seed, 40 + index) - 0.5) * 0.38;
+    const inner = radius * (0.2 + visualGene(seed, 60 + index) * 0.08);
+    const length = radius * (0.18 + visualGene(seed, 80 + index) * 0.32);
+    const x1 = Math.cos(angle) * inner;
+    const y1 = Math.sin(angle) * inner;
+    const x2 = Math.cos(angle) * (inner + length);
+    const y2 = Math.sin(angle) * (inner + length);
+    ctx.lineWidth = 1.2 + visualGene(seed, 100 + index) * 2.2;
+    if (mode === 0) {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(
+        x1 + (visualGene(seed, 120 + index) - 0.5) * radius * 0.35,
+        y1 + (visualGene(seed, 140 + index) - 0.5) * radius * 0.35,
+        x2,
+        y2,
+      );
+      ctx.stroke();
+    } else if (mode === 1) {
+      const wing = 2 + visualGene(seed, 160 + index) * 4;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2 - Math.sin(angle) * wing, y2 + Math.cos(angle) * wing);
+      ctx.lineTo(x2 + Math.sin(angle) * wing, y2 - Math.cos(angle) * wing);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      if (mode === 3) {
+        ctx.beginPath();
+        ctx.arc(x2, y2, 1.5 + visualGene(seed, 180 + index) * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -287,11 +343,10 @@ export function draw(
     // amplifies anatomical differences at phone scale without changing hitboxes.
     const aspectX = 0.68 + visualGene(e.value, 21) * 0.72;
     const aspectY = 0.72 + visualGene(e.value, 22) * 0.62;
-    const tilt = (visualGene(e.value, 23) - 0.5) * 0.9;
     ctx.save();
     ctx.translate(ex, ey);
-    ctx.rotate(tilt);
     ctx.scale(aspectX, aspectY);
+    drawGeneratedAppendages(ctx, e.value, drawCell, genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185');
     drawVirus(ctx, 0, 0, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
     ctx.restore();
     if (e.hp > 1) {
