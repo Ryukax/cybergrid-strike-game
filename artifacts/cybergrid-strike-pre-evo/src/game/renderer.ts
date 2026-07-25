@@ -1,7 +1,7 @@
 import type { GameState, BoardMetrics, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
-import { getBaseVisualScale, getProceduralVirusSprite } from './procedural-virus';
+import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -984,12 +984,17 @@ export function draw(
     if (genome) {
       const visualSeed = (e.value ?? 6) + (e.formationId ?? 0) * 257;
       const sprite = getProceduralVirusSprite(visualSeed, genome);
+      const motion = getEntityMotion(genome.baseElement, now, visualSeed);
       const spriteWidth = drawCell * 1.48;
       const spriteHeight = drawCell * 0.99;
       ctx.save();
+      ctx.translate(motion.x, motion.y);
+      ctx.scale(motion.scaleX, motion.scaleY);
       ctx.imageSmoothingEnabled = false;
       ctx.globalAlpha = genome.niche === 'phase' ? 0.72 : 1;
       if (e.flash > 0) ctx.filter = 'brightness(1.8)';
+      ctx.shadowColor = `rgba(95, 220, 255, ${0.08 + motion.glow * 0.16})`;
+      ctx.shadowBlur = 2 + motion.glow * 5;
       ctx.drawImage(sprite, -spriteWidth / 2, -spriteHeight / 2, spriteWidth, spriteHeight);
       ctx.restore();
     } else {

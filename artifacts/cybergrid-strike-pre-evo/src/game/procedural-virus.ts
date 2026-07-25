@@ -62,6 +62,50 @@ export function getBaseVisualScale(base: EnemyBaseElement): number {
   return VISUAL_SCALE[base];
 }
 
+export interface EntityMotion {
+  x: number;
+  y: number;
+  scaleX: number;
+  scaleY: number;
+  glow: number;
+}
+
+export function getEntityMotion(base: EnemyBaseElement, now: number, seed: number): EntityMotion {
+  const phase = seed * 0.173;
+  const bodyType = BODY_TYPE[base];
+  const wave = (speed: number) => Math.sin(now * speed + phase);
+  const pulse = (speed: number) => (Math.sin(now * speed + phase) + 1) / 2;
+
+  if (base === 'crab') {
+    return { x: wave(0.012) * 2.2, y: Math.abs(wave(0.024)) * -1.2, scaleX: 1.02, scaleY: 0.98, glow: pulse(0.006) };
+  }
+  if (base === 'owl') {
+    return { x: wave(0.003) * 0.6, y: wave(0.006) * 3.2 - 2, scaleX: 1 + wave(0.012) * 0.025, scaleY: 1 - wave(0.012) * 0.02, glow: pulse(0.008) };
+  }
+  if (base === 'fox') {
+    return { x: wave(0.008) * 1.3, y: -Math.abs(wave(0.008)) * 3, scaleX: 1 + pulse(0.008) * 0.035, scaleY: 0.98, glow: pulse(0.01) };
+  }
+  if (base === 'snail') {
+    return { x: wave(0.002) * 1.4, y: wave(0.004) * 0.45, scaleX: 1 + wave(0.004) * 0.018, scaleY: 1 - wave(0.004) * 0.012, glow: pulse(0.003) };
+  }
+  if (bodyType === 'aerial') {
+    return { x: wave(0.004) * 0.8, y: wave(0.007) * 3, scaleX: 1 + wave(0.014) * 0.025, scaleY: 1 - wave(0.014) * 0.02, glow: pulse(0.008) };
+  }
+  if (bodyType === 'quadruped') {
+    return { x: wave(0.009) * 1.1, y: -Math.abs(wave(0.018)) * 1.8, scaleX: 1.015, scaleY: 0.985, glow: pulse(0.005) };
+  }
+  if (bodyType === 'serpentine') {
+    return { x: wave(0.006) * 2.1, y: wave(0.012) * 0.7, scaleX: 1 + wave(0.006) * 0.025, scaleY: 1, glow: pulse(0.007) };
+  }
+  if (bodyType === 'rooted') {
+    return { x: 0, y: wave(0.003) * 0.7, scaleX: 1 - wave(0.003) * 0.018, scaleY: 1 + wave(0.003) * 0.025, glow: pulse(0.004) };
+  }
+  if (bodyType === 'vehicle') {
+    return { x: wave(0.028) * 0.7, y: Math.abs(wave(0.028)) * -0.5, scaleX: 1, scaleY: 1, glow: pulse(0.012) };
+  }
+  return { x: wave(0.007) * 0.45, y: -Math.abs(wave(0.014)) * 1.5, scaleX: 1, scaleY: 1, glow: pulse(0.006) };
+}
+
 function gene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
   return value - Math.floor(value);
