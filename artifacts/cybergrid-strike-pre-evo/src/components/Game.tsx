@@ -215,6 +215,10 @@ export default function Game() {
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
   const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
+  const menuScreenRef = useRef<'main' | 'customization'>('main');
+  const [menuSelection, setMenuSelection] = useState(0);
+  const menuSelectionRef = useRef(0);
+  const menuNavCooldownRef = useRef(0);
 
   // Player skin
   type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
@@ -1401,9 +1405,32 @@ export default function Game() {
     const dt = Math.min(0.1, (ts - lastTimeRef.current) / 1000);
     lastTimeRef.current = ts;
 
-    // Only advance game state when playing and not paused; always draw so canvas looks alive behind menu
-    if (phaseRef.current === 'playing' && !pausedRef.current) {
+    // Advance gameplay when active; otherwise keep polling controllers for
+    // menus, pause, and game-over actions.
+    if (phaseRef.current === 'playing' && !pausedRef.current && stateRef.current.running) {
       update(dt);
+    } else if (phaseRef.current === 'menu') {
+      handleGamepad();
+      const gp = gamepadRef.current;
+      menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
+      if (menuScreenRef.current === 'main') {
+        if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
+          const direction = gp.moveY > 0 ? 1 : -1;
+          menuSelectionRef.current = (menuSelectionRef.current + direction + 3) % 3;
+          setMenuSelection(menuSelectionRef.current);
+          menuNavCooldownRef.current = 0.22;
+        }
+        if (gp.fire && !gp.prevFire) {
+          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn'];
+          document.getElementById(ids[menuSelectionRef.current])?.click();
+        }
+      } else if (gp.cardB && !gp.prevCardB) {
+        document.getElementById('menuBackBtn')?.click();
+      }
+    } else if (phaseRef.current === 'playing' && !pausedRef.current && !stateRef.current.running) {
+      handleGamepad();
+      const gp = gamepadRef.current;
+      if (gp.fire && !gp.prevFire) document.getElementById('playAgainBtn')?.click();
     } else if (phaseRef.current === 'playing' && pausedRef.current) {
       // Still poll gamepad so Start button can unpause
       handleGamepad();
@@ -1484,7 +1511,7 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [update]);
+  }, [update, handleGamepad]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
@@ -1506,6 +1533,8 @@ export default function Game() {
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'playing';
+    menuSelectionRef.current = 0;
+    setMenuSelection(0);
     setPhase('playing');
     updateHud();
     if (mode === 'vs') {
@@ -1531,12 +1560,16 @@ export default function Game() {
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
+    menuScreenRef.current = 'main';
+    menuSelectionRef.current = 0;
     pausedRef.current = false;
     // Reset reward accumulator for new session
     rewardAccRef.current.reset();
     setSessionCGRD(0);
     setGameKills([]);
     setPaused(false);
+    setMenuScreen('main');
+    setMenuSelection(0);
     setPhase('menu');
     updateHud();
   }, [updateHud]);
@@ -1818,19 +1851,26 @@ export default function Game() {
               <div id="preEvoLabel">⬡ PRE-EVOLUTION EDITION ⬡</div>
               <button
                 id="menuPlayBtn"
-                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('classic'); }}
+                className={menuSelection === 0 ? 'gamepad-selected' : ''}
+                onClick={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('classic'); }}
               >
                 ▶ PLAY
               </button>
               <button
                 id="menuVsBtn"
-                onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('vs'); }}
+                className={menuSelection === 1 ? 'gamepad-selected' : ''}
+                onClick={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('vs'); }}
               >
                 ⚔ VS NPC
               </button>
               <button
                 id="menuCustomBtn"
-                onPointerDown={(ev) => { ev.stopPropagation(); setMenuScreen('customization'); }}
+                className={menuSelection === 2 ? 'gamepad-selected' : ''}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  menuScreenRef.current = 'customization';
+                  setMenuScreen('customization');
+                }}
               >
                 ⚙ Customization
               </button>
@@ -1904,7 +1944,13 @@ export default function Game() {
               </div>
               <button
                 id="menuBackBtn"
-                onPointerDown={(ev) => { ev.stopPropagation(); setMenuScreen('main'); }}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  menuScreenRef.current = 'main';
+                  menuSelectionRef.current = 0;
+                  setMenuSelection(0);
+                  setMenuScreen('main');
+                }}
               >
                 ← Back
               </button>
@@ -1949,7 +1995,8 @@ export default function Game() {
             />
             <button
               id="playAgainBtn"
-              onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); restart(); }}
+              className="gamepad-selected"
+              onClick={(ev) => { ev.stopPropagation(); ensureAudio(); restart(); }}
             >
               PLAY AGAIN
             </button>

@@ -445,6 +445,16 @@ canvas#canvas {
   box-shadow: 0 0 48px rgba(14, 165, 233, 0.65);
 }
 
+.gamepad-selected {
+  outline: 3px solid #f8fafc !important;
+  outline-offset: 4px;
+  filter: brightness(1.16);
+  transform: scale(1.025);
+  box-shadow:
+    0 0 0 2px rgba(56, 189, 248, 0.65),
+    0 0 34px rgba(56, 189, 248, 0.72) !important;
+}
+
 #menuCustomBtn {
   background: rgba(8, 20, 40, 0.6);
   border: 2px solid rgba(125, 211, 252, 0.35);
