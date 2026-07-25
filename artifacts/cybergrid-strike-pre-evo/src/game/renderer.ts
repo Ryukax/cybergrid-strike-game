@@ -292,14 +292,14 @@ function drawCreatureOrMachine(
   genome?: EnemyGenome,
 ): void {
   const nicheArchetypes: Record<string, number[]> = {
-    scout: [5, 1, 2, 8],
-    bulwark: [0, 4, 7, 10],
-    hunter: [2, 1, 7, 9],
-    swarm: [1, 6, 3, 11],
-    regenerator: [3, 6, 2, 11],
-    phase: [7, 5, 6, 9],
-    symbiote: [6, 3, 4, 11],
-    opportunist: [0, 5, 2, 10],
+    scout: [6, 1, 2, 9],
+    bulwark: [0, 4, 5, 8, 11],
+    hunter: [2, 1, 8, 10],
+    swarm: [1, 7, 3, 12],
+    regenerator: [3, 7, 2, 12],
+    phase: [8, 6, 7, 10],
+    symbiote: [7, 3, 4, 5, 12],
+    opportunist: [0, 6, 2, 11],
   };
   const palette: Record<string, [number, number, number]> = {
     scout: [188, 82, 58],
@@ -311,7 +311,7 @@ function drawCreatureOrMachine(
     symbiote: [322, 68, 54],
     opportunist: [24, 78, 48],
   };
-  const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+  const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const archetype = pool[Math.floor(visualGene(seed, 500) * pool.length)];
   const r = cell * (0.24 + visualGene(seed, 501) * 0.075);
   const [baseHue, saturation, lightness] = palette[niche] ?? [Math.floor(visualGene(seed, 502) * 360), 68, 48];
@@ -392,16 +392,27 @@ function drawCreatureOrMachine(
     const teeth = 3 + Math.floor(visualGene(seed, 540) * 4);
     for (let tooth = 0; tooth < teeth; tooth++) ctx.fillRect(-r * 0.3 + tooth * r * 0.6 / Math.max(1, teeth - 1), -r * 0.38, r * 0.05, r * 0.18);
   } else if (archetype === 4) {
-    // Crystal golem: faceted torso, head, shard limbs and shoulder growths.
-    ctx.beginPath(); ctx.moveTo(0, -r * 0.72); ctx.lineTo(r * 0.58, -r * 0.2); ctx.lineTo(r * 0.4, r * 0.62); ctx.lineTo(-r * 0.42, r * 0.62); ctx.lineTo(-r * 0.62, -r * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = detail;
-    ctx.beginPath(); ctx.moveTo(0, -r * 0.52); ctx.lineTo(r * 0.2, -r * 0.12); ctx.lineTo(0, r * 0.18); ctx.lineTo(-r * 0.2, -r * 0.12); ctx.closePath(); ctx.fill();
-    for (const side of [-1, 1]) {
-      ctx.beginPath(); ctx.moveTo(side * r * 0.48, -r * 0.2); ctx.lineTo(side * r, r * 0.25 + gait); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(side * r * 0.24, r * 0.55); ctx.lineTo(side * r * 0.45, r); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(side * r * 0.45, -r * 0.35); ctx.lineTo(side * r * 0.72, -r * 0.9); ctx.lineTo(side * r * 0.2, -r * 0.55); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Crystal: a single mineral growth without implied limbs or creature anatomy.
+    const shards = 4 + Math.floor(visualGene(seed, 544) * 4);
+    for (let shard = 0; shard < shards; shard++) {
+      const angle = -Math.PI * 0.92 + shard / Math.max(1, shards - 1) * Math.PI * 0.84;
+      const length = r * (0.55 + visualGene(seed, 545 + shard) * 0.65);
+      ctx.beginPath(); ctx.moveTo(-r * 0.22, r * 0.5); ctx.lineTo(Math.cos(angle) * length, Math.sin(angle) * length); ctx.lineTo(r * 0.22, r * 0.5); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.52); ctx.lineTo(r * 0.18, -r * 0.08); ctx.lineTo(0, r * 0.24); ctx.lineTo(-r * 0.18, -r * 0.08); ctx.closePath(); ctx.fill();
   } else if (archetype === 5) {
+    // Golem: a stone construct; material is independent from the crystal element.
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.roundRect(-r * 0.46, -r * 0.46, r * 0.92, r * 1.02, r * 0.12); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(-r * 0.3, -r * 0.78, r * 0.6, r * 0.38, r * 0.1); ctx.fill(); ctx.stroke();
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.roundRect(side * r * 0.44 - (side < 0 ? r * 0.34 : 0), -r * 0.34, r * 0.34, r * 0.78, r * 0.1); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.roundRect(side * r * 0.28 - (side < 0 ? r * 0.28 : 0), r * 0.48, r * 0.28, r * 0.48, r * 0.08); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.arc(-r * 0.12, -r * 0.62, r * 0.05, 0, Math.PI * 2); ctx.arc(r * 0.12, -r * 0.62, r * 0.05, 0, Math.PI * 2); ctx.fill();
+  } else if (archetype === 6) {
     // Machine drone: angular hull, rotors/thrusters and sensor core.
     ctx.beginPath(); ctx.moveTo(-r * 0.72, 0); ctx.lineTo(-r * 0.3, -r * 0.42); ctx.lineTo(r * 0.48, -r * 0.32); ctx.lineTo(r * 0.74, 0); ctx.lineTo(r * 0.48, r * 0.32); ctx.lineTo(-r * 0.3, r * 0.42); ctx.closePath(); ctx.fill(); ctx.stroke();
     for (const side of [-1, 1]) {
@@ -410,7 +421,7 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = detail;
     ctx.beginPath(); ctx.arc(-r * 0.12, 0, r * 0.2, 0, Math.PI * 2); ctx.fill();
-  } else if (archetype === 6) {
+  } else if (archetype === 7) {
     // Cephalopod: mantle, eyes and independently waving tentacles.
     ctx.beginPath(); ctx.ellipse(0, -r * 0.25, r * 0.62, r * 0.58, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     const tentacles = 4 + Math.floor(visualGene(seed, 550) * 5);
@@ -420,7 +431,7 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = detail;
     ctx.beginPath(); ctx.arc(-r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.arc(r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.fill();
-  } else if (archetype === 7) {
+  } else if (archetype === 8) {
     // Skeletal organism: skull, spine, ribs and articulated limbs.
     ctx.beginPath(); ctx.arc(0, -r * 0.55, r * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, -r * 0.25); ctx.lineTo(0, r * 0.65); ctx.stroke();
@@ -436,7 +447,7 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = '#06101e';
     ctx.beginPath(); ctx.arc(-r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.arc(r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.fill();
-  } else if (archetype === 8) {
+  } else if (archetype === 9) {
     // Avian: feathered body, beak, tail fan and articulated wings.
     ctx.beginPath(); ctx.ellipse(0, 0, r * 0.62, r * 0.42, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.arc(-r * 0.52, -r * 0.14, r * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -448,7 +459,7 @@ function drawCreatureOrMachine(
     for (let feather = -1; feather <= 1; feather++) {
       ctx.beginPath(); ctx.moveTo(r * 0.52, feather * r * 0.12); ctx.lineTo(r * 1.0, feather * r * 0.3); ctx.stroke();
     }
-  } else if (archetype === 9) {
+  } else if (archetype === 10) {
     // Serpent: articulated body chain, directional head and dorsal fins.
     const segments = 5 + Math.floor(visualGene(seed, 565) * 4);
     for (let segment = segments - 1; segment >= 0; segment--) {
@@ -464,19 +475,17 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = detail;
     ctx.beginPath(); ctx.arc(-r * 0.62, -r * 0.08, r * 0.07, 0, Math.PI * 2); ctx.fill();
-  } else if (archetype === 10) {
-    // Armored vehicle: hull, tracks, turret and modular sensor mast.
+  } else if (archetype === 11) {
+    // Vehicle: locomotion platform; armor is supplied only by mutation/inheritance.
     ctx.beginPath(); ctx.roundRect(-r * 0.72, -r * 0.28, r * 1.44, r * 0.62, r * 0.12); ctx.fill(); ctx.stroke();
     ctx.fillStyle = detail;
-    ctx.beginPath(); ctx.roundRect(-r * 0.34, -r * 0.58, r * 0.7, r * 0.36, r * 0.1); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-r * 0.3, -r * 0.46); ctx.lineTo(-r * 1.0, -r * 0.46); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(-r * 0.18, -r * 0.58, r * 0.72, r * 0.34, r * 0.1); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(-r * 0.72, r * 0.28, r * 1.44, r * 0.24);
+    ctx.fillRect(-r * 0.04, -r * 0.5, r * 0.42, r * 0.2);
     ctx.fillStyle = detail;
-    for (const x of [-0.5, -0.15, 0.2, 0.55]) {
-      ctx.beginPath(); ctx.arc(x * r, r * 0.4, r * 0.1, 0, Math.PI * 2); ctx.fill();
+    for (const x of [-0.48, 0.42]) {
+      ctx.beginPath(); ctx.arc(x * r, r * 0.42, r * 0.18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
-    ctx.beginPath(); ctx.moveTo(r * 0.18, -r * 0.58); ctx.lineTo(r * 0.18, -r * 0.9); ctx.stroke();
   } else {
     // Fungal: cap, layered gills, stalk, mycelial roots and spore sacs.
     ctx.beginPath(); ctx.moveTo(-r * 0.66, -r * 0.12); ctx.quadraticCurveTo(0, -r * 0.95, r * 0.66, -r * 0.12); ctx.quadraticCurveTo(0, r * 0.12, -r * 0.66, -r * 0.12); ctx.closePath(); ctx.fill(); ctx.stroke();
