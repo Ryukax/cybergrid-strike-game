@@ -3,6 +3,7 @@ import {
   compatibleFusionDonors,
   ELEMENT_DOMAIN,
   getFusionOutcome,
+  getMatrixFusionOutcome,
   type ElementDomain,
   type FusionRole,
 } from './element-matrix';
@@ -496,7 +497,12 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const fusionBase = genome.fusionElement && getFusionOutcome(genome.baseElement, genome.fusionElement)
     ? genome.fusionElement
     : generatedFusionBase;
-  const fusionOutcome = getFusionOutcome(genome.baseElement, fusionBase);
+  const fusionOutcome = genome.fusionElement
+    ? getMatrixFusionOutcome(genome, {
+      baseElement: genome.fusionElement,
+      element: genome.fusionAffinity ?? genome.element,
+    })
+    : getFusionOutcome(genome.baseElement, fusionBase);
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
   const fusion = source(fusionBase, () => render(canvas, seed, genome));

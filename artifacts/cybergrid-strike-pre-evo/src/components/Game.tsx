@@ -65,6 +65,9 @@ function genomeSignature(enemy: GameState['enemies'][number]): string | undefine
   if (!genome) return undefined;
   return [
     genome.baseElement,
+    genome.element,
+    genome.entityType,
+    genome.enemyClass,
     genome.fusionElement ?? 'pure',
     genome.niche,
     [...genome.mutations].sort().join('+') || 'baseline',

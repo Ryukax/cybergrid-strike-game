@@ -1,5 +1,5 @@
 import type { EnemyGenome, EnemyNiche, EnemyMutation, EnemyBaseElement } from './types';
-import { getFusionOutcome } from './element-matrix';
+import { getMatrixFusionOutcome, matrixIdentity } from './element-matrix';
 import { ELEMENT_DOMAIN } from './element-matrix';
 import { getEnemyMovementClass } from './procedural-virus';
 
@@ -145,6 +145,7 @@ export function createGenome(
   return {
     niche,
     baseElement,
+    ...matrixIdentity(baseElement, niche, seed + formationId * 31),
     generation,
     mutations,
     speedScale: Math.max(0.72, speedScale),
@@ -180,7 +181,7 @@ export function selectAdaptiveRow(
 
 export function canFuse(a: EnemyGenome, b: EnemyGenome, seed: number): boolean {
   if (a.fusionLevel >= 2 || b.fusionLevel >= 2) return false;
-  if (!getFusionOutcome(a.baseElement, b.baseElement) && !getFusionOutcome(b.baseElement, a.baseElement)) return false;
+  if (!getMatrixFusionOutcome(a, b) && !getMatrixFusionOutcome(b, a)) return false;
   if (a.niche === 'symbiote' || b.niche === 'symbiote') return true;
   return hash01(seed, 91) < 0.14 + (a.generation + b.generation) * 0.012;
 }
@@ -192,6 +193,9 @@ export function fuseGenomes(a: EnemyGenome, b: EnemyGenome): EnemyGenome {
   return {
     niche: primary.niche,
     baseElement: primary.baseElement,
+    element: primary.element,
+    entityType: primary.entityType,
+    enemyClass: primary.enemyClass,
     generation: Math.max(a.generation, b.generation) + 1,
     mutations,
     speedScale: Math.min(1.55, (a.speedScale + b.speedScale) * 0.52),
@@ -201,5 +205,6 @@ export function fuseGenomes(a: EnemyGenome, b: EnemyGenome): EnemyGenome {
     phaseChance: Math.max(a.phaseChance, b.phaseChance),
     fusionLevel: Math.max(a.fusionLevel, b.fusionLevel) + 1,
     fusionElement: secondary.baseElement,
+    fusionAffinity: secondary.element,
   };
 }

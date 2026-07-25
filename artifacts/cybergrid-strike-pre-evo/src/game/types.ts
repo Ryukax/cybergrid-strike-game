@@ -5,6 +5,15 @@ export type EnemyNiche =
 export type EnemyMutation =
   | 'accelerated' | 'armored' | 'miniature'
   | 'gigantic' | 'volatile' | 'resilient';
+export type EnemyElement =
+  | 'kinetic' | 'thermal' | 'cryo' | 'voltaic'
+  | 'corrosive' | 'radiant' | 'void' | 'bloom';
+export type EnemyType =
+  | 'organic' | 'chitinous' | 'botanical' | 'lithic'
+  | 'mechanical' | 'synthetic' | 'spectral' | 'fluidic';
+export type EnemyClass =
+  | 'skirmisher' | 'guardian' | 'predator' | 'replicator'
+  | 'mender' | 'infiltrator' | 'support' | 'scavenger';
 export type EnemyBaseElement =
   | 'robot' | 'insect' | 'beast' | 'plant' | 'crystal' | 'golem'
   | 'drone' | 'cephalopod' | 'skeleton' | 'avian' | 'serpent'
@@ -14,6 +23,9 @@ export type EnemyBaseElement =
 export interface EnemyGenome {
   niche: EnemyNiche;
   baseElement: EnemyBaseElement;
+  element: EnemyElement;
+  entityType: EnemyType;
+  enemyClass: EnemyClass;
   generation: number;
   mutations: EnemyMutation[];
   speedScale: number;
@@ -23,6 +35,7 @@ export interface EnemyGenome {
   phaseChance: number;
   fusionLevel: number;
   fusionElement?: EnemyBaseElement;
+  fusionAffinity?: EnemyElement;
 }
 
 export interface Bullet {
