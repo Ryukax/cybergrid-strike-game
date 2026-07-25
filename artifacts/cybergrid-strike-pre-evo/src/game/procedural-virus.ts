@@ -308,6 +308,33 @@ function drawFitted(
   ctx.filter = 'none';
 }
 
+function coreMask(ctx: CanvasRenderingContext2D, seed: number): void {
+  const broad = gene(seed, 350) > 0.48;
+  ctx.beginPath();
+  if (broad) {
+    ctx.moveTo(9, 13); ctx.lineTo(38, 10); ctx.lineTo(44, 22);
+    ctx.lineTo(39, 37); ctx.lineTo(10, 39); ctx.lineTo(4, 24);
+  } else {
+    ctx.moveTo(14, 8); ctx.lineTo(34, 9); ctx.lineTo(40, 20);
+    ctx.lineTo(35, 40); ctx.lineTo(13, 41); ctx.lineTo(7, 22);
+  }
+  ctx.closePath();
+}
+
+function drawCore(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  base: EnemyBaseElement,
+  seed: number,
+  genome: EnemyGenome,
+): void {
+  ctx.save();
+  coreMask(ctx, seed);
+  ctx.clip();
+  drawFitted(ctx, image, base, seed, genome);
+  ctx.restore();
+}
+
 function genomeFilter(genome: EnemyGenome, seed: number): string {
   const generationShift = Math.min(18, genome.generation * 5);
   const nicheShift: Record<string, number> = {
@@ -486,10 +513,11 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Deliberate composition matrix: the chassis remains primary while every
   // secondary element contributes through a sanctioned functional socket.
   const bodyType = BODY_TYPE[genome.baseElement];
-  const headPool = COMPATIBLE_HEADS[bodyType].filter((base) =>
-    ELEMENT_DOMAIN[base] === ELEMENT_DOMAIN[genome.baseElement]);
-  const locomotionPool = COMPATIBLE_LOCOMOTION[bodyType].filter((base) =>
-    ELEMENT_DOMAIN[base] === ELEMENT_DOMAIN[genome.baseElement]);
+  // Body-plan compatibility is the hard rule. Element, type and class then
+  // color and refine the sockets, allowing broad combinations without asking
+  // a complete authored family painting to serve as the final creature.
+  const headPool = COMPATIBLE_HEADS[bodyType];
+  const locomotionPool = COMPATIBLE_LOCOMOTION[bodyType];
   const headBase = selectDifferent(headPool, genome.baseElement, gene(seed, 160));
   const locomotionBase = selectDifferent(locomotionPool, genome.baseElement, gene(seed, 165));
   const fusionPool = compatibleFusionDonors(genome.baseElement, BASES);
@@ -510,7 +538,6 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const componentImage = component
     ? source(component.source, () => render(canvas, seed, genome))
     : undefined;
-  const isAdapted = genome.generation > 0 || gene(seed, 180) < 0.24;
 
   if (!ready(primary)) return;
 
@@ -519,21 +546,34 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ctx.translate(-1.5, 1);
     ctx.scale(1.07, 0.96);
   }
-  drawFitted(ctx, primary, genome.baseElement, seed, genome);
+  drawCore(ctx, primary, genome.baseElement, seed, genome);
   ctx.restore();
 
-  // Every genome may express a distinct head and locomotion package. The
-  // deterministic thresholds preserve some pure base organisms in the ecology.
-  const adaptHead = genome.niche === 'hunter' || genome.niche === 'phase'
-    || genome.niche === 'opportunist' || gene(seed, 181) > 0.5;
-  const expressComponent = genome.fusionLevel === 0 && isAdapted
-    && component && componentImage && gene(seed, 312) < 0.58;
-  if (expressComponent) {
-    graft(ctx, componentImage, component.source, seed + 43, genome, component.role, 0.9);
-  } else if (genome.fusionLevel === 0 && isAdapted && adaptHead) {
-    graft(ctx, head, headBase, seed + 31, genome, 'head', 0.96);
-  } else if (genome.fusionLevel === 0 && isAdapted && !adaptHead) {
-    graft(ctx, locomotion, locomotionBase, seed + 37, genome, 'locomotion', 0.94);
+  // Every entity is assembled. A whole family sprite is never the final image:
+  // its central anatomy supplies only the core while independent donors fill
+  // the head and locomotion sockets.
+  const componentHead = component?.role === 'head' ? componentImage : undefined;
+  const componentLocomotion = component?.role === 'locomotion' ? componentImage : undefined;
+  graft(
+    ctx,
+    componentHead ?? head,
+    componentHead ? component!.source : headBase,
+    seed + 31,
+    genome,
+    'head',
+    0.98,
+  );
+  graft(
+    ctx,
+    componentLocomotion ?? locomotion,
+    componentLocomotion ? component!.source : locomotionBase,
+    seed + 37,
+    genome,
+    'locomotion',
+    0.97,
+  );
+  if (genome.fusionLevel === 0 && component?.role === 'flank' && componentImage) {
+    graft(ctx, componentImage, component.source, seed + 43, genome, 'flank', 0.86);
   }
   if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
     graft(ctx, fusion, fusionBase, seed + 41, genome, fusionOutcome.role, 0.9);
