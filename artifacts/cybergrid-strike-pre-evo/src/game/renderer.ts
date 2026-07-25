@@ -242,13 +242,20 @@ export function draw(
     if (genome) {
       const nicheColor = NICHE_COLORS[genome.niche] ?? '#fda4af';
       ctx.save();
-      ctx.globalAlpha = 0.32 + genome.fusionLevel * 0.12;
+      ctx.globalAlpha = 0.78;
+      ctx.shadowColor = nicheColor;
+      ctx.shadowBlur = 8 + genome.fusionLevel * 5;
       ctx.strokeStyle = nicheColor;
-      ctx.lineWidth = 1.3 + genome.fusionLevel;
+      ctx.lineWidth = 2.5 + genome.fusionLevel * 1.5;
       ctx.setLineDash(genome.niche === 'phase' ? [3, 4] : []);
       ctx.beginPath();
       ctx.arc(ex, ey, drawCell * (0.31 + genome.fusionLevel * 0.04), 0, Math.PI * 2);
       ctx.stroke();
+      if (genome.fusionLevel > 0) {
+        ctx.beginPath();
+        ctx.arc(ex, ey, drawCell * 0.42, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       ctx.restore();
       genome.mutations.forEach((_, index) => {
         const angle = now * 0.0012 + (index / Math.max(1, genome.mutations.length)) * Math.PI * 2;
@@ -257,7 +264,7 @@ export function draw(
         ctx.arc(
           ex + Math.cos(angle) * drawCell * 0.34,
           ey + Math.sin(angle) * drawCell * 0.34,
-          1.4 + genome.fusionLevel * 0.5,
+          3 + genome.fusionLevel,
           0,
           Math.PI * 2,
         );
@@ -265,6 +272,26 @@ export function draw(
       });
     }
     drawVirus(ctx, ex, ey, e.value ?? 6, drawCell, e.flash > 0, false, now, ectx);
+    if (genome) {
+      const nicheColor = NICHE_COLORS[genome.niche] ?? '#fda4af';
+      const mutationTag = genome.mutations.length
+        ? ` +${genome.mutations.map((mutation) => mutation.slice(0, 3).toUpperCase()).join('/')}`
+        : '';
+      const tag = genome.fusionLevel > 0
+        ? `FUSION ${genome.fusionLevel} · ${genome.niche.toUpperCase()}`
+        : `${genome.niche.toUpperCase()} · G${genome.generation}${mutationTag}`;
+      ctx.save();
+      ctx.font = `700 ${Math.max(8, Math.min(11, m.cell * 0.16))}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const labelWidth = ctx.measureText(tag).width + 8;
+      const labelY = ey - drawCell * 0.42;
+      ctx.fillStyle = 'rgba(2,6,23,0.88)';
+      ctx.fillRect(ex - labelWidth / 2, labelY - 13, labelWidth, 13);
+      ctx.fillStyle = nicheColor;
+      ctx.fillText(tag, ex, labelY - 1);
+      ctx.restore();
+    }
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 5, ey - m.cell * 0.32, 10, 3);
