@@ -13,9 +13,56 @@ const BASES: EnemyBaseElement[] = [
   'cyborg', 'mech', 'nanite', 'data-wraith',
 ];
 
+type BodyType = 'humanoid' | 'quadruped' | 'aerial' | 'serpentine' | 'rooted' | 'vehicle';
+
+const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
+  robot: 'humanoid', golem: 'humanoid', skeleton: 'humanoid',
+  cyborg: 'humanoid', mech: 'humanoid', 'data-wraith': 'humanoid',
+  insect: 'quadruped', beast: 'quadruped',
+  drone: 'aerial', avian: 'aerial',
+  serpent: 'serpentine', cephalopod: 'serpentine', nanite: 'serpentine',
+  plant: 'rooted', fungus: 'rooted', crystal: 'rooted',
+  vehicle: 'vehicle',
+};
+
+const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
+  humanoid: ['robot', 'golem', 'skeleton', 'cyborg', 'mech', 'data-wraith'],
+  quadruped: ['beast', 'insect', 'serpent', 'cyborg', 'nanite'],
+  aerial: ['avian', 'drone', 'insect', 'nanite', 'data-wraith'],
+  serpentine: ['serpent', 'cephalopod', 'nanite', 'drone', 'data-wraith'],
+  rooted: ['plant', 'fungus', 'crystal', 'cephalopod', 'data-wraith'],
+  vehicle: ['vehicle', 'robot', 'drone', 'mech', 'nanite'],
+};
+
+const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
+  humanoid: ['robot', 'golem', 'skeleton', 'cyborg', 'mech'],
+  quadruped: ['beast', 'insect', 'golem', 'cyborg'],
+  aerial: ['avian', 'drone', 'insect', 'nanite'],
+  serpentine: ['serpent', 'cephalopod', 'nanite'],
+  rooted: ['plant', 'fungus', 'crystal', 'cephalopod'],
+  vehicle: ['vehicle', 'mech', 'drone', 'nanite'],
+};
+
+const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
+  insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
+  plant: 0.96, skeleton: 0.98, serpent: 1, cephalopod: 1,
+  avian: 1.02, robot: 1.04, crystal: 1.06, cyborg: 1.08,
+  beast: 1.1, vehicle: 1.13, golem: 1.18, mech: 1.2,
+  'data-wraith': 1.05,
+};
+
+export function getBaseVisualScale(base: EnemyBaseElement): number {
+  return VISUAL_SCALE[base];
+}
+
 function gene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
   return value - Math.floor(value);
+}
+
+function selectDifferent(pool: EnemyBaseElement[], primary: EnemyBaseElement, value: number): EnemyBaseElement {
+  const choices = pool.filter((candidate) => candidate !== primary);
+  return choices[Math.floor(value * choices.length)] ?? primary;
 }
 
 function source(base: EnemyBaseElement, onReady: () => void): HTMLImageElement {
@@ -194,22 +241,21 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const primary = source(genome.baseElement, () => render(canvas, seed, genome));
   // Composition matrix: 13 chassis × 13 head/sensor sets × 10 locomotion
   // sets × 13 fusion flanks, before niche, generation, scale and mutations.
-  const headPool: EnemyBaseElement[] = [
-    'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
-    'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
-    'cyborg', 'mech', 'nanite', 'data-wraith',
-  ];
-  const locomotionPool: EnemyBaseElement[] = [
-    'robot', 'insect', 'beast', 'plant', 'golem',
-    'drone', 'cephalopod', 'avian', 'serpent', 'vehicle',
-    'cyborg', 'mech', 'nanite', 'data-wraith',
-  ];
-  const headBase = headPool[Math.floor(gene(seed, 160) * headPool.length)];
-  const locomotionBase = locomotionPool[Math.floor(gene(seed, 165) * locomotionPool.length)];
-  const flankBase = BASES[Math.floor(gene(seed, 170) * BASES.length)];
+  const bodyType = BODY_TYPE[genome.baseElement];
+  const headBase = selectDifferent(COMPATIBLE_HEADS[bodyType], genome.baseElement, gene(seed, 160));
+  const locomotionBase = selectDifferent(COMPATIBLE_LOCOMOTION[bodyType], genome.baseElement, gene(seed, 165));
+  const fusionPool = BASES.filter((base) => BODY_TYPE[base] !== bodyType);
+  const flankBase = fusionPool[Math.floor(gene(seed, 170) * fusionPool.length)] ?? genome.baseElement;
   const head = source(headBase, () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
   const flank = source(flankBase, () => render(canvas, seed, genome));
+  const compositionTier = genome.fusionLevel > 0
+    ? 3
+    : genome.generation >= 2
+      ? 2
+      : genome.generation === 1 || gene(seed, 180) < 0.24
+        ? 1
+        : 0;
 
   if (!ready(primary)) return;
 
@@ -223,10 +269,12 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
 
   // Every genome may express a distinct head and locomotion package. The
   // deterministic thresholds preserve some pure base organisms in the ecology.
-  if (headBase !== genome.baseElement) {
+  const adaptHead = genome.niche === 'hunter' || genome.niche === 'phase'
+    || genome.niche === 'opportunist' || gene(seed, 181) > 0.5;
+  if (compositionTier >= 2 || (compositionTier === 1 && adaptHead)) {
     graft(ctx, head, seed + 31, genome, 'head', 0.96);
   }
-  if (locomotionBase !== genome.baseElement) {
+  if (compositionTier >= 2 || (compositionTier === 1 && !adaptHead)) {
     graft(ctx, locomotion, seed + 37, genome, 'locomotion', 0.94);
   }
   if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {

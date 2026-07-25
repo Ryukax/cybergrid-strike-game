@@ -1,7 +1,7 @@
 import type { GameState, BoardMetrics, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
-import { getProceduralVirusSprite } from './procedural-virus';
+import { getBaseVisualScale, getProceduralVirusSprite } from './procedural-virus';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -976,7 +976,7 @@ export function draw(
       playerDist: Math.abs(e.colPos - state.player.col),
     };
     const genome = e.genome;
-    const drawCell = m.cell * (genome?.sizeScale ?? 1);
+    const drawCell = m.cell * (genome?.sizeScale ?? 1) * (genome ? getBaseVisualScale(genome.baseElement) : 1);
     // Bodies are assembled from independent procedural modules; no finite base
     // sprite or morphology catalog is used for hostile entities.
     ctx.save();
