@@ -11,14 +11,14 @@ export interface FusionOutcome {
 }
 
 export const ELEMENT_DOMAIN: Record<EnemyBaseElement, ElementDomain> = {
-  beast: 'fauna', avian: 'fauna', fox: 'fauna', owl: 'fauna', mole: 'fauna',
-  insect: 'chitin', crab: 'chitin',
+  beast: 'fauna', avian: 'fauna', fox: 'fauna', owl: 'fauna', mole: 'fauna', gremlin: 'fauna',
+  insect: 'chitin', crab: 'chitin', beetle: 'chitin',
   plant: 'flora', fungus: 'flora',
   crystal: 'mineral', golem: 'mineral',
-  robot: 'machine', drone: 'machine', vehicle: 'machine', mech: 'machine', turret: 'machine',
+  robot: 'machine', drone: 'machine', vehicle: 'machine', mech: 'machine', turret: 'machine', automaton: 'machine',
   cyborg: 'cyber', nanite: 'cyber',
   skeleton: 'spectral', 'data-wraith': 'spectral',
-  cephalopod: 'fluid', serpent: 'fluid', snail: 'fluid', fish: 'fluid',
+  cephalopod: 'fluid', serpent: 'fluid', snail: 'fluid', fish: 'fluid', jelly: 'fluid',
 };
 
 // A crossing describes what the secondary element is allowed to contribute to
