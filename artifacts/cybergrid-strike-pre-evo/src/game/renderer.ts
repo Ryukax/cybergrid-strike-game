@@ -202,6 +202,136 @@ function drawModularEntity(
   ctx.restore();
 }
 
+function drawCreatureOrMachine(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  cell: number,
+  accent: string,
+  flash: boolean,
+  now: number,
+): void {
+  const archetype = Math.floor(visualGene(seed, 500) * 8);
+  const r = cell * (0.2 + visualGene(seed, 501) * 0.07);
+  const hue = Math.floor(visualGene(seed, 502) * 360);
+  const body = flash ? '#fff' : `hsl(${hue} 68% ${40 + Math.floor(visualGene(seed, 503) * 20)}%)`;
+  const detail = flash ? '#fff' : `hsl(${(hue + 70 + Math.floor(visualGene(seed, 504) * 100)) % 360} 82% 68%)`;
+  const gait = Math.sin(now * 0.007 + seed) * r * 0.08;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = accent;
+  ctx.fillStyle = body;
+  ctx.lineWidth = Math.max(1.2, r * 0.09);
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 8;
+
+  if (archetype === 0) {
+    // Robot: chassis, head, articulated legs, antenna and sensor array.
+    const legs = 2 + Math.floor(visualGene(seed, 510) * 3);
+    ctx.beginPath(); ctx.roundRect(-r * 0.65, -r * 0.42, r * 1.3, r * 0.85, r * 0.16); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.fillRect(-r * 0.45, -r * 0.25, r * 0.28, r * 0.18);
+    ctx.fillRect(r * 0.08, -r * 0.25, r * 0.28, r * 0.18);
+    for (let leg = 0; leg < legs; leg++) {
+      const x = -r * 0.5 + leg * r / Math.max(1, legs - 1);
+      ctx.beginPath(); ctx.moveTo(x, r * 0.38); ctx.lineTo(x + (leg % 2 ? gait : -gait), r * 0.78); ctx.lineTo(x - r * 0.16, r); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.42); ctx.lineTo(0, -r * 0.78); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -r * 0.88, r * 0.1, 0, Math.PI * 2); ctx.fill();
+  } else if (archetype === 1) {
+    // Insect: three body segments, six legs, optional wings and mandibles.
+    ctx.beginPath(); ctx.ellipse(r * 0.38, 0, r * 0.48, r * 0.38, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(-r * 0.12, 0, r * 0.34, r * 0.3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-r * 0.52, 0, r * 0.25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    for (let leg = 0; leg < 3; leg++) {
+      const x = -r * 0.2 + leg * r * 0.3;
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(x, side * r * 0.18); ctx.lineTo(x - r * 0.08, side * r * 0.58); ctx.lineTo(x + gait, side * r * 0.82); ctx.stroke();
+      }
+    }
+    if (visualGene(seed, 520) > 0.35) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = detail;
+      ctx.beginPath(); ctx.ellipse(r * 0.1, -r * 0.38, r * 0.5, r * 0.22, -0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(r * 0.1, r * 0.38, r * 0.5, r * 0.22, 0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  } else if (archetype === 2) {
+    // Beast: torso, directional head, ears/horns, four legs and tail.
+    ctx.beginPath(); ctx.ellipse(r * 0.12, 0, r * 0.72, r * 0.45, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-r * 0.62, -r * 0.08, r * 0.34, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.arc(-r * 0.72, -r * 0.14, r * 0.08, 0, Math.PI * 2); ctx.fill();
+    for (const x of [-r * 0.3, r * 0.42]) for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(x, side * r * 0.25); ctx.lineTo(x + gait, side * r * 0.78); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(r * 0.72, -r * 0.04); ctx.quadraticCurveTo(r * 1.15, -r * 0.55, r * 1.28, -r * 0.16); ctx.stroke();
+    const horns = visualGene(seed, 530) > 0.5;
+    if (horns) {
+      ctx.beginPath(); ctx.moveTo(-r * 0.75, -r * 0.3); ctx.lineTo(-r * 0.9, -r * 0.72); ctx.stroke();
+    }
+  } else if (archetype === 3) {
+    // Carnivorous plant: rooted stem, leaves and a toothed trap.
+    ctx.beginPath(); ctx.moveTo(0, r * 0.8); ctx.quadraticCurveTo(-r * 0.18, r * 0.2, 0, -r * 0.25); ctx.stroke();
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = body;
+      ctx.beginPath(); ctx.ellipse(side * r * 0.38, r * 0.25, r * 0.35, r * 0.16, side * 0.45, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, r * 0.72); ctx.lineTo(side * r * 0.48, r); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(0, -r * 0.38, r * 0.48, Math.PI * 0.12, Math.PI * 0.88); ctx.lineTo(0, -r * 0.25); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -r * 0.3, r * 0.48, Math.PI * 1.12, Math.PI * 1.88); ctx.lineTo(0, -r * 0.42); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    const teeth = 3 + Math.floor(visualGene(seed, 540) * 4);
+    for (let tooth = 0; tooth < teeth; tooth++) ctx.fillRect(-r * 0.3 + tooth * r * 0.6 / Math.max(1, teeth - 1), -r * 0.38, r * 0.05, r * 0.18);
+  } else if (archetype === 4) {
+    // Crystal golem: faceted torso, head, shard limbs and shoulder growths.
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.72); ctx.lineTo(r * 0.58, -r * 0.2); ctx.lineTo(r * 0.4, r * 0.62); ctx.lineTo(-r * 0.42, r * 0.62); ctx.lineTo(-r * 0.62, -r * 0.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.52); ctx.lineTo(r * 0.2, -r * 0.12); ctx.lineTo(0, r * 0.18); ctx.lineTo(-r * 0.2, -r * 0.12); ctx.closePath(); ctx.fill();
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(side * r * 0.48, -r * 0.2); ctx.lineTo(side * r, r * 0.25 + gait); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(side * r * 0.24, r * 0.55); ctx.lineTo(side * r * 0.45, r); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(side * r * 0.45, -r * 0.35); ctx.lineTo(side * r * 0.72, -r * 0.9); ctx.lineTo(side * r * 0.2, -r * 0.55); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  } else if (archetype === 5) {
+    // Machine drone: angular hull, rotors/thrusters and sensor core.
+    ctx.beginPath(); ctx.moveTo(-r * 0.72, 0); ctx.lineTo(-r * 0.3, -r * 0.42); ctx.lineTo(r * 0.48, -r * 0.32); ctx.lineTo(r * 0.74, 0); ctx.lineTo(r * 0.48, r * 0.32); ctx.lineTo(-r * 0.3, r * 0.42); ctx.closePath(); ctx.fill(); ctx.stroke();
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(side * r * 0.42, side * r * 0.24); ctx.lineTo(side * r * 0.9, side * r * 0.62); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(side * r * 0.98, side * r * 0.68, r * 0.34, r * 0.09, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.arc(-r * 0.12, 0, r * 0.2, 0, Math.PI * 2); ctx.fill();
+  } else if (archetype === 6) {
+    // Cephalopod: mantle, eyes and independently waving tentacles.
+    ctx.beginPath(); ctx.ellipse(0, -r * 0.25, r * 0.62, r * 0.58, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const tentacles = 4 + Math.floor(visualGene(seed, 550) * 5);
+    for (let tentacle = 0; tentacle < tentacles; tentacle++) {
+      const x = -r * 0.5 + tentacle * r / Math.max(1, tentacles - 1);
+      ctx.beginPath(); ctx.moveTo(x, r * 0.12); ctx.quadraticCurveTo(x + Math.sin(now * 0.006 + tentacle) * r * 0.25, r * 0.62, x + gait, r); ctx.stroke();
+    }
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.arc(-r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.arc(r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.fill();
+  } else {
+    // Skeletal organism: skull, spine, ribs and articulated limbs.
+    ctx.beginPath(); ctx.arc(0, -r * 0.55, r * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.25); ctx.lineTo(0, r * 0.65); ctx.stroke();
+    const ribs = 3 + Math.floor(visualGene(seed, 560) * 4);
+    for (let rib = 0; rib < ribs; rib++) {
+      const y = -r * 0.12 + rib * r * 0.18;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.quadraticCurveTo(-r * 0.55, y - r * 0.08, -r * 0.42, y + r * 0.2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.quadraticCurveTo(r * 0.55, y - r * 0.08, r * 0.42, y + r * 0.2); ctx.stroke();
+    }
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(side * r * 0.72, r * 0.12 + gait); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, r * 0.58); ctx.lineTo(side * r * 0.48, r); ctx.stroke();
+    }
+    ctx.fillStyle = '#06101e';
+    ctx.beginPath(); ctx.arc(-r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.arc(r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const cell = Math.min(w / 6.8, h / 8.2);
   const boardW = cell * 6;
@@ -474,15 +604,13 @@ export function draw(
     ctx.save();
     ctx.translate(ex, ey);
     ctx.scale(aspectX, aspectY);
-    drawGeneratedAppendages(ctx, e.value, drawCell, genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185');
-    drawModularEntity(
+    drawCreatureOrMachine(
       ctx,
       e.value ?? 6,
       drawCell,
       genome ? (NICHE_COLORS[genome.niche] ?? '#fda4af') : '#fb7185',
       e.flash > 0,
       now,
-      ectx.hpFrac,
     );
     ctx.restore();
     if (e.hp > 1) {
