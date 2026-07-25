@@ -18,7 +18,8 @@ type ComponentSource =
   | 'gremlin' | 'jelly' | 'beetle' | 'automaton'
   | 'capsid' | 'phage' | 'parasite' | 'spore';
 type VisualSource = EnemyBaseElement | ComponentSource;
-const sourceCache = new Map<VisualSource, HTMLImageElement>();
+type SourceRole = FusionRole | 'core';
+const sourceCache = new Map<string, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
@@ -243,17 +244,18 @@ function selectDifferent(pool: EnemyBaseElement[], primary: EnemyBaseElement, va
   return choices[Math.floor(value * choices.length)] ?? primary;
 }
 
-function source(base: VisualSource, onReady: () => void): HTMLImageElement {
-  const cached = sourceCache.get(base);
+function source(base: VisualSource, role: SourceRole, onReady: () => void): HTMLImageElement {
+  const cacheKey = `${base}:${role}`;
+  const cached = sourceCache.get(cacheKey);
   if (cached) {
     if (!cached.complete) cached.addEventListener('load', onReady, { once: true });
     return cached;
   }
   const image = new Image();
   image.decoding = 'async';
-  image.src = `${import.meta.env.BASE_URL}enemies/${base}.png`;
+  image.src = `${import.meta.env.BASE_URL}enemies/components/${base}-${role}.png`;
   image.addEventListener('load', onReady, { once: true });
-  sourceCache.set(base, image);
+  sourceCache.set(cacheKey, image);
   return image;
 }
 
@@ -509,7 +511,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const ctx = stage.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
 
-  const primary = source(genome.baseElement, () => render(canvas, seed, genome));
+  const primary = source(genome.baseElement, 'core', () => render(canvas, seed, genome));
   // Deliberate composition matrix: the chassis remains primary while every
   // secondary element contributes through a sanctioned functional socket.
   const bodyType = BODY_TYPE[genome.baseElement];
@@ -531,12 +533,12 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       element: genome.fusionAffinity ?? genome.element,
     })
     : getFusionOutcome(genome.baseElement, fusionBase);
-  const head = source(headBase, () => render(canvas, seed, genome));
-  const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
-  const fusion = source(fusionBase, () => render(canvas, seed, genome));
+  const head = source(headBase, 'head', () => render(canvas, seed, genome));
+  const locomotion = source(locomotionBase, 'locomotion', () => render(canvas, seed, genome));
+  const fusion = source(fusionBase, fusionOutcome?.role ?? 'flank', () => render(canvas, seed, genome));
   const component = selectComponent(genome.baseElement, seed);
   const componentImage = component
-    ? source(component.source, () => render(canvas, seed, genome))
+    ? source(component.source, component.role, () => render(canvas, seed, genome))
     : undefined;
 
   if (!ready(primary)) return;
