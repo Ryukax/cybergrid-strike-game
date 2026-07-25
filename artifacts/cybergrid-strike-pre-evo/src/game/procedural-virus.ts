@@ -5,53 +5,91 @@ const SPRITE_SIZE = 48;
 const QUANTIZED_SIZE = 40;
 const OUTPUT_WIDTH = 240;
 const OUTPUT_HEIGHT = 160;
-const BODY_VARIANTS: Array<[number, number]> = [
-  [1, 1], [1.15, 0.88], [0.86, 1.1],
-  [1.2, 0.96], [0.82, 1.05], [0.94, 0.9],
-];
 const spriteCache = new Map<string, HTMLCanvasElement>();
 const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
   'cyborg', 'mech', 'nanite', 'data-wraith',
-  'crab', 'owl', 'fox', 'snail',
+  'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
 ];
-const CHARACTER_BASES = new Set<EnemyBaseElement>(['crab', 'owl', 'fox', 'snail']);
+const CHARACTER_BASES = new Set<EnemyBaseElement>(['crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret']);
 
-type BodyType = 'humanoid' | 'quadruped' | 'aerial' | 'serpentine' | 'rooted' | 'vehicle';
+type BodyType =
+  | 'biped' | 'quadruped' | 'arthropod' | 'flier'
+  | 'hover' | 'serpentine' | 'tentacled' | 'rooted'
+  | 'colony' | 'aquatic' | 'burrower' | 'vehicle' | 'fortress' | 'spectral';
 
 const BODY_TYPE: Record<EnemyBaseElement, BodyType> = {
-  robot: 'humanoid', golem: 'humanoid', skeleton: 'humanoid',
-  cyborg: 'humanoid', mech: 'humanoid', 'data-wraith': 'humanoid',
-  insect: 'quadruped', beast: 'quadruped', crab: 'quadruped', fox: 'quadruped',
-  drone: 'aerial', avian: 'aerial', owl: 'aerial',
-  serpent: 'serpentine', cephalopod: 'serpentine', nanite: 'serpentine', snail: 'serpentine',
-  plant: 'rooted', fungus: 'rooted', crystal: 'rooted',
+  robot: 'biped', skeleton: 'biped', cyborg: 'biped',
+  beast: 'quadruped', fox: 'quadruped',
+  insect: 'arthropod', crab: 'arthropod',
+  avian: 'flier', owl: 'flier',
+  drone: 'hover',
+  serpent: 'serpentine', snail: 'serpentine',
+  cephalopod: 'tentacled',
+  plant: 'rooted', fungus: 'colony', nanite: 'colony',
+  fish: 'aquatic', mole: 'burrower',
   vehicle: 'vehicle',
+  golem: 'fortress', crystal: 'fortress', mech: 'fortress', turret: 'fortress',
+  'data-wraith': 'spectral',
 };
 
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
-  humanoid: ['robot', 'golem', 'skeleton', 'cyborg', 'mech', 'data-wraith'],
-  quadruped: ['beast', 'insect', 'serpent', 'cyborg', 'nanite'],
-  aerial: ['avian', 'drone', 'insect', 'nanite', 'data-wraith'],
-  serpentine: ['serpent', 'cephalopod', 'nanite', 'drone', 'data-wraith'],
-  rooted: ['plant', 'fungus', 'crystal', 'cephalopod', 'data-wraith'],
-  vehicle: ['vehicle', 'robot', 'drone', 'mech', 'nanite'],
+  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl'],
+  quadruped: ['beast', 'fox', 'serpent', 'cyborg', 'owl'],
+  arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite'],
+  flier: ['avian', 'owl', 'drone', 'insect', 'data-wraith'],
+  hover: ['drone', 'robot', 'nanite', 'crystal', 'data-wraith'],
+  serpentine: ['serpent', 'snail', 'cephalopod', 'drone', 'data-wraith'],
+  tentacled: ['cephalopod', 'fungus', 'plant', 'nanite', 'data-wraith'],
+  rooted: ['plant', 'fungus', 'crystal', 'cephalopod', 'golem'],
+  colony: ['fungus', 'nanite', 'plant', 'insect', 'crystal'],
+  aquatic: ['fish', 'cephalopod', 'serpent', 'drone', 'crystal'],
+  burrower: ['mole', 'beast', 'crab', 'golem', 'cyborg'],
+  vehicle: ['vehicle', 'robot', 'drone', 'mech', 'crab'],
+  fortress: ['golem', 'crystal', 'mech', 'turret', 'robot', 'crab'],
+  spectral: ['data-wraith', 'skeleton', 'cephalopod', 'owl', 'nanite'],
 };
 
 const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
-  humanoid: ['robot', 'golem', 'skeleton', 'cyborg', 'mech'],
-  quadruped: ['beast', 'insect', 'golem', 'cyborg'],
-  aerial: ['avian', 'drone', 'insect', 'nanite'],
-  serpentine: ['serpent', 'cephalopod', 'nanite'],
+  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech'],
+  quadruped: ['beast', 'fox', 'insect', 'cyborg', 'golem'],
+  arthropod: ['insect', 'crab', 'nanite', 'vehicle'],
+  flier: ['avian', 'owl', 'drone', 'insect'],
+  hover: ['drone', 'nanite', 'data-wraith', 'vehicle'],
+  serpentine: ['serpent', 'snail', 'cephalopod', 'nanite'],
+  tentacled: ['cephalopod', 'plant', 'fungus', 'nanite'],
   rooted: ['plant', 'fungus', 'crystal', 'cephalopod'],
-  vehicle: ['vehicle', 'mech', 'drone', 'nanite'],
+  colony: ['fungus', 'nanite', 'insect', 'plant'],
+  aquatic: ['fish', 'serpent', 'cephalopod', 'drone'],
+  burrower: ['mole', 'crab', 'beast', 'golem'],
+  vehicle: ['vehicle', 'mech', 'drone', 'crab'],
+  fortress: ['golem', 'crystal', 'mech', 'turret', 'vehicle'],
+  spectral: ['data-wraith', 'skeleton', 'cephalopod', 'nanite'],
+};
+
+const BODY_PROFILES: Record<BodyType, Array<[number, number]>> = {
+  biped: [[0.82, 1.12], [0.92, 1.06], [0.76, 1.16]],
+  quadruped: [[1.18, 0.84], [1.28, 0.78], [1.08, 0.92]],
+  arthropod: [[1.24, 0.8], [1.1, 0.9], [1.32, 0.74]],
+  flier: [[1.3, 0.82], [1.16, 0.94], [1.38, 0.76]],
+  hover: [[1.08, 0.9], [0.94, 1], [1.2, 0.82]],
+  serpentine: [[1.22, 0.78], [1.32, 0.72], [1.08, 0.9]],
+  tentacled: [[1.04, 1], [0.9, 1.12], [1.16, 0.94]],
+  rooted: [[0.92, 1.12], [1.08, 1.02], [0.84, 1.18]],
+  colony: [[1.18, 0.9], [1.3, 0.82], [1.04, 1]],
+  aquatic: [[1.32, 0.76], [1.2, 0.84], [1.38, 0.7]],
+  burrower: [[1.26, 0.78], [1.14, 0.86], [1.34, 0.72]],
+  vehicle: [[1.3, 0.76], [1.18, 0.84], [1.36, 0.7]],
+  fortress: [[1.08, 1.06], [1.2, 0.96], [0.98, 1.14]],
+  spectral: [[0.88, 1.14], [1.02, 1.04], [0.8, 1.2]],
 };
 
 const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
   crab: 0.92, owl: 0.9, fox: 0.94, snail: 0.9,
+  fish: 1.04, mole: 1.08, turret: 1.16,
   plant: 0.96, skeleton: 0.98, serpent: 1, cephalopod: 1,
   avian: 1.02, robot: 1.04, crystal: 1.06, cyborg: 1.08,
   beast: 1.1, vehicle: 1.13, golem: 1.18, mech: 1.2,
@@ -88,8 +126,17 @@ export function getEntityMotion(base: EnemyBaseElement, now: number, seed: numbe
   if (base === 'snail') {
     return { x: wave(0.002) * 1.4, y: wave(0.004) * 0.45, scaleX: 1 + wave(0.004) * 0.018, scaleY: 1 - wave(0.004) * 0.012, glow: pulse(0.003) };
   }
-  if (bodyType === 'aerial') {
+  if (bodyType === 'aquatic') {
+    return { x: wave(0.006) * 2.6, y: wave(0.009) * 1.5, scaleX: 1 + wave(0.01) * 0.025, scaleY: 1 - wave(0.01) * 0.018, glow: pulse(0.007) };
+  }
+  if (bodyType === 'burrower') {
+    return { x: wave(0.013) * 1.4, y: -Math.abs(wave(0.026)) * 0.75, scaleX: 1.02, scaleY: 0.98, glow: pulse(0.009) };
+  }
+  if (bodyType === 'flier') {
     return { x: wave(0.004) * 0.8, y: wave(0.007) * 3, scaleX: 1 + wave(0.014) * 0.025, scaleY: 1 - wave(0.014) * 0.02, glow: pulse(0.008) };
+  }
+  if (bodyType === 'hover') {
+    return { x: wave(0.005) * 1.2, y: wave(0.009) * 2.2 - 1, scaleX: 1.01, scaleY: 0.99, glow: pulse(0.012) };
   }
   if (bodyType === 'quadruped') {
     return { x: wave(0.009) * 1.1, y: -Math.abs(wave(0.018)) * 1.8, scaleX: 1.015, scaleY: 0.985, glow: pulse(0.005) };
@@ -97,11 +144,26 @@ export function getEntityMotion(base: EnemyBaseElement, now: number, seed: numbe
   if (bodyType === 'serpentine') {
     return { x: wave(0.006) * 2.1, y: wave(0.012) * 0.7, scaleX: 1 + wave(0.006) * 0.025, scaleY: 1, glow: pulse(0.007) };
   }
+  if (bodyType === 'arthropod') {
+    return { x: wave(0.016) * 1.7, y: -Math.abs(wave(0.032)) * 0.9, scaleX: 1.02, scaleY: 0.98, glow: pulse(0.01) };
+  }
+  if (bodyType === 'tentacled') {
+    return { x: wave(0.005) * 1.5, y: wave(0.008) * 1.1, scaleX: 1 + wave(0.01) * 0.025, scaleY: 1 - wave(0.01) * 0.02, glow: pulse(0.006) };
+  }
   if (bodyType === 'rooted') {
     return { x: 0, y: wave(0.003) * 0.7, scaleX: 1 - wave(0.003) * 0.018, scaleY: 1 + wave(0.003) * 0.025, glow: pulse(0.004) };
   }
   if (bodyType === 'vehicle') {
     return { x: wave(0.028) * 0.7, y: Math.abs(wave(0.028)) * -0.5, scaleX: 1, scaleY: 1, glow: pulse(0.012) };
+  }
+  if (bodyType === 'colony') {
+    return { x: wave(0.01) * 0.6, y: wave(0.015) * 0.6, scaleX: 1 + wave(0.007) * 0.035, scaleY: 1 - wave(0.007) * 0.025, glow: pulse(0.009) };
+  }
+  if (bodyType === 'fortress') {
+    return { x: wave(0.022) * 0.28, y: -Math.abs(wave(0.011)) * 0.45, scaleX: 1 + wave(0.004) * 0.01, scaleY: 1, glow: pulse(0.004) };
+  }
+  if (bodyType === 'spectral') {
+    return { x: wave(0.004) * 2.4, y: wave(0.006) * 2.1, scaleX: 1 + wave(0.008) * 0.035, scaleY: 1 - wave(0.008) * 0.025, glow: pulse(0.014) };
   }
   return { x: wave(0.007) * 0.45, y: -Math.abs(wave(0.014)) * 1.5, scaleX: 1, scaleY: 1, glow: pulse(0.006) };
 }
@@ -140,7 +202,10 @@ function drawFitted(
   seed: number,
   genome: EnemyGenome,
 ): void {
-  const variantPool = CHARACTER_BASES.has(genome.baseElement) ? BODY_VARIANTS.slice(0, 2) : BODY_VARIANTS;
+  const bodyType = BODY_TYPE[genome.baseElement];
+  const variantPool = CHARACTER_BASES.has(genome.baseElement)
+    ? BODY_PROFILES[bodyType].slice(0, 2)
+    : BODY_PROFILES[bodyType];
   const [widthProfile, heightProfile] = variantPool[Math.floor(gene(seed, 30) * variantPool.length)];
   const width = 40 * widthProfile;
   const height = 43 * heightProfile;
