@@ -31,7 +31,7 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'cardflood', name: 'CARD FLOOD', desc: 'Instantly re-ready your ability cards for another pick', cooldown: 25 },
 
   // ── Timer-based ──────────────────────────────────────────────────────────────
-  { id: 'freeze',    name: 'FREEZE',     desc: 'Completely halt all virus movement for 4s',             cooldown: 14 },
+  { id: 'freeze',    name: 'FREEZE',     desc: 'Reduce all virus movement to a visible crawl for 4s',    cooldown: 14 },
   { id: 'blizzard',  name: 'BLIZZARD',   desc: 'Extreme slowdown — viruses crawl at 15% speed for 10s', cooldown: 16 },
   { id: 'double',    name: 'DOUBLETAP',  desc: 'All bullets deal double damage for 6s',                 cooldown: 14 },
   { id: 'multishot', name: 'MULTISHOT',  desc: 'Each trigger fires an extra bullet on an adjacent row for 5s', cooldown: 12 },
