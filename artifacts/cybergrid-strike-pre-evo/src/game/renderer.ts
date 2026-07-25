@@ -1,4 +1,4 @@
-import type { GameState, BoardMetrics } from './types';
+import type { GameState, BoardMetrics, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 
@@ -289,16 +289,17 @@ function drawCreatureOrMachine(
   flash: boolean,
   now: number,
   niche: string,
+  genome?: EnemyGenome,
 ): void {
   const nicheArchetypes: Record<string, number[]> = {
-    scout: [5, 1, 2],
-    bulwark: [0, 4, 7],
-    hunter: [2, 1, 7],
-    swarm: [1, 6, 3],
-    regenerator: [3, 6, 2],
-    phase: [7, 5, 6],
-    symbiote: [6, 3, 4],
-    opportunist: [0, 5, 2],
+    scout: [5, 1, 2, 8],
+    bulwark: [0, 4, 7, 10],
+    hunter: [2, 1, 7, 9],
+    swarm: [1, 6, 3, 11],
+    regenerator: [3, 6, 2, 11],
+    phase: [7, 5, 6, 9],
+    symbiote: [6, 3, 4, 11],
+    opportunist: [0, 5, 2, 10],
   };
   const palette: Record<string, [number, number, number]> = {
     scout: [188, 82, 58],
@@ -310,9 +311,9 @@ function drawCreatureOrMachine(
     symbiote: [322, 68, 54],
     opportunist: [24, 78, 48],
   };
-  const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7];
+  const pool = nicheArchetypes[niche] ?? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   const archetype = pool[Math.floor(visualGene(seed, 500) * pool.length)];
-  const r = cell * (0.2 + visualGene(seed, 501) * 0.07);
+  const r = cell * (0.24 + visualGene(seed, 501) * 0.075);
   const [baseHue, saturation, lightness] = palette[niche] ?? [Math.floor(visualGene(seed, 502) * 360), 68, 48];
   const hue = (baseHue + (visualGene(seed, 502) - 0.5) * 28 + 360) % 360;
   const body = flash ? '#fff' : `hsl(${hue} ${saturation}% ${lightness + Math.floor(visualGene(seed, 503) * 12)}%)`;
@@ -328,6 +329,9 @@ function drawCreatureOrMachine(
   ctx.shadowBlur = niche === 'phase' ? 7 : 0;
   ctx.globalAlpha = niche === 'phase' ? 0.62 : 1;
   if (niche === 'phase') ctx.setLineDash([4, 3]);
+  ctx.fillStyle = 'rgba(2,6,23,0.34)';
+  ctx.beginPath(); ctx.ellipse(r * 0.08, r * 0.74, r * 0.72, r * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = body;
 
   if (archetype === 0) {
     // Robot: chassis, head, articulated legs, antenna and sensor array.
@@ -416,7 +420,7 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = detail;
     ctx.beginPath(); ctx.arc(-r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.arc(r * 0.25, -r * 0.3, r * 0.09, 0, Math.PI * 2); ctx.fill();
-  } else {
+  } else if (archetype === 7) {
     // Skeletal organism: skull, spine, ribs and articulated limbs.
     ctx.beginPath(); ctx.arc(0, -r * 0.55, r * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, -r * 0.25); ctx.lineTo(0, r * 0.65); ctx.stroke();
@@ -432,26 +436,80 @@ function drawCreatureOrMachine(
     }
     ctx.fillStyle = '#06101e';
     ctx.beginPath(); ctx.arc(-r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.arc(r * 0.1, -r * 0.58, r * 0.06, 0, Math.PI * 2); ctx.fill();
+  } else if (archetype === 8) {
+    // Avian: feathered body, beak, tail fan and articulated wings.
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 0.62, r * 0.42, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-r * 0.52, -r * 0.14, r * 0.28, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.moveTo(-r * 0.78, -r * 0.12); ctx.lineTo(-r * 1.08, 0); ctx.lineTo(-r * 0.78, r * 0.08); ctx.closePath(); ctx.fill();
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(-r * 0.05, side * r * 0.18); ctx.quadraticCurveTo(r * 0.3, side * r * (0.72 + gait / r), r * 0.72, side * r * 0.48); ctx.lineTo(r * 0.22, side * r * 0.08); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    for (let feather = -1; feather <= 1; feather++) {
+      ctx.beginPath(); ctx.moveTo(r * 0.52, feather * r * 0.12); ctx.lineTo(r * 1.0, feather * r * 0.3); ctx.stroke();
+    }
+  } else if (archetype === 9) {
+    // Serpent: articulated body chain, directional head and dorsal fins.
+    const segments = 5 + Math.floor(visualGene(seed, 565) * 4);
+    for (let segment = segments - 1; segment >= 0; segment--) {
+      const x = r * 0.72 - segment * r * 0.3;
+      const y = Math.sin(segment * 0.9 + now * 0.004 + seed) * r * 0.24;
+      const size = r * (0.2 + (segments - segment) * 0.025);
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (segment % 2 === 0) {
+        ctx.fillStyle = detail;
+        ctx.beginPath(); ctx.moveTo(x, y - size); ctx.lineTo(x + size * 0.35, y - size * 1.65); ctx.lineTo(x + size * 0.55, y - size * 0.7); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = body;
+      }
+    }
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.arc(-r * 0.62, -r * 0.08, r * 0.07, 0, Math.PI * 2); ctx.fill();
+  } else if (archetype === 10) {
+    // Armored vehicle: hull, tracks, turret and modular sensor mast.
+    ctx.beginPath(); ctx.roundRect(-r * 0.72, -r * 0.28, r * 1.44, r * 0.62, r * 0.12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.roundRect(-r * 0.34, -r * 0.58, r * 0.7, r * 0.36, r * 0.1); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-r * 0.3, -r * 0.46); ctx.lineTo(-r * 1.0, -r * 0.46); ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(-r * 0.72, r * 0.28, r * 1.44, r * 0.24);
+    ctx.fillStyle = detail;
+    for (const x of [-0.5, -0.15, 0.2, 0.55]) {
+      ctx.beginPath(); ctx.arc(x * r, r * 0.4, r * 0.1, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.beginPath(); ctx.moveTo(r * 0.18, -r * 0.58); ctx.lineTo(r * 0.18, -r * 0.9); ctx.stroke();
+  } else {
+    // Fungal: cap, layered gills, stalk, mycelial roots and spore sacs.
+    ctx.beginPath(); ctx.moveTo(-r * 0.66, -r * 0.12); ctx.quadraticCurveTo(0, -r * 0.95, r * 0.66, -r * 0.12); ctx.quadraticCurveTo(0, r * 0.12, -r * 0.66, -r * 0.12); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = detail;
+    ctx.beginPath(); ctx.roundRect(-r * 0.2, -r * 0.1, r * 0.4, r * 0.72, r * 0.14); ctx.fill(); ctx.stroke();
+    for (let gill = -2; gill <= 2; gill++) {
+      ctx.beginPath(); ctx.moveTo(0, -r * 0.08); ctx.lineTo(gill * r * 0.22, -r * 0.3); ctx.stroke();
+    }
+    for (const side of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(0, r * 0.58); ctx.quadraticCurveTo(side * r * 0.35, r * 0.8, side * r * 0.72, r * 0.78); ctx.stroke();
+      ctx.beginPath(); ctx.arc(side * r * 0.52, r * 0.28, r * 0.12, 0, Math.PI * 2); ctx.fill();
+    }
   }
   ctx.setLineDash([]);
   ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+  ctx.lineWidth = Math.max(1, r * 0.08);
+  ctx.beginPath(); ctx.arc(-r * 0.08, -r * 0.08, r * 0.48, Math.PI * 1.08, Math.PI * 1.72); ctx.stroke();
   ctx.fillStyle = detail;
   ctx.strokeStyle = detail;
   ctx.lineWidth = Math.max(1, r * 0.07);
   if (niche === 'bulwark') {
     for (const x of [-0.42, 0, 0.42]) ctx.strokeRect(x * r, -r * 0.42, r * 0.28, r * 0.84);
   } else if (niche === 'regenerator') {
-    for (let spore = 0; spore < 5; spore++) {
-      const angle = spore / 5 * Math.PI * 2 + now * 0.0004;
-      ctx.beginPath(); ctx.arc(Math.cos(angle) * r * 0.72, Math.sin(angle) * r * 0.72, r * 0.07, 0, Math.PI * 2); ctx.fill();
-    }
+    ctx.beginPath(); ctx.moveTo(0, -r * 0.55); ctx.lineTo(0, r * 0.5);
+    ctx.moveTo(0, -r * 0.15); ctx.lineTo(-r * 0.42, -r * 0.38);
+    ctx.moveTo(0, r * 0.12); ctx.lineTo(r * 0.45, -r * 0.12); ctx.stroke();
   } else if (niche === 'symbiote') {
     ctx.beginPath(); ctx.arc(-r * 0.35, 0, r * 0.16, 0, Math.PI * 2); ctx.arc(r * 0.35, 0, r * 0.16, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.moveTo(-r * 0.2, 0); ctx.lineTo(r * 0.2, 0); ctx.stroke();
   } else if (niche === 'swarm') {
-    for (let mote = 0; mote < 4; mote++) {
-      const angle = mote / 4 * Math.PI * 2 + now * 0.001;
-      ctx.beginPath(); ctx.arc(Math.cos(angle) * r * 0.9, Math.sin(angle) * r * 0.9, r * 0.08, 0, Math.PI * 2); ctx.fill();
+    for (const [x, y] of [[-0.3, -0.2], [0.2, -0.28], [-0.12, 0.22], [0.34, 0.18]]) {
+      ctx.beginPath(); ctx.arc(x * r, y * r, r * 0.07, 0, Math.PI * 2); ctx.fill();
     }
   } else if (niche === 'scout') {
     ctx.beginPath(); ctx.moveTo(-r * 0.55, -r * 0.15); ctx.lineTo(-r * 0.82, 0); ctx.lineTo(-r * 0.55, r * 0.15); ctx.stroke();
@@ -461,6 +519,59 @@ function drawCreatureOrMachine(
     }
   } else if (niche === 'opportunist') {
     ctx.beginPath(); ctx.moveTo(-r * 0.5, 0); ctx.lineTo(0, 0); ctx.lineTo(0, -r * 0.45); ctx.moveTo(0, 0); ctx.lineTo(r * 0.5, r * 0.35); ctx.stroke();
+  }
+  if (genome) {
+    ctx.strokeStyle = detail;
+    ctx.fillStyle = detail;
+    ctx.lineWidth = Math.max(1.2, r * 0.09);
+    if (genome.mutations.includes('armored')) {
+      ctx.strokeRect(-r * 0.58, -r * 0.42, r * 1.16, r * 0.84);
+      ctx.strokeRect(-r * 0.38, -r * 0.58, r * 0.76, r * 1.16);
+    }
+    if (genome.mutations.includes('accelerated')) {
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(r * 0.38, side * r * 0.24); ctx.lineTo(r * 0.92, side * r * 0.42); ctx.lineTo(r * 0.62, side * r * 0.05); ctx.closePath(); ctx.fill();
+      }
+    }
+    if (genome.mutations.includes('volatile')) {
+      ctx.beginPath(); ctx.moveTo(-r * 0.42, -r * 0.25); ctx.lineTo(-r * 0.08, 0); ctx.lineTo(-r * 0.28, r * 0.34);
+      ctx.moveTo(r * 0.08, -r * 0.4); ctx.lineTo(r * 0.22, -r * 0.08); ctx.lineTo(r * 0.5, r * 0.18); ctx.stroke();
+    }
+    if (genome.mutations.includes('resilient')) {
+      ctx.beginPath(); ctx.moveTo(-r * 0.48, r * 0.35); ctx.quadraticCurveTo(-r * 0.1, r * 0.62, r * 0.42, r * 0.38); ctx.stroke();
+    }
+    const generationLayers = Math.min(3, genome.generation);
+    for (let layer = 0; layer < generationLayers; layer++) {
+      ctx.globalAlpha = 0.3 + layer * 0.14;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * (0.48 + layer * 0.1), r * (0.34 + layer * 0.08), 0, Math.PI * 0.1, Math.PI * 0.9); ctx.stroke();
+    }
+    ctx.globalAlpha = niche === 'phase' ? 0.62 : 1;
+    if (genome.generation > 0 || genome.fusionLevel > 0) {
+      // One compatibility-safe inherited module attaches at a defined body zone.
+      const inheritedModule = Math.floor(visualGene(seed, 910 + genome.generation) * 4);
+      if (inheritedModule === 0) {
+        ctx.beginPath(); ctx.moveTo(0, -r * 0.45); ctx.lineTo(0, -r * 0.82); ctx.stroke();
+        ctx.fillRect(-r * 0.09, -r * 0.96, r * 0.18, r * 0.18);
+      } else if (inheritedModule === 1) {
+        for (const side of [-1, 1]) {
+          ctx.beginPath(); ctx.moveTo(side * r * 0.35, -r * 0.1); ctx.lineTo(side * r * 0.88, -r * 0.42); ctx.lineTo(side * r * 0.58, r * 0.12); ctx.closePath(); ctx.fill();
+        }
+      } else if (inheritedModule === 2) {
+        for (const side of [-1, 1]) {
+          ctx.beginPath(); ctx.moveTo(side * r * 0.42, -r * 0.3); ctx.lineTo(side * r * 0.65, -r * 0.75); ctx.lineTo(side * r * 0.18, -r * 0.48); ctx.closePath(); ctx.fill();
+        }
+      } else {
+        for (const side of [-1, 1]) {
+          ctx.beginPath(); ctx.ellipse(side * r * 0.5, r * 0.18, r * 0.28, r * 0.11, side * 0.45, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    if (genome.fusionLevel > 0) {
+      // Fusion is integrated into the body as a paired core and material seam.
+      ctx.fillStyle = detail;
+      ctx.beginPath(); ctx.arc(-r * 0.2, 0, r * 0.13, 0, Math.PI * 2); ctx.arc(r * 0.2, 0, r * 0.13, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, -r * 0.56); ctx.lineTo(0, r * 0.56); ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -847,22 +958,6 @@ export function draw(
     };
     const genome = e.genome;
     const drawCell = m.cell * (genome?.sizeScale ?? 1);
-    if (genome) {
-      const nicheColor = NICHE_COLORS[genome.niche] ?? '#fda4af';
-      if (genome.fusionLevel > 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.82;
-        ctx.shadowColor = nicheColor;
-        ctx.shadowBlur = 13;
-        ctx.strokeStyle = nicheColor;
-        ctx.lineWidth = 3 + genome.fusionLevel;
-        ctx.setLineDash([7, 3]);
-        ctx.beginPath();
-        ctx.arc(ex, ey, drawCell * (0.38 + genome.fusionLevel * 0.04), now * 0.001, now * 0.001 + Math.PI * 1.65);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
     // Bodies are assembled from independent procedural modules; no finite base
     // sprite or morphology catalog is used for hostile entities.
     ctx.save();
@@ -875,6 +970,7 @@ export function draw(
       e.flash > 0,
       now,
       genome?.niche ?? 'hunter',
+      genome,
     );
     ctx.restore();
     if (e.hp > 1) {
