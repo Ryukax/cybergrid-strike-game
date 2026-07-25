@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: replit-sync
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -27,14 +29,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run typecheck
-      - run: pnpm run build
+      - run: pnpm --filter @workspace/cybergrid-strike-dev run typecheck
+      - run: pnpm --filter @workspace/cybergrid-strike-dev run build
         env:
+          PORT: 5173
           BASE_PATH: /cybergrid-strike-game/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: artifacts/cybergrid-strike-dev/dist/public
 
   deploy:
     environment:
