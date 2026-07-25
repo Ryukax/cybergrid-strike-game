@@ -59,27 +59,47 @@ function drawFitted(
   ctx.filter = 'none';
 }
 
-function graftMask(ctx: CanvasRenderingContext2D, seed: number): void {
-  const mask = Math.floor(gene(seed, 70) * 4);
+type MatrixRegion = 'head' | 'locomotion' | 'flank';
+
+function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRegion): void {
   ctx.beginPath();
-  if (mask === 0) {
+  if (region === 'head') {
     // Head and shoulders.
     ctx.moveTo(5, 2); ctx.lineTo(45, 2); ctx.lineTo(39, 19);
     ctx.lineTo(27, 17); ctx.lineTo(20, 21); ctx.lineTo(7, 17);
-  } else if (mask === 1) {
-    // Rear/right anatomy.
-    ctx.moveTo(27, 3); ctx.lineTo(47, 3); ctx.lineTo(47, 46);
-    ctx.lineTo(25, 46); ctx.lineTo(29, 34); ctx.lineTo(24, 24);
-  } else if (mask === 2) {
+  } else if (region === 'locomotion') {
     // Lower locomotion assembly.
     ctx.moveTo(4, 27); ctx.lineTo(17, 24); ctx.lineTo(25, 28);
     ctx.lineTo(43, 24); ctx.lineTo(47, 47); ctx.lineTo(2, 47);
   } else {
-    // Diagonal biomechanical graft.
-    ctx.moveTo(31, 1); ctx.lineTo(47, 1); ctx.lineTo(47, 47);
-    ctx.lineTo(15, 47); ctx.lineTo(22, 34); ctx.lineTo(20, 22);
+    // A side/flank graft, varied without obscuring the primary silhouette.
+    const right = gene(seed, 71) > 0.5;
+    if (right) {
+      ctx.moveTo(29, 5); ctx.lineTo(47, 3); ctx.lineTo(47, 45);
+      ctx.lineTo(27, 43); ctx.lineTo(30, 32); ctx.lineTo(26, 21);
+    } else {
+      ctx.moveTo(1, 4); ctx.lineTo(18, 6); ctx.lineTo(21, 20);
+      ctx.lineTo(17, 31); ctx.lineTo(20, 44); ctx.lineTo(1, 46);
+    }
   }
   ctx.closePath();
+}
+
+function graft(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  seed: number,
+  genome: EnemyGenome,
+  region: MatrixRegion,
+  alpha: number,
+): void {
+  if (!ready(image)) return;
+  ctx.save();
+  graftMask(ctx, seed, region);
+  ctx.clip();
+  ctx.globalAlpha = alpha;
+  drawFitted(ctx, image, seed, genome);
+  ctx.restore();
 }
 
 function shadeStructure(ctx: CanvasRenderingContext2D, seed: number, genome: EnemyGenome): void {
@@ -129,8 +149,22 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   ctx.imageSmoothingEnabled = true;
 
   const primary = source(genome.baseElement, () => render(canvas, seed, genome));
-  const donorBase = BASES[Math.floor(gene(seed, 170) * BASES.length)];
-  const donor = source(donorBase, () => render(canvas, seed, genome));
+  // Composition matrix: 13 chassis × 13 head/sensor sets × 10 locomotion
+  // sets × 13 fusion flanks, before niche, generation, scale and mutations.
+  const headPool: EnemyBaseElement[] = [
+    'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
+    'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
+  ];
+  const locomotionPool: EnemyBaseElement[] = [
+    'robot', 'insect', 'beast', 'plant', 'golem',
+    'drone', 'cephalopod', 'avian', 'serpent', 'vehicle',
+  ];
+  const headBase = headPool[Math.floor(gene(seed, 160) * headPool.length)];
+  const locomotionBase = locomotionPool[Math.floor(gene(seed, 165) * locomotionPool.length)];
+  const flankBase = BASES[Math.floor(gene(seed, 170) * BASES.length)];
+  const head = source(headBase, () => render(canvas, seed, genome));
+  const locomotion = source(locomotionBase, () => render(canvas, seed, genome));
+  const flank = source(flankBase, () => render(canvas, seed, genome));
 
   if (!ready(primary)) return;
 
@@ -142,13 +176,16 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   drawFitted(ctx, primary, seed, genome);
   ctx.restore();
 
-  if (genome.fusionLevel > 0 && donorBase !== genome.baseElement && ready(donor)) {
-    ctx.save();
-    graftMask(ctx, seed);
-    ctx.clip();
-    ctx.globalAlpha = 0.92;
-    drawFitted(ctx, donor, seed + 41, genome);
-    ctx.restore();
+  // Every genome may express a distinct head and locomotion package. The
+  // deterministic thresholds preserve some pure base organisms in the ecology.
+  if (headBase !== genome.baseElement && (gene(seed, 180) < 0.68 || genome.generation > 0)) {
+    graft(ctx, head, seed + 31, genome, 'head', 0.96);
+  }
+  if (locomotionBase !== genome.baseElement && (gene(seed, 181) < 0.58 || genome.generation > 1)) {
+    graft(ctx, locomotion, seed + 37, genome, 'locomotion', 0.94);
+  }
+  if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {
+    graft(ctx, flank, seed + 41, genome, 'flank', 0.9);
 
     // A restrained seam makes the graft read as connected engineered anatomy.
     ctx.save();
