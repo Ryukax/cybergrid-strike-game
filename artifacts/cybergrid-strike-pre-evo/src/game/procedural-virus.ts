@@ -3,6 +3,7 @@ import type { EnemyBaseElement, EnemyGenome } from './types';
 const CACHE_LIMIT = 192;
 const SOURCE_SIZE = 256;
 const SPRITE_SIZE = 48;
+const QUANTIZED_SIZE = 40;
 const spriteCache = new Map<string, HTMLCanvasElement>();
 const sourceCache = new Map<EnemyBaseElement, HTMLImageElement>();
 const BASES: EnemyBaseElement[] = [
@@ -59,6 +60,19 @@ function drawFitted(
   ctx.filter = 'none';
 }
 
+function genomeFilter(genome: EnemyGenome): string {
+  const generationShift = Math.min(18, genome.generation * 5);
+  const nicheShift: Record<string, number> = {
+    scout: 8, bulwark: -5, hunter: 0, swarm: 12,
+    regenerator: 16, phase: 24, symbiote: -18, opportunist: -9,
+  };
+  return [
+    `hue-rotate(${(nicheShift[genome.niche] ?? 0) + generationShift}deg)`,
+    `saturate(${0.9 + Math.min(0.25, genome.generation * 0.06)})`,
+    `contrast(${1.08 + Math.min(0.2, genome.fusionLevel * 0.05)})`,
+  ].join(' ');
+}
+
 type MatrixRegion = 'head' | 'locomotion' | 'flank';
 
 function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRegion): void {
@@ -98,7 +112,31 @@ function graft(
   graftMask(ctx, seed, region);
   ctx.clip();
   ctx.globalAlpha = alpha;
-  drawFitted(ctx, image, seed, genome);
+  ctx.filter = genomeFilter(genome);
+  if (region === 'head') {
+    // Normalize every donor's head/sensor mass into a shared upper socket.
+    ctx.drawImage(image, 0, 0, SOURCE_SIZE, 150, 3, 0, 42, 25);
+  } else if (region === 'locomotion') {
+    // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
+    ctx.drawImage(image, 0, 112, SOURCE_SIZE, 144, 1, 21, 46, 27);
+  } else {
+    drawFitted(ctx, image, seed, genome);
+  }
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
+function outlineSilhouette(ctx: CanvasRenderingContext2D): void {
+  const snapshot = document.createElement('canvas');
+  snapshot.width = SPRITE_SIZE; snapshot.height = SPRITE_SIZE;
+  snapshot.getContext('2d')!.drawImage(ctx.canvas, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.globalAlpha = 0.72;
+  ctx.filter = 'brightness(0.12) saturate(0.4)';
+  for (const [x, y] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, 1]]) {
+    ctx.drawImage(snapshot, x, y);
+  }
   ctx.restore();
 }
 
@@ -178,10 +216,10 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
 
   // Every genome may express a distinct head and locomotion package. The
   // deterministic thresholds preserve some pure base organisms in the ecology.
-  if (headBase !== genome.baseElement && (gene(seed, 180) < 0.68 || genome.generation > 0)) {
+  if (headBase !== genome.baseElement) {
     graft(ctx, head, seed + 31, genome, 'head', 0.96);
   }
-  if (locomotionBase !== genome.baseElement && (gene(seed, 181) < 0.58 || genome.generation > 1)) {
+  if (locomotionBase !== genome.baseElement) {
     graft(ctx, locomotion, seed + 37, genome, 'locomotion', 0.94);
   }
   if (genome.fusionLevel > 0 && flankBase !== genome.baseElement) {
@@ -200,16 +238,17 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   }
 
   shadeStructure(ctx, seed, genome);
+  outlineSilhouette(ctx);
 
-  // Quantize through a smaller buffer to retain intentional low-resolution pixel art.
+  // Preserve facial/mechanical definition while retaining intentional pixel art.
   const low = document.createElement('canvas');
-  low.width = 32; low.height = 32;
+  low.width = QUANTIZED_SIZE; low.height = QUANTIZED_SIZE;
   const lowCtx = low.getContext('2d')!;
   lowCtx.imageSmoothingEnabled = true;
-  lowCtx.drawImage(canvas, 0, 0, 32, 32);
+  lowCtx.drawImage(canvas, 0, 0, QUANTIZED_SIZE, QUANTIZED_SIZE);
   ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(low, 0, 0, 32, 32, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
+  ctx.drawImage(low, 0, 0, QUANTIZED_SIZE, QUANTIZED_SIZE, 0, 0, SPRITE_SIZE, SPRITE_SIZE);
 }
 
 export function getProceduralVirusSprite(seed: number, genome: EnemyGenome): HTMLCanvasElement {
