@@ -321,7 +321,7 @@ canvas#canvas {
   height: 100%;
   object-fit: contain;
   image-rendering: pixelated;
-  filter: drop-shadow(0 0 5px rgba(216, 180, 254, 0.55));
+  filter: drop-shadow(0 2px 0 rgba(15, 23, 42, 0.8));
 }
 
 .cloneAvatar span {
@@ -342,9 +342,8 @@ canvas#canvas {
 
 .cloneAvatar.controlled img {
   filter:
-    drop-shadow(0 0 3px #fff)
-    drop-shadow(0 0 8px rgba(168, 85, 247, 0.95));
-  animation: cloneControlled 520ms steps(2, end) infinite;
+    drop-shadow(0 0 2px #fff)
+    drop-shadow(0 0 5px rgba(56, 189, 248, 0.72));
 }
 
 .cloneAvatar.defending img {
@@ -362,16 +361,57 @@ canvas#canvas {
   animation: cloneDisperse 360ms steps(4, end) forwards;
 }
 
-@keyframes cloneControlled {
-  0%, 100% { transform: translate(-50%, -50%); }
-  50% { transform: translate(-50%, calc(-50% - 2px)); }
-}
-
 @keyframes cloneDefend {
   0% { transform: scale(1); }
   66% { transform: scaleX(1.08) scaleY(0.86) translateY(6%); }
   100% { transform: scaleX(1.12) scaleY(0.82) translateY(9%); }
 }
+
+#cloneActionControls {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  width: min(92vw, 420px);
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  pointer-events: auto;
+  background: rgba(5, 13, 29, 0.96);
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 14px;
+  box-shadow: 0 0 26px rgba(14, 165, 233, 0.18);
+}
+
+.cloneActionBtn {
+  min-height: 54px;
+  padding: 7px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #e0f2fe;
+  background: rgba(30, 64, 175, 0.25);
+  border: 1px solid rgba(125, 211, 252, 0.55);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  touch-action: manipulation;
+}
+
+.cloneActionBtn b {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.cloneActionBtn.attack { border-color: rgba(251, 113, 133, 0.72); }
+.cloneActionBtn.switch { border-color: rgba(250, 204, 21, 0.72); }
+.cloneActionBtn.defend { border-color: rgba(96, 165, 250, 0.8); }
+.cloneActionBtn:active { transform: scale(0.96); filter: brightness(1.25); }
+.cloneActionBtn:disabled { opacity: 0.3; transform: none; }
 
 @keyframes cloneAttack {
   0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }

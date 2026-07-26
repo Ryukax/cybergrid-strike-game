@@ -370,6 +370,7 @@ type CloneDirection = 'north' | 'south';
 type CloneStatus = 'idle' | 'attacking' | 'defending' | 'dispersing' | 'gone';
 interface CloneView {
   visible: boolean;
+  revealed: boolean;
   inputActive: boolean;
   playerLocked: boolean;
   controlled: CloneDirection;
@@ -380,6 +381,7 @@ interface CloneView {
 
 const emptyCloneView = (): CloneView => ({
   visible: false,
+  revealed: false,
   inputActive: false,
   playerLocked: false,
   controlled: 'north',
@@ -1544,7 +1546,8 @@ export default function Game() {
     const controlled: CloneDirection = northRow !== null ? 'north' : 'south';
     const clones: CloneView = {
       visible: true,
-      inputActive: true,
+      revealed: false,
+      inputActive: false,
       playerLocked: true,
       controlled,
       turn: 0,
@@ -1556,12 +1559,19 @@ export default function Game() {
     };
     cloneSessionRef.current = clones;
     setCloneView(clones);
-    showMessage(`${controlled.toUpperCase()} clone controlled · X Attack · Y Switch · B Defend`, 1800);
+    showMessage('Clones materializing…', 1300);
     if (skillFxTimerRef.current) clearTimeout(skillFxTimerRef.current);
     setSkillFxRun((run) => run + 1);
     setSkillFxActive(true);
     skillFxTimerRef.current = setTimeout(() => {
       setSkillFxActive(false);
+      const current = cloneSessionRef.current;
+      if (current.visible && !current.revealed) {
+        const revealed: CloneView = { ...current, revealed: true, inputActive: true };
+        cloneSessionRef.current = revealed;
+        setCloneView(revealed);
+        showMessage(`${revealed.controlled.toUpperCase()} clone controlled · X Attack · Y Switch · B Defend`, 1800);
+      }
       skillFxTimerRef.current = null;
     }, 1530);
   }, [showMessage]);
@@ -2421,7 +2431,7 @@ export default function Game() {
       const positionClone = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
         if (!wrap) return;
         const row = cloneSessionRef.current.rows[direction];
-        const onGrid = cloneSessionRef.current.visible && row !== null;
+        const onGrid = cloneSessionRef.current.visible && cloneSessionRef.current.revealed && row !== null;
         wrap.style.display = onGrid ? 'block' : 'none';
         if (!onGrid || row === null) return;
         const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
@@ -2785,7 +2795,7 @@ export default function Game() {
         </>
       )}
 
-      {phase === 'playing' && cloneView.visible && (
+      {phase === 'playing' && cloneView.visible && cloneView.revealed && (
         <>
           {(['north', 'south'] as const).map((direction) => {
             const status = cloneView.statuses[direction];
@@ -2817,6 +2827,46 @@ export default function Game() {
             );
           })}
         </>
+      )}
+
+      {phase === 'playing' && cloneView.inputActive && (
+        <div
+          id="cloneActionControls"
+          style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}
+        >
+          <button
+            className="cloneActionBtn attack"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              resolveCloneAction('attack');
+            }}
+          >
+            <b>X</b>
+            ATTACK
+          </button>
+          <button
+            className="cloneActionBtn switch"
+            disabled={cloneView.turn !== 0
+              || cloneView.rows[cloneView.controlled === 'north' ? 'south' : 'north'] === null}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              switchCloneControl();
+            }}
+          >
+            <b>Y</b>
+            SWITCH
+          </button>
+          <button
+            className="cloneActionBtn defend"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              resolveCloneAction('defend');
+            }}
+          >
+            <b>B</b>
+            DEFEND
+          </button>
+        </div>
       )}
 
       {/* HUD */}
