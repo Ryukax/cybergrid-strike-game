@@ -368,7 +368,7 @@ interface HudData {
 }
 
 type CloneDirection = 'north' | 'south';
-type CloneStatus = 'idle' | 'attacking' | 'defending' | 'defendingHeld' | 'dispersing' | 'gone';
+type CloneStatus = 'idle' | 'attacking' | 'autofiring' | 'defending' | 'defendingHeld' | 'dispersing' | 'gone';
 interface CloneView {
   visible: boolean;
   revealed: boolean;
@@ -1594,22 +1594,15 @@ export default function Game() {
       cloneActionTimersRef.current[direction] = setTimeout(() => {
         cloneActionTimersRef.current[direction] = null;
         const latest = cloneSessionRef.current;
-        const other: CloneDirection = direction === 'north' ? 'south' : 'north';
-        const otherIsDefending = latest.statuses[other] === 'defending'
-          || latest.statuses[other] === 'defendingHeld';
-        if (otherIsDefending) {
-          const refreshed: CloneView = {
-            ...latest,
-            inputActive: true,
-            controlled: direction,
-            statuses: { ...latest.statuses, [direction]: 'idle' },
-          };
-          cloneSessionRef.current = refreshed;
-          setCloneView(refreshed);
-          scheduleCloneExpiry(direction);
-          return;
-        }
-        advanceToSecondClone(direction, true);
+        const refreshed: CloneView = {
+          ...latest,
+          inputActive: true,
+          controlled: direction,
+          statuses: { ...latest.statuses, [direction]: 'idle' },
+        };
+        cloneSessionRef.current = refreshed;
+        setCloneView(refreshed);
+        scheduleCloneExpiry(direction);
       }, 520);
     } else if (firstAction) {
       holdCloneDefenseFrame(direction);
@@ -1685,7 +1678,11 @@ export default function Game() {
         ...clone,
         controlled: next,
         inputActive: true,
-        statuses: { ...clone.statuses, [direction]: 'defending' },
+        statuses: {
+          ...clone.statuses,
+          [direction]: 'defending',
+          [next]: 'idle',
+        },
       };
       cloneSessionRef.current = switched;
       setCloneView(switched);
@@ -1717,7 +1714,14 @@ export default function Game() {
         ...activeClones,
         controlled: next,
         inputActive: true,
-        statuses: { ...activeClones.statuses, [direction]: 'attacking' },
+        statuses: {
+          ...activeClones.statuses,
+          [direction]: 'autofiring',
+          [next]: activeClones.statuses[next] === 'defending'
+            || activeClones.statuses[next] === 'defendingHeld'
+            ? 'idle'
+            : activeClones.statuses[next],
+        },
       };
       cloneSessionRef.current = sustained;
       setCloneView(sustained);
@@ -1735,7 +1739,7 @@ export default function Game() {
       cloneAutoFireTimersRef.current[direction] = setInterval(() => {
         const latest = cloneSessionRef.current;
         const latestRow = latest.rows[direction];
-        if (!latest.visible || latestRow === null || latest.statuses[direction] !== 'attacking') {
+        if (!latest.visible || latestRow === null || latest.statuses[direction] !== 'autofiring') {
           const timer = cloneAutoFireTimersRef.current[direction];
           if (timer) clearInterval(timer);
           cloneAutoFireTimersRef.current[direction] = null;
@@ -3116,6 +3120,7 @@ export default function Game() {
             const controlled = cloneView.playerLocked && cloneView.controlled === direction;
             const defending = status === 'defending' || status === 'defendingHeld';
             const attacking = status === 'attacking';
+            const autofiring = status === 'autofiring';
             return (
               <div
                 key={direction}
@@ -3125,6 +3130,7 @@ export default function Game() {
                   controlled ? 'controlled' : '',
                   defending ? 'defending' : '',
                   attacking ? 'attacking' : '',
+                  autofiring ? 'autofiring' : '',
                   skillFxActive ? 'materializing' : '',
                   status === 'dispersing' ? 'dispersing' : '',
                 ].filter(Boolean).join(' ')}
@@ -3139,8 +3145,8 @@ export default function Game() {
                   }`}
                   alt=""
                 />
-                {attacking && (
-                  <span className="cloneAttackFrames" aria-hidden="true">
+                {(attacking || autofiring) && (
+                  <span className={`cloneAttackFrames${autofiring ? ' sustained' : ''}`} aria-hidden="true">
                     {[0, 1, 2].map((frame) => (
                       <img
                         key={frame}
