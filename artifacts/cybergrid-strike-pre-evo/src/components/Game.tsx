@@ -366,6 +366,28 @@ interface HudData {
   ecosystem: { species: number; mutations: number; generation: number; fusions: number };
 }
 
+type CloneDirection = 'north' | 'south';
+type CloneStatus = 'idle' | 'attacking' | 'defending' | 'dispersing' | 'gone';
+interface CloneView {
+  visible: boolean;
+  inputActive: boolean;
+  playerLocked: boolean;
+  controlled: CloneDirection;
+  turn: 0 | 1;
+  statuses: Record<CloneDirection, CloneStatus>;
+  rows: Record<CloneDirection, number | null>;
+}
+
+const emptyCloneView = (): CloneView => ({
+  visible: false,
+  inputActive: false,
+  playerLocked: false,
+  controlled: 'north',
+  turn: 0,
+  statuses: { north: 'gone', south: 'gone' },
+  rows: { north: null, south: null },
+});
+
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<GameState>(makeInitialState());
@@ -384,6 +406,7 @@ export default function Game() {
     rotate: false, prevRotate: false, // button 8/17 → rotate hand
     start: false, prevStart: false,   // button 9 → pause
     l1: false, prevL1: false,         // button 4 → combo modifier
+    skill: false, prevSkill: false,   // button 6 / L2 → skill animation
     r1: false, prevR1: false,         // button 5 → evolution prompt
     connected: false,
   });
@@ -397,6 +420,17 @@ export default function Game() {
   // Direct DOM refs for smooth per-frame bar + label updates (no React setState)
   const cardBarFillRef = useRef<HTMLDivElement>(null);
   const cardLabelRef = useRef<HTMLDivElement>(null);
+  const skillButtonRef = useRef<HTMLButtonElement>(null);
+  const skillNorthFxRef = useRef<HTMLDivElement>(null);
+  const skillSouthFxRef = useRef<HTMLDivElement>(null);
+  const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cloneNorthRef = useRef<HTMLDivElement>(null);
+  const cloneSouthRef = useRef<HTMLDivElement>(null);
+  const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
+    north: null,
+    south: null,
+  });
+  const cloneSessionRef = useRef<CloneView>(emptyCloneView());
 
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
   const phaseRef = useRef<'menu' | 'playing'>('menu');
@@ -420,6 +454,9 @@ export default function Game() {
   const [virtualDpadEnabled, setVirtualDpadEnabled] = useState(
     () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
   );
+  const [skillFxRun, setSkillFxRun] = useState(0);
+  const [skillFxActive, setSkillFxActive] = useState(false);
+  const [cloneView, setCloneView] = useState<CloneView>(emptyCloneView);
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
@@ -1395,6 +1432,141 @@ export default function Game() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }, []);
 
+  const disperseClone = useCallback((direction: CloneDirection, returnControl: boolean) => {
+    const current = cloneSessionRef.current;
+    if (current.statuses[direction] === 'gone' || current.statuses[direction] === 'dispersing') return;
+    const dispersing: CloneView = {
+      ...current,
+      inputActive: returnControl ? false : current.inputActive,
+      statuses: { ...current.statuses, [direction]: 'dispersing' },
+    };
+    cloneSessionRef.current = dispersing;
+    setCloneView(dispersing);
+    const existing = cloneActionTimersRef.current[direction];
+    if (existing) clearTimeout(existing);
+    cloneActionTimersRef.current[direction] = setTimeout(() => {
+      const latest = cloneSessionRef.current;
+      const statuses = { ...latest.statuses, [direction]: 'gone' as CloneStatus };
+      const visible = statuses.north !== 'gone' || statuses.south !== 'gone';
+      const settled: CloneView = {
+        ...latest,
+        visible,
+        playerLocked: returnControl ? false : latest.playerLocked,
+        statuses,
+      };
+      cloneSessionRef.current = settled;
+      setCloneView(settled);
+      cloneActionTimersRef.current[direction] = null;
+      if (returnControl) showMessage('Clone sequence complete — Player control restored.', 1100);
+    }, 360);
+  }, [showMessage]);
+
+  const advanceToSecondClone = useCallback((from: CloneDirection) => {
+    const next: CloneDirection = from === 'north' ? 'south' : 'north';
+    const clone = cloneSessionRef.current;
+    if (clone.rows[next] === null || clone.statuses[next] === 'gone') {
+      cloneSessionRef.current = { ...clone, inputActive: false, playerLocked: false };
+      setCloneView(cloneSessionRef.current);
+      showMessage('No second clone available — Player control restored.', 1000);
+      return;
+    }
+    const advanced: CloneView = {
+      ...clone,
+      inputActive: true,
+      controlled: next,
+      turn: 1,
+    };
+    cloneSessionRef.current = advanced;
+    setCloneView(advanced);
+    showMessage(`${next.toUpperCase()} clone controlled · X Attack · B Defend`, 1200);
+  }, [showMessage]);
+
+  const resolveCloneAction = useCallback((action: 'attack' | 'defend') => {
+    const clone = cloneSessionRef.current;
+    if (!clone.inputActive) return;
+    const direction = clone.controlled;
+    const row = clone.rows[direction];
+    if (row === null) return;
+    const firstAction = clone.turn === 0;
+    const status: CloneStatus = action === 'attack' ? 'attacking' : 'defending';
+    const committed: CloneView = {
+      ...clone,
+      inputActive: false,
+      statuses: { ...clone.statuses, [direction]: status },
+    };
+    cloneSessionRef.current = committed;
+    setCloneView(committed);
+
+    if (action === 'attack') {
+      fireBullet(row, { power: 3, big: true, pierce: true });
+      showMessage(`${direction.toUpperCase()} clone attacked.`, 700);
+      const existing = cloneActionTimersRef.current[direction];
+      if (existing) clearTimeout(existing);
+      cloneActionTimersRef.current[direction] = setTimeout(() => {
+        disperseClone(direction, !firstAction);
+        if (firstAction) advanceToSecondClone(direction);
+      }, 520);
+    } else if (firstAction) {
+      showMessage(`${direction.toUpperCase()} clone defending until hit.`, 850);
+      advanceToSecondClone(direction);
+    } else {
+      const released: CloneView = {
+        ...cloneSessionRef.current,
+        inputActive: false,
+        playerLocked: false,
+      };
+      cloneSessionRef.current = released;
+      setCloneView(released);
+      showMessage(`${direction.toUpperCase()} clone guarding — Player control restored.`, 1200);
+    }
+  }, [advanceToSecondClone, disperseClone, fireBullet, showMessage]);
+
+  const switchCloneControl = useCallback(() => {
+    const clone = cloneSessionRef.current;
+    if (!clone.inputActive || clone.turn !== 0) return;
+    const direction = clone.controlled;
+    const guarded: CloneView = {
+      ...clone,
+      inputActive: false,
+      statuses: { ...clone.statuses, [direction]: 'defending' },
+    };
+    cloneSessionRef.current = guarded;
+    setCloneView(guarded);
+    advanceToSecondClone(direction);
+  }, [advanceToSecondClone]);
+
+  const playSkillAnimation = useCallback(() => {
+    const s = stateRef.current;
+    if (phaseRef.current !== 'playing' || !s.running || pausedRef.current
+      || cloneSessionRef.current.visible) return;
+    ensureAudio();
+    const northRow = s.player.row > 0 ? s.player.row - 1 : null;
+    const southRow = s.player.row < 2 ? s.player.row + 1 : null;
+    const controlled: CloneDirection = northRow !== null ? 'north' : 'south';
+    const clones: CloneView = {
+      visible: true,
+      inputActive: true,
+      playerLocked: true,
+      controlled,
+      turn: 0,
+      statuses: {
+        north: northRow === null ? 'gone' : 'idle',
+        south: southRow === null ? 'gone' : 'idle',
+      },
+      rows: { north: northRow, south: southRow },
+    };
+    cloneSessionRef.current = clones;
+    setCloneView(clones);
+    showMessage(`${controlled.toUpperCase()} clone controlled · X Attack · Y Switch · B Defend`, 1800);
+    if (skillFxTimerRef.current) clearTimeout(skillFxTimerRef.current);
+    setSkillFxRun((run) => run + 1);
+    setSkillFxActive(true);
+    skillFxTimerRef.current = setTimeout(() => {
+      setSkillFxActive(false);
+      skillFxTimerRef.current = null;
+    }, 1530);
+  }, [showMessage]);
+
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
@@ -1413,6 +1585,7 @@ export default function Game() {
         g.rotate = false; g.prevRotate = false;
         g.start = false; g.prevStart = false;
         g.l1 = false; g.prevL1 = false;
+        g.skill = false; g.prevSkill = false;
         g.r1 = false; g.prevR1 = false;
       }
       return;
@@ -1434,6 +1607,7 @@ export default function Game() {
     g.rotate = buttonPressed(8) || buttonPressed(17);   // View / ellipsis / share
     g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
     g.prevL1 = g.l1; g.l1 = buttonPressed(4);          // L1 modifier
+    g.prevSkill = g.skill; g.skill = buttonPressed(6); // L2 → skill animation
     g.prevR1 = g.r1; g.r1 = buttonPressed(5);          // R1 → evolution prompt
     g.moveX = moveX;
     g.moveY = moveY;
@@ -1512,7 +1686,16 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
-    const eloFlipCombo = playerSkinRef.current === 'gem'
+    if (gp.skill && !gp.prevSkill) playSkillAnimation();
+    const cloneInputActive = cloneSessionRef.current.inputActive;
+    const cloneControlActive = cloneSessionRef.current.playerLocked;
+    if (cloneInputActive) {
+      if (gp.cardX && !gp.prevCardX) resolveCloneAction('attack');
+      else if (gp.cardY && !gp.prevCardY) switchCloneControl();
+      else if (gp.cardB && !gp.prevCardB) resolveCloneAction('defend');
+    }
+    const eloFlipCombo = !cloneControlActive
+      && playerSkinRef.current === 'gem'
       && gp.moveX < -0.15
       && ((gp.prevMoveX >= -0.15 && gp.l1) || (gp.l1 && !gp.prevL1));
     if (eloFlipCombo) {
@@ -1524,10 +1707,12 @@ export default function Game() {
       );
     }
     let dx = 0, dy = 0;
-    if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
-    if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
-    if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
-    if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
+    if (!cloneControlActive) {
+      if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
+      if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
+      if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
+      if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
+    }
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
       const nc = Math.max(0, Math.min(2, s.player.col + dx));
@@ -1537,9 +1722,9 @@ export default function Game() {
         controllerCooldownRef.current = 0.16;
       }
     }
-    if (gp.fire && !fireHeldRef.current) manualBuster();
+    if (!cloneControlActive && gp.fire && !fireHeldRef.current) manualBuster();
     fireHeldRef.current = gp.fire;
-    if (gp.rotate && !gp.prevRotate) {
+    if (!cloneControlActive && gp.rotate && !gp.prevRotate) {
       if (gp.l1) {
         s.autoBuster = !s.autoBuster;
         playAutoToggle();
@@ -1551,7 +1736,7 @@ export default function Game() {
     }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
-    if (!slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
+    if (!cloneControlActive && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
       if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
@@ -1846,6 +2031,18 @@ export default function Game() {
           e.flash = 0.06;
         }
       }
+      const clone = cloneSessionRef.current;
+      const struckDefender = (['north', 'south'] as const).find((direction) =>
+        clone.statuses[direction] === 'defending'
+        && clone.rows[direction] === e.row
+        && Math.round(e.colPos) === s.player.col
+        && e.colPos < s.player.col + 0.45);
+      if (struckDefender) {
+        e.colPos = -9;
+        playHit();
+        showMessage(`${struckDefender.toUpperCase()} clone absorbed the hit and dispersed.`, 1000);
+        disperseClone(struckDefender, false);
+      }
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
         const eloIsIntangible = playerSkinRef.current === 'gem' && !s.autoBuster;
         if (eloIsIntangible) {
@@ -2052,7 +2249,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, manualBuster, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, manualBuster, playSkillAnimation, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -2203,6 +2400,45 @@ export default function Game() {
           }
         }
       }
+
+      const metrics = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+      const skillButton = skillButtonRef.current;
+      if (skillButton) {
+        skillButton.style.left = `${Math.max(8, metrics.x - 78)}px`;
+        skillButton.style.top = `${metrics.y + metrics.boardH * 0.5}px`;
+      }
+      const positionSkillEffect = (wrap: HTMLDivElement | null, rowOffset: -1 | 1) => {
+        if (!wrap) return;
+        const targetRow = stateRef.current.player.row + rowOffset;
+        const onGrid = targetRow >= 0 && targetRow < 3;
+        wrap.style.display = onGrid ? 'block' : 'none';
+        if (!onGrid) return;
+        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+        const py = metrics.y + (targetRow + 0.5) * metrics.cell;
+        const width = Math.round(metrics.cell * 1.55);
+        wrap.style.left = `${px}px`;
+        wrap.style.top = `${py}px`;
+        wrap.style.width = `${width}px`;
+        wrap.style.height = `${Math.round(width * 2 / 3)}px`;
+      };
+      positionSkillEffect(skillNorthFxRef.current, -1);
+      positionSkillEffect(skillSouthFxRef.current, 1);
+
+      const positionClone = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
+        if (!wrap) return;
+        const row = cloneSessionRef.current.rows[direction];
+        const onGrid = cloneSessionRef.current.visible && row !== null;
+        wrap.style.display = onGrid ? 'block' : 'none';
+        if (!onGrid || row === null) return;
+        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+        const py = metrics.y + (row + 0.5) * metrics.cell;
+        wrap.style.left = `${px}px`;
+        wrap.style.top = `${py}px`;
+        wrap.style.width = `${Math.round(metrics.cell * 0.82)}px`;
+        wrap.style.height = `${Math.round(metrics.cell * 0.92)}px`;
+      };
+      positionClone(cloneNorthRef.current, 'north');
+      positionClone(cloneSouthRef.current, 'south');
     }
 
     animRef.current = requestAnimationFrame(loop);
@@ -2224,6 +2460,14 @@ export default function Game() {
   }, []);
 
   const startGame = useCallback((mode: GameMode = 'classic') => {
+    for (const direction of ['north', 'south'] as const) {
+      const timer = cloneActionTimersRef.current[direction];
+      if (timer) clearTimeout(timer);
+      cloneActionTimersRef.current[direction] = null;
+    }
+    const clearedClones = emptyCloneView();
+    cloneSessionRef.current = clearedClones;
+    setCloneView(clearedClones);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     eloAttackDirectionRef.current = 1;
     gemMoveMirrorRef.current = true;
@@ -2263,6 +2507,14 @@ export default function Game() {
 
   const restart = useCallback(() => {
     stopMusic();
+    for (const direction of ['north', 'south'] as const) {
+      const timer = cloneActionTimersRef.current[direction];
+      if (timer) clearTimeout(timer);
+      cloneActionTimersRef.current[direction] = null;
+    }
+    const clearedClones = emptyCloneView();
+    cloneSessionRef.current = clearedClones;
+    setCloneView(clearedClones);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
@@ -2350,6 +2602,7 @@ export default function Game() {
       else if ((ev.key === 'z' || ev.key === 'Z') && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       else if ((ev.key === 'x' || ev.key === 'X') && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       else if ((ev.key === 'c' || ev.key === 'C') && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
+      else if (ev.key === 'v' || ev.key === 'V') playSkillAnimation();
       else if (ev.key === 'r' || ev.key === 'R') rotateHand();
     };
     const onKeyUp = (ev: KeyboardEvent) => {
@@ -2391,7 +2644,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame, rotateHand, useCard]);
+  }, [resizeCanvas, loop, manualBuster, playSkillAnimation, setupDpad, startGame, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -2519,6 +2772,59 @@ export default function Game() {
         </div>
       )}
 
+      {phase === 'playing' && skillFxActive && (
+        <>
+          {(['north', 'south'] as const).map((direction) => (
+            <div
+              key={`${direction}-${skillFxRun}`}
+              ref={direction === 'north' ? skillNorthFxRef : skillSouthFxRef}
+              className="skillFxWrap"
+              data-direction={direction}
+              aria-hidden="true"
+            >
+              <img
+                src={`${import.meta.env.BASE_URL}effects/smoke-reveal-combined.webp?run=${skillFxRun}-${direction}`}
+                alt=""
+              />
+            </div>
+          ))}
+        </>
+      )}
+
+      {phase === 'playing' && cloneView.visible && (
+        <>
+          {(['north', 'south'] as const).map((direction) => {
+            const status = cloneView.statuses[direction];
+            if (cloneView.rows[direction] === null || status === 'gone') return null;
+            const controlled = cloneView.inputActive && cloneView.controlled === direction;
+            const defending = status === 'defending';
+            const attacking = status === 'attacking';
+            return (
+              <div
+                key={direction}
+                ref={direction === 'north' ? cloneNorthRef : cloneSouthRef}
+                className={[
+                  'cloneAvatar',
+                  controlled ? 'controlled' : '',
+                  defending ? 'defending' : '',
+                  attacking ? 'attacking' : '',
+                  status === 'dispersing' ? 'dispersing' : '',
+                ].filter(Boolean).join(' ')}
+                data-direction={direction}
+              >
+                <img
+                  src={`${import.meta.env.BASE_URL}effects/${
+                    defending ? 'temporary-avatar-defense.png' : 'temporary-avatar.png'
+                  }`}
+                  alt=""
+                />
+                {controlled && <span>{direction.toUpperCase()}</span>}
+              </div>
+            );
+          })}
+        </>
+      )}
+
       {/* HUD */}
       <div className="hud" id="hud">
         <div className="panel">
@@ -2558,6 +2864,21 @@ export default function Game() {
               : hud.pressureState === 'recovery' ? 'RECOVERY' : 'STEADY'}
           </span>
         </div>
+      )}
+
+      {phase === 'playing' && (
+        <button
+          ref={skillButtonRef}
+          id="skillBtn"
+          className="control-btn"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            playSkillAnimation();
+          }}
+        >
+          SKILL
+          <small>V · L2</small>
+        </button>
       )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
