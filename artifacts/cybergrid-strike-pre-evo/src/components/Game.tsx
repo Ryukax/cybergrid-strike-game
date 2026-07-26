@@ -434,6 +434,10 @@ export default function Game() {
     north: null,
     south: null,
   });
+  const cloneExpiryTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
+    north: null,
+    south: null,
+  });
   const cloneSessionRef = useRef<CloneView>(emptyCloneView());
 
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
@@ -1443,6 +1447,9 @@ export default function Game() {
   }, []);
 
   const disperseClone = useCallback((direction: CloneDirection, returnControl: boolean) => {
+    const expiryTimer = cloneExpiryTimersRef.current[direction];
+    if (expiryTimer) clearTimeout(expiryTimer);
+    cloneExpiryTimersRef.current[direction] = null;
     const current = cloneSessionRef.current;
     if (current.statuses[direction] === 'gone' || current.statuses[direction] === 'dispersing') return;
     const dispersing: CloneView = {
@@ -1471,25 +1478,48 @@ export default function Game() {
     }, 360);
   }, [showMessage]);
 
-  const advanceToSecondClone = useCallback((from: CloneDirection) => {
+  const scheduleCloneExpiry = useCallback((direction: CloneDirection) => {
+    const existing = cloneExpiryTimersRef.current[direction];
+    if (existing) clearTimeout(existing);
+    cloneExpiryTimersRef.current[direction] = setTimeout(() => {
+      cloneExpiryTimersRef.current[direction] = null;
+      const latest = cloneSessionRef.current;
+      const other: CloneDirection = direction === 'north' ? 'south' : 'north';
+      const otherAvailable = latest.rows[other] !== null
+        && latest.statuses[other] !== 'gone'
+        && latest.statuses[other] !== 'dispersing';
+      disperseClone(direction, !otherAvailable);
+    }, 3000);
+  }, [disperseClone]);
+
+  const advanceToSecondClone = useCallback((from: CloneDirection, expirePrevious = false) => {
     const next: CloneDirection = from === 'north' ? 'south' : 'north';
     const clone = cloneSessionRef.current;
     if (clone.rows[next] === null || clone.statuses[next] === 'gone') {
+      if (expirePrevious) scheduleCloneExpiry(from);
       cloneSessionRef.current = { ...clone, inputActive: false, playerLocked: false };
       setCloneView(cloneSessionRef.current);
-      showMessage('No second clone available — Player control restored.', 1000);
+      showMessage('Player control restored.', 1000);
       return;
     }
+    const nextExpiry = cloneExpiryTimersRef.current[next];
+    if (nextExpiry) clearTimeout(nextExpiry);
+    cloneExpiryTimersRef.current[next] = null;
+    if (expirePrevious) scheduleCloneExpiry(from);
     const advanced: CloneView = {
       ...clone,
       inputActive: true,
       controlled: next,
       turn: 1,
+      statuses: {
+        ...clone.statuses,
+        [from]: clone.statuses[from] === 'attacking' ? 'idle' : clone.statuses[from],
+      },
     };
     cloneSessionRef.current = advanced;
     setCloneView(advanced);
     showMessage('Clone controlled · X Attack · B Defend', 1200);
-  }, [showMessage]);
+  }, [scheduleCloneExpiry, showMessage]);
 
   const holdCloneDefenseFrame = useCallback((direction: CloneDirection) => {
     const existing = cloneActionTimersRef.current[direction];
@@ -1527,6 +1557,9 @@ export default function Game() {
     setCloneView(committed);
 
     if (action === 'attack') {
+      const activeExpiry = cloneExpiryTimersRef.current[direction];
+      if (activeExpiry) clearTimeout(activeExpiry);
+      cloneExpiryTimersRef.current[direction] = null;
       fireBullet(row, {
         power: 3,
         big: true,
@@ -1537,8 +1570,24 @@ export default function Game() {
       const existing = cloneActionTimersRef.current[direction];
       if (existing) clearTimeout(existing);
       cloneActionTimersRef.current[direction] = setTimeout(() => {
-        disperseClone(direction, !firstAction);
-        if (firstAction) advanceToSecondClone(direction);
+        cloneActionTimersRef.current[direction] = null;
+        const latest = cloneSessionRef.current;
+        const other: CloneDirection = direction === 'north' ? 'south' : 'north';
+        const otherIsDefending = latest.statuses[other] === 'defending'
+          || latest.statuses[other] === 'defendingHeld';
+        if (otherIsDefending) {
+          const refreshed: CloneView = {
+            ...latest,
+            inputActive: true,
+            controlled: direction,
+            statuses: { ...latest.statuses, [direction]: 'idle' },
+          };
+          cloneSessionRef.current = refreshed;
+          setCloneView(refreshed);
+          scheduleCloneExpiry(direction);
+          return;
+        }
+        advanceToSecondClone(direction, true);
       }, 520);
     } else if (firstAction) {
       holdCloneDefenseFrame(direction);
@@ -1555,7 +1604,7 @@ export default function Game() {
       setCloneView(released);
       showMessage('Clone guarding — Player control restored.', 1200);
     }
-  }, [advanceToSecondClone, disperseClone, fireBullet, holdCloneDefenseFrame, showMessage]);
+  }, [advanceToSecondClone, fireBullet, holdCloneDefenseFrame, scheduleCloneExpiry, showMessage]);
 
   const moveControlledClone = useCallback((dx: number, dy: number) => {
     const clone = cloneSessionRef.current;
@@ -1598,23 +1647,70 @@ export default function Game() {
 
   const switchCloneControl = useCallback(() => {
     const clone = cloneSessionRef.current;
-    if (!clone.inputActive || clone.turn !== 0) return;
+    if (!clone.inputActive) return;
     const direction = clone.controlled;
-    const guarded: CloneView = {
-      ...clone,
-      inputActive: false,
-      statuses: { ...clone.statuses, [direction]: 'defending' },
-    };
-    cloneSessionRef.current = guarded;
-    setCloneView(guarded);
-    holdCloneDefenseFrame(direction);
-    advanceToSecondClone(direction);
-  }, [advanceToSecondClone, holdCloneDefenseFrame]);
+    const next: CloneDirection = direction === 'north' ? 'south' : 'north';
+    const nextIsDefending = clone.statuses[next] === 'defending'
+      || clone.statuses[next] === 'defendingHeld';
+    if (nextIsDefending) {
+      const sourceExpiry = cloneExpiryTimersRef.current[direction];
+      if (sourceExpiry) clearTimeout(sourceExpiry);
+      cloneExpiryTimersRef.current[direction] = null;
+      const nextExpiry = cloneExpiryTimersRef.current[next];
+      if (nextExpiry) clearTimeout(nextExpiry);
+      cloneExpiryTimersRef.current[next] = null;
+      const switched: CloneView = {
+        ...clone,
+        controlled: next,
+        inputActive: true,
+        statuses: { ...clone.statuses, [direction]: 'defending' },
+      };
+      cloneSessionRef.current = switched;
+      setCloneView(switched);
+      holdCloneDefenseFrame(direction);
+      showMessage('Control switched · previous clone defending.', 1100);
+      return;
+    }
+    advanceToSecondClone(direction, true);
+  }, [advanceToSecondClone, holdCloneDefenseFrame, showMessage]);
 
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
-    if (phaseRef.current !== 'playing' || !s.running || pausedRef.current
-      || cloneSessionRef.current.visible) return;
+    if (phaseRef.current !== 'playing' || !s.running || pausedRef.current) return;
+    const activeClones = cloneSessionRef.current;
+    if (activeClones.visible) {
+      if (!activeClones.inputActive) return;
+      const direction = activeClones.controlled;
+      const next: CloneDirection = direction === 'north' ? 'south' : 'north';
+      if (activeClones.rows[next] === null
+        || activeClones.statuses[next] === 'gone'
+        || activeClones.statuses[next] === 'dispersing') return;
+      const sourceExpiry = cloneExpiryTimersRef.current[direction];
+      if (sourceExpiry) clearTimeout(sourceExpiry);
+      cloneExpiryTimersRef.current[direction] = null;
+      const nextExpiry = cloneExpiryTimersRef.current[next];
+      if (nextExpiry) clearTimeout(nextExpiry);
+      cloneExpiryTimersRef.current[next] = null;
+      const sustained: CloneView = {
+        ...activeClones,
+        controlled: next,
+        inputActive: true,
+        statuses: { ...activeClones.statuses, [direction]: 'attacking' },
+      };
+      cloneSessionRef.current = sustained;
+      setCloneView(sustained);
+      const attackRow = activeClones.rows[direction];
+      if (attackRow !== null) {
+        fireBullet(attackRow, {
+          power: 3,
+          big: true,
+          pierce: true,
+          originCol: activeClones.cols[direction] ?? s.player.col,
+        });
+      }
+      showMessage('Clone sustaining attack · control switched.', 1200);
+      return;
+    }
     ensureAudio();
     const clockwiseOffsets = [
       { col: 0, row: -1 }, { col: 1, row: -1 },
@@ -1689,7 +1785,7 @@ export default function Game() {
         skillFxTimerRef.current = null;
       }, 1530);
     }, 900);
-  }, [showMessage]);
+  }, [fireBullet, showMessage]);
 
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -2599,6 +2695,9 @@ export default function Game() {
       const timer = cloneActionTimersRef.current[direction];
       if (timer) clearTimeout(timer);
       cloneActionTimersRef.current[direction] = null;
+      const expiryTimer = cloneExpiryTimersRef.current[direction];
+      if (expiryTimer) clearTimeout(expiryTimer);
+      cloneExpiryTimersRef.current[direction] = null;
     }
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
@@ -2646,6 +2745,9 @@ export default function Game() {
       const timer = cloneActionTimersRef.current[direction];
       if (timer) clearTimeout(timer);
       cloneActionTimersRef.current[direction] = null;
+      const expiryTimer = cloneExpiryTimersRef.current[direction];
+      if (expiryTimer) clearTimeout(expiryTimer);
+      cloneExpiryTimersRef.current[direction] = null;
     }
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
@@ -3021,8 +3123,9 @@ export default function Game() {
           </button>
           <button
             className="cloneActionBtn switch"
-            disabled={cloneView.turn !== 0
-              || cloneView.rows[cloneView.controlled === 'north' ? 'south' : 'north'] === null}
+            disabled={cloneView.rows[cloneView.controlled === 'north' ? 'south' : 'north'] === null
+              || cloneView.statuses[cloneView.controlled === 'north' ? 'south' : 'north'] === 'gone'
+              || cloneView.statuses[cloneView.controlled === 'north' ? 'south' : 'north'] === 'dispersing'}
             onPointerDown={(event) => {
               event.stopPropagation();
               switchCloneControl();
