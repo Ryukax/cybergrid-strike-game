@@ -70,6 +70,8 @@ export interface Enemy {
   stasisTriggered?: boolean;
   catalystMarked?: boolean;
   ability?: EnemyAbility;
+  /** Existing player ability translated into this enemy's constitution counterpart. */
+  counterpartAbilityId?: string;
   abilityCooldown?: number;
   abilityWindup?: number;
 }

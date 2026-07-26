@@ -74,6 +74,9 @@ const CYBER_BASES = new Set([
 ]);
 const BESTIARY_KEY = 'cgs_bestiary_v1';
 const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
+const LEARNED_ABILITIES_KEY = 'cgs_learned_abilities_v1';
+const PLAYSTYLE_SIGNALS_KEY = 'cgs_playstyle_signals_v1';
+const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
 const SYNCHRONY_THRESHOLD = 3;
 
 interface BestiaryEntry {
@@ -91,6 +94,45 @@ interface AbilityBlueprint {
   function: string;
   medium: string;
 }
+
+interface LearnedAbility {
+  id: string;
+  source: 'foundation' | 'constitution' | 'playstyle';
+  reason: string;
+  learnedAt: number;
+}
+
+const FOUNDATION_ABILITIES: LearnedAbility[] = [
+  { id: 'shotgun', source: 'foundation', reason: 'Foundational spread offense.', learnedAt: 0 },
+  { id: 'pierce', source: 'foundation', reason: 'Foundational precision offense.', learnedAt: 0 },
+  { id: 'heal', source: 'foundation', reason: 'Foundational recovery protocol.', learnedAt: 0 },
+  { id: 'shield', source: 'foundation', reason: 'Foundational defensive protocol.', learnedAt: 0 },
+  { id: 'scramble', source: 'foundation', reason: 'Foundational formation control.', learnedAt: 0 },
+  { id: 'backdash', source: 'foundation', reason: 'Foundational displacement control.', learnedAt: 0 },
+];
+
+type PlaystyleSignal =
+  | 'manualFire'
+  | 'autoOffFire'
+  | 'movement'
+  | 'abilityUse'
+  | 'rotation'
+  | 'cloneDefense'
+  | 'cloneAutofire';
+
+const PLAYSTYLE_MANIFESTATIONS: Record<PlaystyleSignal, {
+  threshold: number;
+  abilityId: string;
+  reason: string;
+}> = {
+  manualFire: { threshold: 18, abilityId: 'snipe', reason: 'Deliberate manual firing manifested precision.' },
+  autoOffFire: { threshold: 10, abilityId: 'marksman', reason: 'Fighting without Auto manifested disciplined aim.' },
+  movement: { threshold: 30, abilityId: 'backdash', reason: 'Sustained repositioning manifested evasive momentum.' },
+  abilityUse: { threshold: 15, abilityId: 'adaptive', reason: 'Frequent card use manifested adaptive ammunition.' },
+  rotation: { threshold: 8, abilityId: 'elementswap', reason: 'Repeated hand rotation manifested affinity control.' },
+  cloneDefense: { threshold: 5, abilityId: 'shield', reason: 'Clone guarding manifested a portable ward.' },
+  cloneAutofire: { threshold: 4, abilityId: 'turret', reason: 'Persistent clone fire manifested autonomous coverage.' },
+};
 
 interface RunUpgrade {
   id: string;
@@ -253,6 +295,19 @@ function abilityBlueprintFor(genome: EnemyGenome): AbilityBlueprint {
 
 function linkedPlayerAbility(genome: EnemyGenome): string {
   return abilityBlueprintFor(genome).abilityId;
+}
+
+function enemyCounterpartFor(genome: EnemyGenome): EnemyAbility | undefined {
+  const mature = genome.fusionLevel > 0 || (genome.generation >= 2 && genome.mutations.length >= 2);
+  if (!mature) return undefined;
+  const intrinsic = enemyAbilityFor(genome);
+  if (intrinsic) return intrinsic;
+  const { function: fn } = abilityBlueprintFor(genome);
+  if (fn === 'restore') return 'mendingPulse';
+  if (fn === 'ward') return 'arcArmor';
+  if (fn === 'adapt' || fn === 'inhibit') return 'laneShift';
+  if (fn === 'reveal') return 'phaseLeap';
+  return 'momentumCharge';
 }
 
 function genomeSignature(enemy: GameState['enemies'][number]): string | undefined {
@@ -599,6 +654,59 @@ export default function Game() {
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
   const [cloneView, setCloneView] = useState<CloneView>(emptyCloneView);
+  const [learnedAbilities, setLearnedAbilities] = useState<LearnedAbility[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(LEARNED_ABILITIES_KEY) ?? '[]');
+      const learned = Array.isArray(stored)
+        ? stored.filter((entry: LearnedAbility) => entry?.id && ABILITY_LOOKUP[entry.id])
+        : [];
+      const learnedIds = new Set(learned.map((entry: LearnedAbility) => entry.id));
+      return [...learned, ...FOUNDATION_ABILITIES.filter((entry) => !learnedIds.has(entry.id))];
+    } catch {
+      return [...FOUNDATION_ABILITIES];
+    }
+  });
+  const learnedAbilitiesRef = useRef(learnedAbilities);
+  const playstyleSignalsRef = useRef<Record<PlaystyleSignal, number>>((() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(PLAYSTYLE_SIGNALS_KEY) ?? '{}');
+      return {
+        manualFire: Number(stored.manualFire) || 0,
+        autoOffFire: Number(stored.autoOffFire) || 0,
+        movement: Number(stored.movement) || 0,
+        abilityUse: Number(stored.abilityUse) || 0,
+        rotation: Number(stored.rotation) || 0,
+        cloneDefense: Number(stored.cloneDefense) || 0,
+        cloneAutofire: Number(stored.cloneAutofire) || 0,
+      };
+    } catch {
+      return {
+        manualFire: 0, autoOffFire: 0, movement: 0, abilityUse: 0,
+        rotation: 0, cloneDefense: 0, cloneAutofire: 0,
+      };
+    }
+  })());
+  const learnAbility = useCallback((id: string, source: LearnedAbility['source'], reason: string) => {
+    if (!ABILITY_LOOKUP[id] || learnedAbilitiesRef.current.some((entry) => entry.id === id)) return;
+    const learned: LearnedAbility = { id, source, reason, learnedAt: Date.now() };
+    learnedAbilitiesRef.current = [learned, ...learnedAbilitiesRef.current];
+    localStorage.setItem(LEARNED_ABILITIES_KEY, JSON.stringify(learnedAbilitiesRef.current));
+    setLearnedAbilities(learnedAbilitiesRef.current);
+    const enabled = new Set(enabledAbilitiesRef.current);
+    enabled.add(id);
+    enabledAbilitiesRef.current = enabled;
+    localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...enabled]));
+    setEnabledAbilities(enabled);
+  }, []);
+  const registerPlaystyle = useCallback((signal: PlaystyleSignal) => {
+    const next = (playstyleSignalsRef.current[signal] ?? 0) + 1;
+    playstyleSignalsRef.current[signal] = next;
+    localStorage.setItem(PLAYSTYLE_SIGNALS_KEY, JSON.stringify(playstyleSignalsRef.current));
+    const manifestation = PLAYSTYLE_MANIFESTATIONS[signal];
+    if (next >= manifestation.threshold) {
+      learnAbility(manifestation.abilityId, 'playstyle', manifestation.reason);
+    }
+  }, [learnAbility]);
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
@@ -629,7 +737,7 @@ export default function Game() {
     if (existingIndex >= 0) {
       const existing = bestiaryRef.current[existingIndex];
       const observations = Math.min(SYNCHRONY_THRESHOLD, (existing.observations ?? 1) + 1);
-      const constitution = enemyAbilityFor(genome);
+      const constitution = enemyCounterpartFor(genome);
       const synchronizedAbilityId = observations >= SYNCHRONY_THRESHOLD && constitution
         ? linkedPlayerAbility(genome)
         : existing.synchronizedAbilityId;
@@ -638,12 +746,19 @@ export default function Game() {
         updated,
         ...bestiaryRef.current.filter((_, index) => index !== existingIndex),
       ];
-      if (synchronizedAbilityId) synchronizedAbilityIdsRef.current.add(synchronizedAbilityId);
+      if (synchronizedAbilityId) {
+        synchronizedAbilityIdsRef.current.add(synchronizedAbilityId);
+        learnAbility(
+          synchronizedAbilityId,
+          'constitution',
+          `${genome.baseElement}/${genome.element} constitution synchronized.`,
+        );
+      }
       localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
       setBestiaryEntries(bestiaryRef.current);
       return;
     }
-    const constitution = enemyAbilityFor(genome);
+    const constitution = enemyCounterpartFor(genome);
     const entry: BestiaryEntry = {
       signature,
       seed,
@@ -657,7 +772,7 @@ export default function Game() {
     bestiaryRef.current = [entry, ...bestiaryRef.current].slice(0, 160);
     localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
     setBestiaryEntries(bestiaryRef.current);
-  }, []);
+  }, [learnAbility]);
 
   // Player skin
   type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
@@ -828,8 +943,22 @@ export default function Game() {
   const [sessionCGRD, setSessionCGRD] = useState(0);
   const [gameKills,   setGameKills]   = useState<KillRecord[]>([]);
 
-  const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(ALL_ABILITY_IDS);
-  const enabledAbilitiesRef = useRef<Set<string>>(ALL_ABILITY_IDS);
+  const initialEnabledAbilities = (() => {
+    const learnedIds = new Set(learnedAbilities.map((entry) => entry.id));
+    try {
+      const stored = JSON.parse(localStorage.getItem(ENABLED_ABILITIES_KEY) ?? 'null');
+      if (Array.isArray(stored)) {
+        const valid = stored.filter((id): id is string =>
+          typeof id === 'string' && ALL_ABILITY_IDS.has(id) && learnedIds.has(id));
+        if (valid.length > 0) return new Set(valid);
+      }
+    } catch {
+      // Fall through to the complete core library.
+    }
+    return new Set(learnedIds);
+  })();
+  const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(initialEnabledAbilities);
+  const enabledAbilitiesRef = useRef<Set<string>>(initialEnabledAbilities);
 
   const [boardBottom, setBoardBottom] = useState(0);
 
@@ -962,16 +1091,19 @@ export default function Game() {
     // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
+    registerPlaystyle('movement');
     s.moveFlash = 0.15;
     playMove();
     updateHud();
     if (playerSkinRef.current === 'gem') gemMoveFlash();
-  }, [updateHud, gemMoveFlash]);
+  }, [updateHud, gemMoveFlash, registerPlaystyle]);
 
   const manualBuster = useCallback(() => {
     const s = stateRef.current;
     if (!s.running) return;
     if (s.player.fireCooldown <= 0) {
+      registerPlaystyle('manualFire');
+      if (!s.autoBuster) registerPlaystyle('autoOffFire');
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
       if (s.turretTimer > 0) {
@@ -980,7 +1112,7 @@ export default function Game() {
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
       s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25) / rapidScale;
     }
-  }, [fireBullet]);
+  }, [fireBullet, registerPlaystyle]);
 
   const endGame = useCallback((won = false) => {
     const s = stateRef.current;
@@ -1007,6 +1139,7 @@ export default function Game() {
     // Already used this hand or on cooldown — do nothing
     if (s.usedInHand.includes(type)) return;
     if ((s.abilityCooldowns[type] ?? 0) > 0) return;
+    registerPlaystyle('abilityUse');
 
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
@@ -1555,7 +1688,7 @@ export default function Game() {
     s.usedInHand = [...s.usedInHand, type];
 
     updateHud();
-  }, [fireBullet, addParticles, showMessage, updateHud]);
+  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -1567,6 +1700,7 @@ export default function Game() {
       s.currentCardOptions.every((id) => s.usedInHand.includes(id));
     if (allUsed) return;
     ensureAudio();
+    registerPlaystyle('rotation');
     s.rotateUsedThisHand = true;
     s.cardsReady = false;
     s.cardSelectionOpen = false;
@@ -1575,7 +1709,7 @@ export default function Game() {
     if (cardBarFillRef.current) cardBarFillRef.current.style.width = '0%';
     updateHud();
     showMessage('Timer reset — new hand incoming!', 1500);
-  }, [showMessage, updateHud]);
+  }, [showMessage, updateHud, registerPlaystyle]);
 
   const chooseRunUpgrade = useCallback((id: string) => {
     const s = stateRef.current;
@@ -1748,6 +1882,7 @@ export default function Game() {
       && clone.statuses[other] !== 'gone'
       && clone.statuses[other] !== 'dispersing';
     const status: CloneStatus = action === 'attack' ? 'attacking' : 'defending';
+    if (action === 'defend') registerPlaystyle('cloneDefense');
     const committed: CloneView = {
       ...clone,
       inputActive: false,
@@ -1802,7 +1937,7 @@ export default function Game() {
       setCloneView(released);
       showMessage('Clone guarding — Player control restored.', 1200);
     }
-  }, [advanceToSecondClone, fireBullet, holdCloneDefenseFrame, scheduleCloneExpiry, showMessage]);
+  }, [advanceToSecondClone, fireBullet, holdCloneDefenseFrame, scheduleCloneExpiry, showMessage, registerPlaystyle]);
 
   const moveControlledClone = useCallback((dx: number, dy: number) => {
     let clone = cloneSessionRef.current;
@@ -2003,6 +2138,7 @@ export default function Game() {
           originCol: latest.cols[direction] ?? stateRef.current.player.col,
         });
       }, 650);
+      registerPlaystyle('cloneAutofire');
       showMessage('Clone autofiring · control switched.', 1200);
       return;
     }
@@ -2083,7 +2219,7 @@ export default function Game() {
         skillFxTimerRef.current = null;
       }, 1530);
     }, 900);
-  }, [fireBullet, showMessage]);
+  }, [fireBullet, showMessage, registerPlaystyle]);
 
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -2507,7 +2643,8 @@ export default function Game() {
         genome,
         maxHp: hp,
         regenerationCharge: 0,
-        ability: enemyAbilityFor(genome),
+        ability: enemyCounterpartFor(genome),
+        counterpartAbilityId: linkedPlayerAbility(genome),
         abilityCooldown: 4.5 + Math.random() * 3,
         abilityWindup: 0,
       });
@@ -2557,24 +2694,39 @@ export default function Game() {
           e.abilityWindup = Math.max(0, (e.abilityWindup ?? 0) - dt);
           speedScale *= 0.12;
           if (e.abilityWindup <= 0) {
-            if (e.ability === 'momentumCharge') {
+            const counterpart = PLAYER_ABILITY_MATRIX.find((entry) =>
+              entry.abilityId === e.counterpartAbilityId);
+            const counterpartFunction = counterpart?.function;
+            if (counterpartFunction === 'impulse') {
+              if (e.row === s.player.row) s.player.col = Math.max(0, s.player.col - 1);
               e.colPos -= 0.85;
-            } else if (e.ability === 'phaseLeap') {
+            } else if (counterpartFunction === 'reveal') {
               e.colPos -= 0.65;
               e.flash = 0.12;
-            } else if (e.ability === 'mendingPulse') {
+            } else if (counterpartFunction === 'restore') {
               for (const ally of s.enemies) {
                 if (ally.colPos < -1 || ally.row !== e.row || Math.abs(ally.colPos - e.colPos) > 1.8) continue;
                 ally.hp = Math.min(ally.maxHp ?? ally.hp, ally.hp + 1);
                 ally.flash = 0.08;
               }
-            } else if (e.ability === 'laneShift') {
+            } else if (counterpartFunction === 'adapt') {
               const laneCounts = [0, 1, 2].map((row) =>
                 s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
               e.row = laneCounts.indexOf(Math.min(...laneCounts));
-            } else if (e.ability === 'arcArmor') {
+            } else if (counterpartFunction === 'ward') {
               e.maxHp = Math.min(9, (e.maxHp ?? e.hp) + 1);
               e.hp = Math.min(e.maxHp, e.hp + 1);
+            } else if (counterpartFunction === 'inhibit') {
+              s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.7);
+              s.cardTimer = Math.max(0, s.cardTimer - 0.7);
+            } else {
+              e.colPos -= counterpart?.delivery === 'projector' ? 0.7 : 0.45;
+              e.flash = 0.14;
+            }
+            if (counterpart?.medium === 'signal') {
+              s.cardTimer = Math.max(0, s.cardTimer - 0.35);
+            } else if (counterpart?.medium === 'thermal') {
+              s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.4);
             }
             e.abilityCooldown = 6.5 + (e.value % 4);
           }
@@ -2653,7 +2805,8 @@ export default function Game() {
         a.maxHp = a.hp;
         a.speed = (a.speed + b.speed) * 0.5;
         a.flash = 0.16;
-        a.ability = enemyAbilityFor(a.genome);
+        a.ability = enemyCounterpartFor(a.genome);
+        a.counterpartAbilityId = linkedPlayerAbility(a.genome);
         a.abilityCooldown = Math.max(3.5, a.abilityCooldown ?? 5);
         a.abilityWindup = 0;
         b.colPos = -9;
@@ -3308,7 +3461,7 @@ export default function Game() {
         <div id="bestiaryGrid">
           {bestiaryEntries.map((entry, index) => {
             const genome = entry.genome;
-            const constitutionAbility = enemyAbilityFor(genome);
+            const constitutionAbility = enemyCounterpartFor(genome);
             const blueprint = abilityBlueprintFor(genome);
             const linkedAbility = ABILITY_LOOKUP[blueprint.abilityId];
             const observations = Math.max(1, entry.observations ?? 1);
@@ -3814,35 +3967,37 @@ export default function Game() {
                 ))}
               </div>
 
-              <div id="customSubtitle" style={{ marginTop: '16px' }}>Abilities in card draws</div>
-              <div id="abilityToggleGrid">
-                {ABILITY_POOL.map((ability) => {
-                  const on = enabledAbilities.has(ability.id);
-                  return (
-                    <button
-                      key={ability.id}
-                      className={`ability-toggle-btn ${on ? 'enabled' : 'disabled'}`}
-                      onPointerDown={(ev) => {
-                        ev.stopPropagation();
-                        setEnabledAbilities((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(ability.id)) {
-                            // Keep at least one enabled
-                            if (next.size > 1) next.delete(ability.id);
-                          } else {
-                            next.add(ability.id);
-                          }
-                          enabledAbilitiesRef.current = next;
-                          return next;
-                        });
-                      }}
-                    >
-                      <span className="ability-toggle-name">{ability.name}</span>
-                      <span className="ability-toggle-desc">{ability.desc}</span>
-                      <span className="ability-toggle-badge">{on ? 'ON' : 'OFF'}</span>
-                    </button>
-                  );
-                })}
+              <div id="customSubtitle" style={{ marginTop: '16px' }}>Ability Loadout</div>
+              <div id="learnedLoadoutGrid">
+                  {learnedAbilities.map((learned) => {
+                    const ability = ABILITY_LOOKUP[learned.id];
+                    const on = enabledAbilities.has(learned.id);
+                    return (
+                      <button
+                        key={`${learned.source}-${learned.id}`}
+                        className={`learned-ability-btn ${on ? 'enabled' : 'disabled'}`}
+                        onPointerDown={(ev) => {
+                          ev.stopPropagation();
+                          setEnabledAbilities((previous) => {
+                            const next = new Set(previous);
+                            if (next.has(learned.id)) {
+                              if (next.size > 1) next.delete(learned.id);
+                            } else {
+                              next.add(learned.id);
+                            }
+                            enabledAbilitiesRef.current = next;
+                            localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...next]));
+                            return next;
+                          });
+                        }}
+                      >
+                        <span className="learned-ability-source">{learned.source}</span>
+                        <strong>{ability.name}</strong>
+                        <span>{learned.reason}</span>
+                        <b>{on ? 'IN LOADOUT' : 'RESERVE'}</b>
+                      </button>
+                    );
+                  })}
               </div>
               <button
                 id="menuBackBtn"
