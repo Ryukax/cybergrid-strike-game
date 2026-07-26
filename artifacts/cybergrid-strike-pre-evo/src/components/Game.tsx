@@ -459,6 +459,7 @@ export default function Game() {
     () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
   );
   const [skillFxRun, setSkillFxRun] = useState(0);
+  const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
   const [cloneView, setCloneView] = useState<CloneView>(emptyCloneView);
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
@@ -1487,7 +1488,7 @@ export default function Game() {
     };
     cloneSessionRef.current = advanced;
     setCloneView(advanced);
-    showMessage(`${next.toUpperCase()} clone controlled · X Attack · B Defend`, 1200);
+    showMessage('Clone controlled · X Attack · B Defend', 1200);
   }, [showMessage]);
 
   const holdCloneDefenseFrame = useCallback((direction: CloneDirection) => {
@@ -1532,7 +1533,7 @@ export default function Game() {
         pierce: true,
         originCol: clone.cols[direction] ?? stateRef.current.player.col,
       });
-      showMessage(`${direction.toUpperCase()} clone attacked.`, 700);
+      showMessage('Clone attacked.', 700);
       const existing = cloneActionTimersRef.current[direction];
       if (existing) clearTimeout(existing);
       cloneActionTimersRef.current[direction] = setTimeout(() => {
@@ -1541,7 +1542,7 @@ export default function Game() {
       }, 520);
     } else if (firstAction) {
       holdCloneDefenseFrame(direction);
-      showMessage(`${direction.toUpperCase()} clone defending until hit.`, 850);
+      showMessage('Clone defending until hit.', 850);
       advanceToSecondClone(direction);
     } else {
       holdCloneDefenseFrame(direction);
@@ -1552,7 +1553,7 @@ export default function Game() {
       };
       cloneSessionRef.current = released;
       setCloneView(released);
-      showMessage(`${direction.toUpperCase()} clone guarding — Player control restored.`, 1200);
+      showMessage('Clone guarding — Player control restored.', 1200);
     }
   }, [advanceToSecondClone, disperseClone, fireBullet, holdCloneDefenseFrame, showMessage]);
 
@@ -1644,7 +1645,7 @@ export default function Game() {
     const controlled: CloneDirection = northSpawn ? 'north' : 'south';
     const clones: CloneView = {
       visible: true,
-      revealed: true,
+      revealed: false,
       inputActive: false,
       playerLocked: true,
       controlled,
@@ -1661,21 +1662,33 @@ export default function Game() {
     };
     cloneSessionRef.current = clones;
     setCloneView(clones);
-    showMessage('Clones materializing…', 1300);
+    showMessage('Player channeling Skill…', 900);
     if (skillFxTimerRef.current) clearTimeout(skillFxTimerRef.current);
     setSkillFxRun((run) => run + 1);
-    setSkillFxActive(true);
+    setSkillPlayerFxActive(true);
+    setSkillFxActive(false);
     skillFxTimerRef.current = setTimeout(() => {
-      setSkillFxActive(false);
+      setSkillPlayerFxActive(false);
       const current = cloneSessionRef.current;
       if (current.visible) {
-        const revealed: CloneView = { ...current, inputActive: true };
+        const revealed: CloneView = { ...current, revealed: true };
         cloneSessionRef.current = revealed;
         setCloneView(revealed);
-        showMessage(`${revealed.controlled.toUpperCase()} clone controlled · X Attack · Y Switch · B Defend`, 1800);
+        setSkillFxActive(true);
+        showMessage('Clones materializing…', 1300);
       }
-      skillFxTimerRef.current = null;
-    }, 1530);
+      skillFxTimerRef.current = setTimeout(() => {
+        setSkillFxActive(false);
+        const materialized = cloneSessionRef.current;
+        if (materialized.visible) {
+          const activated: CloneView = { ...materialized, inputActive: true };
+          cloneSessionRef.current = activated;
+          setCloneView(activated);
+          showMessage('Clone controlled · X Attack · Y Switch · B Defend', 1800);
+        }
+        skillFxTimerRef.current = null;
+      }, 1530);
+    }, 900);
   }, [showMessage]);
 
   const handleGamepad = useCallback(() => {
@@ -2910,8 +2923,7 @@ export default function Game() {
         </div>
       )}
 
-      {phase === 'playing' && skillFxActive && (
-        <>
+      {phase === 'playing' && skillPlayerFxActive && (
           <div
             key={`player-${skillFxRun}`}
             ref={skillPlayerFxRef}
@@ -2923,6 +2935,10 @@ export default function Game() {
               alt=""
             />
           </div>
+      )}
+
+      {phase === 'playing' && skillFxActive && (
+        <>
           {(['north', 'south'] as const).map((direction) => (
             <div
               key={`${direction}-${skillFxRun}`}
@@ -2982,7 +2998,6 @@ export default function Game() {
                     ))}
                   </span>
                 )}
-                {controlled && <span>{direction.toUpperCase()}</span>}
               </div>
             );
           })}
