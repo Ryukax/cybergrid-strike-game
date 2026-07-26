@@ -424,6 +424,7 @@ export default function Game() {
   const cardLabelRef = useRef<HTMLDivElement>(null);
   const skillNorthFxRef = useRef<HTMLDivElement>(null);
   const skillSouthFxRef = useRef<HTMLDivElement>(null);
+  const skillPlayerFxRef = useRef<HTMLDivElement>(null);
   const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
@@ -2427,6 +2428,15 @@ export default function Game() {
       };
       positionSkillEffect(skillNorthFxRef.current, -1);
       positionSkillEffect(skillSouthFxRef.current, 1);
+      const playerSkillFx = skillPlayerFxRef.current;
+      if (playerSkillFx) {
+        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+        const py = metrics.y + (stateRef.current.player.row + 0.5) * metrics.cell;
+        playerSkillFx.style.left = `${px}px`;
+        playerSkillFx.style.top = `${py}px`;
+        playerSkillFx.style.width = `${Math.round(metrics.cell * 0.78)}px`;
+        playerSkillFx.style.height = `${Math.round(metrics.cell * 0.9)}px`;
+      }
 
       const positionClone = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
         if (!wrap) return;
@@ -2778,6 +2788,17 @@ export default function Game() {
 
       {phase === 'playing' && skillFxActive && (
         <>
+          <div
+            key={`player-${skillFxRun}`}
+            ref={skillPlayerFxRef}
+            className="skillPlayerFx"
+            aria-hidden="true"
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}effects/temporary-avatar.png`}
+              alt=""
+            />
+          </div>
           {(['north', 'south'] as const).map((direction) => (
             <div
               key={`${direction}-${skillFxRun}`}
