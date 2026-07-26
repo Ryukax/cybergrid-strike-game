@@ -29,7 +29,7 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
-import type { GameState, GameMode, EnemyGenome } from '../game/types';
+import type { GameState, GameMode, EnemyGenome, EnemyAbility } from '../game/types';
 import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
@@ -74,12 +74,22 @@ const CYBER_BASES = new Set([
 ]);
 const BESTIARY_KEY = 'cgs_bestiary_v1';
 const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
+const SYNCHRONY_THRESHOLD = 3;
 
 interface BestiaryEntry {
   signature: string;
   seed: number;
   genome: EnemyGenome;
   discoveredAt: number;
+  observations?: number;
+  synchronizedAbilityId?: string;
+}
+
+interface AbilityBlueprint {
+  abilityId: string;
+  delivery: string;
+  function: string;
+  medium: string;
 }
 
 interface RunUpgrade {
@@ -141,6 +151,110 @@ function isCyberEnemy(enemy: GameState['enemies'][number]): boolean {
   return Boolean(enemy.genome && CYBER_BASES.has(enemy.genome.baseElement));
 }
 
+function enemyAbilityFor(genome: EnemyGenome): EnemyAbility | undefined {
+  const mature = genome.fusionLevel > 0 || (genome.generation >= 2 && genome.mutations.length >= 2);
+  if (!mature) return undefined;
+  const movement = getEnemyMovementClass(genome.baseElement);
+  if (movement === 'vehicle' && (genome.element === 'kinetic' || genome.mutations.includes('armored'))) {
+    return 'momentumCharge';
+  }
+  if ((movement === 'spectral' || genome.niche === 'phase') && genome.element === 'void') {
+    return 'phaseLeap';
+  }
+  if (genome.niche === 'regenerator' || genome.enemyClass === 'mender') return 'mendingPulse';
+  if (AIR_CLASSES.has(movement) && (genome.niche === 'swarm' || genome.niche === 'scout')) return 'laneShift';
+  if (genome.entityType === 'mechanical' && genome.element === 'voltaic') return 'arcArmor';
+  return undefined;
+}
+
+function playerAbilityComponents(ability: (typeof ABILITY_POOL)[number]): Omit<AbilityBlueprint, 'abilityId'> {
+  const text = `${ability?.name ?? ''} ${ability?.desc ?? ''}`.toLowerCase();
+  const delivery = /bullet|shot|fire|ammo/.test(text) ? 'projector'
+    : /grid|every|all|field|wave/.test(text) ? 'field'
+      : /shield|armor|invincible/.test(text) ? 'shell'
+        : /restore|regen|leech|heal/.test(text) ? 'weave'
+          : /teleport|warp|banish|phase/.test(text) ? 'aperture'
+            : 'pulse';
+  const fn = /push|repel|recoil|drive|warp back/.test(text) ? 'impulse'
+    : /slow|freeze|cripple|stagger|trap/.test(text) ? 'inhibit'
+      : /destroy|damage|power|blast|strike/.test(text) ? 'rupture'
+        : /shield|armor|invincible|block/.test(text) ? 'ward'
+          : /restore|regen|leech|heal/.test(text) ? 'restore'
+            : /reveal|expose|mark/.test(text) ? 'reveal'
+              : 'adapt';
+  const medium = /cyber|machine|circuit|signal|voltage/.test(text) ? 'signal'
+    : /thermal|cryo|freeze|blizzard/.test(text) ? 'thermal'
+      : /void|ghost|phase|radiant/.test(text) ? 'phase'
+        : /fluid|undertow|acid|corrosive/.test(text) ? 'fluid'
+          : /root|bloom|tangle/.test(text) ? 'organic'
+            : 'kinetic';
+  return { delivery, function: fn, medium };
+}
+
+const PLAYER_ABILITY_MATRIX: AbilityBlueprint[] = ABILITY_POOL.map((ability) => ({
+  abilityId: ability.id,
+  ...playerAbilityComponents(ability),
+}));
+
+function constitutionComponents(genome: EnemyGenome): Omit<AbilityBlueprint, 'abilityId'> {
+  const constitution = enemyAbilityFor(genome);
+  const movement = getEnemyMovementClass(genome.baseElement);
+  const delivery = constitution === 'phaseLeap' || genome.niche === 'phase' ? 'aperture'
+    : constitution === 'mendingPulse' || genome.niche === 'regenerator' ? 'weave'
+      : constitution === 'arcArmor' || genome.mutations.includes('armored') ? 'shell'
+        : constitution === 'laneShift' || genome.niche === 'swarm' ? 'field'
+          : genome.entityType === 'mechanical' || AIR_CLASSES.has(movement) ? 'projector'
+            : 'pulse';
+  const fn = constitution === 'mendingPulse' || genome.niche === 'regenerator' || genome.enemyClass === 'mender'
+    ? 'restore'
+    : constitution === 'arcArmor' || genome.mutations.includes('armored') ? 'ward'
+      : constitution === 'momentumCharge' || movement === 'vehicle' ? 'impulse'
+        : constitution === 'laneShift' || genome.niche === 'scout' ? 'adapt'
+          : constitution === 'phaseLeap' || genome.niche === 'phase' ? 'reveal'
+            : genome.mutations.includes('resilient') ? 'inhibit'
+              : 'rupture';
+  const mediumByElement: Record<string, string> = {
+    voltaic: 'signal',
+    thermal: 'thermal',
+    cryo: 'thermal',
+    void: 'phase',
+    radiant: 'phase',
+    fluidic: 'fluid',
+    corrosive: 'fluid',
+    botanical: 'organic',
+    kinetic: 'kinetic',
+  };
+  const medium = genome.entityType === 'mechanical'
+    ? 'signal'
+    : mediumByElement[genome.element] ?? 'kinetic';
+  return { delivery, function: fn, medium };
+}
+
+function abilityBlueprintFor(genome: EnemyGenome): AbilityBlueprint {
+  const components = constitutionComponents(genome);
+  const signature = `${genome.baseElement}:${genome.element}:${genome.entityType}:${genome.enemyClass}:${genome.niche}`;
+  const hash = [...signature].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 0);
+  let bestScore = -1;
+  let matches: AbilityBlueprint[] = [];
+  for (const candidate of PLAYER_ABILITY_MATRIX) {
+    const score = (candidate.medium === components.medium ? 5 : 0)
+      + (candidate.function === components.function ? 4 : 0)
+      + (candidate.delivery === components.delivery ? 3 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      matches = [candidate];
+    } else if (score === bestScore) {
+      matches.push(candidate);
+    }
+  }
+  const matched = matches[hash % Math.max(1, matches.length)] ?? PLAYER_ABILITY_MATRIX[0];
+  return { abilityId: matched.abilityId, ...components };
+}
+
+function linkedPlayerAbility(genome: EnemyGenome): string {
+  return abilityBlueprintFor(genome).abilityId;
+}
+
 function genomeSignature(enemy: GameState['enemies'][number]): string | undefined {
   const genome = enemy.genome;
   if (!genome) return undefined;
@@ -199,6 +313,7 @@ function randomAbilityOptions(
   cooldowns?: Record<string, number>,
   enemies: GameState['enemies'] = [],
   hp = 5,
+  synchronizedIds?: Set<string>,
 ): string[] {
   const source = enabledIds
     ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
@@ -241,6 +356,16 @@ function randomAbilityOptions(
   draw('offense');
   draw('control');
   draw('wildcard');
+  const synchronized = [...(synchronizedIds ?? [])].filter((id) =>
+    pool.some((ability) => ability.id === id)
+    && !used.has(id)
+    && (cooldowns?.[id] ?? 0) <= 0);
+  if (synchronized.length > 0 && opts.length > 0) {
+    const prioritized = synchronized[Math.floor(Math.random() * synchronized.length)];
+    used.delete(opts[opts.length - 1]);
+    opts[opts.length - 1] = prioritized;
+    used.add(prioritized);
+  }
   while (opts.length < Math.min(3, pool.length)) {
     const fallback = pool.find((ability) =>
       !used.has(ability.id) && (cooldowns?.[ability.id] ?? 0) <= 0)
@@ -418,6 +543,7 @@ export default function Game() {
   });
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
+  const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Message system
   const msgFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -476,12 +602,22 @@ export default function Game() {
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
-      return Array.isArray(stored) ? stored.slice(0, 160) : [];
+      return Array.isArray(stored)
+        ? stored.slice(0, 160).map((entry: BestiaryEntry) => ({
+          ...entry,
+          observations: Math.max(1, entry.observations ?? 1),
+        }))
+        : [];
     } catch {
       return [];
     }
   });
   const bestiaryRef = useRef<BestiaryEntry[]>(bestiaryEntries);
+  const synchronizedAbilityIdsRef = useRef(new Set(
+    bestiaryEntries
+      .map((entry) => entry.synchronizedAbilityId)
+      .filter((id): id is string => Boolean(id && ABILITY_LOOKUP[id])),
+  ));
   const recordBestiary = useCallback((seed: number, genome: EnemyGenome) => {
     const signature = [
       genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
@@ -489,12 +625,34 @@ export default function Game() {
       [...genome.mutations].sort().join('+') || 'baseline',
       `fusion-${genome.fusionLevel}`,
     ].join(':');
-    if (bestiaryRef.current.some((entry) => entry.signature === signature)) return;
+    const existingIndex = bestiaryRef.current.findIndex((entry) => entry.signature === signature);
+    if (existingIndex >= 0) {
+      const existing = bestiaryRef.current[existingIndex];
+      const observations = Math.min(SYNCHRONY_THRESHOLD, (existing.observations ?? 1) + 1);
+      const constitution = enemyAbilityFor(genome);
+      const synchronizedAbilityId = observations >= SYNCHRONY_THRESHOLD && constitution
+        ? linkedPlayerAbility(genome)
+        : existing.synchronizedAbilityId;
+      const updated = { ...existing, observations, synchronizedAbilityId };
+      bestiaryRef.current = [
+        updated,
+        ...bestiaryRef.current.filter((_, index) => index !== existingIndex),
+      ];
+      if (synchronizedAbilityId) synchronizedAbilityIdsRef.current.add(synchronizedAbilityId);
+      localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
+      setBestiaryEntries(bestiaryRef.current);
+      return;
+    }
+    const constitution = enemyAbilityFor(genome);
     const entry: BestiaryEntry = {
       signature,
       seed,
       genome: { ...genome, mutations: [...genome.mutations] },
       discoveredAt: Date.now(),
+      observations: 1,
+      synchronizedAbilityId: constitution && SYNCHRONY_THRESHOLD <= 1
+        ? linkedPlayerAbility(genome)
+        : undefined,
     };
     bestiaryRef.current = [entry, ...bestiaryRef.current].slice(0, 160);
     localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
@@ -580,6 +738,10 @@ export default function Game() {
         }, 150);
       }, 150);
     }, 150);
+  }, []);
+
+  useEffect(() => () => {
+    if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
   }, []);
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
@@ -985,6 +1147,7 @@ export default function Game() {
         s.abilityCooldowns,
         s.enemies,
         s.hp,
+        synchronizedAbilityIdsRef.current,
       );
       for (let g = 0; g < 12 && nextOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
         nextOptions = randomAbilityOptions(
@@ -993,6 +1156,7 @@ export default function Game() {
           s.abilityCooldowns,
           s.enemies,
           s.hp,
+          synchronizedAbilityIdsRef.current,
         );
       }
       s.currentCardOptions = nextOptions;
@@ -1744,43 +1908,41 @@ export default function Game() {
     advanceToSecondClone(direction, true);
   }, [advanceToSecondClone, holdCloneDefenseFrame, showMessage]);
 
-  const cycleActiveControl = useCallback(() => {
+  const cycleActiveControl = useCallback((direction: 1 | -1 = 1) => {
     const clone = cloneSessionRef.current;
     if (!clone.visible || !clone.revealed) return;
     const available = (direction: CloneDirection) =>
       clone.rows[direction] !== null
       && clone.statuses[direction] !== 'gone'
       && clone.statuses[direction] !== 'dispersing';
-    if (!clone.playerLocked || !clone.inputActive) {
-      const next = available('north') ? 'north' : available('south') ? 'south' : null;
-      if (!next) return;
-      const resumed: CloneView = {
-        ...clone,
-        controlled: next,
-        inputActive: true,
-        playerLocked: true,
-      };
-      cloneSessionRef.current = resumed;
-      setCloneView(resumed);
-      showMessage('Clone control active.', 800);
-      return;
-    }
-    if (clone.controlled === 'north' && available('south')) {
-      const cycled: CloneView = { ...clone, controlled: 'south' };
-      cloneSessionRef.current = cycled;
-      setCloneView(cycled);
-      showMessage('Clone control cycled.', 800);
-      return;
-    }
-    const playerControl: CloneView = {
-      ...clone,
-      inputActive: false,
-      playerLocked: false,
-    };
-    cloneSessionRef.current = playerControl;
-    setCloneView(playerControl);
-    showMessage('Player control active.', 800);
+    const controls: Array<'player' | CloneDirection> = ['player'];
+    if (available('north')) controls.push('north');
+    if (available('south')) controls.push('south');
+    if (controls.length <= 1) return;
+    const current: 'player' | CloneDirection =
+      clone.playerLocked && clone.inputActive ? clone.controlled : 'player';
+    const currentIndex = Math.max(0, controls.indexOf(current));
+    const target = controls[(currentIndex + direction + controls.length) % controls.length];
+    const cycled: CloneView = target === 'player'
+      ? { ...clone, inputActive: false, playerLocked: false }
+      : { ...clone, controlled: target, inputActive: true, playerLocked: true };
+    cloneSessionRef.current = cycled;
+    setCloneView(cycled);
+    showMessage(target === 'player' ? 'Player control active.' : 'Clone control active.', 800);
   }, [showMessage]);
+
+  const queueR2ControlCycle = useCallback(() => {
+    if (r2TapTimerRef.current) {
+      clearTimeout(r2TapTimerRef.current);
+      r2TapTimerRef.current = null;
+      cycleActiveControl(-1);
+      return;
+    }
+    r2TapTimerRef.current = setTimeout(() => {
+      r2TapTimerRef.current = null;
+      cycleActiveControl(1);
+    }, 260);
+  }, [cycleActiveControl]);
 
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
@@ -2052,7 +2214,7 @@ export default function Game() {
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
     if (gp.skill && !gp.prevSkill) playSkillAnimation();
-    if (gp.r2 && !gp.prevR2) cycleActiveControl();
+    if (gp.r2 && !gp.prevR2) queueR2ControlCycle();
     const cloneInputActive = cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
     if (cloneInputActive) {
@@ -2195,6 +2357,7 @@ export default function Game() {
           s.abilityCooldowns,
           s.enemies,
           s.hp,
+          synchronizedAbilityIdsRef.current,
         );
         s.cardsReady = true;
         s.cardSelectionOpen = true;
@@ -2344,6 +2507,9 @@ export default function Game() {
         genome,
         maxHp: hp,
         regenerationCharge: 0,
+        ability: enemyAbilityFor(genome),
+        abilityCooldown: 4.5 + Math.random() * 3,
+        abilityWindup: 0,
       });
 
       s.enemyFormationId++;
@@ -2383,6 +2549,39 @@ export default function Game() {
       }
       if (s.freezeTimer > 0) speedScale = 0.08;
       if (s.signalJamTimer > 0 && isCyberEnemy(e)) speedScale *= 0.32;
+
+      const abilitySuppressed = s.freezeTimer > 0 || (s.signalJamTimer > 0 && isCyberEnemy(e));
+      if (e.ability && !abilitySuppressed) {
+        e.abilityCooldown = Math.max(0, (e.abilityCooldown ?? 0) - dt);
+        if ((e.abilityWindup ?? 0) > 0) {
+          e.abilityWindup = Math.max(0, (e.abilityWindup ?? 0) - dt);
+          speedScale *= 0.12;
+          if (e.abilityWindup <= 0) {
+            if (e.ability === 'momentumCharge') {
+              e.colPos -= 0.85;
+            } else if (e.ability === 'phaseLeap') {
+              e.colPos -= 0.65;
+              e.flash = 0.12;
+            } else if (e.ability === 'mendingPulse') {
+              for (const ally of s.enemies) {
+                if (ally.colPos < -1 || ally.row !== e.row || Math.abs(ally.colPos - e.colPos) > 1.8) continue;
+                ally.hp = Math.min(ally.maxHp ?? ally.hp, ally.hp + 1);
+                ally.flash = 0.08;
+              }
+            } else if (e.ability === 'laneShift') {
+              const laneCounts = [0, 1, 2].map((row) =>
+                s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
+              e.row = laneCounts.indexOf(Math.min(...laneCounts));
+            } else if (e.ability === 'arcArmor') {
+              e.maxHp = Math.min(9, (e.maxHp ?? e.hp) + 1);
+              e.hp = Math.min(e.maxHp, e.hp + 1);
+            }
+            e.abilityCooldown = 6.5 + (e.value % 4);
+          }
+        } else if ((e.abilityCooldown ?? 0) <= 0 && e.colPos > 1.15 && e.colPos < 5.3) {
+          e.abilityWindup = 0.85;
+        }
+      }
       e.colPos -= e.speed * speedScale * dt;
       if (s.stasisGateTimer > 0 && !e.stasisTriggered && e.colPos <= 3.1) {
         e.stasisTriggered = true;
@@ -2454,6 +2653,9 @@ export default function Game() {
         a.maxHp = a.hp;
         a.speed = (a.speed + b.speed) * 0.5;
         a.flash = 0.16;
+        a.ability = enemyAbilityFor(a.genome);
+        a.abilityCooldown = Math.max(3.5, a.abilityCooldown ?? 5);
+        a.abilityWindup = 0;
         b.colPos = -9;
         const fusedSignature = genomeSignature(a);
         if (fusedSignature && !s.ecosystemStats.entitySignatures.includes(fusedSignature)) {
@@ -2619,7 +2821,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, cycleActiveControl, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -2997,6 +3199,16 @@ export default function Game() {
         } else if (ev.key === ' ') {
           ev.preventDefault();
           chooseRunUpgrade(s.upgradeOptions[upgradeSelectionRef.current]);
+        } else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp'
+          || ev.key === 'ArrowRight' || ev.key === 'ArrowDown') {
+          ev.preventDefault();
+          const direction = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp' ? -1 : 1;
+          const count = s.upgradeOptions.length;
+          if (count > 0) {
+            upgradeSelectionRef.current =
+              (upgradeSelectionRef.current + direction + count) % count;
+            setUpgradeSelection(upgradeSelectionRef.current);
+          }
         }
         return;
       }
@@ -3083,11 +3295,12 @@ export default function Game() {
         <div>
           <div id="bestiaryTitle">BESTIARY</div>
           <div id="bestiaryCount">{bestiaryEntries.length} stable discoveries</div>
+          <div id="abilityMatrixCount">{PLAYER_ABILITY_MATRIX.length} constitution counterparts mapped</div>
         </div>
         <button id="menuBackBtn" className="bestiaryBackBtn" onClick={(ev) => { ev.stopPropagation(); onBack(); }}>← BACK</button>
       </div>
       <div id="bestiaryLegend">
-        <span>CORE</span><span>ELEMENT</span><span>TYPE</span><span>CLASS</span><span>FUSION</span>
+        <span>CORE</span><span>ELEMENT</span><span>TYPE</span><span>CLASS</span><span>ABILITY COMPONENTS</span>
       </div>
       {bestiaryEntries.length === 0 ? (
         <div id="bestiaryEmpty">Encounter entities in play to record stable genome snapshots.</div>
@@ -3095,6 +3308,11 @@ export default function Game() {
         <div id="bestiaryGrid">
           {bestiaryEntries.map((entry, index) => {
             const genome = entry.genome;
+            const constitutionAbility = enemyAbilityFor(genome);
+            const blueprint = abilityBlueprintFor(genome);
+            const linkedAbility = ABILITY_LOOKUP[blueprint.abilityId];
+            const observations = Math.max(1, entry.observations ?? 1);
+            const synchronized = Boolean(entry.synchronizedAbilityId);
             return (
               <article
                 id={`bestiaryEntry-${index}`}
@@ -3113,6 +3331,20 @@ export default function Game() {
                 </div>
                 <div className="bestiaryTraits">
                   {genome.mutations.length > 0 ? genome.mutations.join(' · ') : 'baseline'}
+                  {constitutionAbility ? ` · ability: ${constitutionAbility}` : ''}
+                </div>
+                <div className="bestiaryComponents">
+                  <span>{blueprint.delivery}</span>
+                  <span>{blueprint.function}</span>
+                  <span>{blueprint.medium}</span>
+                </div>
+                <div className={`bestiarySynchrony${synchronized ? ' synchronized' : ''}`}>
+                  <strong>{synchronized ? 'SYNCHRONIZED' : `SYNCHRONY ${observations}/${SYNCHRONY_THRESHOLD}`}</strong>
+                  <span>
+                    {constitutionAbility
+                      ? `constitution ${constitutionAbility} ⇒ ${linkedAbility?.name ?? blueprint.abilityId}`
+                      : `latent constitution ⇒ ${linkedAbility?.name ?? blueprint.abilityId}`}
+                  </span>
                 </div>
                 {genome.fusionElement && (
                   <div className="bestiaryLineage">
@@ -3694,7 +3926,7 @@ export default function Game() {
                 );
               })}
             </div>
-            <div id="upgradeHint">D-PAD to choose · A / SPACE to install · B / BACKSPACE to close</div>
+            <div id="upgradeHint">D-PAD / ARROWS to choose · A / SPACE to install · B / BACKSPACE to close</div>
           </div>
         </div>
       )}

@@ -1006,6 +1006,45 @@ export function draw(
         undefined,
       );
     }
+    if ((e.abilityWindup ?? 0) > 0 && e.ability) {
+      const telegraphColors = {
+        momentumCharge: '#fb923c',
+        phaseLeap: '#c084fc',
+        mendingPulse: '#4ade80',
+        laneShift: '#67e8f9',
+        arcArmor: '#facc15',
+      };
+      const progress = 1 - Math.min(1, (e.abilityWindup ?? 0) / 0.85);
+      const radius = drawCell * (0.45 + progress * 0.08);
+      ctx.save();
+      ctx.strokeStyle = telegraphColors[e.ability];
+      ctx.fillStyle = telegraphColors[e.ability];
+      ctx.lineWidth = Math.max(2, m.cell * 0.035);
+      ctx.shadowColor = telegraphColors[e.ability];
+      ctx.shadowBlur = 10;
+      ctx.globalAlpha = 0.6 + Math.sin(now * 0.025) * 0.22;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.stroke();
+      ctx.globalAlpha = 0.75;
+      ctx.beginPath();
+      if (e.ability === 'momentumCharge') {
+        ctx.moveTo(-radius * 0.3, -radius * 0.3);
+        ctx.lineTo(radius * 0.35, 0);
+        ctx.lineTo(-radius * 0.3, radius * 0.3);
+      } else if (e.ability === 'phaseLeap') {
+        ctx.arc(0, 0, radius * 0.22, 0, Math.PI * 2);
+      } else if (e.ability === 'mendingPulse') {
+        ctx.moveTo(-radius * 0.25, 0); ctx.lineTo(radius * 0.25, 0);
+        ctx.moveTo(0, -radius * 0.25); ctx.lineTo(0, radius * 0.25);
+      } else if (e.ability === 'laneShift') {
+        ctx.moveTo(-radius * 0.3, 0); ctx.lineTo(0, -radius * 0.25); ctx.lineTo(radius * 0.3, 0);
+      } else {
+        ctx.rect(-radius * 0.22, -radius * 0.22, radius * 0.44, radius * 0.44);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
     ctx.restore();
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';

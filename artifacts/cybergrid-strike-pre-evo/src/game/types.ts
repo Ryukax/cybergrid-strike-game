@@ -47,6 +47,13 @@ export interface Bullet {
   pierce: boolean;
 }
 
+export type EnemyAbility =
+  | 'momentumCharge'
+  | 'phaseLeap'
+  | 'mendingPulse'
+  | 'laneShift'
+  | 'arcArmor';
+
 export interface Enemy {
   colPos: number;
   row: number;
@@ -62,6 +69,9 @@ export interface Enemy {
   regenerationCharge?: number;
   stasisTriggered?: boolean;
   catalystMarked?: boolean;
+  ability?: EnemyAbility;
+  abilityCooldown?: number;
+  abilityWindup?: number;
 }
 
 export interface Particle {

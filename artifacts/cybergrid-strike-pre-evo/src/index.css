@@ -1253,6 +1253,15 @@ canvas#canvas {
   text-transform: uppercase;
 }
 
+#abilityMatrixCount {
+  margin-top: 2px;
+  color: rgba(134, 239, 172, 0.76);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .bestiaryBackBtn {
   flex: 0 0 auto;
   padding: 9px 14px;
@@ -1304,6 +1313,8 @@ canvas#canvas {
     "sprite identity"
     "sprite meta"
     "traits traits"
+    "components components"
+    "synchrony synchrony"
     "lineage lineage";
   gap: 6px 10px;
   background: linear-gradient(145deg, rgba(14, 36, 61, 0.82), rgba(42, 18, 56, 0.78));
@@ -1347,6 +1358,52 @@ canvas#canvas {
   color: #c4b5fd;
   font-size: 9px;
   line-height: 1.35;
+}
+
+.bestiaryComponents {
+  grid-area: components;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.bestiaryComponents span {
+  padding: 3px 7px;
+  color: #bae6fd;
+  background: rgba(14, 116, 144, 0.2);
+  border: 1px solid rgba(103, 232, 249, 0.28);
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bestiarySynchrony {
+  grid-area: synchrony;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px;
+  color: rgba(216, 180, 254, 0.78);
+  background: rgba(88, 28, 135, 0.16);
+  border-left: 2px solid rgba(192, 132, 252, 0.5);
+  font-size: 8px;
+}
+
+.bestiarySynchrony strong {
+  color: #e9d5ff;
+  white-space: nowrap;
+}
+
+.bestiarySynchrony.synchronized {
+  color: #bbf7d0;
+  background: rgba(21, 128, 61, 0.16);
+  border-left-color: #4ade80;
+}
+
+.bestiarySynchrony.synchronized strong {
+  color: #86efac;
 }
 
 .bestiaryLineage {
