@@ -101,6 +101,7 @@ const RUN_UPGRADES: RunUpgrade[] = [
 ];
 const UPGRADE_PROMPT_TIME = 10;
 const UPGRADE_RETRY_WAVES = 2;
+const UPGRADE_INTERVAL_WAVES = 5;
 
 function chooseUpgradeOptions(levels: Record<string, number>): string[] {
   return shuffleIds(RUN_UPGRADES
@@ -438,6 +439,11 @@ export default function Game() {
     north: null,
     south: null,
   });
+  const cloneAutoFireTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setInterval> | null>>({
+    north: null,
+    south: null,
+  });
+  const cloneOpeningWindowRef = useRef(0);
   const cloneSessionRef = useRef<CloneView>(emptyCloneView());
 
   const [phase, setPhase] = useState<'menu' | 'playing'>('menu');
@@ -1417,6 +1423,7 @@ export default function Game() {
     s.upgradePromptOpen = false;
     s.upgradePromptTimer = 0;
     s.upgradeRetryWave = 0;
+    s.nextUpgradeWave = Math.max(s.nextUpgradeWave, s.wave + UPGRADE_INTERVAL_WAVES);
     s.upgradeSelectionOpen = false;
     s.upgradeOptions = [];
     upgradeSelectionRef.current = 0;
@@ -1450,6 +1457,9 @@ export default function Game() {
     const expiryTimer = cloneExpiryTimersRef.current[direction];
     if (expiryTimer) clearTimeout(expiryTimer);
     cloneExpiryTimersRef.current[direction] = null;
+    const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+    if (autoFireTimer) clearInterval(autoFireTimer);
+    cloneAutoFireTimersRef.current[direction] = null;
     const current = cloneSessionRef.current;
     if (current.statuses[direction] === 'gone' || current.statuses[direction] === 'dispersing') return;
     const dispersing: CloneView = {
@@ -1547,14 +1557,26 @@ export default function Game() {
     const row = clone.rows[direction];
     if (row === null) return;
     const firstAction = clone.turn === 0;
+    const other: CloneDirection = direction === 'north' ? 'south' : 'north';
+    const openingBlock = action === 'attack'
+      && firstAction
+      && performance.now() <= cloneOpeningWindowRef.current
+      && clone.rows[other] !== null
+      && clone.statuses[other] !== 'gone'
+      && clone.statuses[other] !== 'dispersing';
     const status: CloneStatus = action === 'attack' ? 'attacking' : 'defending';
     const committed: CloneView = {
       ...clone,
       inputActive: false,
-      statuses: { ...clone.statuses, [direction]: status },
+      statuses: {
+        ...clone.statuses,
+        [direction]: status,
+        ...(openingBlock ? { [other]: 'defending' as CloneStatus } : {}),
+      },
     };
     cloneSessionRef.current = committed;
     setCloneView(committed);
+    if (openingBlock) holdCloneDefenseFrame(other);
 
     if (action === 'attack') {
       const activeExpiry = cloneExpiryTimersRef.current[direction];
@@ -1708,7 +1730,25 @@ export default function Game() {
           originCol: activeClones.cols[direction] ?? s.player.col,
         });
       }
-      showMessage('Clone sustaining attack · control switched.', 1200);
+      const existingAutoFire = cloneAutoFireTimersRef.current[direction];
+      if (existingAutoFire) clearInterval(existingAutoFire);
+      cloneAutoFireTimersRef.current[direction] = setInterval(() => {
+        const latest = cloneSessionRef.current;
+        const latestRow = latest.rows[direction];
+        if (!latest.visible || latestRow === null || latest.statuses[direction] !== 'attacking') {
+          const timer = cloneAutoFireTimersRef.current[direction];
+          if (timer) clearInterval(timer);
+          cloneAutoFireTimersRef.current[direction] = null;
+          return;
+        }
+        fireBullet(latestRow, {
+          power: 3,
+          big: true,
+          pierce: true,
+          originCol: latest.cols[direction] ?? stateRef.current.player.col,
+        });
+      }, 650);
+      showMessage('Clone autofiring · control switched.', 1200);
       return;
     }
     ensureAudio();
@@ -1780,6 +1820,7 @@ export default function Game() {
           const activated: CloneView = { ...materialized, inputActive: true };
           cloneSessionRef.current = activated;
           setCloneView(activated);
+          cloneOpeningWindowRef.current = performance.now() + 2000;
           showMessage('Clone controlled · X Attack · Y Switch · B Defend', 1800);
         }
         skillFxTimerRef.current = null;
@@ -1849,7 +1890,10 @@ export default function Game() {
     } else if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeOptions.length === 0 && s.wave >= s.nextUpgradeWave) {
       s.upgradeOptions = chooseUpgradeOptions(s.runUpgrades);
-      s.nextUpgradeWave += 5;
+      s.nextUpgradeWave = Math.max(
+        s.nextUpgradeWave + UPGRADE_INTERVAL_WAVES,
+        s.wave + UPGRADE_INTERVAL_WAVES,
+      );
       if (s.upgradeOptions.length > 0) {
         s.upgradePromptOpen = true;
         s.upgradePromptTimer = UPGRADE_PROMPT_TIME;
@@ -2698,6 +2742,9 @@ export default function Game() {
       const expiryTimer = cloneExpiryTimersRef.current[direction];
       if (expiryTimer) clearTimeout(expiryTimer);
       cloneExpiryTimersRef.current[direction] = null;
+      const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+      if (autoFireTimer) clearInterval(autoFireTimer);
+      cloneAutoFireTimersRef.current[direction] = null;
     }
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
@@ -2748,6 +2795,9 @@ export default function Game() {
       const expiryTimer = cloneExpiryTimersRef.current[direction];
       if (expiryTimer) clearTimeout(expiryTimer);
       cloneExpiryTimersRef.current[direction] = null;
+      const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+      if (autoFireTimer) clearInterval(autoFireTimer);
+      cloneAutoFireTimersRef.current[direction] = null;
     }
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
