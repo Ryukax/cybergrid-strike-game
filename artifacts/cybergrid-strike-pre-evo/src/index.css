@@ -848,3 +848,24 @@ canvas#canvas {
   letter-spacing: 1px;
   line-height: 1;
 }
+
+/* Landscape touch layout: keep movement and pause together at center-right.
+   Portrait retains the centered-bottom controls above. */
+@media (orientation: landscape) {
+  #dpad {
+    left: auto;
+    right: max(18px, env(safe-area-inset-right));
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-60%);
+  }
+
+  #pauseBtn {
+    left: auto;
+    right: max(55px, calc(env(safe-area-inset-right) + 37px));
+    top: calc(50% + 68px);
+    bottom: auto;
+    transform: none;
+    width: 76px;
+  }
+}
