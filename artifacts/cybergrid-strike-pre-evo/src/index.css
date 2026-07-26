@@ -318,7 +318,7 @@ canvas#canvas {
   z-index: 19;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  animation: skillCasterMaterialize 1530ms steps(6, end) forwards;
+  animation: skillCasterMaterialize 900ms steps(6, end) forwards;
 }
 
 .skillPlayerFx img {
@@ -428,7 +428,6 @@ canvas#canvas {
 }
 
 .cloneAvatar.defending img {
-  animation: cloneDefenseLock 560ms steps(4, end) forwards;
   filter:
     drop-shadow(0 0 4px #fff)
     drop-shadow(0 0 11px rgba(96, 165, 250, 0.95));
@@ -460,29 +459,6 @@ canvas#canvas {
 
 .cloneAvatar.dispersing {
   animation: cloneDisperse 360ms steps(4, end) forwards;
-}
-
-@keyframes cloneDefenseLock {
-  0% {
-    opacity: 0;
-    transform: translateY(-8%);
-  }
-  25% {
-    opacity: 1;
-    transform: translateY(2%);
-  }
-  50% {
-    opacity: 0.42;
-    transform: translateY(-2%);
-  }
-  75% {
-    opacity: 1;
-    transform: translateY(1%);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @keyframes cloneDefenseBarrier {

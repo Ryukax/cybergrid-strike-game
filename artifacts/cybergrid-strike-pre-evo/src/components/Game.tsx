@@ -367,7 +367,7 @@ interface HudData {
 }
 
 type CloneDirection = 'north' | 'south';
-type CloneStatus = 'idle' | 'attacking' | 'defending' | 'dispersing' | 'gone';
+type CloneStatus = 'idle' | 'attacking' | 'defending' | 'defendingHeld' | 'dispersing' | 'gone';
 interface CloneView {
   visible: boolean;
   revealed: boolean;
@@ -1490,6 +1490,25 @@ export default function Game() {
     showMessage(`${next.toUpperCase()} clone controlled · X Attack · B Defend`, 1200);
   }, [showMessage]);
 
+  const holdCloneDefenseFrame = useCallback((direction: CloneDirection) => {
+    const existing = cloneActionTimersRef.current[direction];
+    if (existing) clearTimeout(existing);
+    cloneActionTimersRef.current[direction] = setTimeout(() => {
+      const latest = cloneSessionRef.current;
+      if (latest.statuses[direction] !== 'defending') {
+        cloneActionTimersRef.current[direction] = null;
+        return;
+      }
+      const held: CloneView = {
+        ...latest,
+        statuses: { ...latest.statuses, [direction]: 'defendingHeld' },
+      };
+      cloneSessionRef.current = held;
+      setCloneView(held);
+      cloneActionTimersRef.current[direction] = null;
+    }, 800);
+  }, []);
+
   const resolveCloneAction = useCallback((action: 'attack' | 'defend') => {
     const clone = cloneSessionRef.current;
     if (!clone.inputActive) return;
@@ -1521,9 +1540,11 @@ export default function Game() {
         if (firstAction) advanceToSecondClone(direction);
       }, 520);
     } else if (firstAction) {
+      holdCloneDefenseFrame(direction);
       showMessage(`${direction.toUpperCase()} clone defending until hit.`, 850);
       advanceToSecondClone(direction);
     } else {
+      holdCloneDefenseFrame(direction);
       const released: CloneView = {
         ...cloneSessionRef.current,
         inputActive: false,
@@ -1533,7 +1554,7 @@ export default function Game() {
       setCloneView(released);
       showMessage(`${direction.toUpperCase()} clone guarding — Player control restored.`, 1200);
     }
-  }, [advanceToSecondClone, disperseClone, fireBullet, showMessage]);
+  }, [advanceToSecondClone, disperseClone, fireBullet, holdCloneDefenseFrame, showMessage]);
 
   const moveControlledClone = useCallback((dx: number, dy: number) => {
     const clone = cloneSessionRef.current;
@@ -1585,8 +1606,9 @@ export default function Game() {
     };
     cloneSessionRef.current = guarded;
     setCloneView(guarded);
+    holdCloneDefenseFrame(direction);
     advanceToSecondClone(direction);
-  }, [advanceToSecondClone]);
+  }, [advanceToSecondClone, holdCloneDefenseFrame]);
 
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
@@ -2101,7 +2123,7 @@ export default function Game() {
       }
       const clone = cloneSessionRef.current;
       const struckDefender = (['north', 'south'] as const).find((direction) =>
-        clone.statuses[direction] === 'defending'
+        (clone.statuses[direction] === 'defending' || clone.statuses[direction] === 'defendingHeld')
         && clone.rows[direction] === e.row
         && clone.cols[direction] !== null
         && Math.round(e.colPos) === clone.cols[direction]
@@ -2862,7 +2884,7 @@ export default function Game() {
             aria-hidden="true"
           >
             <img
-              src={`${import.meta.env.BASE_URL}effects/temporary-avatar.png`}
+              src={`${import.meta.env.BASE_URL}effects/player-skill.gif`}
               alt=""
             />
           </div>
@@ -2889,7 +2911,7 @@ export default function Game() {
             const status = cloneView.statuses[direction];
             if (cloneView.rows[direction] === null || status === 'gone') return null;
             const controlled = cloneView.playerLocked && cloneView.controlled === direction;
-            const defending = status === 'defending';
+            const defending = status === 'defending' || status === 'defendingHeld';
             const attacking = status === 'attacking';
             return (
               <div
@@ -2908,7 +2930,9 @@ export default function Game() {
                 <img
                   className={attacking ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
                   src={`${import.meta.env.BASE_URL}effects/${
-                    defending ? 'temporary-avatar-defense-outline.svg' : 'temporary-avatar.png'
+                    status === 'defending'
+                      ? 'clone-defense.gif'
+                      : status === 'defendingHeld' ? 'clone-defense-hold.png' : 'clone-idle.gif'
                   }`}
                   alt=""
                 />
