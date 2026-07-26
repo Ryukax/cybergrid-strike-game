@@ -90,7 +90,7 @@ interface RunUpgrade {
 
 const RUN_UPGRADES: RunUpgrade[] = [
   { id: 'capacitor', name: 'CAPACITOR', desc: 'Ability hands recharge 15% faster per level.', maxLevel: 3 },
-  { id: 'rapidBuster', name: 'RAPID BUSTER', desc: 'Elo fires 10% faster per level.', maxLevel: 3 },
+  { id: 'rapidBuster', name: 'RAPID BUSTER', desc: 'Player fires 10% faster per level.', maxLevel: 3 },
   { id: 'phaseRounds', name: 'PHASE ROUNDS', desc: 'Every fifth shot pierces; higher levels trigger sooner.', maxLevel: 3 },
   { id: 'denseCharge', name: 'DENSE CHARGE', desc: 'Every fourth shot gains +1 damage per level.', maxLevel: 3 },
   { id: 'repairWeave', name: 'REPAIR WEAVE', desc: 'Restore 2 HP now and 1 HP after each recovery window.', maxLevel: 2 },
@@ -721,7 +721,7 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
-    // Elo retains her facing even while moving backward.
+    // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
     s.moveFlash = 0.15;
@@ -1493,7 +1493,7 @@ export default function Game() {
       eloAttackDirectionRef.current = eloAttackDirectionRef.current === 1 ? -1 : 1;
       gemMoveMirrorRef.current = eloAttackDirectionRef.current === -1;
       showMessage(
-        eloAttackDirectionRef.current === 1 ? 'Elo facing right' : 'Elo facing left',
+        eloAttackDirectionRef.current === 1 ? 'Player facing right' : 'Player facing left',
         900,
       );
     }
@@ -1823,7 +1823,7 @@ export default function Game() {
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
         const eloIsIntangible = playerSkinRef.current === 'gem' && !s.autoBuster;
         if (eloIsIntangible) {
-          // Elo phases while automation is disabled. The enemy continues
+          // Player phases while automation is disabled. The enemy continues
           // through the occupied cell without damage or consuming a shield.
         } else if (s.shieldCharges > 0) {
           s.shieldCharges--;
@@ -2642,7 +2642,7 @@ export default function Game() {
                   { id: 'default', label: 'Default', preview: null },
                   { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
-                  { id: 'gem',     label: 'Elo',     preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
+                  { id: 'gem',     label: 'Player',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
@@ -2733,7 +2733,7 @@ export default function Game() {
         <div id="upgradeOverlay">
           <div id="upgradeCard">
             <div id="upgradeEyebrow">WAVE {hud.wave} MILESTONE</div>
-            <div id="upgradeTitle">EVOLVE ELO</div>
+            <div id="upgradeTitle">EVOLVE</div>
             <div id="upgradeSubtitle">Combat remains active at 8% speed</div>
             <div id="upgradeChoices">
               {hud.upgradeOptions.map((id, index) => {

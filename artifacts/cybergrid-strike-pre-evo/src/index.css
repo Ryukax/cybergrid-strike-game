@@ -726,11 +726,10 @@ canvas#canvas {
   inset: 0;
   z-index: 44;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 18px;
-  background: rgba(2, 6, 23, 0.68);
-  backdrop-filter: blur(4px);
+  padding: 12px;
+  background: rgba(2, 6, 23, 0.08);
 }
 
 #upgradePrompt {
@@ -767,10 +766,10 @@ canvas#canvas {
 }
 
 #upgradeCard {
-  width: min(94vw, 780px);
-  padding: 24px;
+  width: min(94vw, 720px);
+  padding: 14px;
   text-align: center;
-  background: linear-gradient(145deg, rgba(8, 20, 40, 0.98), rgba(35, 17, 55, 0.98));
+  background: linear-gradient(145deg, rgba(8, 20, 40, 0.91), rgba(35, 17, 55, 0.91));
   border: 2px solid rgba(192, 132, 252, 0.64);
   border-radius: 20px;
   box-shadow: 0 0 70px rgba(168, 85, 247, 0.28);
@@ -784,15 +783,15 @@ canvas#canvas {
 }
 
 #upgradeTitle {
-  margin-top: 5px;
+  margin-top: 2px;
   color: #f5d0fe;
-  font-size: clamp(23px, 5vw, 34px);
+  font-size: clamp(20px, 4vw, 28px);
   font-weight: 900;
   letter-spacing: 0.12em;
 }
 
 #upgradeSubtitle {
-  margin: 5px 0 18px;
+  margin: 2px 0 10px;
   color: rgba(219, 234, 254, 0.68);
   font-size: 13px;
 }
@@ -804,12 +803,12 @@ canvas#canvas {
 }
 
 .upgradeChoice {
-  min-height: 154px;
-  padding: 14px;
+  min-height: 106px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 9px;
+  gap: 6px;
   color: #e0f2fe;
   background: linear-gradient(155deg, rgba(14, 55, 82, 0.82), rgba(62, 25, 84, 0.82));
   border: 1px solid rgba(125, 211, 252, 0.42);
@@ -836,18 +835,19 @@ canvas#canvas {
 }
 
 #upgradeHint {
-  margin-top: 16px;
+  margin-top: 9px;
   color: rgba(196, 181, 253, 0.68);
   font-size: 10px;
   letter-spacing: 0.1em;
 }
 
 @media (max-width: 620px) {
-  #upgradeCard { padding: 16px; }
+  #upgradeOverlay { align-items: flex-end; padding: 8px; }
+  #upgradeCard { padding: 10px; }
   #upgradeChoices { grid-template-columns: 1fr; gap: 8px; }
   .upgradeChoice {
-    min-height: 90px;
-    padding: 10px 14px;
+    min-height: 70px;
+    padding: 7px 12px;
   }
 }
 
