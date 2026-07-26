@@ -349,7 +349,7 @@ canvas#canvas {
   filter: drop-shadow(0 2px 0 rgba(15, 23, 42, 0.8));
 }
 
-.cloneAvatar span {
+.cloneAvatar > span:not(.cloneAttackFrames) {
   position: absolute;
   top: -13px;
   left: 50%;
@@ -363,6 +363,36 @@ canvas#canvas {
   font-weight: 900;
   letter-spacing: 0.08em;
   white-space: nowrap;
+}
+
+.cloneBaseFrame.hidden {
+  visibility: hidden;
+}
+
+.cloneAttackFrames {
+  position: absolute;
+  inset: -12%;
+  pointer-events: none;
+}
+
+.cloneAttackFrames img {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  animation: cloneEloAttackFrame 480ms steps(1, end) forwards;
+}
+
+.cloneAttackFrames img:nth-child(2) { animation-delay: 120ms; }
+.cloneAttackFrames img:nth-child(3) { animation-delay: 260ms; }
+
+@keyframes cloneEloAttackFrame {
+  0% { opacity: 1; }
+  36% { opacity: 1; }
+  37%, 100% { opacity: 0; }
 }
 
 .cloneAvatar.controlled img {
@@ -379,7 +409,7 @@ canvas#canvas {
 }
 
 .cloneAvatar.attacking {
-  animation: cloneAttack 520ms steps(4, end) forwards;
+  animation: cloneAttackCommit 520ms ease-out forwards;
 }
 
 .cloneAvatar.dispersing {
@@ -438,10 +468,10 @@ canvas#canvas {
 .cloneActionBtn:active { transform: scale(0.96); filter: brightness(1.25); }
 .cloneActionBtn:disabled { opacity: 0.3; transform: none; }
 
-@keyframes cloneAttack {
+@keyframes cloneAttackCommit {
   0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  45% { transform: translate(-38%, -50%) scaleX(1.16) scaleY(0.88); opacity: 1; }
-  100% { transform: translate(-18%, -50%) scale(0.45); opacity: 0; }
+  80% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.82); opacity: 0; }
 }
 
 @keyframes cloneDisperse {

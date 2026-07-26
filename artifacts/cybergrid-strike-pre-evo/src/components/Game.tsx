@@ -377,6 +377,7 @@ interface CloneView {
   turn: 0 | 1;
   statuses: Record<CloneDirection, CloneStatus>;
   rows: Record<CloneDirection, number | null>;
+  cols: Record<CloneDirection, number | null>;
 }
 
 const emptyCloneView = (): CloneView => ({
@@ -388,6 +389,7 @@ const emptyCloneView = (): CloneView => ({
   turn: 0,
   statuses: { north: 'gone', south: 'gone' },
   rows: { north: null, south: null },
+  cols: { north: null, south: null },
 });
 
 export default function Game() {
@@ -729,7 +731,12 @@ export default function Game() {
     }
   }, []);
 
-  const fireBullet = useCallback((rowOverride?: number, opts?: { power?: number; big?: boolean; pierce?: boolean }) => {
+  const fireBullet = useCallback((rowOverride?: number, opts?: {
+    power?: number;
+    big?: boolean;
+    pierce?: boolean;
+    originCol?: number;
+  }) => {
     const s = stateRef.current;
     const row = rowOverride !== undefined ? rowOverride : s.player.row;
     let power = opts?.power ?? 1;
@@ -750,7 +757,7 @@ export default function Game() {
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
     const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
     s.bullets.push({
-      colPos: s.player.col + direction * 0.55,
+      colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
       row,
       speed: direction * 8.5,
       power,
@@ -760,7 +767,7 @@ export default function Game() {
     if (s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
       s.bullets.push({
-        colPos: s.player.col + direction * 0.55,
+        colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
         row: echoRow,
         speed: direction * 8.5,
         power: Math.max(1, power - 1),
@@ -1500,7 +1507,12 @@ export default function Game() {
     setCloneView(committed);
 
     if (action === 'attack') {
-      fireBullet(row, { power: 3, big: true, pierce: true });
+      fireBullet(row, {
+        power: 3,
+        big: true,
+        pierce: true,
+        originCol: clone.cols[direction] ?? stateRef.current.player.col,
+      });
       showMessage(`${direction.toUpperCase()} clone attacked.`, 700);
       const existing = cloneActionTimersRef.current[direction];
       if (existing) clearTimeout(existing);
@@ -1522,6 +1534,26 @@ export default function Game() {
       showMessage(`${direction.toUpperCase()} clone guarding — Player control restored.`, 1200);
     }
   }, [advanceToSecondClone, disperseClone, fireBullet, showMessage]);
+
+  const moveControlledClone = useCallback((dx: number, dy: number) => {
+    const clone = cloneSessionRef.current;
+    if (!clone.inputActive) return;
+    const direction = clone.controlled;
+    const row = clone.rows[direction];
+    const col = clone.cols[direction];
+    if (row === null || col === null || clone.statuses[direction] !== 'idle') return;
+    const nextRow = Math.max(0, Math.min(2, row + dy));
+    const nextCol = Math.max(0, Math.min(2, col + dx));
+    if (nextRow === row && nextCol === col) return;
+    const moved: CloneView = {
+      ...clone,
+      rows: { ...clone.rows, [direction]: nextRow },
+      cols: { ...clone.cols, [direction]: nextCol },
+    };
+    cloneSessionRef.current = moved;
+    setCloneView(moved);
+    playMove();
+  }, []);
 
   const switchCloneControl = useCallback(() => {
     const clone = cloneSessionRef.current;
@@ -1557,6 +1589,10 @@ export default function Game() {
         south: southRow === null ? 'gone' : 'idle',
       },
       rows: { north: northRow, south: southRow },
+      cols: {
+        north: northRow === null ? null : s.player.col,
+        south: southRow === null ? null : s.player.col,
+      },
     };
     cloneSessionRef.current = clones;
     setCloneView(clones);
@@ -1717,19 +1753,22 @@ export default function Game() {
       );
     }
     let dx = 0, dy = 0;
-    if (!cloneControlActive) {
-      if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
-      if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
-      if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
-      if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
-    }
+    if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
+    if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
+    if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
+    if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
-      const nc = Math.max(0, Math.min(2, s.player.col + dx));
-      const nr = Math.max(0, Math.min(2, s.player.row + dy));
-      if (nc !== s.player.col || nr !== s.player.row) {
-        tryMoveTo(nc, nr);
+      if (cloneInputActive) {
+        moveControlledClone(dx, dy);
         controllerCooldownRef.current = 0.16;
+      } else if (!cloneControlActive) {
+        const nc = Math.max(0, Math.min(2, s.player.col + dx));
+        const nr = Math.max(0, Math.min(2, s.player.row + dy));
+        if (nc !== s.player.col || nr !== s.player.row) {
+          tryMoveTo(nc, nr);
+          controllerCooldownRef.current = 0.16;
+        }
       }
     }
     if (!cloneControlActive && gp.fire && !fireHeldRef.current) manualBuster();
@@ -2045,8 +2084,9 @@ export default function Game() {
       const struckDefender = (['north', 'south'] as const).find((direction) =>
         clone.statuses[direction] === 'defending'
         && clone.rows[direction] === e.row
-        && Math.round(e.colPos) === s.player.col
-        && e.colPos < s.player.col + 0.45);
+        && clone.cols[direction] !== null
+        && Math.round(e.colPos) === clone.cols[direction]
+        && e.colPos < (clone.cols[direction] as number) + 0.45);
       if (struckDefender) {
         e.colPos = -9;
         playHit();
@@ -2259,7 +2299,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, manualBuster, playSkillAnimation, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -2441,10 +2481,12 @@ export default function Game() {
       const positionClone = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
         if (!wrap) return;
         const row = cloneSessionRef.current.rows[direction];
-        const onGrid = cloneSessionRef.current.visible && cloneSessionRef.current.revealed && row !== null;
+        const col = cloneSessionRef.current.cols[direction];
+        const onGrid = cloneSessionRef.current.visible && cloneSessionRef.current.revealed
+          && row !== null && col !== null;
         wrap.style.display = onGrid ? 'block' : 'none';
-        if (!onGrid || row === null) return;
-        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+        if (!onGrid || row === null || col === null) return;
+        const px = metrics.x + (col + 0.5) * metrics.cell;
         const py = metrics.y + (row + 0.5) * metrics.cell;
         wrap.style.left = `${px}px`;
         wrap.style.top = `${py}px`;
@@ -2838,11 +2880,23 @@ export default function Game() {
                 data-direction={direction}
               >
                 <img
+                  className={attacking ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
                   src={`${import.meta.env.BASE_URL}effects/${
                     defending ? 'temporary-avatar-defense.png' : 'temporary-avatar.png'
                   }`}
                   alt=""
                 />
+                {attacking && (
+                  <span className="cloneAttackFrames" aria-hidden="true">
+                    {[0, 1, 2].map((frame) => (
+                      <img
+                        key={frame}
+                        src={`${import.meta.env.BASE_URL}skins/gem_attack_frame_${frame}.png`}
+                        alt=""
+                      />
+                    ))}
+                  </span>
+                )}
                 {controlled && <span>{direction.toUpperCase()}</span>}
               </div>
             );
