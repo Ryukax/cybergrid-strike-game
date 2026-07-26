@@ -2729,6 +2729,7 @@ export default function Game() {
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
       else if (ev.key === ' ') manualBuster();
+      else if ((ev.key === 'q' || ev.key === 'Q') && s.upgradePromptOpen) openUpgradeSelection();
       else if (cloneSessionRef.current.inputActive && (ev.key === 'z' || ev.key === 'Z')) {
         resolveCloneAction('attack');
       } else if (cloneSessionRef.current.inputActive && (ev.key === 'x' || ev.key === 'X')) {
@@ -2780,8 +2781,8 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, playSkillAnimation, resolveCloneAction,
-    setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
+  }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, playSkillAnimation,
+    resolveCloneAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -3367,7 +3368,7 @@ export default function Game() {
           }}
         >
           <strong>EVOLUTION READY · {Math.max(0, Math.ceil(hud.upgradePromptTimer))}s</strong>
-          <span>Tap or press R1 to enter slow-time selection</span>
+          <span>Tap or press Q / R1 to enter slow-time selection</span>
         </button>
       )}
 
