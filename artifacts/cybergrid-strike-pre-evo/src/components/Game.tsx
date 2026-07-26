@@ -286,8 +286,8 @@ export default function Game() {
   const gemMoveTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   const GEM_MOVE_FRAME_MS  = 75;  // ms per move frame
   // true = mirror sprite horizontally (left move, parallel to gun axis)
-  const gemMoveMirrorRef   = useRef(false);
-  const eloAttackDirectionRef = useRef<1 | -1>(1);
+  const gemMoveMirrorRef   = useRef(true);
+  const eloAttackDirectionRef = useRef<1 | -1>(-1);
 
   // State machine driven entirely by timeouts — no React state, no re-renders.
   // rocketFrameRef: -1 = idle (show gifFramesRef[0]), 0–N = attack frame index into gifAttackFramesRef.
@@ -1821,8 +1821,8 @@ export default function Game() {
 
   const startGame = useCallback((mode: GameMode = 'classic') => {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
-    eloAttackDirectionRef.current = 1;
-    gemMoveMirrorRef.current = false;
+    eloAttackDirectionRef.current = -1;
+    gemMoveMirrorRef.current = true;
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'playing';
