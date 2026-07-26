@@ -400,6 +400,8 @@ export default function Game() {
   const pauseSelectionRef = useRef(0);
   const [upgradeSelection, setUpgradeSelection] = useState(0);
   const upgradeSelectionRef = useRef(0);
+  const [bestiarySelection, setBestiarySelection] = useState(0);
+  const bestiarySelectionRef = useRef(0);
   const menuNavCooldownRef = useRef(0);
   const [pauseBestiary, setPauseBestiary] = useState(false);
   const pauseBestiaryRef = useRef(false);
@@ -1369,6 +1371,15 @@ export default function Game() {
     updateHud();
   }, [updateHud]);
 
+  const moveBestiarySelection = useCallback((direction: number) => {
+    const count = bestiaryRef.current.length;
+    if (count <= 0) return;
+    bestiarySelectionRef.current = (bestiarySelectionRef.current + direction + count) % count;
+    setBestiarySelection(bestiarySelectionRef.current);
+    document.getElementById(`bestiaryEntry-${bestiarySelectionRef.current}`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, []);
+
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
@@ -2052,6 +2063,13 @@ export default function Game() {
           const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn'];
           document.getElementById(ids[menuSelectionRef.current])?.click();
         }
+      } else if (menuScreenRef.current === 'bestiary') {
+        const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
+        if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
+          moveBestiarySelection(axis > 0 ? 1 : -1);
+          menuNavCooldownRef.current = 0.22;
+        }
+        if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       } else if (gp.cardB && !gp.prevCardB) {
         document.getElementById('menuBackBtn')?.click();
       }
@@ -2063,6 +2081,12 @@ export default function Game() {
       handleGamepad();
       const gp = gamepadRef.current;
       if (pauseBestiaryRef.current) {
+        menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
+        const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
+        if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
+          moveBestiarySelection(axis > 0 ? 1 : -1);
+          menuNavCooldownRef.current = 0.22;
+        }
         if (gp.cardB && !gp.prevCardB) {
           pauseBestiaryRef.current = false;
           setPauseBestiary(false);
@@ -2157,7 +2181,7 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [update, handleGamepad]);
+  }, [update, handleGamepad, moveBestiarySelection]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
@@ -2364,10 +2388,14 @@ export default function Game() {
         <div id="bestiaryEmpty">Encounter entities in play to record stable genome snapshots.</div>
       ) : (
         <div id="bestiaryGrid">
-          {bestiaryEntries.map((entry) => {
+          {bestiaryEntries.map((entry, index) => {
             const genome = entry.genome;
             return (
-              <article className="bestiaryEntry" key={entry.signature}>
+              <article
+                id={`bestiaryEntry-${index}`}
+                className={`bestiaryEntry${bestiarySelection === index ? ' gamepad-selected' : ''}`}
+                key={entry.signature}
+              >
                 <BestiarySprite seed={entry.seed} genome={genome} />
                 <div className="bestiaryIdentity">
                   {genome.entityType.toUpperCase()} / {genome.element.toUpperCase()} / {genome.enemyClass.toUpperCase()}
@@ -2622,6 +2650,8 @@ export default function Game() {
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuScreenRef.current = 'bestiary';
+                  bestiarySelectionRef.current = 0;
+                  setBestiarySelection(0);
                   setMenuScreen('bestiary');
                 }}
               >
@@ -2783,6 +2813,8 @@ export default function Game() {
               onClick={(ev) => {
                 ev.stopPropagation();
                 pauseBestiaryRef.current = true;
+                bestiarySelectionRef.current = 0;
+                setBestiarySelection(0);
                 setPauseBestiary(true);
               }}
             >
