@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" shape-rendering="crispEdges">
+  <path
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linejoin="miter"
+    d="M84 68H140V100H164V140H140V180H132V140H108V180H100V140H84V68Z"
+  />
+</svg>

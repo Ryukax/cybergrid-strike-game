@@ -2908,7 +2908,7 @@ export default function Game() {
                 <img
                   className={attacking ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
                   src={`${import.meta.env.BASE_URL}effects/${
-                    defending ? 'temporary-avatar-defense.png' : 'temporary-avatar.png'
+                    defending ? 'temporary-avatar-defense-outline.svg' : 'temporary-avatar.png'
                   }`}
                   alt=""
                 />
