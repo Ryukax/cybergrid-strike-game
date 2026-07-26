@@ -413,6 +413,7 @@ export default function Game() {
     l1: false, prevL1: false,         // button 4 → combo modifier
     skill: false, prevSkill: false,   // button 6 / L2 → skill animation
     r1: false, prevR1: false,         // button 5 → evolution prompt
+    r2: false, prevR2: false,         // button 7 / R2 → cycle active control
     connected: false,
   });
   const controllerCooldownRef = useRef(0);
@@ -787,8 +788,9 @@ export default function Game() {
       });
     }
     playShot();
-    if (playerSkinRef.current === 'rocket') rocketShootFlash();
-    if (playerSkinRef.current === 'gem') gemShootFlash();
+    const playerOriginShot = opts?.originCol === undefined;
+    if (playerOriginShot && playerSkinRef.current === 'rocket') rocketShootFlash();
+    if (playerOriginShot && playerSkinRef.current === 'gem' && s.autoBuster) gemShootFlash();
   }, [rocketShootFlash, gemShootFlash]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
@@ -1444,6 +1446,17 @@ export default function Game() {
     updateHud();
   }, [updateHud]);
 
+  const closeUpgradeSelection = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.upgradeSelectionOpen) return;
+    s.upgradeSelectionOpen = false;
+    s.upgradePromptOpen = false;
+    s.upgradePromptTimer = 0;
+    s.upgradeRetryWave = s.wave + UPGRADE_RETRY_WAVES;
+    showMessage(`Evolution deferred · returns at wave ${s.upgradeRetryWave}.`, 1500);
+    updateHud();
+  }, [showMessage, updateHud]);
+
   const moveBestiarySelection = useCallback((direction: number) => {
     const count = bestiaryRef.current.length;
     if (count <= 0) return;
@@ -1556,6 +1569,12 @@ export default function Game() {
     const direction = clone.controlled;
     const row = clone.rows[direction];
     if (row === null) return;
+    const persistentAutoFire = cloneAutoFireTimersRef.current[direction];
+    if (persistentAutoFire) clearInterval(persistentAutoFire);
+    cloneAutoFireTimersRef.current[direction] = null;
+    const persistentDefense = cloneActionTimersRef.current[direction];
+    if (persistentDefense) clearTimeout(persistentDefense);
+    cloneActionTimersRef.current[direction] = null;
     const firstAction = clone.turn === 0;
     const other: CloneDirection = direction === 'north' ? 'south' : 'north';
     const openingBlock = action === 'attack'
@@ -1622,9 +1641,25 @@ export default function Game() {
   }, [advanceToSecondClone, fireBullet, holdCloneDefenseFrame, scheduleCloneExpiry, showMessage]);
 
   const moveControlledClone = useCallback((dx: number, dy: number) => {
-    const clone = cloneSessionRef.current;
+    let clone = cloneSessionRef.current;
     if (!clone.inputActive) return;
     const direction = clone.controlled;
+    if (clone.statuses[direction] === 'autofiring'
+      || clone.statuses[direction] === 'defending'
+      || clone.statuses[direction] === 'defendingHeld') {
+      const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+      if (autoFireTimer) clearInterval(autoFireTimer);
+      cloneAutoFireTimersRef.current[direction] = null;
+      const defenseTimer = cloneActionTimersRef.current[direction];
+      if (defenseTimer) clearTimeout(defenseTimer);
+      cloneActionTimersRef.current[direction] = null;
+      clone = {
+        ...clone,
+        statuses: { ...clone.statuses, [direction]: 'idle' },
+      };
+      cloneSessionRef.current = clone;
+      setCloneView(clone);
+    }
     const row = clone.rows[direction];
     const col = clone.cols[direction];
     if (row === null || col === null || clone.statuses[direction] !== 'idle') return;
@@ -1642,9 +1677,25 @@ export default function Game() {
   }, []);
 
   const moveControlledCloneTo = useCallback((col: number, row: number) => {
-    const clone = cloneSessionRef.current;
+    let clone = cloneSessionRef.current;
     if (!clone.inputActive) return;
     const direction = clone.controlled;
+    if (clone.statuses[direction] === 'autofiring'
+      || clone.statuses[direction] === 'defending'
+      || clone.statuses[direction] === 'defendingHeld') {
+      const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+      if (autoFireTimer) clearInterval(autoFireTimer);
+      cloneAutoFireTimersRef.current[direction] = null;
+      const defenseTimer = cloneActionTimersRef.current[direction];
+      if (defenseTimer) clearTimeout(defenseTimer);
+      cloneActionTimersRef.current[direction] = null;
+      clone = {
+        ...clone,
+        statuses: { ...clone.statuses, [direction]: 'idle' },
+      };
+      cloneSessionRef.current = clone;
+      setCloneView(clone);
+    }
     if (clone.rows[direction] === null || clone.cols[direction] === null
       || clone.statuses[direction] !== 'idle') return;
     const nextRow = Math.max(0, Math.min(2, row));
@@ -1692,6 +1743,44 @@ export default function Game() {
     }
     advanceToSecondClone(direction, true);
   }, [advanceToSecondClone, holdCloneDefenseFrame, showMessage]);
+
+  const cycleActiveControl = useCallback(() => {
+    const clone = cloneSessionRef.current;
+    if (!clone.visible || !clone.revealed) return;
+    const available = (direction: CloneDirection) =>
+      clone.rows[direction] !== null
+      && clone.statuses[direction] !== 'gone'
+      && clone.statuses[direction] !== 'dispersing';
+    if (!clone.playerLocked || !clone.inputActive) {
+      const next = available('north') ? 'north' : available('south') ? 'south' : null;
+      if (!next) return;
+      const resumed: CloneView = {
+        ...clone,
+        controlled: next,
+        inputActive: true,
+        playerLocked: true,
+      };
+      cloneSessionRef.current = resumed;
+      setCloneView(resumed);
+      showMessage('Clone control active.', 800);
+      return;
+    }
+    if (clone.controlled === 'north' && available('south')) {
+      const cycled: CloneView = { ...clone, controlled: 'south' };
+      cloneSessionRef.current = cycled;
+      setCloneView(cycled);
+      showMessage('Clone control cycled.', 800);
+      return;
+    }
+    const playerControl: CloneView = {
+      ...clone,
+      inputActive: false,
+      playerLocked: false,
+    };
+    cloneSessionRef.current = playerControl;
+    setCloneView(playerControl);
+    showMessage('Player control active.', 800);
+  }, [showMessage]);
 
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
@@ -1802,6 +1891,8 @@ export default function Game() {
     };
     cloneSessionRef.current = clones;
     setCloneView(clones);
+    gemAttackFrameRef.current = -1;
+    rocketFrameRef.current = -1;
     showMessage('Player channeling Skill…', 900);
     if (skillFxTimerRef.current) clearTimeout(skillFxTimerRef.current);
     setSkillFxRun((run) => run + 1);
@@ -1852,6 +1943,7 @@ export default function Game() {
         g.l1 = false; g.prevL1 = false;
         g.skill = false; g.prevSkill = false;
         g.r1 = false; g.prevR1 = false;
+        g.r2 = false; g.prevR2 = false;
       }
       return;
     }
@@ -1872,6 +1964,7 @@ export default function Game() {
     g.rotate = buttonPressed(8) || buttonPressed(17);   // View / ellipsis / share
     g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
     g.prevL1 = g.l1; g.l1 = buttonPressed(4);          // L1 modifier
+    g.prevR2 = g.r2; g.r2 = buttonPressed(7);          // R2 → cycle active control
     g.prevSkill = g.skill; g.skill = buttonPressed(6); // L2 → skill animation
     g.prevR1 = g.r1; g.r1 = buttonPressed(5);          // R1 → evolution prompt
     g.moveX = moveX;
@@ -1925,6 +2018,10 @@ export default function Game() {
 
     const slowMotionActive = s.upgradeSelectionOpen;
     if (s.upgradeSelectionOpen) {
+      if (upgradeGamepad.cardB && !upgradeGamepad.prevCardB) {
+        closeUpgradeSelection();
+        return;
+      }
       menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
       const axis = Math.abs(upgradeGamepad.moveX) > 0.15
         ? upgradeGamepad.moveX
@@ -1955,6 +2052,7 @@ export default function Game() {
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
     if (gp.skill && !gp.prevSkill) playSkillAnimation();
+    if (gp.r2 && !gp.prevR2) cycleActiveControl();
     const cloneInputActive = cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
     if (cloneInputActive) {
@@ -2521,7 +2619,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, cycleActiveControl, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -2892,6 +2990,16 @@ export default function Game() {
       }
       const s = stateRef.current;
       if (!s.running || pausedRef.current) return;
+      if (s.upgradeSelectionOpen) {
+        if (ev.key === 'Backspace') {
+          ev.preventDefault();
+          closeUpgradeSelection();
+        } else if (ev.key === ' ') {
+          ev.preventDefault();
+          chooseRunUpgrade(s.upgradeOptions[upgradeSelectionRef.current]);
+        }
+        return;
+      }
       const k = keyboardRef.current;
       if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = true;
@@ -2950,7 +3058,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, playSkillAnimation,
+  }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, playSkillAnimation,
     resolveCloneAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
@@ -3067,7 +3175,7 @@ export default function Game() {
             position: 'absolute',
             pointerEvents: 'none',
             transform: 'translate(-50%,-50%)',
-            opacity: playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
+            opacity: skillPlayerFxActive ? 0 : playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
             filter: playerSkin === 'gem' && !hud.autoBuster ? 'drop-shadow(0 0 8px #a78bfa)' : 'none',
             transition: 'opacity 150ms ease, filter 150ms ease',
           }}
@@ -3551,6 +3659,16 @@ export default function Game() {
       {phase === 'playing' && hud.upgradeSelectionOpen && (
         <div id="upgradeOverlay">
           <div id="upgradeCard">
+            <button
+              id="upgradeClose"
+              aria-label="Close Evolve menu"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                closeUpgradeSelection();
+              }}
+            >
+              ×
+            </button>
             <div id="upgradeEyebrow">WAVE {hud.wave} MILESTONE</div>
             <div id="upgradeTitle">EVOLVE</div>
             <div id="upgradeSubtitle">Combat remains active at 8% speed</div>
@@ -3576,7 +3694,7 @@ export default function Game() {
                 );
               })}
             </div>
-            <div id="upgradeHint">D-PAD to choose · A to install</div>
+            <div id="upgradeHint">D-PAD to choose · A / SPACE to install · B / BACKSPACE to close</div>
           </div>
         </div>
       )}

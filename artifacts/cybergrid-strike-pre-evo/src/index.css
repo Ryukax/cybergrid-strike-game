@@ -1060,6 +1060,7 @@ canvas#canvas {
 }
 
 #upgradeCard {
+  position: relative;
   width: min(94vw, 720px);
   padding: 14px;
   text-align: center;
@@ -1067,6 +1068,26 @@ canvas#canvas {
   border: 2px solid rgba(192, 132, 252, 0.64);
   border-radius: 20px;
   box-shadow: 0 0 70px rgba(168, 85, 247, 0.28);
+}
+
+#upgradeClose {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(216, 180, 254, 0.62);
+  border-radius: 50%;
+  color: #f5d0fe;
+  background: rgba(30, 15, 48, 0.82);
+  font-size: 25px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+#upgradeClose:active {
+  transform: scale(0.92);
 }
 
 #upgradeEyebrow {
