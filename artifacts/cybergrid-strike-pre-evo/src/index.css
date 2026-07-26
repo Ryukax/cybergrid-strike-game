@@ -428,7 +428,8 @@ canvas#canvas {
 }
 
 .cloneAvatar.defending img {
-  animation: cloneDefend 360ms steps(3, end) forwards;
+  transform-origin: 50% 88%;
+  animation: cloneDefensePosture 520ms steps(4, end) forwards;
   filter:
     drop-shadow(0 0 4px #fff)
     drop-shadow(0 0 11px rgba(96, 165, 250, 0.95));
@@ -442,10 +443,22 @@ canvas#canvas {
   animation: cloneDisperse 360ms steps(4, end) forwards;
 }
 
-@keyframes cloneDefend {
-  0% { transform: scale(1); }
-  66% { transform: scaleX(1.08) scaleY(0.86) translateY(6%); }
-  100% { transform: scaleX(1.12) scaleY(0.82) translateY(9%); }
+@keyframes cloneDefensePosture {
+  0% {
+    transform: scale(1) translateY(0);
+  }
+  25% {
+    transform: scaleX(1.06) scaleY(0.94) translateY(2%);
+  }
+  50% {
+    transform: scaleX(0.96) scaleY(1.04) translateY(-1%);
+  }
+  75% {
+    transform: scaleX(1.1) scaleY(0.86) translateY(7%);
+  }
+  100% {
+    transform: scaleX(1.14) scaleY(0.8) translateY(11%);
+  }
 }
 
 #cloneActionControls {
