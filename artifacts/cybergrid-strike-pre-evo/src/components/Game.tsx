@@ -29,7 +29,7 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
-import type { GameState, GameMode } from '../game/types';
+import type { GameState, GameMode, EnemyGenome } from '../game/types';
 import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
@@ -39,7 +39,7 @@ import {
 } from '../game/audio';
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
-import { getEnemyMovementClass, type EnemyMovementClass } from '../game/procedural-virus';
+import { getEnemyMovementClass, getProceduralVirusSprite, type EnemyMovementClass } from '../game/procedural-virus';
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
@@ -72,6 +72,29 @@ const CYBER_BASES = new Set([
   'robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite',
   'data-wraith', 'turret', 'fish', 'mole',
 ]);
+const BESTIARY_KEY = 'cgs_bestiary_v1';
+
+interface BestiaryEntry {
+  signature: string;
+  seed: number;
+  genome: EnemyGenome;
+  discoveredAt: number;
+}
+
+function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const sprite = getProceduralVirusSprite(seed, genome);
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0, 0, 240, 160);
+    context.drawImage(sprite, 0, 0, 240, 160);
+  }, [seed, genome]);
+  return <canvas ref={canvasRef} className="bestiarySprite" width={240} height={160} />;
+}
 
 function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {
   return enemy.genome ? getEnemyMovementClass(enemy.genome.baseElement) : undefined;
@@ -287,13 +310,42 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
-  const [menuScreen, setMenuScreen] = useState<'main' | 'customization'>('main');
-  const menuScreenRef = useRef<'main' | 'customization'>('main');
+  const [menuScreen, setMenuScreen] = useState<'main' | 'customization' | 'bestiary'>('main');
+  const menuScreenRef = useRef<'main' | 'customization' | 'bestiary'>('main');
   const [menuSelection, setMenuSelection] = useState(0);
   const menuSelectionRef = useRef(0);
   const [pauseSelection, setPauseSelection] = useState(0);
   const pauseSelectionRef = useRef(0);
   const menuNavCooldownRef = useRef(0);
+  const [pauseBestiary, setPauseBestiary] = useState(false);
+  const pauseBestiaryRef = useRef(false);
+  const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
+      return Array.isArray(stored) ? stored.slice(0, 160) : [];
+    } catch {
+      return [];
+    }
+  });
+  const bestiaryRef = useRef<BestiaryEntry[]>(bestiaryEntries);
+  const recordBestiary = useCallback((seed: number, genome: EnemyGenome) => {
+    const signature = [
+      genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
+      genome.fusionElement ?? 'pure', genome.niche,
+      [...genome.mutations].sort().join('+') || 'baseline',
+      `fusion-${genome.fusionLevel}`,
+    ].join(':');
+    if (bestiaryRef.current.some((entry) => entry.signature === signature)) return;
+    const entry: BestiaryEntry = {
+      signature,
+      seed,
+      genome: { ...genome, mutations: [...genome.mutations] },
+      discoveredAt: Date.now(),
+    };
+    bestiaryRef.current = [entry, ...bestiaryRef.current].slice(0, 160);
+    localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
+    setBestiaryEntries(bestiaryRef.current);
+  }, []);
 
   // Player skin
   type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
@@ -1450,6 +1502,7 @@ export default function Game() {
       if (!s.ecosystemStats.entitySignatures.includes(discoverySignature)) {
         s.ecosystemStats.entitySignatures.push(discoverySignature);
       }
+      recordBestiary(value, genome);
       s.recentBaseElements.push(genome.baseElement);
       s.recentBodyClasses.push(getEnemyMovementClass(genome.baseElement));
       s.recentElementDomains.push(ELEMENT_DOMAIN[genome.baseElement]);
@@ -1565,6 +1618,7 @@ export default function Game() {
         if (fusedSignature && !s.ecosystemStats.entitySignatures.includes(fusedSignature)) {
           s.ecosystemStats.entitySignatures.push(fusedSignature);
         }
+        if (a.genome) recordBestiary(a.value, a.genome);
         registerSpawn(getMorphSig(a.value));
         break;
       }
@@ -1723,7 +1777,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, manualBuster, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame]);
+  }, [handleGamepad, tryMoveTo, manualBuster, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -1741,12 +1795,12 @@ export default function Game() {
       if (menuScreenRef.current === 'main') {
         if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
           const direction = gp.moveY > 0 ? 1 : -1;
-          menuSelectionRef.current = (menuSelectionRef.current + direction + 3) % 3;
+          menuSelectionRef.current = (menuSelectionRef.current + direction + 4) % 4;
           setMenuSelection(menuSelectionRef.current);
           menuNavCooldownRef.current = 0.22;
         }
         if (gp.fire && !gp.prevFire) {
-          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn'];
+          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn'];
           document.getElementById(ids[menuSelectionRef.current])?.click();
         }
       } else if (gp.cardB && !gp.prevCardB) {
@@ -1759,18 +1813,26 @@ export default function Game() {
     } else if (phaseRef.current === 'playing' && pausedRef.current) {
       handleGamepad();
       const gp = gamepadRef.current;
-      menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
-      if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
-        const direction = gp.moveY > 0 ? 1 : -1;
-        pauseSelectionRef.current = (pauseSelectionRef.current + direction + 2) % 2;
-        setPauseSelection(pauseSelectionRef.current);
-        menuNavCooldownRef.current = 0.22;
+      if (pauseBestiaryRef.current) {
+        if (gp.cardB && !gp.prevCardB) {
+          pauseBestiaryRef.current = false;
+          setPauseBestiary(false);
+        }
+        if (gp.start && !gp.prevStart) togglePause();
+      } else {
+        menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
+        if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
+          const direction = gp.moveY > 0 ? 1 : -1;
+          pauseSelectionRef.current = (pauseSelectionRef.current + direction + 3) % 3;
+          setPauseSelection(pauseSelectionRef.current);
+          menuNavCooldownRef.current = 0.22;
+        }
+        if (gp.fire && !gp.prevFire) {
+          const ids = ['pauseResumeBtn', 'pauseBestiaryBtn', 'pauseMenuBtn'];
+          document.getElementById(ids[pauseSelectionRef.current])?.click();
+        }
+        if (gp.start && !gp.prevStart) togglePause();
       }
-      if (gp.fire && !gp.prevFire) {
-        const ids = ['pauseResumeBtn', 'pauseMenuBtn'];
-        document.getElementById(ids[pauseSelectionRef.current])?.click();
-      }
-      if (gp.start && !gp.prevStart) togglePause();
     }
 
     const canvas = canvasRef.current;
@@ -1891,6 +1953,9 @@ export default function Game() {
       pauseSelectionRef.current = 0;
       setPauseSelection(0);
       menuNavCooldownRef.current = 0;
+    } else {
+      pauseBestiaryRef.current = false;
+      setPauseBestiary(false);
     }
     lastTimeRef.current = 0; // reset so dt doesn't spike on resume
     setPaused(pausedRef.current);
@@ -1906,11 +1971,13 @@ export default function Game() {
     menuSelectionRef.current = 0;
     pauseSelectionRef.current = 0;
     pausedRef.current = false;
+    pauseBestiaryRef.current = false;
     // Reset reward accumulator for new session
     rewardAccRef.current.reset();
     setSessionCGRD(0);
     setGameKills([]);
     setPaused(false);
+    setPauseBestiary(false);
     setMenuScreen('main');
     setMenuSelection(0);
     setPauseSelection(0);
@@ -2029,6 +2096,51 @@ export default function Game() {
   };
 
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
+  const bestiaryPanel = (onBack: () => void) => (
+    <div id="bestiaryCard">
+      <div id="bestiaryHeader">
+        <div>
+          <div id="bestiaryTitle">BESTIARY</div>
+          <div id="bestiaryCount">{bestiaryEntries.length} stable discoveries</div>
+        </div>
+        <button id="menuBackBtn" className="bestiaryBackBtn" onClick={(ev) => { ev.stopPropagation(); onBack(); }}>← BACK</button>
+      </div>
+      <div id="bestiaryLegend">
+        <span>CORE</span><span>ELEMENT</span><span>TYPE</span><span>CLASS</span><span>FUSION</span>
+      </div>
+      {bestiaryEntries.length === 0 ? (
+        <div id="bestiaryEmpty">Encounter entities in play to record stable genome snapshots.</div>
+      ) : (
+        <div id="bestiaryGrid">
+          {bestiaryEntries.map((entry) => {
+            const genome = entry.genome;
+            return (
+              <article className="bestiaryEntry" key={entry.signature}>
+                <BestiarySprite seed={entry.seed} genome={genome} />
+                <div className="bestiaryIdentity">
+                  {genome.entityType.toUpperCase()} / {genome.element.toUpperCase()} / {genome.enemyClass.toUpperCase()}
+                </div>
+                <div className="bestiaryMeta">
+                  <span>Core <b>{genome.baseElement}</b></span>
+                  <span>Generation <b>{genome.generation}</b></span>
+                  <span>Fusion <b>{genome.fusionLevel}</b></span>
+                  <span>Niche <b>{genome.niche}</b></span>
+                </div>
+                <div className="bestiaryTraits">
+                  {genome.mutations.length > 0 ? genome.mutations.join(' · ') : 'baseline'}
+                </div>
+                {genome.fusionElement && (
+                  <div className="bestiaryLineage">
+                    {genome.baseElement} + {genome.fusionElement}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div id="game">
@@ -2247,6 +2359,17 @@ export default function Game() {
               >
                 ⚙ Customization
               </button>
+              <button
+                id="menuBestiaryBtn"
+                className={menuSelection === 3 ? 'gamepad-selected' : ''}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  menuScreenRef.current = 'bestiary';
+                  setMenuScreen('bestiary');
+                }}
+              >
+                ◈ Bestiary ({bestiaryEntries.length})
+              </button>
               <div id="menuControls">
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
@@ -2254,7 +2377,7 @@ export default function Game() {
                 <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — once per hand, then locked until the next deal</span></div>
               </div>
             </div>
-          ) : (
+          ) : menuScreen === 'customization' ? (
             <div id="menuCard" className="customization-card">
               <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
 
@@ -2328,12 +2451,19 @@ export default function Game() {
                 ← Back
               </button>
             </div>
+          ) : (
+            bestiaryPanel(() => {
+              menuScreenRef.current = 'main';
+              menuSelectionRef.current = 0;
+              setMenuSelection(0);
+              setMenuScreen('main');
+            })
           )}
         </div>
       )}
 
       {/* Pause overlay */}
-      {paused && phase === 'playing' && (
+      {paused && phase === 'playing' && !pauseBestiary && (
         <div id="pauseOverlay">
           <div id="pauseCard">
             <div id="pauseTitle">PAUSED</div>
@@ -2345,13 +2475,33 @@ export default function Game() {
               ▶ RESUME
             </button>
             <button
-              id="pauseMenuBtn"
+              id="pauseBestiaryBtn"
               className={pauseSelection === 1 ? 'gamepad-selected' : ''}
+              onClick={(ev) => {
+                ev.stopPropagation();
+                pauseBestiaryRef.current = true;
+                setPauseBestiary(true);
+              }}
+            >
+              BESTIARY ({bestiaryEntries.length})
+            </button>
+            <button
+              id="pauseMenuBtn"
+              className={pauseSelection === 2 ? 'gamepad-selected' : ''}
               onClick={(ev) => { ev.stopPropagation(); restart(); }}
             >
               MAIN MENU
             </button>
           </div>
+        </div>
+      )}
+
+      {paused && phase === 'playing' && pauseBestiary && (
+        <div id="pauseOverlay">
+          {bestiaryPanel(() => {
+            pauseBestiaryRef.current = false;
+            setPauseBestiary(false);
+          })}
         </div>
       )}
 
