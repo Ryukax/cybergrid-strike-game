@@ -1615,9 +1615,33 @@ export default function Game() {
     if (phaseRef.current !== 'playing' || !s.running || pausedRef.current
       || cloneSessionRef.current.visible) return;
     ensureAudio();
-    const northRow = s.player.row > 0 ? s.player.row - 1 : null;
-    const southRow = s.player.row < 2 ? s.player.row + 1 : null;
-    const controlled: CloneDirection = northRow !== null ? 'north' : 'south';
+    const clockwiseOffsets = [
+      { col: 0, row: -1 }, { col: 1, row: -1 },
+      { col: 1, row: 0 }, { col: 1, row: 1 },
+      { col: 0, row: 1 }, { col: -1, row: 1 },
+      { col: -1, row: 0 }, { col: -1, row: -1 },
+    ];
+    const occupied = new Set<string>([`${s.player.col},${s.player.row}`]);
+    for (const enemy of s.enemies) {
+      const col = Math.round(enemy.colPos);
+      if (enemy.colPos >= -0.45 && col >= 0 && col <= 2 && enemy.row >= 0 && enemy.row <= 2) {
+        occupied.add(`${col},${enemy.row}`);
+      }
+    }
+    const findClockwiseSpawn = (startIndex: number) => {
+      for (let step = 0; step < clockwiseOffsets.length; step++) {
+        const offset = clockwiseOffsets[(startIndex + step) % clockwiseOffsets.length];
+        const col = s.player.col + offset.col;
+        const row = s.player.row + offset.row;
+        if (col < 0 || col > 2 || row < 0 || row > 2 || occupied.has(`${col},${row}`)) continue;
+        occupied.add(`${col},${row}`);
+        return { col, row };
+      }
+      return null;
+    };
+    const northSpawn = findClockwiseSpawn(0);
+    const southSpawn = findClockwiseSpawn(4);
+    const controlled: CloneDirection = northSpawn ? 'north' : 'south';
     const clones: CloneView = {
       visible: true,
       revealed: true,
@@ -1626,13 +1650,13 @@ export default function Game() {
       controlled,
       turn: 0,
       statuses: {
-        north: northRow === null ? 'gone' : 'idle',
-        south: southRow === null ? 'gone' : 'idle',
+        north: northSpawn === null ? 'gone' : 'idle',
+        south: southSpawn === null ? 'gone' : 'idle',
       },
-      rows: { north: northRow, south: southRow },
+      rows: { north: northSpawn?.row ?? null, south: southSpawn?.row ?? null },
       cols: {
-        north: northRow === null ? null : s.player.col,
-        south: southRow === null ? null : s.player.col,
+        north: northSpawn?.col ?? null,
+        south: southSpawn?.col ?? null,
       },
     };
     cloneSessionRef.current = clones;
@@ -2693,7 +2717,10 @@ export default function Game() {
         return;
       }
       if (ev.repeat) return;
-      if (ev.key === 'Escape' || ev.key === 'p' || ev.key === 'P') { togglePause(); return; }
+      if (ev.key === 'Escape' || ev.key === 'Enter' || ev.key === 'p' || ev.key === 'P') {
+        togglePause();
+        return;
+      }
       const s = stateRef.current;
       if (!s.running || pausedRef.current) return;
       const k = keyboardRef.current;
@@ -2702,11 +2729,17 @@ export default function Game() {
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
       else if (ev.key === ' ') manualBuster();
-      else if ((ev.key === 'z' || ev.key === 'Z') && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
+      else if (cloneSessionRef.current.inputActive && (ev.key === 'z' || ev.key === 'Z')) {
+        resolveCloneAction('attack');
+      } else if (cloneSessionRef.current.inputActive && (ev.key === 'x' || ev.key === 'X')) {
+        switchCloneControl();
+      } else if (cloneSessionRef.current.inputActive && (ev.key === 'c' || ev.key === 'C')) {
+        resolveCloneAction('defend');
+      } else if ((ev.key === 'z' || ev.key === 'Z') && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       else if ((ev.key === 'x' || ev.key === 'X') && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       else if ((ev.key === 'c' || ev.key === 'C') && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
       else if (ev.key === 'v' || ev.key === 'V') playSkillAnimation();
-      else if (ev.key === 'r' || ev.key === 'R') rotateHand();
+      else if (ev.key === 'f' || ev.key === 'F') rotateHand();
     };
     const onKeyUp = (ev: KeyboardEvent) => {
       const k = keyboardRef.current;
@@ -2747,7 +2780,8 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, playSkillAnimation, setupDpad, startGame, rotateHand, useCard]);
+  }, [resizeCanvas, loop, manualBuster, playSkillAnimation, resolveCloneAction,
+    setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
