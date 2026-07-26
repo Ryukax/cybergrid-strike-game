@@ -296,6 +296,7 @@ canvas#canvas {
   z-index: 18;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  animation: skillSmokeHandoff 1530ms linear forwards;
 }
 
 .skillFxWrap img {
@@ -304,6 +305,12 @@ canvas#canvas {
   display: block;
   object-fit: contain;
   image-rendering: pixelated;
+}
+
+@keyframes skillSmokeHandoff {
+  0%, 68% { opacity: 1; }
+  86% { opacity: 0.42; }
+  100% { opacity: 0; }
 }
 
 .skillPlayerFx {
@@ -339,6 +346,25 @@ canvas#canvas {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.cloneAvatar.materializing {
+  animation: cloneMaterializeHandoff 1530ms ease-out forwards;
+}
+
+@keyframes cloneMaterializeHandoff {
+  0%, 62% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  84% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .cloneAvatar img {

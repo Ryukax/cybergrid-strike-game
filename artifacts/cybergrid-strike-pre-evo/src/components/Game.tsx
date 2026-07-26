@@ -1555,6 +1555,25 @@ export default function Game() {
     playMove();
   }, []);
 
+  const moveControlledCloneTo = useCallback((col: number, row: number) => {
+    const clone = cloneSessionRef.current;
+    if (!clone.inputActive) return;
+    const direction = clone.controlled;
+    if (clone.rows[direction] === null || clone.cols[direction] === null
+      || clone.statuses[direction] !== 'idle') return;
+    const nextRow = Math.max(0, Math.min(2, row));
+    const nextCol = Math.max(0, Math.min(2, col));
+    if (clone.rows[direction] === nextRow && clone.cols[direction] === nextCol) return;
+    const moved: CloneView = {
+      ...clone,
+      rows: { ...clone.rows, [direction]: nextRow },
+      cols: { ...clone.cols, [direction]: nextCol },
+    };
+    cloneSessionRef.current = moved;
+    setCloneView(moved);
+    playMove();
+  }, []);
+
   const switchCloneControl = useCallback(() => {
     const clone = cloneSessionRef.current;
     if (!clone.inputActive || clone.turn !== 0) return;
@@ -1579,7 +1598,7 @@ export default function Game() {
     const controlled: CloneDirection = northRow !== null ? 'north' : 'south';
     const clones: CloneView = {
       visible: true,
-      revealed: false,
+      revealed: true,
       inputActive: false,
       playerLocked: true,
       controlled,
@@ -1603,8 +1622,8 @@ export default function Game() {
     skillFxTimerRef.current = setTimeout(() => {
       setSkillFxActive(false);
       const current = cloneSessionRef.current;
-      if (current.visible && !current.revealed) {
-        const revealed: CloneView = { ...current, revealed: true, inputActive: true };
+      if (current.visible) {
+        const revealed: CloneView = { ...current, inputActive: true };
         cloneSessionRef.current = revealed;
         setCloneView(revealed);
         showMessage(`${revealed.controlled.toUpperCase()} clone controlled · X Attack · Y Switch · B Defend`, 1800);
@@ -2452,13 +2471,14 @@ export default function Game() {
       }
 
       const metrics = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
-      const positionSkillEffect = (wrap: HTMLDivElement | null, rowOffset: -1 | 1) => {
+      const positionSkillEffect = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
         if (!wrap) return;
-        const targetRow = stateRef.current.player.row + rowOffset;
-        const onGrid = targetRow >= 0 && targetRow < 3;
+        const targetRow = cloneSessionRef.current.rows[direction];
+        const targetCol = cloneSessionRef.current.cols[direction];
+        const onGrid = targetRow !== null && targetCol !== null;
         wrap.style.display = onGrid ? 'block' : 'none';
-        if (!onGrid) return;
-        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+        if (!onGrid || targetRow === null || targetCol === null) return;
+        const px = metrics.x + (targetCol + 0.5) * metrics.cell;
         const py = metrics.y + (targetRow + 0.5) * metrics.cell;
         const width = Math.round(metrics.cell * 1.55);
         wrap.style.left = `${px}px`;
@@ -2466,8 +2486,8 @@ export default function Game() {
         wrap.style.width = `${width}px`;
         wrap.style.height = `${Math.round(width * 2 / 3)}px`;
       };
-      positionSkillEffect(skillNorthFxRef.current, -1);
-      positionSkillEffect(skillSouthFxRef.current, 1);
+      positionSkillEffect(skillNorthFxRef.current, 'north');
+      positionSkillEffect(skillSouthFxRef.current, 'south');
       const playerSkillFx = skillPlayerFxRef.current;
       if (playerSkillFx) {
         const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
@@ -2607,8 +2627,13 @@ export default function Game() {
     if (x < m.x || x > m.x + m.boardW || y < m.y || y > m.y + m.boardH) return;
     const col = Math.floor((x - m.x) / m.cell);
     const row = Math.floor((y - m.y) / m.cell);
-    if (col <= 2) tryMoveTo(col, row);
-  }, [tryMoveTo]);
+    if (col > 2) return;
+    if (cloneSessionRef.current.playerLocked) {
+      moveControlledCloneTo(col, row);
+    } else {
+      tryMoveTo(col, row);
+    }
+  }, [moveControlledCloneTo, tryMoveTo]);
 
   // Dpad touch setup — stable handler refs so cleanup matches the originals
   const setupDpad = useCallback((dir: keyof typeof touchDpadRef.current, el: HTMLElement) => {
@@ -2863,7 +2888,7 @@ export default function Game() {
           {(['north', 'south'] as const).map((direction) => {
             const status = cloneView.statuses[direction];
             if (cloneView.rows[direction] === null || status === 'gone') return null;
-            const controlled = cloneView.inputActive && cloneView.controlled === direction;
+            const controlled = cloneView.playerLocked && cloneView.controlled === direction;
             const defending = status === 'defending';
             const attacking = status === 'attacking';
             return (
@@ -2875,6 +2900,7 @@ export default function Game() {
                   controlled ? 'controlled' : '',
                   defending ? 'defending' : '',
                   attacking ? 'attacking' : '',
+                  skillFxActive ? 'materializing' : '',
                   status === 'dispersing' ? 'dispersing' : '',
                 ].filter(Boolean).join(' ')}
                 data-direction={direction}
