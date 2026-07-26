@@ -3137,7 +3137,7 @@ export default function Game() {
                 data-direction={direction}
               >
                 <img
-                  className={attacking ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
+                  className={attacking || autofiring ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
                   src={`${import.meta.env.BASE_URL}effects/${
                     status === 'defending'
                       ? 'clone-defense.gif'
