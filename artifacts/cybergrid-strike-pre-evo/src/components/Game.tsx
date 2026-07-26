@@ -420,7 +420,6 @@ export default function Game() {
   // Direct DOM refs for smooth per-frame bar + label updates (no React setState)
   const cardBarFillRef = useRef<HTMLDivElement>(null);
   const cardLabelRef = useRef<HTMLDivElement>(null);
-  const skillButtonRef = useRef<HTMLButtonElement>(null);
   const skillNorthFxRef = useRef<HTMLDivElement>(null);
   const skillSouthFxRef = useRef<HTMLDivElement>(null);
   const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2402,11 +2401,6 @@ export default function Game() {
       }
 
       const metrics = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
-      const skillButton = skillButtonRef.current;
-      if (skillButton) {
-        skillButton.style.left = `${Math.max(8, metrics.x - 78)}px`;
-        skillButton.style.top = `${metrics.y + metrics.boardH * 0.5}px`;
-      }
       const positionSkillEffect = (wrap: HTMLDivElement | null, rowOffset: -1 | 1) => {
         if (!wrap) return;
         const targetRow = stateRef.current.player.row + rowOffset;
@@ -2866,21 +2860,6 @@ export default function Game() {
         </div>
       )}
 
-      {phase === 'playing' && (
-        <button
-          ref={skillButtonRef}
-          id="skillBtn"
-          className="control-btn"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            playSkillAnimation();
-          }}
-        >
-          SKILL
-          <small>V · L2</small>
-        </button>
-      )}
-
       {/* Card UI + rotate button — column, positioned just below the grid */}
       <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
         <div id="cardUi">
@@ -2969,6 +2948,20 @@ export default function Game() {
             }}
           >
             {hud.rotateUsedThisHand ? 'ROTATE USED' : '↻ ROTATE'}
+          </button>
+        )}
+
+        {phase === 'playing' && (
+          <button
+            id="skillBtn"
+            className="control-btn"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              playSkillAnimation();
+            }}
+          >
+            SKILL
+            <small>V · L2</small>
           </button>
         )}
 

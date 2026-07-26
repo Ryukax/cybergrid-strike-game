@@ -264,9 +264,6 @@ canvas#canvas {
 }
 
 #skillBtn {
-  position: absolute;
-  z-index: 13;
-  transform: translateY(-50%);
   min-width: 68px;
   padding: 10px 8px;
   display: flex;
@@ -287,7 +284,7 @@ canvas#canvas {
 
 #skillBtn:active {
   background: rgba(139, 92, 246, 0.58);
-  transform: translateY(-50%) scale(0.96);
+  transform: scale(0.96);
 }
 
 .skillFxWrap {
@@ -1375,5 +1372,22 @@ canvas#canvas {
     background: rgba(139, 92, 246, 0.2);
     border-color: rgba(196, 181, 253, 0.5);
     color: #ede9fe;
+  }
+
+  #skillBtn {
+    position: absolute;
+    left: 14px;
+    bottom: 70px;
+    z-index: 13;
+    width: 94px;
+    min-height: 48px;
+  }
+
+  #autoToggle {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    width: 94px;
+    min-height: 48px;
   }
 }
