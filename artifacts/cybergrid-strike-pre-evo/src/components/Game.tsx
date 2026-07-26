@@ -1314,7 +1314,7 @@ export default function Game() {
         s.rotateUsedThisHand = false;
         s.usedInHand = [];
         playCardReady();
-        showMessage('Ability Cards loaded! Use them, then hand resets.', false);
+        showMessage('Ability Cards loaded! Use them, then hand resets.', 2000);
         updateHud();
       }
     } else {
