@@ -3947,7 +3947,7 @@ export default function Game() {
                   { id: 'default', label: 'Default', preview: null },
                   { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
-                  { id: 'gem',     label: 'Player',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
+                  { id: 'gem',     label: 'Elo',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
