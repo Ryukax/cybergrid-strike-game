@@ -73,6 +73,7 @@ const CYBER_BASES = new Set([
   'data-wraith', 'turret', 'fish', 'mole',
 ]);
 const BESTIARY_KEY = 'cgs_bestiary_v1';
+const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
 
 interface BestiaryEntry {
   signature: string;
@@ -401,8 +402,8 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
-  const [menuScreen, setMenuScreen] = useState<'main' | 'customization' | 'bestiary'>('main');
-  const menuScreenRef = useRef<'main' | 'customization' | 'bestiary'>('main');
+  const [menuScreen, setMenuScreen] = useState<'main' | 'customization' | 'bestiary' | 'options'>('main');
+  const menuScreenRef = useRef<'main' | 'customization' | 'bestiary' | 'options'>('main');
   const [menuSelection, setMenuSelection] = useState(0);
   const menuSelectionRef = useRef(0);
   const [pauseSelection, setPauseSelection] = useState(0);
@@ -414,6 +415,11 @@ export default function Game() {
   const menuNavCooldownRef = useRef(0);
   const [pauseBestiary, setPauseBestiary] = useState(false);
   const pauseBestiaryRef = useRef(false);
+  const [pauseOptions, setPauseOptions] = useState(false);
+  const pauseOptionsRef = useRef(false);
+  const [virtualDpadEnabled, setVirtualDpadEnabled] = useState(
+    () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
+  );
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
@@ -2064,12 +2070,12 @@ export default function Game() {
       if (menuScreenRef.current === 'main') {
         if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
           const direction = gp.moveY > 0 ? 1 : -1;
-          menuSelectionRef.current = (menuSelectionRef.current + direction + 4) % 4;
+          menuSelectionRef.current = (menuSelectionRef.current + direction + 5) % 5;
           setMenuSelection(menuSelectionRef.current);
           menuNavCooldownRef.current = 0.22;
         }
         if (gp.fire && !gp.prevFire) {
-          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn'];
+          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
           document.getElementById(ids[menuSelectionRef.current])?.click();
         }
       } else if (menuScreenRef.current === 'bestiary') {
@@ -2078,6 +2084,9 @@ export default function Game() {
           moveBestiarySelection(axis > 0 ? 1 : -1);
           menuNavCooldownRef.current = 0.22;
         }
+        if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
+      } else if (menuScreenRef.current === 'options') {
+        if (gp.fire && !gp.prevFire) document.getElementById('menuDpadToggleBtn')?.click();
         if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       } else if (gp.cardB && !gp.prevCardB) {
         document.getElementById('menuBackBtn')?.click();
@@ -2089,7 +2098,14 @@ export default function Game() {
     } else if (phaseRef.current === 'playing' && pausedRef.current) {
       handleGamepad();
       const gp = gamepadRef.current;
-      if (pauseBestiaryRef.current) {
+      if (pauseOptionsRef.current) {
+        if (gp.fire && !gp.prevFire) document.getElementById('pauseDpadToggleBtn')?.click();
+        if (gp.cardB && !gp.prevCardB) {
+          pauseOptionsRef.current = false;
+          setPauseOptions(false);
+        }
+        if (gp.start && !gp.prevStart) togglePause();
+      } else if (pauseBestiaryRef.current) {
         menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
         const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
         if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
@@ -2105,12 +2121,12 @@ export default function Game() {
         menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
         if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
           const direction = gp.moveY > 0 ? 1 : -1;
-          pauseSelectionRef.current = (pauseSelectionRef.current + direction + 3) % 3;
+          pauseSelectionRef.current = (pauseSelectionRef.current + direction + 4) % 4;
           setPauseSelection(pauseSelectionRef.current);
           menuNavCooldownRef.current = 0.22;
         }
         if (gp.fire && !gp.prevFire) {
-          const ids = ['pauseResumeBtn', 'pauseBestiaryBtn', 'pauseMenuBtn'];
+          const ids = ['pauseResumeBtn', 'pauseBestiaryBtn', 'pauseOptionsBtn', 'pauseMenuBtn'];
           document.getElementById(ids[pauseSelectionRef.current])?.click();
         }
         if (gp.start && !gp.prevStart) togglePause();
@@ -2238,6 +2254,8 @@ export default function Game() {
     } else {
       pauseBestiaryRef.current = false;
       setPauseBestiary(false);
+      pauseOptionsRef.current = false;
+      setPauseOptions(false);
     }
     lastTimeRef.current = 0; // reset so dt doesn't spike on resume
     setPaused(pausedRef.current);
@@ -2254,12 +2272,14 @@ export default function Game() {
     pauseSelectionRef.current = 0;
     pausedRef.current = false;
     pauseBestiaryRef.current = false;
+    pauseOptionsRef.current = false;
     // Reset reward accumulator for new session
     rewardAccRef.current.reset();
     setSessionCGRD(0);
     setGameKills([]);
     setPaused(false);
     setPauseBestiary(false);
+    setPauseOptions(false);
     setMenuScreen('main');
     setMenuSelection(0);
     setPauseSelection(0);
@@ -2380,6 +2400,14 @@ export default function Game() {
     updateHud();
   };
 
+  const toggleVirtualDpad = () => {
+    setVirtualDpadEnabled((enabled) => {
+      const next = !enabled;
+      localStorage.setItem(VIRTUAL_DPAD_KEY, next ? 'on' : 'off');
+      return next;
+    });
+  };
+
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const bestiaryPanel = (onBack: () => void) => (
     <div id="bestiaryCard">
@@ -2428,6 +2456,37 @@ export default function Game() {
           })}
         </div>
       )}
+    </div>
+  );
+
+  const optionsPanel = (onBack: () => void, pausedView = false) => (
+    <div id="optionsCard">
+      <div id="optionsTitle">OPTIONS</div>
+      <button
+        id={pausedView ? 'pauseDpadToggleBtn' : 'menuDpadToggleBtn'}
+        className="optionToggleBtn gamepad-selected"
+        aria-pressed={virtualDpadEnabled}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleVirtualDpad();
+        }}
+      >
+        <span>
+          <strong>VIRTUAL D-PAD</strong>
+          <small>Show the on-screen movement control</small>
+        </span>
+        <b>{virtualDpadEnabled ? 'ON' : 'OFF'}</b>
+      </button>
+      <button
+        id="menuBackBtn"
+        className="bestiaryBackBtn"
+        onClick={(event) => {
+          event.stopPropagation();
+          onBack();
+        }}
+      >
+        ← BACK
+      </button>
     </div>
   );
 
@@ -2564,7 +2623,7 @@ export default function Game() {
       </div>
 
       {/* D-Pad */}
-      <div id="dpad">
+      <div id="dpad" style={{ display: virtualDpadEnabled ? undefined : 'none' }} aria-hidden={!virtualDpadEnabled}>
         <div className="dpad-btn" id="dpadUp" />
         <div className="dpad-btn" id="dpadDown" />
         <div className="dpad-btn" id="dpadLeft" />
@@ -2666,6 +2725,17 @@ export default function Game() {
               >
                 ◈ Bestiary ({bestiaryEntries.length})
               </button>
+              <button
+                id="menuOptionsBtn"
+                className={menuSelection === 4 ? 'gamepad-selected' : ''}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  menuScreenRef.current = 'options';
+                  setMenuScreen('options');
+                }}
+              >
+                ⚙ Options
+              </button>
               <div id="menuControls">
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
@@ -2747,8 +2817,15 @@ export default function Game() {
                 ← Back
               </button>
             </div>
-          ) : (
+          ) : menuScreen === 'bestiary' ? (
             bestiaryPanel(() => {
+              menuScreenRef.current = 'main';
+              menuSelectionRef.current = 0;
+              setMenuSelection(0);
+              setMenuScreen('main');
+            })
+          ) : (
+            optionsPanel(() => {
               menuScreenRef.current = 'main';
               menuSelectionRef.current = 0;
               setMenuSelection(0);
@@ -2805,7 +2882,7 @@ export default function Game() {
       )}
 
       {/* Pause overlay */}
-      {paused && phase === 'playing' && !pauseBestiary && (
+      {paused && phase === 'playing' && !pauseBestiary && !pauseOptions && (
         <div id="pauseOverlay">
           <div id="pauseCard">
             <div id="pauseTitle">PAUSED</div>
@@ -2830,8 +2907,19 @@ export default function Game() {
               BESTIARY ({bestiaryEntries.length})
             </button>
             <button
-              id="pauseMenuBtn"
+              id="pauseOptionsBtn"
               className={pauseSelection === 2 ? 'gamepad-selected' : ''}
+              onClick={(event) => {
+                event.stopPropagation();
+                pauseOptionsRef.current = true;
+                setPauseOptions(true);
+              }}
+            >
+              OPTIONS
+            </button>
+            <button
+              id="pauseMenuBtn"
+              className={pauseSelection === 3 ? 'gamepad-selected' : ''}
               onClick={(ev) => { ev.stopPropagation(); restart(); }}
             >
               MAIN MENU
@@ -2846,6 +2934,15 @@ export default function Game() {
             pauseBestiaryRef.current = false;
             setPauseBestiary(false);
           })}
+        </div>
+      )}
+
+      {paused && phase === 'playing' && pauseOptions && (
+        <div id="pauseOverlay">
+          {optionsPanel(() => {
+            pauseOptionsRef.current = false;
+            setPauseOptions(false);
+          }, true)}
         </div>
       )}
 

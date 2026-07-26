@@ -484,7 +484,8 @@ canvas#canvas {
 }
 
 #menuCustomBtn,
-#menuBestiaryBtn {
+#menuBestiaryBtn,
+#menuOptionsBtn {
   background: rgba(8, 20, 40, 0.6);
   border: 2px solid rgba(125, 211, 252, 0.35);
   border-radius: 12px;
@@ -500,7 +501,8 @@ canvas#canvas {
 }
 
 #menuCustomBtn:active,
-#menuBestiaryBtn:active {
+#menuBestiaryBtn:active,
+#menuOptionsBtn:active {
   transform: scale(0.97);
   background: rgba(14, 165, 233, 0.15);
   border-color: rgba(125, 211, 252, 0.6);
@@ -851,6 +853,55 @@ canvas#canvas {
   }
 }
 
+/* Options */
+#optionsCard {
+  width: min(92vw, 460px);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: rgba(8, 20, 40, 0.96);
+  border: 2px solid rgba(125, 211, 252, 0.5);
+  border-radius: 18px;
+  box-shadow: 0 0 54px rgba(14, 165, 233, 0.2);
+}
+
+#optionsTitle {
+  text-align: center;
+  color: #e0f2fe;
+  font-size: 25px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+}
+
+.optionToggleBtn {
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  text-align: left;
+  color: #e0f2fe;
+  background: rgba(14, 55, 82, 0.72);
+  border: 1px solid rgba(125, 211, 252, 0.46);
+  border-radius: 12px;
+}
+
+.optionToggleBtn span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.optionToggleBtn strong { font-size: 14px; letter-spacing: 0.06em; }
+.optionToggleBtn small { color: rgba(219, 234, 254, 0.62); font-size: 10px; }
+.optionToggleBtn b {
+  min-width: 46px;
+  color: #86efac;
+  font-size: 14px;
+  text-align: right;
+}
+
 /* Persistent Bestiary */
 #bestiaryCard {
   width: min(94vw, 920px);
@@ -1007,6 +1058,7 @@ canvas#canvas {
 
 #pauseResumeBtn,
 #pauseBestiaryBtn,
+#pauseOptionsBtn,
 #pauseMenuBtn {
   background: linear-gradient(135deg, var(--grid), #0284c7);
   color: #fff;
@@ -1021,6 +1073,7 @@ canvas#canvas {
 }
 
 #pauseBestiaryBtn,
+#pauseOptionsBtn,
 #pauseMenuBtn {
   background: rgba(8, 20, 40, 0.75);
   border: 2px solid rgba(125, 211, 252, 0.45);
@@ -1029,6 +1082,7 @@ canvas#canvas {
 
 #pauseResumeBtn:active,
 #pauseBestiaryBtn:active,
+#pauseOptionsBtn:active,
 #pauseMenuBtn:active { opacity: 0.7; }
 
 #pauseBtn {
