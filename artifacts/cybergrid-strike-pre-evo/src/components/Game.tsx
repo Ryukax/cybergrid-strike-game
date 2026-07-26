@@ -2293,7 +2293,10 @@ export default function Game() {
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = true;
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
-      else if (ev.key === ' ' || ev.key === 'z' || ev.key === 'x') manualBuster();
+      else if (ev.key === ' ') manualBuster();
+      else if ((ev.key === 'z' || ev.key === 'Z') && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
+      else if ((ev.key === 'x' || ev.key === 'X') && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
+      else if ((ev.key === 'c' || ev.key === 'C') && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
       else if (ev.key === 'r' || ev.key === 'R') rotateHand();
     };
     const onKeyUp = (ev: KeyboardEvent) => {
@@ -2335,7 +2338,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame, rotateHand]);
+  }, [resizeCanvas, loop, manualBuster, setupDpad, startGame, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
