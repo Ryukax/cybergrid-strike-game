@@ -103,6 +103,14 @@ export interface GameState {
   enemySpawnTimer: number;
   directorRecoveryTimer: number;
   directorCritical: boolean;
+  nextUpgradeWave: number;
+  upgradePromptOpen: boolean;
+  upgradePromptTimer: number;
+  upgradeRetryWave: number;
+  upgradeSelectionOpen: boolean;
+  upgradeOptions: string[];
+  runUpgrades: Record<string, number>;
+  shotsFired: number;
   enemyFormationId: number;
   lanePressure: [number, number, number];
   ecosystemStats: {

@@ -81,6 +81,32 @@ interface BestiaryEntry {
   discoveredAt: number;
 }
 
+interface RunUpgrade {
+  id: string;
+  name: string;
+  desc: string;
+  maxLevel: number;
+}
+
+const RUN_UPGRADES: RunUpgrade[] = [
+  { id: 'capacitor', name: 'CAPACITOR', desc: 'Ability hands recharge 15% faster per level.', maxLevel: 3 },
+  { id: 'rapidBuster', name: 'RAPID BUSTER', desc: 'Elo fires 10% faster per level.', maxLevel: 3 },
+  { id: 'phaseRounds', name: 'PHASE ROUNDS', desc: 'Every fifth shot pierces; higher levels trigger sooner.', maxLevel: 3 },
+  { id: 'denseCharge', name: 'DENSE CHARGE', desc: 'Every fourth shot gains +1 damage per level.', maxLevel: 3 },
+  { id: 'repairWeave', name: 'REPAIR WEAVE', desc: 'Restore 2 HP now and 1 HP after each recovery window.', maxLevel: 2 },
+  { id: 'barrierArray', name: 'BARRIER ARRAY', desc: 'Gain 2 shield charges immediately.', maxLevel: 3 },
+  { id: 'shockVent', name: 'SHOCK VENT', desc: 'Entering critical pressure pushes every enemy backward.', maxLevel: 2 },
+  { id: 'hybridHunter', name: 'HYBRID HUNTER', desc: 'Shots deal +1 damage to fused enemies per level.', maxLevel: 2 },
+];
+const UPGRADE_PROMPT_TIME = 10;
+const UPGRADE_RETRY_WAVES = 2;
+
+function chooseUpgradeOptions(levels: Record<string, number>): string[] {
+  return shuffleIds(RUN_UPGRADES
+    .filter((upgrade) => (levels[upgrade.id] ?? 0) < upgrade.maxLevel)
+    .map((upgrade) => upgrade.id)).slice(0, 3);
+}
+
 function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -235,6 +261,14 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     enemySpawnTimer: 0.4,
     directorRecoveryTimer: 0,
     directorCritical: false,
+    nextUpgradeWave: 5,
+    upgradePromptOpen: false,
+    upgradePromptTimer: 0,
+    upgradeRetryWave: 0,
+    upgradeSelectionOpen: false,
+    upgradeOptions: [],
+    runUpgrades: {},
+    shotsFired: 0,
     enemyFormationId: 0,
     lanePressure: [0, 0, 0],
     ecosystemStats: {
@@ -314,6 +348,11 @@ interface HudData {
   npcShieldCharges: number;
   playerWon: boolean;
   pressureState: 'steady' | 'critical' | 'recovery';
+  upgradePromptOpen: boolean;
+  upgradePromptTimer: number;
+  upgradeSelectionOpen: boolean;
+  upgradeOptions: string[];
+  runUpgrades: Record<string, number>;
   ecosystem: { species: number; mutations: number; generation: number; fusions: number };
 }
 
@@ -335,6 +374,7 @@ export default function Game() {
     rotate: false, prevRotate: false, // button 8/17 → rotate hand
     start: false, prevStart: false,   // button 9 → pause
     l1: false, prevL1: false,         // button 4 → combo modifier
+    r1: false, prevR1: false,         // button 5 → evolution prompt
     connected: false,
   });
   const controllerCooldownRef = useRef(0);
@@ -358,6 +398,8 @@ export default function Game() {
   const menuSelectionRef = useRef(0);
   const [pauseSelection, setPauseSelection] = useState(0);
   const pauseSelectionRef = useRef(0);
+  const [upgradeSelection, setUpgradeSelection] = useState(0);
+  const upgradeSelectionRef = useRef(0);
   const menuNavCooldownRef = useRef(0);
   const [pauseBestiary, setPauseBestiary] = useState(false);
   const pauseBestiaryRef = useRef(false);
@@ -566,6 +608,11 @@ export default function Game() {
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
     gameMode: 'classic', npcHp: NPC_HP, npcShieldCharges: 0, playerWon: false,
     pressureState: 'steady',
+    upgradePromptOpen: false,
+    upgradePromptTimer: 0,
+    upgradeSelectionOpen: false,
+    upgradeOptions: [],
+    runUpgrades: {},
     ecosystem: { species: 0, mutations: 0, generation: 0, fusions: 0 },
   });
 
@@ -593,6 +640,11 @@ export default function Game() {
       pressureState: s.directorRecoveryTimer > 0
         ? 'recovery'
         : s.directorCritical ? 'critical' : 'steady',
+      upgradePromptOpen: s.upgradePromptOpen,
+      upgradePromptTimer: s.upgradePromptTimer,
+      upgradeSelectionOpen: s.upgradeSelectionOpen,
+      upgradeOptions: [...s.upgradeOptions],
+      runUpgrades: { ...s.runUpgrades },
       ecosystem: {
         species: s.ecosystemStats.entitySignatures.length,
         mutations: s.ecosystemStats.mutationDiscoveries,
@@ -627,6 +679,12 @@ export default function Game() {
     let power = opts?.power ?? 1;
     let big = opts?.big ?? false;
     let pierce = opts?.pierce ?? false;
+    s.shotsFired++;
+    const phaseLevel = s.runUpgrades.phaseRounds ?? 0;
+    const phaseInterval = Math.max(3, 6 - phaseLevel);
+    if (phaseLevel > 0 && s.shotsFired % phaseInterval === 0) pierce = true;
+    const denseLevel = s.runUpgrades.denseCharge ?? 0;
+    if (denseLevel > 0 && s.shotsFired % 4 === 0) power += denseLevel;
     if (s.voltageTimer > 0) { big = true; pierce = true; }
     if (s.doubleTimer > 0) power *= 2;
     if (!pierce && s.pierceShots > 0) {
@@ -681,7 +739,8 @@ export default function Game() {
       if (s.turretTimer > 0) {
         for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
       }
-      s.player.fireCooldown = s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25;
+      const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
+      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25) / rapidScale;
     }
   }, [fireBullet]);
 
@@ -1278,6 +1337,38 @@ export default function Game() {
     showMessage('Timer reset — new hand incoming!', 1500);
   }, [showMessage, updateHud]);
 
+  const chooseRunUpgrade = useCallback((id: string) => {
+    const s = stateRef.current;
+    if (!s.upgradeSelectionOpen || !s.upgradeOptions.includes(id)) return;
+    const upgrade = RUN_UPGRADES.find((candidate) => candidate.id === id);
+    if (!upgrade) return;
+    const nextLevel = Math.min(upgrade.maxLevel, (s.runUpgrades[id] ?? 0) + 1);
+    s.runUpgrades[id] = nextLevel;
+    if (id === 'repairWeave') s.hp += 2;
+    if (id === 'barrierArray') s.shieldCharges += 2;
+    s.upgradePromptOpen = false;
+    s.upgradePromptTimer = 0;
+    s.upgradeRetryWave = 0;
+    s.upgradeSelectionOpen = false;
+    s.upgradeOptions = [];
+    upgradeSelectionRef.current = 0;
+    setUpgradeSelection(0);
+    showMessage(`${upgrade.name} level ${nextLevel} installed!`, 1800);
+    updateHud();
+  }, [showMessage, updateHud]);
+
+  const openUpgradeSelection = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.upgradePromptOpen || s.upgradeOptions.length === 0) return;
+    s.upgradePromptOpen = false;
+    s.upgradePromptTimer = 0;
+    s.upgradeSelectionOpen = true;
+    upgradeSelectionRef.current = 0;
+    setUpgradeSelection(0);
+    menuNavCooldownRef.current = 0;
+    updateHud();
+  }, [updateHud]);
+
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
@@ -1296,6 +1387,7 @@ export default function Game() {
         g.rotate = false; g.prevRotate = false;
         g.start = false; g.prevStart = false;
         g.l1 = false; g.prevL1 = false;
+        g.r1 = false; g.prevR1 = false;
       }
       return;
     }
@@ -1316,6 +1408,7 @@ export default function Game() {
     g.rotate = buttonPressed(8) || buttonPressed(17);   // View / ellipsis / share
     g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
     g.prevL1 = g.l1; g.l1 = buttonPressed(4);          // L1 modifier
+    g.prevR1 = g.r1; g.r1 = buttonPressed(5);          // R1 → evolution prompt
     g.moveX = moveX;
     g.moveY = moveY;
     g.connected = true;
@@ -1326,6 +1419,63 @@ export default function Game() {
     if (!s.running) return;
 
     handleGamepad();
+
+    if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
+      && s.upgradeRetryWave > 0 && s.wave >= s.upgradeRetryWave) {
+      s.upgradePromptOpen = true;
+      s.upgradePromptTimer = UPGRADE_PROMPT_TIME;
+      s.upgradeRetryWave = 0;
+      updateHud();
+    } else if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
+      && s.upgradeOptions.length === 0 && s.wave >= s.nextUpgradeWave) {
+      s.upgradeOptions = chooseUpgradeOptions(s.runUpgrades);
+      s.nextUpgradeWave += 5;
+      if (s.upgradeOptions.length > 0) {
+        s.upgradePromptOpen = true;
+        s.upgradePromptTimer = UPGRADE_PROMPT_TIME;
+        upgradeSelectionRef.current = 0;
+        setUpgradeSelection(0);
+        updateHud();
+      }
+    }
+
+    if (s.upgradePromptOpen) {
+      s.upgradePromptTimer = Math.max(0, s.upgradePromptTimer - dt);
+      if (s.upgradePromptTimer <= 0) {
+        s.upgradePromptOpen = false;
+        s.upgradeRetryWave = s.wave + UPGRADE_RETRY_WAVES;
+        showMessage(`Evolution deferred — returns at wave ${s.upgradeRetryWave}.`, 1800);
+        updateHud();
+      }
+    }
+
+    const upgradeGamepad = gamepadRef.current;
+    if (s.upgradePromptOpen && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
+      openUpgradeSelection();
+      return;
+    }
+
+    const slowMotionActive = s.upgradeSelectionOpen;
+    if (s.upgradeSelectionOpen) {
+      menuNavCooldownRef.current = Math.max(0, menuNavCooldownRef.current - dt);
+      const axis = Math.abs(upgradeGamepad.moveX) > 0.15
+        ? upgradeGamepad.moveX
+        : upgradeGamepad.moveY;
+      if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
+        const direction = axis > 0 ? 1 : -1;
+        upgradeSelectionRef.current =
+          (upgradeSelectionRef.current + direction + s.upgradeOptions.length) % s.upgradeOptions.length;
+        setUpgradeSelection(upgradeSelectionRef.current);
+        menuNavCooldownRef.current = 0.22;
+      }
+      if (upgradeGamepad.fire && !upgradeGamepad.prevFire) {
+        chooseRunUpgrade(s.upgradeOptions[upgradeSelectionRef.current]);
+      }
+      upgradeGamepad.moveX = 0;
+      upgradeGamepad.moveY = 0;
+      fireHeldRef.current = true;
+      dt *= 0.08;
+    }
 
     // Gamepad Start button → pause (rising edge)
     const gpForPause = gamepadRef.current;
@@ -1375,7 +1525,7 @@ export default function Game() {
     }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
-    if (s.cardsReady && s.cardSelectionOpen) {
+    if (!slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
       if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
@@ -1447,7 +1597,8 @@ export default function Game() {
     // ── Card system ──────────────────────────────────────────────────────────
     if (!s.cardsReady) {
       // Bar is filling — tick toward next hand
-      const assistedRecharge = s.hp <= 2 || s.directorCritical ? 1.55 : 1;
+      const capacitorMultiplier = 1 + (s.runUpgrades.capacitor ?? 0) * 0.15;
+      const assistedRecharge = (s.hp <= 2 || s.directorCritical ? 1.55 : 1) * capacitorMultiplier;
       s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt * assistedRecharge);
       const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
       if (cardBarFillRef.current) cardBarFillRef.current.style.width = `${pct.toFixed(2)}%`;
@@ -1504,7 +1655,8 @@ export default function Game() {
 
     s.player.fireCooldown -= dt;
     if (s.autoBuster && s.player.fireCooldown <= 0) {
-      s.player.fireCooldown = s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34;
+      const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
+      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34) / rapidScale;
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
       if (s.turretTimer > 0) {
@@ -1527,7 +1679,16 @@ export default function Game() {
       || (s.hp <= 2 && directorLiving.length >= 4);
     if (s.directorCritical && !directorCritical) {
       s.directorRecoveryTimer = Math.max(s.directorRecoveryTimer, 3.5);
+      if ((s.runUpgrades.repairWeave ?? 0) > 0) s.hp++;
       showMessage('Pressure cleared — reinforcement pause!', 1400);
+    }
+    if (!s.directorCritical && directorCritical && (s.runUpgrades.shockVent ?? 0) > 0) {
+      const knockback = 0.55 + (s.runUpgrades.shockVent - 1) * 0.3;
+      for (const enemy of directorLiving) {
+        enemy.colPos = Math.min(5.8, enemy.colPos + knockback);
+        enemy.flash = 0.12;
+      }
+      showMessage('Shock Vent expelled the pressure front!', 1200);
     }
     s.directorCritical = directorCritical;
 
@@ -1718,6 +1879,7 @@ export default function Game() {
           if (!b.pierce) b.colPos = 99;
           const movement = movementClassOf(e);
           let damage = b.power ?? 1;
+          if ((e.genome?.fusionLevel ?? 0) > 0) damage += s.runUpgrades.hybridHunter ?? 0;
           if (s.adaptiveAmmoTimer > 0) {
             if (movement === 'fortress' || e.genome?.mutations.includes('armored')) damage += 2;
             else if (movement === 'spectral' || movement === 'colony' || isCyberEnemy(e)) damage += 1;
@@ -1864,7 +2026,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, manualBuster, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary]);
+  }, [handleGamepad, tryMoveTo, manualBuster, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -2551,6 +2713,52 @@ export default function Game() {
               setMenuScreen('main');
             })
           )}
+        </div>
+      )}
+
+      {phase === 'playing' && hud.upgradePromptOpen && !hud.upgradeSelectionOpen && (
+        <button
+          id="upgradePrompt"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            openUpgradeSelection();
+          }}
+        >
+          <strong>EVOLUTION READY · {Math.max(0, Math.ceil(hud.upgradePromptTimer))}s</strong>
+          <span>Tap or press R1 to enter slow-time selection</span>
+        </button>
+      )}
+
+      {phase === 'playing' && hud.upgradeSelectionOpen && (
+        <div id="upgradeOverlay">
+          <div id="upgradeCard">
+            <div id="upgradeEyebrow">WAVE {hud.wave} MILESTONE</div>
+            <div id="upgradeTitle">EVOLVE ELO</div>
+            <div id="upgradeSubtitle">Combat remains active at 8% speed</div>
+            <div id="upgradeChoices">
+              {hud.upgradeOptions.map((id, index) => {
+                const upgrade = RUN_UPGRADES.find((candidate) => candidate.id === id);
+                if (!upgrade) return null;
+                const currentLevel = hud.runUpgrades[id] ?? 0;
+                return (
+                  <button
+                    id={`upgradeChoice${index}`}
+                    key={id}
+                    className={`upgradeChoice${upgradeSelection === index ? ' gamepad-selected' : ''}`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      chooseRunUpgrade(id);
+                    }}
+                  >
+                    <span className="upgradeLevel">LV {currentLevel} → {currentLevel + 1}</span>
+                    <strong>{upgrade.name}</strong>
+                    <span>{upgrade.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div id="upgradeHint">D-PAD to choose · A to install</div>
+          </div>
         </div>
       )}
 
