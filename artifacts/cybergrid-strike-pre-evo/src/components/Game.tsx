@@ -3136,15 +3136,17 @@ export default function Game() {
                 ].filter(Boolean).join(' ')}
                 data-direction={direction}
               >
-                <img
-                  className={attacking || autofiring ? 'cloneBaseFrame hidden' : 'cloneBaseFrame'}
-                  src={`${import.meta.env.BASE_URL}effects/${
-                    status === 'defending'
-                      ? 'clone-defense.gif'
-                      : status === 'defendingHeld' ? 'clone-defense-hold.png' : 'clone-idle.gif'
-                  }`}
-                  alt=""
-                />
+                {!attacking && !autofiring && (
+                  <img
+                    className="cloneBaseFrame"
+                    src={`${import.meta.env.BASE_URL}effects/${
+                      status === 'defending'
+                        ? 'clone-defense.gif'
+                        : status === 'defendingHeld' ? 'clone-defense-hold.png' : 'clone-idle.gif'
+                    }`}
+                    alt=""
+                  />
+                )}
                 {(attacking || autofiring) && (
                   <span className={`cloneAttackFrames${autofiring ? ' sustained' : ''}`} aria-hidden="true">
                     {[0, 1, 2].map((frame) => (
