@@ -110,14 +110,23 @@ function chooseUpgradeOptions(levels: Record<string, number>): string[] {
 function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext('2d');
-    if (!context) return;
     const sprite = getProceduralVirusSprite(seed, genome);
-    context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, 240, 160);
-    context.drawImage(sprite, 0, 0, 240, 160);
+    const redraw = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.imageSmoothingEnabled = false;
+      context.clearRect(0, 0, 240, 160);
+      context.drawImage(sprite, 0, 0, 240, 160);
+    };
+    redraw();
+    // Component images load asynchronously and re-render the cached source
+    // canvas. Refresh at a few widening intervals so the Bestiary receives the
+    // completed composite instead of preserving the initial empty frame.
+    const timers = [100, 300, 700, 1500, 3000].map((delay) =>
+      window.setTimeout(redraw, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [seed, genome]);
   return <canvas ref={canvasRef} className="bestiarySprite" width={240} height={160} />;
 }
