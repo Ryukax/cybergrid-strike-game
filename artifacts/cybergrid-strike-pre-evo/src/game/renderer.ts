@@ -802,13 +802,10 @@ export function draw(
       const playerSide = c < 3;
       const npcSide = !playerSide && vs;
 
-      // Flash highlights
-      const playerFlash = playerSide && c === state.player.col && r === state.player.row && state.moveFlash > 0;
+      // NPC movement remains highlighted; Player movement uses only the avatar animation.
       const npcFlash = npcSide && (3 + state.npc.col) === c && state.npc.row === r;
 
-      if (playerFlash) {
-        ctx.fillStyle = 'rgba(96,165,250,0.28)';
-      } else if (playerSide) {
+      if (playerSide) {
         ctx.fillStyle = 'rgba(59,130,246,0.12)';
       } else if (npcFlash) {
         ctx.fillStyle = 'rgba(52,211,153,0.28)';
