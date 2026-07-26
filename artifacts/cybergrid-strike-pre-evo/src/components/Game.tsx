@@ -100,16 +100,46 @@ interface LearnedAbility {
   source: 'foundation' | 'constitution' | 'playstyle';
   reason: string;
   learnedAt: number;
+  resonance: number;
+  rank: number;
 }
 
+const MAX_ABILITY_RANK = 5;
+const ABILITY_RANK_THRESHOLDS = [0, 1, 3, 6, 10, 15];
+const PRESTIGE_RESONANCE_STEP = 4;
+const ESSENTIAL_ABILITY_IDS = new Set(['shotgun', 'heal', 'scramble']);
 const FOUNDATION_ABILITIES: LearnedAbility[] = [
-  { id: 'shotgun', source: 'foundation', reason: 'Foundational spread offense.', learnedAt: 0 },
-  { id: 'pierce', source: 'foundation', reason: 'Foundational precision offense.', learnedAt: 0 },
-  { id: 'heal', source: 'foundation', reason: 'Foundational recovery protocol.', learnedAt: 0 },
-  { id: 'shield', source: 'foundation', reason: 'Foundational defensive protocol.', learnedAt: 0 },
-  { id: 'scramble', source: 'foundation', reason: 'Foundational formation control.', learnedAt: 0 },
-  { id: 'backdash', source: 'foundation', reason: 'Foundational displacement control.', learnedAt: 0 },
+  { id: 'shotgun', source: 'foundation', reason: 'Essential spread offense.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'heal', source: 'foundation', reason: 'Essential recovery protocol.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'scramble', source: 'foundation', reason: 'Essential formation control.', learnedAt: 0, resonance: 1, rank: 1 },
 ];
+
+function abilityRank(resonance: number): number {
+  let rank = 1;
+  for (let candidate = 2; candidate <= MAX_ABILITY_RANK; candidate++) {
+    if (resonance >= ABILITY_RANK_THRESHOLDS[candidate]) rank = candidate;
+  }
+  return rank;
+}
+
+function architecturePrestige(abilities: LearnedAbility[]): number {
+  const earnedResonance = abilities
+    .filter((ability) => !ESSENTIAL_ABILITY_IDS.has(ability.id))
+    .reduce((total, ability) => total + Math.max(1, ability.resonance), 0);
+  return Math.floor(earnedResonance / PRESTIGE_RESONANCE_STEP);
+}
+
+function abilityPrestigeRequirement(id: string): number {
+  if (ESSENTIAL_ABILITY_IDS.has(id)) return 0;
+  const index = Math.max(0, ABILITY_POOL.findIndex((ability) => ability.id === id));
+  return Math.min(5, 1 + Math.floor(index / 18));
+}
+
+function abilityIsUnlocked(ability: LearnedAbility | undefined, abilities: LearnedAbility[]): boolean {
+  if (!ability) return false;
+  return ESSENTIAL_ABILITY_IDS.has(ability.id)
+    || architecturePrestige(abilities) >= abilityPrestigeRequirement(ability.id);
+}
 
 type PlaystyleSignal =
   | 'manualFire'
@@ -658,7 +688,19 @@ export default function Game() {
     try {
       const stored = JSON.parse(localStorage.getItem(LEARNED_ABILITIES_KEY) ?? '[]');
       const learned = Array.isArray(stored)
-        ? stored.filter((entry: LearnedAbility) => entry?.id && ABILITY_LOOKUP[entry.id])
+        ? stored
+          .filter((entry: LearnedAbility) => entry?.id && ABILITY_LOOKUP[entry.id])
+          .map((entry: LearnedAbility) => {
+            const resonance = Math.max(1, Number(entry.resonance) || 1);
+            return {
+              ...entry,
+              source: ESSENTIAL_ABILITY_IDS.has(entry.id)
+                ? 'foundation' as const
+                : entry.source === 'foundation' ? 'playstyle' as const : entry.source,
+              resonance,
+              rank: abilityRank(resonance),
+            };
+          })
         : [];
       const learnedIds = new Set(learned.map((entry: LearnedAbility) => entry.id));
       return [...learned, ...FOUNDATION_ABILITIES.filter((entry) => !learnedIds.has(entry.id))];
@@ -687,13 +729,26 @@ export default function Game() {
     }
   })());
   const learnAbility = useCallback((id: string, source: LearnedAbility['source'], reason: string) => {
-    if (!ABILITY_LOOKUP[id] || learnedAbilitiesRef.current.some((entry) => entry.id === id)) return;
-    const learned: LearnedAbility = { id, source, reason, learnedAt: Date.now() };
-    learnedAbilitiesRef.current = [learned, ...learnedAbilitiesRef.current];
-    localStorage.setItem(LEARNED_ABILITIES_KEY, JSON.stringify(learnedAbilitiesRef.current));
-    setLearnedAbilities(learnedAbilitiesRef.current);
+    if (!ABILITY_LOOKUP[id] || ESSENTIAL_ABILITY_IDS.has(id)) return;
+    const previous = learnedAbilitiesRef.current;
+    const existing = previous.find((entry) => entry.id === id);
+    const resonance = Math.min(
+      ABILITY_RANK_THRESHOLDS[MAX_ABILITY_RANK],
+      (existing?.resonance ?? 0) + 1,
+    );
+    const learned: LearnedAbility = existing
+      ? { ...existing, source, reason, resonance, rank: abilityRank(resonance) }
+      : { id, source, reason, learnedAt: Date.now(), resonance, rank: abilityRank(resonance) };
+    const nextLearned = existing
+      ? previous.map((entry) => entry.id === id ? learned : entry)
+      : [learned, ...previous];
+    learnedAbilitiesRef.current = nextLearned;
+    localStorage.setItem(LEARNED_ABILITIES_KEY, JSON.stringify(nextLearned));
+    setLearnedAbilities(nextLearned);
     const enabled = new Set(enabledAbilitiesRef.current);
-    enabled.add(id);
+    for (const candidate of nextLearned) {
+      if (abilityIsUnlocked(candidate, nextLearned)) enabled.add(candidate.id);
+    }
     enabledAbilitiesRef.current = enabled;
     localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...enabled]));
     setEnabledAbilities(enabled);
@@ -703,7 +758,7 @@ export default function Game() {
     playstyleSignalsRef.current[signal] = next;
     localStorage.setItem(PLAYSTYLE_SIGNALS_KEY, JSON.stringify(playstyleSignalsRef.current));
     const manifestation = PLAYSTYLE_MANIFESTATIONS[signal];
-    if (next >= manifestation.threshold) {
+    if (next >= manifestation.threshold && (next - manifestation.threshold) % manifestation.threshold === 0) {
       learnAbility(manifestation.abilityId, 'playstyle', manifestation.reason);
     }
   }, [learnAbility]);
@@ -944,18 +999,20 @@ export default function Game() {
   const [gameKills,   setGameKills]   = useState<KillRecord[]>([]);
 
   const initialEnabledAbilities = (() => {
-    const learnedIds = new Set(learnedAbilities.map((entry) => entry.id));
+    const unlockedIds = new Set(learnedAbilities
+      .filter((entry) => abilityIsUnlocked(entry, learnedAbilities))
+      .map((entry) => entry.id));
     try {
       const stored = JSON.parse(localStorage.getItem(ENABLED_ABILITIES_KEY) ?? 'null');
       if (Array.isArray(stored)) {
         const valid = stored.filter((id): id is string =>
-          typeof id === 'string' && ALL_ABILITY_IDS.has(id) && learnedIds.has(id));
+          typeof id === 'string' && ALL_ABILITY_IDS.has(id) && unlockedIds.has(id));
         if (valid.length > 0) return new Set(valid);
       }
     } catch {
-      // Fall through to the complete core library.
+      // Fall through to every ability currently available to this architecture.
     }
-    return new Set(learnedIds);
+    return new Set(unlockedIds);
   })();
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(initialEnabledAbilities);
   const enabledAbilitiesRef = useRef<Set<string>>(initialEnabledAbilities);
@@ -3967,23 +4024,36 @@ export default function Game() {
                 ))}
               </div>
 
-              <div id="customSubtitle" style={{ marginTop: '16px' }}>Ability Loadout</div>
+              <div id="customSubtitle" style={{ marginTop: '16px' }}>
+                Ability Architecture · Prestige {architecturePrestige(learnedAbilities)}
+              </div>
+              <div id="abilityArchitectureHelp">
+                Essential protocols remain available. Enemy synchronization and playstyle resonance
+                rank other abilities as they arise; prestige unlocks them for your loadout.
+              </div>
               <div id="learnedLoadoutGrid">
-                  {learnedAbilities.map((learned) => {
-                    const ability = ABILITY_LOOKUP[learned.id];
-                    const on = enabledAbilities.has(learned.id);
+                  {ABILITY_POOL.map((ability) => {
+                    const learned = learnedAbilities.find((entry) => entry.id === ability.id);
+                    const unlocked = abilityIsUnlocked(learned, learnedAbilities);
+                    const requiredPrestige = abilityPrestigeRequirement(ability.id);
+                    const on = enabledAbilities.has(ability.id);
+                    const rank = learned?.rank ?? 0;
+                    const nextRankAt = rank > 0 && rank < MAX_ABILITY_RANK
+                      ? ABILITY_RANK_THRESHOLDS[rank + 1]
+                      : null;
                     return (
                       <button
-                        key={`${learned.source}-${learned.id}`}
-                        className={`learned-ability-btn ${on ? 'enabled' : 'disabled'}`}
+                        key={ability.id}
+                        className={`learned-ability-btn ${on ? 'enabled' : 'disabled'} ${unlocked ? '' : 'locked'}`}
                         onPointerDown={(ev) => {
                           ev.stopPropagation();
+                          if (!unlocked || !learned) return;
                           setEnabledAbilities((previous) => {
                             const next = new Set(previous);
-                            if (next.has(learned.id)) {
-                              if (next.size > 1) next.delete(learned.id);
+                            if (next.has(ability.id)) {
+                              if (next.size > 1) next.delete(ability.id);
                             } else {
-                              next.add(learned.id);
+                              next.add(ability.id);
                             }
                             enabledAbilitiesRef.current = next;
                             localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...next]));
@@ -3991,10 +4061,21 @@ export default function Game() {
                           });
                         }}
                       >
-                        <span className="learned-ability-source">{learned.source}</span>
+                        <span className="learned-ability-source">{learned?.source ?? 'unmanifested'}</span>
                         <strong>{ability.name}</strong>
-                        <span>{learned.reason}</span>
-                        <b>{on ? 'IN LOADOUT' : 'RESERVE'}</b>
+                        <span>{learned?.reason ?? 'Awaiting a matching constitution or playstyle pattern.'}</span>
+                        <span className="ability-rank">
+                          {rank > 0
+                            ? `RANK ${rank}/${MAX_ABILITY_RANK} · RESONANCE ${learned?.resonance}${nextRankAt ? `/${nextRankAt}` : ' MAX'}`
+                            : 'RANK —'}
+                        </span>
+                        <b>
+                          {!learned
+                            ? `UNLEARNED · PRESTIGE ${requiredPrestige}`
+                            : !unlocked
+                              ? `LEARNED · LOCKED UNTIL PRESTIGE ${requiredPrestige}`
+                              : on ? 'IN LOADOUT' : 'RESERVE'}
+                        </b>
                       </button>
                     );
                   })}
