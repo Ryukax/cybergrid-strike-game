@@ -57,6 +57,13 @@ const CONTROL_ABILITY_IDS = new Set([
   'anchorfield', 'tailclamp', 'tanglewire', 'trafficjam', 'bloombind',
   'voidaperture', 'quarantine',
 ]);
+type AbilityCategory = 'offense' | 'control' | 'wildcard';
+const abilityBags: Record<AbilityCategory, string[]> = {
+  offense: [],
+  control: [],
+  wildcard: [],
+};
+let previousAbilityHand: string[] = [];
 const AIR_CLASSES = new Set<EnemyMovementClass>(['flier', 'hover', 'spectral']);
 const FLUID_CLASSES = new Set<EnemyMovementClass>(['aquatic', 'serpentine', 'tentacled']);
 const GROUNDED_CLASSES = new Set<EnemyMovementClass>(['biped', 'quadruped', 'arthropod', 'burrower', 'vehicle', 'fortress']);
@@ -89,41 +96,70 @@ function genomeSignature(enemy: GameState['enemies'][number]): string | undefine
   ].join(':');
 }
 
-function randomAbilityOptions(exclude?: string[], enabledIds?: Set<string>): string[] {
+function shuffleIds(ids: string[]): string[] {
+  const shuffled = [...ids];
+  for (let index = shuffled.length - 1; index > 0; index--) {
+    const other = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function randomAbilityOptions(
+  exclude?: string[],
+  enabledIds?: Set<string>,
+  cooldowns?: Record<string, number>,
+): string[] {
   const source = enabledIds
     ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
     : ABILITY_POOL;
-  // Need at least 1 enabled ability; fall back to full pool if somehow all disabled
   const pool = [...(source.length > 0 ? source : ABILITY_POOL)];
-  const pick = (candidates: typeof pool, used: Set<string>) => {
-    const choices = candidates.filter((ability) => !used.has(ability.id));
-    const available = choices.length > 0 ? choices : pool.filter((ability) => !used.has(ability.id));
-    return available[Math.floor(Math.random() * available.length)];
+  const categoryIds: Record<AbilityCategory, string[]> = {
+    offense: pool.filter((ability) => OFFENSE_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
+    control: pool.filter((ability) => CONTROL_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
+    wildcard: pool.filter((ability) =>
+      !OFFENSE_ABILITY_IDS.has(ability.id) && !CONTROL_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
   };
   const used = new Set<string>();
-  const offense = pick(pool.filter((ability) => OFFENSE_ABILITY_IDS.has(ability.id)), used);
-  if (offense) used.add(offense.id);
-  const control = pick(pool.filter((ability) => CONTROL_ABILITY_IDS.has(ability.id)), used);
-  if (control) used.add(control.id);
-  const wildcard = pick(
-    pool.filter((ability) =>
-      !OFFENSE_ABILITY_IDS.has(ability.id) && !CONTROL_ABILITY_IDS.has(ability.id)),
-    used,
-  );
-  if (wildcard) used.add(wildcard.id);
-  while (used.size < Math.min(3, pool.length)) {
-    const fallback = pick(pool, used);
+  const previous = new Set(exclude ?? previousAbilityHand);
+  const opts: string[] = [];
+
+  const draw = (category: AbilityCategory) => {
+    const eligible = categoryIds[category].length > 0
+      ? categoryIds[category]
+      : pool.map((ability) => ability.id);
+    const eligibleSet = new Set(eligible);
+    abilityBags[category] = abilityBags[category]
+      .filter((id) => eligibleSet.has(id) && !used.has(id));
+    if (abilityBags[category].length === 0) {
+      abilityBags[category] = shuffleIds(eligible.filter((id) => !used.has(id)));
+    }
+
+    const ready = (id: string) => (cooldowns?.[id] ?? 0) <= 0;
+    let index = abilityBags[category].findIndex((id) =>
+      !used.has(id) && !previous.has(id) && ready(id));
+    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id) && ready(id));
+    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id) && !previous.has(id));
+    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id));
+    if (index >= 0) {
+      const [selected] = abilityBags[category].splice(index, 1);
+      used.add(selected);
+      opts.push(selected);
+    }
+  };
+
+  draw('offense');
+  draw('control');
+  draw('wildcard');
+  while (opts.length < Math.min(3, pool.length)) {
+    const fallback = pool.find((ability) =>
+      !used.has(ability.id) && (cooldowns?.[ability.id] ?? 0) <= 0)
+      ?? pool.find((ability) => !used.has(ability.id));
     if (!fallback) break;
     used.add(fallback.id);
+    opts.push(fallback.id);
   }
-  let opts = [...used].slice(0, 3);
-  if (exclude && pool.length > 3) {
-    let guard = 0;
-    while (guard < 8 && opts.join('|') === exclude.join('|')) {
-      opts = randomAbilityOptions(undefined, enabledIds);
-      guard++;
-    }
-  }
+  previousAbilityHand = [...opts];
   return opts;
 }
 
@@ -710,9 +746,13 @@ export default function Game() {
       showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed, double score!`, 1800);
     } else if (type === 'cardflood') {
       // Give a brand-new hand immediately — reroll until at least one card is usable
-      let nextOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
+      let nextOptions = randomAbilityOptions(
+        s.currentCardOptions,
+        enabledAbilitiesRef.current,
+        s.abilityCooldowns,
+      );
       for (let g = 0; g < 12 && nextOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
-        nextOptions = randomAbilityOptions(nextOptions, enabledAbilitiesRef.current);
+        nextOptions = randomAbilityOptions(nextOptions, enabledAbilitiesRef.current, s.abilityCooldowns);
       }
       s.currentCardOptions = nextOptions;
       s.usedInHand = [];
@@ -1342,7 +1382,11 @@ export default function Game() {
         s.cardSelectionOpen = false;
         s.cardTimer = 0;
         s.usedInHand = [];
-        s.currentCardOptions = randomAbilityOptions(s.currentCardOptions, enabledAbilitiesRef.current);
+        s.currentCardOptions = randomAbilityOptions(
+          s.currentCardOptions,
+          enabledAbilitiesRef.current,
+          s.abilityCooldowns,
+        );
         updateHud();
       }
     }
