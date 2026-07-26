@@ -445,6 +445,10 @@ canvas#canvas {
   box-shadow: 0 0 48px rgba(14, 165, 233, 0.65);
 }
 
+#rotateLandscapeBtn {
+  display: none;
+}
+
 .gamepad-selected {
   outline: 3px solid #f8fafc !important;
   outline-offset: 4px;
@@ -863,9 +867,26 @@ canvas#canvas {
   #pauseBtn {
     left: auto;
     right: max(55px, calc(env(safe-area-inset-right) + 37px));
-    top: calc(50% + 68px);
+    top: calc(50% + 80px);
     bottom: auto;
     transform: none;
     width: 76px;
+  }
+
+  #rotateHandBtn {
+    display: none;
+  }
+
+  #rotateLandscapeBtn {
+    display: block;
+    position: absolute;
+    left: 14px;
+    bottom: 66px;
+    padding: 7px 12px;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    background: rgba(139, 92, 246, 0.2);
+    border-color: rgba(196, 181, 253, 0.5);
+    color: #ede9fe;
   }
 }

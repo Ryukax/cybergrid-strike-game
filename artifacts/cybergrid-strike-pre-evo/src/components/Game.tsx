@@ -2124,6 +2124,24 @@ export default function Game() {
 
       {/* Controls */}
       <div id="controls">
+        {phase === 'playing' && (
+          <button
+            id="rotateLandscapeBtn"
+            className="control-btn"
+            disabled={hud.rotateUsedThisHand || (
+              hud.cardsReady
+              && hud.cardOptions.length > 0
+              && hud.cardOptions.every((id) => hud.usedInHand.includes(id))
+            )}
+            onPointerDown={(ev) => {
+              ev.stopPropagation();
+              rotateHand();
+            }}
+          >
+            {hud.rotateUsedThisHand ? 'ROTATE USED' : '↻ ROTATE'}
+          </button>
+        )}
+
         <button
           id="autoToggle"
           className={`control-btn ${hud.autoBuster ? 'on' : 'off'}`}
