@@ -128,10 +128,40 @@ function shuffleIds(ids: string[]): string[] {
   return shuffled;
 }
 
+function relevantAbilityIds(enemies: GameState['enemies'], hp: number): string[] {
+  const living = enemies.filter((enemy) => enemy.colPos >= -1);
+  const relevant = new Set<string>();
+  const add = (...ids: string[]) => ids.forEach((id) => {
+    if (ABILITY_LOOKUP[id]) relevant.add(id);
+  });
+
+  if (living.length >= 4) add('bomb', 'megabomb', 'nuke', 'surge', 'chain', 'pulse', 'blizzard', 'backdash');
+  if (living.some((enemy) => enemy.colPos <= 2.35)) {
+    add('backdash', 'scramble', 'freeze', 'ghost', 'shield', 'pulse', 'stasisgate', 'returnfire');
+  }
+  if (living.some((enemy) => (enemy.genome?.fusionLevel ?? 0) > 0)) {
+    add('separate', 'hybridtax', 'devolve', 'quarantine');
+  }
+  if (living.some((enemy) =>
+    enemy.genome?.mutations.includes('armored') || enemy.genome?.mutations.includes('resilient'))) {
+    add('shattershot', 'acidetch', 'adaptive', 'mutationlock');
+  }
+  if (living.some((enemy) => {
+    const movement = movementClassOf(enemy);
+    return movement && AIR_CLASSES.has(movement);
+  })) add('time', 'flak', 'sonicnet', 'freeze');
+  if (living.some(isCyberEnemy)) add('signaljam', 'circuitarc', 'trafficjam', 'magnet');
+  if (hp <= 2) add('heal', 'armor', 'shield', 'ghost', 'regen', 'drain');
+  if (relevant.size === 0) add('pierce', 'double', 'time', 'backdash', 'shield');
+  return [...relevant];
+}
+
 function randomAbilityOptions(
   exclude?: string[],
   enabledIds?: Set<string>,
   cooldowns?: Record<string, number>,
+  enemies: GameState['enemies'] = [],
+  hp = 5,
 ): string[] {
   const source = enabledIds
     ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
@@ -182,6 +212,15 @@ function randomAbilityOptions(
     used.add(fallback.id);
     opts.push(fallback.id);
   }
+
+  const relevant = relevantAbilityIds(enemies, hp).filter((id) =>
+    pool.some((ability) => ability.id === id) && (cooldowns?.[id] ?? 0) <= 0);
+  if (relevant.length > 0 && !opts.some((id) => relevant.includes(id))) {
+    const replacement = relevant.find((id) => !used.has(id) && !previous.has(id))
+      ?? relevant.find((id) => !used.has(id))
+      ?? relevant[0];
+    if (replacement) opts[Math.min(2, opts.length - 1)] = replacement;
+  }
   previousAbilityHand = [...opts];
   return opts;
 }
@@ -194,6 +233,8 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     hp: 5,
     timer: 0,
     enemySpawnTimer: 0.4,
+    directorRecoveryTimer: 0,
+    directorCritical: false,
     enemyFormationId: 0,
     lanePressure: [0, 0, 0],
     ecosystemStats: {
@@ -272,6 +313,7 @@ interface HudData {
   npcHp: number;
   npcShieldCharges: number;
   playerWon: boolean;
+  pressureState: 'steady' | 'critical' | 'recovery';
   ecosystem: { species: number; mutations: number; generation: number; fusions: number };
 }
 
@@ -523,6 +565,7 @@ export default function Game() {
     cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
     gameMode: 'classic', npcHp: NPC_HP, npcShieldCharges: 0, playerWon: false,
+    pressureState: 'steady',
     ecosystem: { species: 0, mutations: 0, generation: 0, fusions: 0 },
   });
 
@@ -547,6 +590,9 @@ export default function Game() {
       npcHp: s.npc.hp,
       npcShieldCharges: s.npc.shieldCharges,
       playerWon: s.playerWon,
+      pressureState: s.directorRecoveryTimer > 0
+        ? 'recovery'
+        : s.directorCritical ? 'critical' : 'steady',
       ecosystem: {
         species: s.ecosystemStats.entitySignatures.length,
         mutations: s.ecosystemStats.mutationDiscoveries,
@@ -802,9 +848,17 @@ export default function Game() {
         s.currentCardOptions,
         enabledAbilitiesRef.current,
         s.abilityCooldowns,
+        s.enemies,
+        s.hp,
       );
       for (let g = 0; g < 12 && nextOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
-        nextOptions = randomAbilityOptions(nextOptions, enabledAbilitiesRef.current, s.abilityCooldowns);
+        nextOptions = randomAbilityOptions(
+          nextOptions,
+          enabledAbilitiesRef.current,
+          s.abilityCooldowns,
+          s.enemies,
+          s.hp,
+        );
       }
       s.currentCardOptions = nextOptions;
       s.usedInHand = [];
@@ -1393,14 +1447,24 @@ export default function Game() {
     // ── Card system ──────────────────────────────────────────────────────────
     if (!s.cardsReady) {
       // Bar is filling — tick toward next hand
-      s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt);
+      const assistedRecharge = s.hp <= 2 || s.directorCritical ? 1.55 : 1;
+      s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt * assistedRecharge);
       const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
       if (cardBarFillRef.current) cardBarFillRef.current.style.width = `${pct.toFixed(2)}%`;
       if (cardLabelRef.current) {
-        const secs = Math.max(0, Math.ceil(CARD_CHARGE_TIME - s.cardTimer));
-        cardLabelRef.current.textContent = `New hand in ${secs}s`;
+        const secs = Math.max(0, Math.ceil((CARD_CHARGE_TIME - s.cardTimer) / assistedRecharge));
+        cardLabelRef.current.textContent = assistedRecharge > 1
+          ? `Assisted hand in ${secs}s`
+          : `New hand in ${secs}s`;
       }
       if (s.cardTimer >= CARD_CHARGE_TIME) {
+        s.currentCardOptions = randomAbilityOptions(
+          s.currentCardOptions,
+          enabledAbilitiesRef.current,
+          s.abilityCooldowns,
+          s.enemies,
+          s.hp,
+        );
         s.cardsReady = true;
         s.cardSelectionOpen = true;
         s.rotateUsedThisHand = false;
@@ -1434,11 +1498,6 @@ export default function Game() {
         s.cardSelectionOpen = false;
         s.cardTimer = 0;
         s.usedInHand = [];
-        s.currentCardOptions = randomAbilityOptions(
-          s.currentCardOptions,
-          enabledAbilitiesRef.current,
-          s.abilityCooldowns,
-        );
         updateHud();
       }
     }
@@ -1453,9 +1512,29 @@ export default function Game() {
       }
     }
 
+    // Adaptive pressure director: dangerous boards stop receiving reinforcements,
+    // and clearing a critical state earns a short recovery window.
+    s.directorRecoveryTimer = Math.max(0, s.directorRecoveryTimer - dt);
+    const directorLiving = s.enemies.filter((enemy) => enemy.colPos >= -1);
+    const nearestThreat = directorLiving.reduce(
+      (nearest, enemy) => Math.min(nearest, enemy.colPos),
+      Number.POSITIVE_INFINITY,
+    );
+    const fusedThreats = directorLiving.filter((enemy) => (enemy.genome?.fusionLevel ?? 0) > 0).length;
+    const directorCritical =
+      directorLiving.length >= 7
+      || (directorLiving.length >= 5 && nearestThreat <= 2.25)
+      || (s.hp <= 2 && directorLiving.length >= 4);
+    if (s.directorCritical && !directorCritical) {
+      s.directorRecoveryTimer = Math.max(s.directorRecoveryTimer, 3.5);
+      showMessage('Pressure cleared — reinforcement pause!', 1400);
+    }
+    s.directorCritical = directorCritical;
+
     // Spawn enemies
     s.enemySpawnTimer -= dt;
-    if (s.enemySpawnTimer <= 0) {
+    const populationCap = s.hp <= 2 ? 5 : 7;
+    if (s.enemySpawnTimer <= 0 && s.directorRecoveryTimer <= 0 && directorLiving.length < populationCap) {
       const value = pickDiverseSeed();
       const livingEnemies = s.enemies.filter((enemy) => enemy.colPos >= -1);
       const lanePopulation: [number, number, number] = [0, 0, 0];
@@ -1527,11 +1606,19 @@ export default function Game() {
       });
 
       s.enemyFormationId++;
-      // Population density, combat pressure, and wave intensity all affect cadence.
-      const pressure = s.lanePressure.reduce((sum, lane) => sum + lane, 0);
-      const densityBrake = Math.max(0, livingEnemies.length - 5) * 0.07;
-      const pressureBoost = Math.min(0.24, pressure * 0.012);
-      s.enemySpawnTimer = Math.max(0.48, 1.12 - s.wave * 0.025 + densityBrake - pressureBoost);
+      // Courteous escalation: waves increase pressure, while density, advanced
+      // threats, proximity and low health create enough room to respond.
+      const wavePressure = Math.min(0.34, (s.wave - 1) * 0.018);
+      const densityBrake = Math.max(0, livingEnemies.length - 3) * 0.13;
+      const advancedBrake = Math.min(0.34, fusedThreats * 0.12);
+      const proximityBrake = nearestThreat <= 2.25 ? 0.28 : 0;
+      const healthBrake = s.hp <= 2 ? 0.42 : s.hp === 3 ? 0.16 : 0;
+      s.enemySpawnTimer = Math.max(
+        0.62,
+        1.18 - wavePressure + densityBrake + advancedBrake + proximityBrake + healthBrake,
+      );
+    } else if (s.enemySpawnTimer <= 0) {
+      s.enemySpawnTimer = 0.35;
     }
 
     // Move bullets
@@ -2203,6 +2290,11 @@ export default function Game() {
           <span>MAX GEN <b>{hud.ecosystem.generation}</b></span>
           <span className={hud.ecosystem.fusions > 0 ? 'fusionActive' : ''}>
             FUSIONS <b>{hud.ecosystem.fusions}</b>
+          </span>
+          <span className={`pressureState ${hud.pressureState}`}>
+            {hud.pressureState === 'critical'
+              ? 'PRESSURE'
+              : hud.pressureState === 'recovery' ? 'RECOVERY' : 'STEADY'}
           </span>
         </div>
       )}

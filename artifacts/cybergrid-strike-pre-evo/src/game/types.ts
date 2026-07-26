@@ -101,6 +101,8 @@ export interface GameState {
   hp: number;
   timer: number;
   enemySpawnTimer: number;
+  directorRecoveryTimer: number;
+  directorCritical: boolean;
   enemyFormationId: number;
   lanePressure: [number, number, number];
   ecosystemStats: {
