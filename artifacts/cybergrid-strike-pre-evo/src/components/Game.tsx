@@ -88,7 +88,7 @@ const ASSEMBLY_SKILL_KEY = 'cgs_assembly_skill_v1';
 const CONSTITUTION_MATRIX_KEY = 'cgs_constitution_matrix_v2';
 const SYNCHRONY_THRESHOLD = 3;
 
-type AvatarSlot = 'head' | 'torso' | 'arms' | 'legs' | 'core' | 'accent';
+type AvatarSlot = 'head' | 'torso' | 'arms' | 'legs' | 'core' | 'accent' | 'weapon';
 interface AvatarComponentDrop {
   id: string;
   slot: AvatarSlot;
@@ -108,7 +108,8 @@ interface AvatarComponentDrop {
   fusionAffinity?: string;
 }
 type EquippedAvatarComponents = Partial<Record<AvatarSlot, string>>;
-const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
+const BODY_AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
+const AVATAR_SLOTS: AvatarSlot[] = [...BODY_AVATAR_SLOTS, 'weapon'];
 
 interface AssemblyFitProfile {
   build: 'agile' | 'balanced' | 'heavy' | 'fluid';
@@ -125,6 +126,8 @@ interface AssemblyFitProfile {
 }
 
 function analyzeAssemblyFit(parts: AvatarComponentDrop[]): AssemblyFitProfile {
+  // Weapons are presentation-only and never distort anatomy or fit scoring.
+  parts = parts.filter((part) => part.slot !== 'weapon');
   const score = (predicate: (part: AvatarComponentDrop) => boolean) =>
     parts.filter(predicate).length;
   const heavy = score((part) =>
@@ -217,7 +220,7 @@ function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
     ...genome.mutations.slice().sort(),
   ].join(':');
   const hash = [...signature].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 17);
-  const slot = AVATAR_SLOTS[hash % AVATAR_SLOTS.length];
+  const slot = BODY_AVATAR_SLOTS[hash % BODY_AVATAR_SLOTS.length];
   const colors: Record<string, string> = {
     kinetic: '#fbbf24', thermal: '#fb7185', cryo: '#67e8f9', voltaic: '#a78bfa',
     corrosive: '#a3e635', radiant: '#fde68a', void: '#c084fc', bloom: '#4ade80',
@@ -229,6 +232,49 @@ function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
     color: colors[genome.element] ?? '#93c5fd',
     variant: hash % 4,
     source: `${genome.entityType} · ${genome.enemyClass} · ${genome.niche}`,
+    baseElement: genome.baseElement,
+    element: genome.element,
+    entityType: genome.entityType,
+    enemyClass: genome.enemyClass,
+    niche: genome.niche,
+    mutations: [...genome.mutations],
+    generation: genome.generation,
+    fusionLevel: genome.fusionLevel,
+    fusionElement: genome.fusionElement,
+    fusionAffinity: genome.fusionAffinity,
+  };
+}
+
+function weaponComponentFromGenome(
+  genome: EnemyGenome,
+  playstyle: PlaystyleSignal | 'balanced',
+): AvatarComponentDrop {
+  const signature = [
+    genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
+    genome.niche, playstyle, genome.fusionElement ?? '', genome.fusionAffinity ?? '',
+  ].join(':');
+  const hash = [...signature].reduce((sum, char) => (sum * 37 + char.charCodeAt(0)) >>> 0, 23);
+  const styleNouns: Record<PlaystyleSignal | 'balanced', string> = {
+    manualFire: 'precision arm',
+    autoOffFire: 'duelist arm',
+    movement: 'pursuit arm',
+    abilityUse: 'channeling arm',
+    rotation: 'adaptive arm',
+    cloneDefense: 'guard arm',
+    cloneAutofire: 'sentry arm',
+    balanced: 'field arm',
+  };
+  const colors: Record<string, string> = {
+    kinetic: '#fbbf24', thermal: '#fb7185', cryo: '#67e8f9', voltaic: '#a78bfa',
+    corrosive: '#a3e635', radiant: '#fde68a', void: '#c084fc', bloom: '#4ade80',
+  };
+  return {
+    id: `avatar-weapon-${hash.toString(36)}-${genome.baseElement}-${playstyle}`,
+    slot: 'weapon',
+    name: `${genome.element} ${genome.baseElement} ${styleNouns[playstyle]}`,
+    color: colors[genome.element] ?? '#93c5fd',
+    variant: hash % 4,
+    source: `${genome.entityType} · ${genome.enemyClass} · ${playstyle}`,
     baseElement: genome.baseElement,
     element: genome.element,
     entityType: genome.entityType,
@@ -277,49 +323,49 @@ const SIGNATURE_COMPONENT_FAMILIES: ComponentFamilySpec[] = [
     id: 'modular', label: 'Modular', baseElement: 'cyborg', element: 'kinetic',
     entityType: 'mechanical', enemyClass: 'scavenger', niche: 'opportunist',
     mutations: ['resilient'],
-    nouns: { head: 'optic', torso: 'harness', arms: 'tool-rig', legs: 'strider', core: 'coupler', accent: 'hardpoint' },
+    nouns: { head: 'optic', torso: 'harness', arms: 'tool-rig', legs: 'strider', core: 'coupler', accent: 'hardpoint', weapon: 'pulse-tool' },
   },
   {
     id: 'suppressor', label: 'Suppressor', baseElement: 'data-wraith', element: 'void',
     entityType: 'spectral', enemyClass: 'infiltrator', niche: 'phase',
     mutations: ['resilient'],
-    nouns: { head: 'mask', torso: 'mantle', arms: 'nullifier', legs: 'phase-step', core: 'silencer', accent: 'null-ring' },
+    nouns: { head: 'mask', torso: 'mantle', arms: 'nullifier', legs: 'phase-step', core: 'silencer', accent: 'null-ring', weapon: 'phase-scythe' },
   },
   {
     id: 'polar', label: 'Polar', baseElement: 'drone', element: 'voltaic',
     entityType: 'synthetic', enemyClass: 'support', niche: 'symbiote',
     mutations: ['accelerated'],
-    nouns: { head: 'conductor', torso: 'yoke', arms: 'inductor', legs: 'flux-step', core: 'dipole', accent: 'node-crown' },
+    nouns: { head: 'conductor', torso: 'yoke', arms: 'inductor', legs: 'flux-step', core: 'dipole', accent: 'node-crown', weapon: 'arc-projector' },
   },
   {
     id: 'siege', label: 'Siege', baseElement: 'mech', element: 'cryo',
     entityType: 'mechanical', enemyClass: 'guardian', niche: 'bulwark',
     mutations: ['armored', 'gigantic'],
-    nouns: { head: 'cockpit', torso: 'carapace', arms: 'bastion-rig', legs: 'pile-driver', core: 'reactor', accent: 'plate-array' },
+    nouns: { head: 'cockpit', torso: 'carapace', arms: 'bastion-rig', legs: 'pile-driver', core: 'reactor', accent: 'plate-array', weapon: 'siege-lance' },
   },
   {
     id: 'pursuit', label: 'Pursuit', baseElement: 'fox', element: 'thermal',
     entityType: 'synthetic', enemyClass: 'predator', niche: 'hunter',
     mutations: ['accelerated'],
-    nouns: { head: 'tracker', torso: 'stalker-frame', arms: 'talon', legs: 'pouncer', core: 'prey-sense', accent: 'target-vane' },
+    nouns: { head: 'tracker', torso: 'stalker-frame', arms: 'talon', legs: 'pouncer', core: 'prey-sense', accent: 'target-vane', weapon: 'claw-gauntlet' },
   },
   {
     id: 'designation', label: 'Designation', baseElement: 'turret', element: 'radiant',
     entityType: 'mechanical', enemyClass: 'support', niche: 'scout',
     mutations: ['resilient'],
-    nouns: { head: 'rangefinder', torso: 'command-rig', arms: 'designator', legs: 'stabilizer', core: 'uplink', accent: 'beacon' },
+    nouns: { head: 'rangefinder', torso: 'command-rig', arms: 'designator', legs: 'stabilizer', core: 'uplink', accent: 'beacon', weapon: 'beam-designator' },
   },
   {
     id: 'signal', label: 'Signal', baseElement: 'nanite', element: 'voltaic',
     entityType: 'synthetic', enemyClass: 'infiltrator', niche: 'swarm',
     mutations: ['miniature', 'volatile'],
-    nouns: { head: 'receiver', torso: 'relay-coat', arms: 'broadcast-rig', legs: 'carrier', core: 'decoder', accent: 'antenna' },
+    nouns: { head: 'receiver', torso: 'relay-coat', arms: 'broadcast-rig', legs: 'carrier', core: 'decoder', accent: 'antenna', weapon: 'swarm-caster' },
   },
   {
     id: 'regal', label: 'Regal', baseElement: 'golem', element: 'radiant',
     entityType: 'lithic', enemyClass: 'guardian', niche: 'opportunist',
     mutations: ['armored', 'resilient'],
-    nouns: { head: 'crest', torso: 'cuirass', arms: 'authority-blade', legs: 'marcher', core: 'sovereign-seal', accent: 'crown-shard' },
+    nouns: { head: 'crest', torso: 'cuirass', arms: 'authority-blade', legs: 'marcher', core: 'sovereign-seal', accent: 'crown-shard', weapon: 'prism-greatblade' },
   },
 ];
 
@@ -367,14 +413,20 @@ function avatarComponentsRecoveredFromBestiary(): AvatarComponentDrop[] {
         && entry.genome.entityType
         && entry.genome.enemyClass
         && entry.genome.niche)
-      .map((entry: BestiaryEntry) => avatarComponentFromGenome({
-        ...entry.genome,
-        mutations: Array.isArray(entry.genome.mutations) ? entry.genome.mutations : [],
-        generation: Number(entry.genome.generation) || 0,
-        fusionLevel: Number(entry.genome.fusionLevel) || 0,
-      }));
+      .flatMap((entry: BestiaryEntry) => {
+        const genome = {
+          ...entry.genome,
+          mutations: Array.isArray(entry.genome.mutations) ? entry.genome.mutations : [],
+          generation: Number(entry.genome.generation) || 0,
+          fusionLevel: Number(entry.genome.fusionLevel) || 0,
+        };
+        return [
+          avatarComponentFromGenome(genome),
+          weaponComponentFromGenome(genome, 'balanced'),
+        ];
+      });
     return [...new Map(recovered.map((component) => [component.id, component])).values()]
-      .slice(0, 360);
+      .slice(0, 480);
   } catch {
     return [];
   }
@@ -490,6 +542,15 @@ type PlaystyleSignal =
   | 'rotation'
   | 'cloneDefense'
   | 'cloneAutofire';
+
+function dominantPlaystyleSignal(
+  signals: Partial<Record<PlaystyleSignal, number>>,
+): PlaystyleSignal | 'balanced' {
+  const ranked = (Object.entries(signals) as Array<[PlaystyleSignal, number]>)
+    .filter(([, value]) => value > 0)
+    .sort((left, right) => right[1] - left[1]);
+  return ranked[0]?.[0] ?? 'balanced';
+}
 
 const PLAYSTYLE_MANIFESTATIONS: Record<PlaystyleSignal, {
   threshold: number;
@@ -870,6 +931,7 @@ function assemblyAtlasColumn(part: AvatarComponentDrop): number {
 }
 
 let sharedAssemblyComponentAtlas: HTMLImageElement | null = null;
+let sharedAssemblyWeaponAtlas: HTMLImageElement | null = null;
 function getAssemblyComponentAtlas(): HTMLImageElement {
   if (!sharedAssemblyComponentAtlas) {
     sharedAssemblyComponentAtlas = new Image();
@@ -878,6 +940,16 @@ function getAssemblyComponentAtlas(): HTMLImageElement {
       `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png?v=2`;
   }
   return sharedAssemblyComponentAtlas;
+}
+
+function getAssemblyWeaponAtlas(): HTMLImageElement {
+  if (!sharedAssemblyWeaponAtlas) {
+    sharedAssemblyWeaponAtlas = new Image();
+    sharedAssemblyWeaponAtlas.decoding = 'async';
+    sharedAssemblyWeaponAtlas.src =
+      `${import.meta.env.BASE_URL}skins/assembly-weapon-atlas-v1.png`;
+  }
+  return sharedAssemblyWeaponAtlas;
 }
 
 function buildAssemblyPartSprite(
@@ -891,17 +963,32 @@ function buildAssemblyPartSprite(
   ctx.imageSmoothingEnabled = false;
   if (atlas.complete && atlas.naturalWidth > 0) {
     const column = assemblyAtlasColumn(part);
-    const row = AVATAR_SLOTS.indexOf(part.slot);
-    const cellWidth = atlas.naturalWidth / 8;
-    const cellHeight = atlas.naturalHeight / 6;
+    const row = part.slot === 'weapon' ? 0 : BODY_AVATAR_SLOTS.indexOf(part.slot);
+    // Image-generated subjects do not land on perfectly equal mathematical
+    // columns. These measured gutters prevent a crop from borrowing detached
+    // pixels from the family immediately before or after it.
+    const columnBounds = part.slot === 'weapon'
+      ? [0, 365, 645, 890, 1125, 1360, 1610, 1885, 2172]
+      : [0, 180, 347, 502, 676, 826, 976, 1115, 1254];
+    const atlasScale = atlas.naturalWidth / columnBounds[columnBounds.length - 1];
+    const sourceLeft = Math.round(columnBounds[column] * atlasScale);
+    const sourceRight = Math.round(columnBounds[column + 1] * atlasScale);
+    const cellWidth = sourceRight - sourceLeft;
+    const rowBounds = [0, 230, 446, 663, 879, 1030, 1254];
+    const rowScale = atlas.naturalHeight / rowBounds[rowBounds.length - 1];
+    const sourceTop = part.slot === 'weapon' ? 0 : Math.round(rowBounds[row] * rowScale);
+    const sourceBottom = part.slot === 'weapon'
+      ? atlas.naturalHeight
+      : Math.round(rowBounds[row + 1] * rowScale);
+    const cellHeight = sourceBottom - sourceTop;
     const variantScale = 0.92 + (part.variant % 4) * 0.025;
     const offset = (1 - variantScale) * 32;
     ctx.save();
     ctx.filter = `hue-rotate(${(part.variant * 9 + part.generation * 3) % 24 - 12}deg) saturate(${1 + Math.min(0.28, part.fusionLevel * 0.06)})`;
     ctx.drawImage(
       atlas,
-      column * cellWidth,
-      row * cellHeight,
+      sourceLeft,
+      sourceTop,
       cellWidth,
       cellHeight,
       offset,
@@ -1192,20 +1279,37 @@ function AvatarAssembly({
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
     const componentAtlas = getAssemblyComponentAtlas();
+    const weaponAtlas = getAssemblyWeaponAtlas();
     let componentAtlasReady = componentAtlas.complete && componentAtlas.naturalWidth > 0;
+    let weaponAtlasReady = weaponAtlas.complete && weaponAtlas.naturalWidth > 0;
+    const atlasFor = (part: AvatarComponentDrop) =>
+      part.slot === 'weapon' ? weaponAtlas : componentAtlas;
+    const atlasReadyFor = (part: AvatarComponentDrop) =>
+      part.slot === 'weapon' ? weaponAtlasReady : componentAtlasReady;
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
-    if (componentAtlasReady) {
-      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
+    for (const part of selected) {
+      if (atlasReadyFor(part)) sprites.set(part.id, buildAssemblyPartSprite(part, atlasFor(part)));
     }
     const hydrateAtlasSprites = () => {
       componentAtlasReady = true;
-      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
+      for (const part of selected.filter((candidate) => candidate.slot !== 'weapon')) {
+        sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
+      }
       refreshBounds();
       redraw();
     };
     if (!componentAtlasReady) {
       componentAtlas.addEventListener('load', hydrateAtlasSprites);
     }
+    const hydrateWeaponSprites = () => {
+      weaponAtlasReady = true;
+      for (const part of selected.filter((candidate) => candidate.slot === 'weapon')) {
+        sprites.set(part.id, buildAssemblyPartSprite(part, weaponAtlas));
+      }
+      refreshBounds();
+      redraw();
+    };
+    if (!weaponAtlasReady) weaponAtlas.addEventListener('load', hydrateWeaponSprites);
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
       const source = sprite.getContext('2d');
@@ -1231,7 +1335,7 @@ function AvatarAssembly({
       for (const [id, sprite] of sprites) spriteBounds.set(id, boundsOf(sprite));
     };
     refreshBounds();
-    const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
+    const drawOrder: AvatarSlot[] = ['accent', 'legs', 'torso', 'arms', 'weapon', 'head', 'core'];
     const drawFragment = (
       sprite: HTMLCanvasElement,
       bounds: { x: number; y: number; width: number; height: number },
@@ -1256,7 +1360,11 @@ function AvatarAssembly({
     const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop, attack: number): Array<
       [number, number, number, number, number, number, number, number]
     > => {
-      if (componentAtlasReady) {
+      if (slot === 'weapon' && weaponAtlasReady) {
+        const reach = attack * 13;
+        return [[0, 0, 1, 1, 48 + attack * 2, 31 - attack * 5, 46 + reach, 57]];
+      }
+      if (slot !== 'weapon' && componentAtlasReady) {
         if (slot === 'head') {
           const width = (fit.headProfile === 'broad' ? 47 : fit.headProfile === 'sensor' ? 39 : 43)
             * fit.headScale;
@@ -1439,9 +1547,9 @@ function AvatarAssembly({
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
-        if (componentAtlasReady) {
-          for (const part of selected) {
-            sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
+        for (const part of selected) {
+          if (atlasReadyFor(part)) {
+            sprites.set(part.id, buildAssemblyPartSprite(part, atlasFor(part)));
           }
         }
         refreshBounds();
@@ -1451,6 +1559,7 @@ function AvatarAssembly({
       active = false;
       cancelAnimationFrame(frame);
       componentAtlas.removeEventListener('load', hydrateAtlasSprites);
+      weaponAtlas.removeEventListener('load', hydrateWeaponSprites);
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
@@ -2073,7 +2182,7 @@ export default function Game() {
       const signatureFamilies = signatureComponentLibrary();
       const merged = [...new Map(
         [...signatureFamilies, ...normalized, ...recovered].map((component) => [component.id, component]),
-      ).values()].slice(0, 360);
+      ).values()].slice(0, 480);
       localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(merged));
       return merged;
     } catch {
@@ -2090,10 +2199,16 @@ export default function Game() {
       return {};
     }
   });
-  const awardAvatarComponent = useCallback((genome: EnemyGenome) => {
+  const awardAvatarComponent = useCallback((
+    genome: EnemyGenome,
+    playstyle: PlaystyleSignal | 'balanced' = 'balanced',
+  ) => {
     const component = avatarComponentFromGenome(genome);
-    if (avatarComponentsRef.current.some((entry) => entry.id === component.id)) return;
-    const next = [component, ...avatarComponentsRef.current].slice(0, 360);
+    const weapon = weaponComponentFromGenome(genome, playstyle);
+    const additions = [component, weapon].filter((candidate) =>
+      !avatarComponentsRef.current.some((entry) => entry.id === candidate.id));
+    if (additions.length === 0) return;
+    const next = [...additions, ...avatarComponentsRef.current].slice(0, 480);
     avatarComponentsRef.current = next;
     localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(next));
     setAvatarComponents(next);
@@ -5276,7 +5391,10 @@ export default function Game() {
 
     for (const defeated of s.enemies) {
       if (defeated.colPos <= -1 && defeated.hp <= 0 && defeated.genome) {
-        awardAvatarComponent(defeated.genome);
+        awardAvatarComponent(
+          defeated.genome,
+          dominantPlaystyleSignal(playstyleSignalsRef.current),
+        );
       }
     }
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
