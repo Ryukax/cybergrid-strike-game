@@ -78,7 +78,39 @@ const LEARNED_ABILITIES_KEY = 'cgs_learned_abilities_v1';
 const PLAYSTYLE_SIGNALS_KEY = 'cgs_playstyle_signals_v1';
 const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
 const GENERATED_ABILITIES_KEY = 'cgs_generated_abilities_v1';
+const AVATAR_COMPONENTS_KEY = 'cgs_avatar_components_v1';
+const EQUIPPED_COMPONENTS_KEY = 'cgs_equipped_components_v1';
 const SYNCHRONY_THRESHOLD = 3;
+
+type AvatarSlot = 'head' | 'torso' | 'arms' | 'legs' | 'core' | 'accent';
+interface AvatarComponentDrop {
+  id: string;
+  slot: AvatarSlot;
+  name: string;
+  color: string;
+  variant: number;
+  source: string;
+}
+type EquippedAvatarComponents = Partial<Record<AvatarSlot, string>>;
+const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
+
+function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
+  const signature = `${genome.baseElement}:${genome.element}:${genome.entityType}:${genome.enemyClass}:${genome.niche}`;
+  const hash = [...signature].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 17);
+  const slot = AVATAR_SLOTS[hash % AVATAR_SLOTS.length];
+  const colors: Record<string, string> = {
+    kinetic: '#fbbf24', thermal: '#fb7185', cryo: '#67e8f9', voltaic: '#a78bfa',
+    corrosive: '#a3e635', radiant: '#fde68a', void: '#c084fc', bloom: '#4ade80',
+  };
+  return {
+    id: `avatar-${slot}-${genome.baseElement}-${genome.element}-${genome.entityType}-${genome.enemyClass}`,
+    slot,
+    name: `${genome.element} ${genome.baseElement} ${slot}`,
+    color: colors[genome.element] ?? '#93c5fd',
+    variant: hash % 4,
+    source: `${genome.entityType} · ${genome.enemyClass} · ${genome.niche}`,
+  };
+}
 
 interface BestiaryEntry {
   signature: string;
@@ -254,6 +286,33 @@ function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome })
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [seed, genome]);
   return <canvas ref={canvasRef} className="bestiarySprite" width={240} height={160} />;
+}
+
+function AvatarAssembly({
+  components,
+  equipped,
+  className = '',
+}: {
+  components: AvatarComponentDrop[];
+  equipped: EquippedAvatarComponents;
+  className?: string;
+}) {
+  return (
+    <div className={`avatarAssembly ${className}`} aria-label="Equipped humanoid components">
+      {AVATAR_SLOTS.map((slot) => {
+        const part = components.find((component) => component.id === equipped[slot]);
+        if (!part) return null;
+        return (
+          <span
+            key={slot}
+            className={`avatarPart avatarPart-${slot} variant-${part.variant}`}
+            style={{ backgroundColor: part.color }}
+            title={part.name}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
 function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {
@@ -769,6 +828,33 @@ export default function Game() {
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
   const [cloneView, setCloneView] = useState<CloneView>(emptyCloneView);
+  const [avatarComponents, setAvatarComponents] = useState<AvatarComponentDrop[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(AVATAR_COMPONENTS_KEY) ?? '[]');
+      return Array.isArray(stored)
+        ? stored.filter((component: AvatarComponentDrop) =>
+          component?.id && AVATAR_SLOTS.includes(component.slot))
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const avatarComponentsRef = useRef(avatarComponents);
+  const [equippedAvatarComponents, setEquippedAvatarComponents] = useState<EquippedAvatarComponents>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(EQUIPPED_COMPONENTS_KEY) ?? '{}');
+    } catch {
+      return {};
+    }
+  });
+  const awardAvatarComponent = useCallback((genome: EnemyGenome) => {
+    const component = avatarComponentFromGenome(genome);
+    if (avatarComponentsRef.current.some((entry) => entry.id === component.id)) return;
+    const next = [component, ...avatarComponentsRef.current].slice(0, 180);
+    avatarComponentsRef.current = next;
+    localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(next));
+    setAvatarComponents(next);
+  }, []);
   const [generatedAbilities, setGeneratedAbilities] = useState<GeneratedAbility[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(GENERATED_ABILITIES_KEY) ?? '[]');
@@ -941,7 +1027,7 @@ export default function Game() {
   }, [learnAbility, registerGeneratedAbility]);
 
   // Player skin
-  type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
+  type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem' | 'assembly';
   const SKIN_KEY = 'cgs_player_skin';
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
@@ -3103,6 +3189,11 @@ export default function Game() {
       }
     }
 
+    for (const defeated of s.enemies) {
+      if (defeated.colPos <= -1 && defeated.hp <= 0 && defeated.genome) {
+        awardAvatarComponent(defeated.genome);
+      }
+    }
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
     for (let row = 0; row < 3; row++) {
       s.lanePressure[row] = Math.max(0, s.lanePressure[row] - dt * 0.09);
@@ -3202,7 +3293,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -3287,7 +3378,10 @@ export default function Game() {
     if (canvas) {
       const ctx = canvas.getContext('2d');
       // Pass hasOverlay flag — tells renderer to skip drawing the default robot body
-      const skinHasOverlay = playerSkinRef.current === 'rocket' || playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem';
+      const skinHasOverlay = playerSkinRef.current === 'rocket'
+        || playerSkinRef.current === 'dots'
+        || playerSkinRef.current === 'gem'
+        || playerSkinRef.current === 'assembly';
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay);
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
@@ -3350,6 +3444,12 @@ export default function Game() {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }
             }
+          } else if (playerSkinRef.current === 'assembly') {
+            if (sCanvas.width !== sz || sCanvas.height !== sz) {
+              sCanvas.width = sz;
+              sCanvas.height = sz;
+            }
+            sCanvas.getContext('2d')?.clearRect(0, 0, sz, sz);
           }
         }
       }
@@ -3783,7 +3883,7 @@ export default function Game() {
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
-      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem') && (
+      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly') && (
         <div
           ref={spriteWrapRef}
           style={{
@@ -3799,6 +3899,16 @@ export default function Game() {
             ref={spriteCanvasRef}
             style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
           />
+          {playerSkin === 'assembly' && (
+            <>
+              <div className="avatarBaseSilhouette avatarBaseSilhouetteGameplay" />
+              <AvatarAssembly
+                components={avatarComponents}
+                equipped={equippedAvatarComponents}
+                className="avatarAssemblyGameplay"
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -4178,6 +4288,7 @@ export default function Game() {
                   { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
                   { id: 'gem',     label: 'Elo',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
+                  { id: 'assembly', label: 'Assembly', preview: null },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
@@ -4189,12 +4300,67 @@ export default function Game() {
                       localStorage.setItem(SKIN_KEY, skin.id);
                     }}
                   >
-                    {skin.preview
+                    {skin.id === 'assembly'
+                      ? <span className="assemblySkinPreview"><i /></span>
+                      : skin.preview
                       ? <SkinPreviewCanvas src={skin.preview} />
                       : <span className="skin-default-icon">🤖</span>}
                     <span className="skin-label">{skin.label}</span>
                   </button>
                 ))}
+              </div>
+
+              <div id="customSubtitle" style={{ marginTop: '16px' }}>
+                Assembly Components · {avatarComponents.length} recovered
+              </div>
+              <div id="avatarWorkshop">
+                <div id="avatarWorkshopPreview">
+                  <div className="avatarBaseSilhouette" />
+                  <AvatarAssembly
+                    components={avatarComponents}
+                    equipped={equippedAvatarComponents}
+                    className="avatarAssemblyPreview"
+                  />
+                </div>
+                <div id="avatarComponentSlots">
+                  {AVATAR_SLOTS.map((slot) => {
+                    const options = avatarComponents.filter((component) => component.slot === slot);
+                    return (
+                      <div className="avatarSlotRow" key={slot}>
+                        <strong>{slot}</strong>
+                        <button
+                          className={!equippedAvatarComponents[slot] ? 'selected' : ''}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            const next = { ...equippedAvatarComponents };
+                            delete next[slot];
+                            setEquippedAvatarComponents(next);
+                            localStorage.setItem(EQUIPPED_COMPONENTS_KEY, JSON.stringify(next));
+                          }}
+                        >
+                          NONE
+                        </button>
+                        {options.map((component) => (
+                          <button
+                            key={component.id}
+                            className={equippedAvatarComponents[slot] === component.id ? 'selected' : ''}
+                            title={`${component.name} · ${component.source}`}
+                            onPointerDown={(event) => {
+                              event.stopPropagation();
+                              const next = { ...equippedAvatarComponents, [slot]: component.id };
+                              setEquippedAvatarComponents(next);
+                              localStorage.setItem(EQUIPPED_COMPONENTS_KEY, JSON.stringify(next));
+                            }}
+                          >
+                            <i style={{ backgroundColor: component.color }} />
+                            {component.name}
+                          </button>
+                        ))}
+                        {options.length === 0 && <span>Defeat compatible entities to recover this slot.</span>}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <div id="customSubtitle" style={{ marginTop: '16px' }}>
