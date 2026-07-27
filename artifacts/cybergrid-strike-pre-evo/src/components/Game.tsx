@@ -980,6 +980,44 @@ function getAssemblyAtlas(part: AvatarComponentDrop): HTMLImageElement {
   return atlas;
 }
 
+function removeAssemblySpriteIslands(
+  ctx: CanvasRenderingContext2D,
+  slot: AvatarSlot,
+): void {
+  const image = ctx.getImageData(0, 0, 64, 64);
+  const visited = new Uint8Array(64 * 64);
+  const components: number[][] = [];
+  for (let start = 0; start < 64 * 64; start++) {
+    if (visited[start] || image.data[start * 4 + 3] < 14) continue;
+    const pixels: number[] = [];
+    const queue = [start];
+    visited[start] = 1;
+    while (queue.length) {
+      const current = queue.pop()!;
+      pixels.push(current);
+      const x = current % 64;
+      const y = Math.floor(current / 64);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if ((!dx && !dy) || x + dx < 0 || x + dx >= 64 || y + dy < 0 || y + dy >= 64) continue;
+          const next = (y + dy) * 64 + x + dx;
+          if (visited[next] || image.data[next * 4 + 3] < 14) continue;
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+    components.push(pixels);
+  }
+  components.sort((left, right) => right.length - left.length);
+  const retainedCount = slot === 'arms' || slot === 'legs' ? 2 : 1;
+  const retained = new Set(components.slice(0, retainedCount).flat());
+  for (let pixel = 0; pixel < 64 * 64; pixel++) {
+    if (!retained.has(pixel)) image.data[pixel * 4 + 3] = 0;
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
 function buildAssemblyPartSprite(
   part: AvatarComponentDrop,
   atlas: HTMLImageElement,
@@ -998,28 +1036,68 @@ function buildAssemblyPartSprite(
     // Image-generated subjects do not land on perfectly equal mathematical
     // columns. These measured gutters prevent a crop from borrowing detached
     // pixels from the family immediately before or after it.
+    const bodyRowBounds: Record<Exclude<AssemblyArchetype, 'baseline'>, number[]> = {
+      agile: [0, 233, 444, 640, 831, 1010, 1254],
+      armored: [0, 211, 438, 656, 862, 1024, 1254],
+      evolved: [0, 211, 433, 651, 870, 1028, 1254],
+    };
+    const bodyColumnBounds: Record<
+      Exclude<AssemblyArchetype, 'baseline'>,
+      number[][]
+    > = {
+      agile: [
+        [0, 155, 319, 467, 625, 774, 921, 1076, 1254],
+        [0, 161, 318, 470, 627, 776, 927, 1072, 1254],
+        [0, 167, 323, 477, 634, 782, 931, 1076, 1254],
+        [0, 159, 311, 468, 629, 778, 927, 1082, 1254],
+        [0, 156, 308, 467, 620, 775, 927, 1070, 1254],
+        [0, 145, 316, 469, 623, 777, 925, 1073, 1254],
+      ],
+      armored: [
+        [0, 153, 317, 477, 628, 788, 933, 1081, 1254],
+        [0, 171, 337, 490, 649, 801, 949, 1091, 1254],
+        [0, 169, 331, 486, 642, 801, 950, 1093, 1254],
+        [0, 163, 328, 478, 637, 795, 953, 1094, 1254],
+        [0, 155, 316, 472, 629, 786, 931, 1083, 1254],
+        [0, 156, 321, 471, 625, 787, 939, 1087, 1254],
+      ],
+      evolved: [
+        [0, 148, 309, 463, 638, 790, 958, 1105, 1254],
+        [0, 152, 308, 468, 638, 794, 949, 1092, 1254],
+        [0, 161, 327, 480, 651, 744, 900, 1100, 1254],
+        [0, 162, 330, 477, 647, 744, 900, 1103, 1254],
+        [0, 146, 311, 474, 635, 804, 950, 1092, 1254],
+        [0, 150, 323, 474, 639, 796, 944, 1095, 1254],
+      ],
+    };
+    const weaponRowBounds = [0, 286, 556, 887];
+    const weaponColumnBounds = [
+      [0, 251, 484, 690, 899, 1137, 1339, 1551, 1774],
+      [0, 262, 473, 689, 896, 1143, 1338, 1567, 1774],
+      [0, 262, 457, 700, 885, 1149, 1339, 1542, 1774],
+    ];
     const customGutters = archetype === 'baseline';
     const columnBounds = customGutters
       ? part.slot === 'weapon'
         ? [0, 365, 645, 890, 1125, 1360, 1610, 1885, 2172]
         : [0, 180, 347, 502, 676, 826, 976, 1115, 1254]
-      : Array.from({ length: 9 }, (_, index) => atlas.naturalWidth * index / 8);
+      : part.slot === 'weapon'
+        ? weaponColumnBounds[row]
+        : bodyColumnBounds[archetype][row];
     const atlasScale = atlas.naturalWidth / columnBounds[columnBounds.length - 1];
     const sourceLeft = Math.round(columnBounds[column] * atlasScale);
     const sourceRight = Math.round(columnBounds[column + 1] * atlasScale);
     const cellWidth = sourceRight - sourceLeft;
-    const rowBounds = customGutters && part.slot !== 'weapon'
-      ? [0, 230, 446, 663, 879, 1030, 1254]
-      : Array.from(
-        { length: part.slot === 'weapon' ? (archetype === 'baseline' ? 2 : 4) : 7 },
-        (_, index) => atlas.naturalHeight * index
-          / (part.slot === 'weapon' ? (archetype === 'baseline' ? 1 : 3) : 6),
-      );
+    const rowBounds = customGutters
+      ? part.slot === 'weapon'
+        ? [0, atlas.naturalHeight]
+        : [0, 230, 446, 663, 879, 1030, 1254]
+      : part.slot === 'weapon'
+        ? weaponRowBounds
+        : bodyRowBounds[archetype];
     const rowScale = atlas.naturalHeight / rowBounds[rowBounds.length - 1];
-    const sourceTop = part.slot === 'weapon' ? 0 : Math.round(rowBounds[row] * rowScale);
-    const sourceBottom = part.slot === 'weapon'
-      ? atlas.naturalHeight
-      : Math.round(rowBounds[row + 1] * rowScale);
+    const sourceTop = Math.round(rowBounds[row] * rowScale);
+    const sourceBottom = Math.round(rowBounds[row + 1] * rowScale);
     const cellHeight = sourceBottom - sourceTop;
     const variantScale = 0.92 + (part.variant % 4) * 0.025;
     const offset = (1 - variantScale) * 32;
@@ -1037,6 +1115,7 @@ function buildAssemblyPartSprite(
       64 * variantScale,
     );
     ctx.restore();
+    removeAssemblySpriteIslands(ctx, part.slot);
     ctx.save();
     ctx.globalCompositeOperation = 'source-atop';
     ctx.globalAlpha = 0.08 + Math.min(0.12, part.fusionLevel * 0.025);
