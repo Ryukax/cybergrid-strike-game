@@ -3824,13 +3824,37 @@ export default function Game() {
             customizationSelectionRef.current,
             buttons.length - 1,
           );
-          const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
-          if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
+          const horizontal = Math.abs(gp.moveX) > 0.15 ? Math.sign(gp.moveX) : 0;
+          const vertical = Math.abs(gp.moveY) > 0.15 ? Math.sign(gp.moveY) : 0;
+          if ((horizontal !== 0 || vertical !== 0) && menuNavCooldownRef.current <= 0) {
             buttons[customizationSelectionRef.current]?.classList.remove('gamepad-selected');
-            const direction = axis > 0 ? 1 : -1;
-            customizationSelectionRef.current = (
-              customizationSelectionRef.current + direction + buttons.length
-            ) % buttons.length;
+            const current = buttons[customizationSelectionRef.current];
+            const currentRect = current.getBoundingClientRect();
+            const currentX = currentRect.left + currentRect.width / 2;
+            const currentY = currentRect.top + currentRect.height / 2;
+            const useVertical = vertical !== 0 && (
+              horizontal === 0 || Math.abs(gp.moveY) >= Math.abs(gp.moveX)
+            );
+            const direction = useVertical ? vertical : horizontal;
+            let bestIndex = customizationSelectionRef.current;
+            let bestScore = Number.POSITIVE_INFINITY;
+            buttons.forEach((button, index) => {
+              if (button === current) return;
+              const rect = button.getBoundingClientRect();
+              const deltaX = rect.left + rect.width / 2 - currentX;
+              const deltaY = rect.top + rect.height / 2 - currentY;
+              const primary = useVertical ? deltaY * direction : deltaX * direction;
+              if (primary <= 3) return;
+              const secondary = Math.abs(useVertical ? deltaX : deltaY);
+              // Directional distance dominates, while alignment keeps Up/Down
+              // in the same option column and Left/Right in the same row.
+              const score = primary + secondary * 2.4;
+              if (score < bestScore) {
+                bestScore = score;
+                bestIndex = index;
+              }
+            });
+            customizationSelectionRef.current = bestIndex;
             buttons[customizationSelectionRef.current]?.classList.add('gamepad-selected');
             buttons[customizationSelectionRef.current]?.scrollIntoView({
               block: 'nearest',
