@@ -5735,7 +5735,13 @@ export default function Game() {
           wrap.style.height = `${sz}px`;
 
           const frames = gifFramesRef.current;
-          if (frames.length > 0) {
+          if (playerSkinRef.current === 'assembly') {
+            if (sCanvas.width !== sz || sCanvas.height !== sz) {
+              sCanvas.width = sz;
+              sCanvas.height = sz;
+            }
+            sCanvas.getContext('2d')?.clearRect(0, 0, sz, sz);
+          } else if (frames.length > 0) {
             // Rocket: shoot-pose state machine via rocketFrameRef
             // Dots: auto-cycle walk animation via performance.now()
             // Gem idle: auto-cycle; Gem attack: use gifAttackFramesRef + gemAttackFrameRef
@@ -5781,12 +5787,6 @@ export default function Game() {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }
             }
-          } else if (playerSkinRef.current === 'assembly') {
-            if (sCanvas.width !== sz || sCanvas.height !== sz) {
-              sCanvas.width = sz;
-              sCanvas.height = sz;
-            }
-            sCanvas.getContext('2d')?.clearRect(0, 0, sz, sz);
           }
         }
       }
@@ -6252,7 +6252,11 @@ export default function Game() {
         >
           <canvas
             ref={spriteCanvasRef}
-            style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
+            style={{
+              position: 'relative',
+              display: playerSkin === 'assembly' ? 'none' : 'block',
+              imageRendering: 'pixelated',
+            }}
           />
           {playerSkin === 'assembly' && (
             <AvatarAssembly
