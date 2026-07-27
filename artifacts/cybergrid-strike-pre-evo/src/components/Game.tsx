@@ -856,6 +856,183 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
   );
 }
 
+function buildAssemblyPartSprite(part: AvatarComponentDrop): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+  ctx.imageSmoothingEnabled = false;
+  const color = part.color;
+  const dark = '#111827';
+  const light = '#e2e8f0';
+  const mechanical = ['robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite', 'turret', 'data-wraith']
+    .includes(part.baseElement) || part.entityType === 'mechanical' || part.entityType === 'synthetic';
+  const lithic = part.baseElement === 'crystal' || part.entityType === 'lithic';
+  const fluid = part.baseElement === 'cephalopod' || part.entityType === 'fluidic';
+  const botanical = part.baseElement === 'plant' || part.entityType === 'botanical';
+  const polygon = (points: Array<[number, number]>, fill = color) => {
+    ctx.beginPath();
+    points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  };
+  const block = (x: number, y: number, w: number, h: number, fill = color) => {
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, w, h);
+  };
+  const line = (x1: number, y1: number, x2: number, y2: number, width = 5, stroke = color) => {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = width;
+    ctx.lineCap = fluid ? 'round' : 'square';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  };
+
+  if (part.slot === 'head') {
+    if (lithic) polygon([[8, 47], [17, 13], [27, 21], [34, 3], [43, 23], [54, 12], [57, 47], [32, 59]]);
+    else if (botanical) {
+      block(21, 25, 22, 30, '#713f12');
+      polygon([[5, 30], [15, 10], [31, 22], [43, 6], [59, 29], [32, 39]]);
+    } else if (mechanical) {
+      polygon([[9, 18], [18, 9], [49, 12], [56, 23], [51, 52], [15, 52], [8, 41]], '#475569');
+      block(15, 20, 35, 20);
+      block(20, 26, 9, 7, '#67e8f9');
+      block(37, 24, 8, 10, '#f8fafc');
+      line(32, 12, 38, 3, 3, '#94a3b8');
+    } else {
+      polygon([[13, 16], [32, 7], [51, 18], [48, 48], [32, 57], [16, 48]]);
+      block(20, 26, 7, 7, light);
+      block(37, 26, 7, 7, light);
+      if (part.baseElement === 'insect') {
+        line(21, 16, 10, 3, 3);
+        line(43, 16, 54, 3, 3);
+      }
+    }
+  } else if (part.slot === 'torso') {
+    if (lithic) polygon([[32, 2], [58, 19], [49, 60], [15, 60], [6, 19]]);
+    else if (botanical) {
+      block(22, 5, 20, 54, '#713f12');
+      polygon([[22, 18], [2, 7], [11, 38]], color);
+      polygon([[42, 18], [62, 7], [53, 38]], color);
+    } else if (fluid) {
+      polygon([[17, 8], [47, 8], [56, 29], [48, 58], [16, 58], [8, 29]]);
+      ctx.fillStyle = 'rgba(255,255,255,.38)';
+      ctx.fillRect(18, 15, 9, 34);
+    } else if (mechanical) {
+      polygon([[8, 13], [17, 5], [48, 8], [58, 20], [53, 52], [42, 61], [18, 58], [5, 44]], '#475569');
+      block(15, 17, 35, 29);
+      block(22, 24, 20, 12, '#0f172a');
+      line(12, 50, 51, 50, 4, '#94a3b8');
+    } else {
+      polygon([[11, 9], [51, 7], [59, 46], [43, 60], [20, 58], [5, 45]]);
+      line(16, 21, 48, 20, 4, light);
+    }
+  } else if (part.slot === 'arms') {
+    if (fluid) {
+      [[29, 15, 7, 59], [30, 18, 19, 60], [35, 16, 45, 60], [36, 15, 58, 57]]
+        .forEach(([x1, y1, x2, y2]) => line(x1, y1, x2, y2, 7));
+    } else if (part.baseElement === 'avian' || part.baseElement === 'owl') {
+      polygon([[29, 19], [2, 3], [12, 42], [29, 51]]);
+      polygon([[35, 19], [62, 3], [52, 42], [35, 51]]);
+      line(9, 16, 25, 32, 3, light);
+      line(55, 16, 39, 32, 3, light);
+    } else if (mechanical) {
+      block(2, 16, 25, 17, '#475569');
+      block(37, 16, 25, 17, '#475569');
+      block(0, 35, 19, 13);
+      block(45, 35, 19, 13);
+      line(16, 25, 8, 42, 5, '#94a3b8');
+      line(48, 25, 56, 42, 5, '#94a3b8');
+    } else {
+      line(29, 17, 8, 44, 11);
+      line(35, 17, 56, 44, 11);
+      polygon([[2, 40], [16, 38], [12, 59]]);
+      polygon([[62, 40], [48, 38], [52, 59]]);
+    }
+  } else if (part.slot === 'legs') {
+    if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
+      block(7, 8, 50, 22, '#475569');
+      [17, 47].forEach((x) => {
+        ctx.fillStyle = dark;
+        ctx.beginPath();
+        ctx.arc(x, 47, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, 47, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    } else if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 14;
+      ctx.beginPath();
+      ctx.moveTo(25, 4);
+      ctx.bezierCurveTo(55, 17, 9, 37, 42, 58);
+      ctx.stroke();
+      polygon([[39, 58], [57, 48], [52, 63]]);
+    } else if (fluid) {
+      [15, 27, 39, 51].forEach((x, index) => line(31, 5, x, 61, 8, index % 2 ? color : light));
+    } else if (mechanical) {
+      block(10, 3, 19, 45, '#475569');
+      block(35, 3, 19, 45, '#475569');
+      block(5, 44, 25, 15);
+      block(34, 44, 25, 15);
+    } else {
+      line(26, 4, 17, 49, 12);
+      line(38, 4, 47, 49, 12);
+      polygon([[5, 48], [28, 45], [26, 61], [3, 61]]);
+      polygon([[59, 48], [36, 45], [38, 61], [61, 61]]);
+    }
+  } else if (part.slot === 'core') {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(32, 32, 23, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = dark;
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.fillStyle = mechanical ? '#67e8f9' : light;
+    ctx.beginPath();
+    ctx.arc(32, 32, 10, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    if (part.niche === 'phase' || part.entityType === 'spectral') {
+      [13, 21, 29].forEach((radius, index) => {
+        ctx.strokeStyle = index % 2 ? light : color;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(32, 32, radius, index * 0.4, Math.PI * (1.3 + index * 0.18));
+        ctx.stroke();
+      });
+    } else {
+      polygon([[4, 44], [19, 31], [9, 8], [32, 21], [55, 8], [45, 31], [60, 44], [39, 43], [32, 61], [25, 43]]);
+    }
+  }
+
+  // Constitution detail remains local to the selected part rather than
+  // importing another complete creature silhouette.
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalAlpha = 0.28;
+  ctx.fillStyle = light;
+  const detailStep = 7 + (part.variant % 3) * 2;
+  for (let offset = -32; offset < 72; offset += detailStep) {
+    ctx.fillRect(offset, (offset * 3 + part.generation * 5) % 64, detailStep, 2);
+  }
+  ctx.restore();
+  return canvas;
+}
+
 function AvatarAssembly({
   components,
   equipped,
@@ -881,34 +1058,8 @@ function AvatarAssembly({
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
-    const seedFor = (part: AvatarComponentDrop) => [...[
-      part.baseElement, part.element, part.entityType, part.enemyClass,
-      part.niche, part.generation, part.fusionLevel,
-      part.fusionElement ?? '', part.fusionAffinity ?? '', ...part.mutations,
-    ].join(':')].reduce(
-      (sum, character) => (sum * 33 + character.charCodeAt(0)) >>> 0,
-      5381,
-    );
-    const genomeFor = (part: AvatarComponentDrop): EnemyGenome => ({
-      baseElement: part.baseElement as EnemyGenome['baseElement'],
-      element: part.element as EnemyGenome['element'],
-      entityType: part.entityType as EnemyGenome['entityType'],
-      enemyClass: part.enemyClass as EnemyGenome['enemyClass'],
-      niche: part.niche as EnemyGenome['niche'],
-      generation: Math.max(1, part.generation),
-      mutations: part.mutations as EnemyGenome['mutations'],
-      speedScale: 1,
-      hpBonus: part.enemyClass === 'guardian' ? 2 : 0,
-      sizeScale: part.mutations.includes('gigantic') ? 1.2
-        : part.mutations.includes('miniature') ? 0.82 : 1,
-      regeneration: part.niche === 'regenerator' ? 0.2 : 0,
-      phaseChance: part.niche === 'phase' ? 0.25 : 0,
-      fusionLevel: part.fusionLevel,
-      fusionElement: part.fusionElement as EnemyGenome['fusionElement'],
-      fusionAffinity: part.fusionAffinity as EnemyGenome['fusionAffinity'],
-    });
     for (const part of selected) {
-      sprites.set(part.id, getProceduralVirusSprite(seedFor(part), genomeFor(part)));
+      sprites.set(part.id, buildAssemblyPartSprite(part));
     }
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
@@ -1039,7 +1190,7 @@ function AvatarAssembly({
         ];
       }
       if (slot === 'core') return [[0.26, 0.26, 0.48, 0.48, 40 + attack * 2, 49, 16, 16]];
-      return [[0, 0, 1, 0.38, 25 + attack * 2, 25, 46, 15]];
+      return [[0, 0, 1, 1, 25 + attack * 2, 24, 46, 46]];
     };
     let active = true;
     let frame = 0;
