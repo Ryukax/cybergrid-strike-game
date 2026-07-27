@@ -706,95 +706,70 @@ function AvatarAssembly({
       };
     };
     const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
-    const drawClippedPart = (
-      path: Path2D,
+    const drawFragment = (
       sprite: HTMLCanvasElement,
       bounds: { x: number; y: number; width: number; height: number },
+      sourceX: number,
+      sourceY: number,
+      sourceWidth: number,
+      sourceHeight: number,
       targetX: number,
       targetY: number,
       targetWidth: number,
       targetHeight: number,
-      outline: string,
     ) => {
-      ctx.save();
-      ctx.clip(path);
       ctx.drawImage(
         sprite,
-        bounds.x, bounds.y, bounds.width, bounds.height,
+        bounds.x + bounds.width * sourceX,
+        bounds.y + bounds.height * sourceY,
+        Math.max(1, bounds.width * sourceWidth),
+        Math.max(1, bounds.height * sourceHeight),
         targetX, targetY, targetWidth, targetHeight,
       );
-      ctx.restore();
-      ctx.strokeStyle = outline;
-      ctx.lineWidth = 2;
-      ctx.stroke(path);
     };
-    const partPaths = (slot: AvatarSlot, part: AvatarComponentDrop): Array<{
-      path: Path2D;
-      rect: [number, number, number, number];
-    }> => {
-      const paths: Array<{ path: Path2D; rect: [number, number, number, number] }> = [];
-      const add = (path: Path2D, rect: [number, number, number, number]) => paths.push({ path, rect });
+    const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop): Array<
+      [number, number, number, number, number, number, number, number]
+    > => {
       if (slot === 'head') {
-        const path = new Path2D();
-        if (part.baseElement === 'fungus') {
-          path.moveTo(20, 24); path.quadraticCurveTo(48, -4, 76, 24);
-          path.lineTo(65, 31); path.lineTo(61, 44); path.lineTo(35, 44); path.lineTo(31, 31); path.closePath();
-        } else if (part.baseElement === 'crystal' || part.entityType === 'lithic') {
-          path.moveTo(25, 38); path.lineTo(31, 9); path.lineTo(40, 16);
-          path.lineTo(48, 1); path.lineTo(56, 16); path.lineTo(66, 8);
-          path.lineTo(71, 38); path.lineTo(48, 47); path.closePath();
-        } else if (['avian', 'owl'].includes(part.baseElement)) {
-          path.moveTo(27, 14); path.lineTo(48, 3); path.lineTo(68, 15);
-          path.lineTo(63, 35); path.lineTo(77, 39); path.lineTo(48, 47); path.lineTo(30, 38); path.closePath();
-        } else {
-          path.moveTo(32, 6); path.lineTo(64, 6); path.lineTo(70, 17);
-          path.lineTo(64, 39); path.lineTo(48, 46); path.lineTo(32, 39); path.lineTo(26, 17); path.closePath();
-        }
-        add(path, [20, 0, 58, 48]);
-      } else if (slot === 'torso') {
-        const path = new Path2D();
-        const broad = part.enemyClass === 'guardian' || part.entityType === 'lithic';
-        path.moveTo(broad ? 19 : 27, 42); path.lineTo(broad ? 77 : 69, 42);
-        path.lineTo(broad ? 78 : 73, 79); path.lineTo(61, 92);
-        path.lineTo(35, 92); path.lineTo(broad ? 18 : 23, 79); path.closePath();
-        add(path, [17, 39, 62, 55]);
-      } else if (slot === 'arms') {
-        const left = new Path2D(); const right = new Path2D();
-        if (['avian', 'owl'].includes(part.baseElement)) {
-          left.moveTo(31, 46); left.lineTo(2, 27); left.lineTo(11, 76); left.lineTo(36, 61); left.closePath();
-          right.moveTo(65, 46); right.lineTo(94, 27); right.lineTo(85, 76); right.lineTo(60, 61); right.closePath();
-        } else {
-          left.moveTo(26, 45); left.lineTo(13, 48); left.lineTo(3, 81); left.lineTo(16, 86); left.lineTo(36, 57); left.closePath();
-          right.moveTo(70, 45); right.lineTo(83, 48); right.lineTo(93, 81); right.lineTo(80, 86); right.lineTo(60, 57); right.closePath();
-        }
-        add(left, [0, 35, 38, 54]); add(right, [58, 35, 38, 54]);
-      } else if (slot === 'legs') {
-        if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
-          const path = new Path2D();
-          path.rect(18, 84, 60, 20); path.arc(29, 114, 11, 0, Math.PI * 2); path.arc(67, 114, 11, 0, Math.PI * 2);
-          add(path, [16, 82, 64, 46]);
-        } else if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
-          const path = new Path2D();
-          path.moveTo(29, 84); path.bezierCurveTo(78, 91, 17, 111, 70, 124);
-          path.lineTo(48, 127); path.bezierCurveTo(9, 111, 63, 98, 27, 94); path.closePath();
-          add(path, [18, 82, 60, 46]);
-        } else {
-          const left = new Path2D(); const right = new Path2D();
-          left.moveTo(31, 84); left.lineTo(47, 84); left.lineTo(43, 123); left.lineTo(21, 123); left.closePath();
-          right.moveTo(49, 84); right.lineTo(65, 84); right.lineTo(75, 123); right.lineTo(53, 123); right.closePath();
-          add(left, [18, 82, 32, 46]); add(right, [46, 82, 32, 46]);
-        }
-      } else if (slot === 'core') {
-        const path = new Path2D(); path.arc(48, 62, 13, 0, Math.PI * 2);
-        add(path, [34, 48, 28, 28]);
-      } else {
-        const path = new Path2D();
-        path.moveTo(17, 44); path.lineTo(5, 30); path.lineTo(29, 35);
-        path.lineTo(48, 20); path.lineTo(67, 35); path.lineTo(91, 30);
-        path.lineTo(79, 44); path.lineTo(65, 39); path.lineTo(48, 49); path.lineTo(31, 39); path.closePath();
-        add(path, [3, 17, 90, 35]);
+        const wide = ['fungus', 'avian', 'owl', 'crystal'].includes(part.baseElement);
+        return [[0.08, 0, 0.84, 0.56, wide ? 25 : 31, 1, wide ? 46 : 34, 31]];
       }
-      return paths;
+      if (slot === 'torso') {
+        const broad = part.enemyClass === 'guardian' || part.entityType === 'lithic';
+        return [[0.08, 0.15, 0.84, 0.72, broad ? 24 : 29, 35, broad ? 48 : 38, 39]];
+      }
+      if (slot === 'arms') {
+        if (['avian', 'owl'].includes(part.baseElement)) {
+          return [
+            [0, 0.08, 0.48, 0.78, 2, 37, 25, 39],
+            [0.52, 0.08, 0.48, 0.78, 69, 37, 25, 39],
+          ];
+        }
+        if (part.baseElement === 'cephalopod' || part.entityType === 'fluidic') {
+          return [
+            [0, 0.12, 0.48, 0.82, 8, 40, 18, 45],
+            [0.52, 0.12, 0.48, 0.82, 70, 40, 18, 45],
+          ];
+        }
+        return [
+          [0, 0.12, 0.48, 0.76, 7, 40, 20, 36],
+          [0.52, 0.12, 0.48, 0.76, 69, 40, 20, 36],
+        ];
+      }
+      if (slot === 'legs') {
+        if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
+          return [[0, 0.42, 1, 0.58, 25, 79, 46, 43]];
+        }
+        if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
+          return [[0.06, 0.4, 0.88, 0.6, 27, 76, 42, 51]];
+        }
+        return [
+          [0.04, 0.44, 0.46, 0.56, 29, 77, 17, 49],
+          [0.5, 0.44, 0.46, 0.56, 50, 77, 17, 49],
+        ];
+      }
+      if (slot === 'core') return [[0.26, 0.26, 0.48, 0.48, 40, 49, 16, 16]];
+      return [[0, 0, 1, 0.38, 25, 26, 46, 15]];
     };
     let active = true;
     const redraw = () => {
@@ -806,8 +781,8 @@ function AvatarAssembly({
         const sprite = part ? sprites.get(part.id) : undefined;
         if (!part || !sprite) continue;
         const bounds = boundsOf(sprite);
-        for (const { path, rect } of partPaths(slot, part)) {
-          drawClippedPart(path, sprite, bounds, ...rect, part.color);
+        for (const fragment of partFragments(slot, part)) {
+          drawFragment(sprite, bounds, ...fragment);
         }
       }
     };
