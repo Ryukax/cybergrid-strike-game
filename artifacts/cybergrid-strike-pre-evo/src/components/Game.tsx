@@ -1290,6 +1290,7 @@ export default function Game() {
   const menuScreenRef = useRef<'main' | 'customization' | 'bestiary' | 'options'>('main');
   const [menuSelection, setMenuSelection] = useState(0);
   const menuSelectionRef = useRef(0);
+  const customizationSelectionRef = useRef(0);
   const [pauseSelection, setPauseSelection] = useState(0);
   const pauseSelectionRef = useRef(0);
   const [upgradeSelection, setUpgradeSelection] = useState(0);
@@ -3814,8 +3815,36 @@ export default function Game() {
       } else if (menuScreenRef.current === 'options') {
         if (gp.fire && !gp.prevFire) document.getElementById('menuDpadToggleBtn')?.click();
         if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
-      } else if (gp.cardB && !gp.prevCardB) {
-        document.getElementById('menuBackBtn')?.click();
+      } else if (menuScreenRef.current === 'customization') {
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
+          '.customization-card button:not(:disabled)',
+        ));
+        if (buttons.length > 0) {
+          customizationSelectionRef.current = Math.min(
+            customizationSelectionRef.current,
+            buttons.length - 1,
+          );
+          const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
+          if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
+            buttons[customizationSelectionRef.current]?.classList.remove('gamepad-selected');
+            const direction = axis > 0 ? 1 : -1;
+            customizationSelectionRef.current = (
+              customizationSelectionRef.current + direction + buttons.length
+            ) % buttons.length;
+            buttons[customizationSelectionRef.current]?.classList.add('gamepad-selected');
+            buttons[customizationSelectionRef.current]?.scrollIntoView({
+              block: 'nearest',
+              inline: 'nearest',
+            });
+            menuNavCooldownRef.current = 0.18;
+          } else {
+            buttons[customizationSelectionRef.current]?.classList.add('gamepad-selected');
+          }
+          if (gp.fire && !gp.prevFire) {
+            buttons[customizationSelectionRef.current]?.click();
+          }
+        }
+        if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       }
     } else if (phaseRef.current === 'playing' && !pausedRef.current && !stateRef.current.running) {
       handleGamepad();
@@ -4727,6 +4756,7 @@ export default function Game() {
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuScreenRef.current = 'customization';
+                  customizationSelectionRef.current = 0;
                   setMenuScreen('customization');
                 }}
               >
@@ -4780,7 +4810,7 @@ export default function Game() {
                   <button
                     key={skin.id}
                     className={`skin-btn ${playerSkin === skin.id ? 'selected' : ''}`}
-                    onPointerDown={(ev) => {
+                    onClick={(ev) => {
                       ev.stopPropagation();
                       playerSkinRef.current = skin.id;
                       setPlayerSkin(skin.id);
@@ -4820,7 +4850,7 @@ export default function Game() {
                         <strong>{slot}</strong>
                         <button
                           className={!equippedAvatarComponents[slot] ? 'selected' : ''}
-                          onPointerDown={(event) => {
+                          onClick={(event) => {
                             event.stopPropagation();
                             const next = { ...equippedAvatarComponents };
                             delete next[slot];
@@ -4835,7 +4865,7 @@ export default function Game() {
                             key={component.id}
                             className={equippedAvatarComponents[slot] === component.id ? 'selected' : ''}
                             title={`${component.name} · ${component.source}`}
-                            onPointerDown={(event) => {
+                            onClick={(event) => {
                               event.stopPropagation();
                               const next = { ...equippedAvatarComponents, [slot]: component.id };
                               setEquippedAvatarComponents(next);
@@ -4886,7 +4916,7 @@ export default function Game() {
                       <button
                         key={ability.id}
                         className={`learned-ability-btn ${on ? 'enabled' : 'disabled'} ${unlocked ? '' : 'locked'}`}
-                        onPointerDown={(ev) => {
+                        onClick={(ev) => {
                           ev.stopPropagation();
                           if (!unlocked || !learned) return;
                           setEnabledAbilities((previous) => {
