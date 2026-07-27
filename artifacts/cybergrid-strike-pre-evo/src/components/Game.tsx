@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -650,7 +650,7 @@ function AvatarAssembly({
     .map((slot) => components.find((component) => component.id === equipped[slot]))
     .filter((part): part is AvatarComponentDrop => Boolean(part));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -706,32 +706,99 @@ function AvatarAssembly({
       };
     };
     const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
-    const drawFragment = (
+    const drawClippedPart = (
+      path: Path2D,
       sprite: HTMLCanvasElement,
       bounds: { x: number; y: number; width: number; height: number },
-      sourceX: number,
-      sourceY: number,
-      sourceWidth: number,
-      sourceHeight: number,
       targetX: number,
       targetY: number,
       targetWidth: number,
       targetHeight: number,
-      alpha = 1,
+      outline: string,
     ) => {
       ctx.save();
-      ctx.globalAlpha = alpha;
+      ctx.clip(path);
       ctx.drawImage(
         sprite,
-        bounds.x + bounds.width * sourceX,
-        bounds.y + bounds.height * sourceY,
-        Math.max(1, bounds.width * sourceWidth),
-        Math.max(1, bounds.height * sourceHeight),
+        bounds.x, bounds.y, bounds.width, bounds.height,
         targetX, targetY, targetWidth, targetHeight,
       );
       ctx.restore();
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 2;
+      ctx.stroke(path);
     };
+    const partPaths = (slot: AvatarSlot, part: AvatarComponentDrop): Array<{
+      path: Path2D;
+      rect: [number, number, number, number];
+    }> => {
+      const paths: Array<{ path: Path2D; rect: [number, number, number, number] }> = [];
+      const add = (path: Path2D, rect: [number, number, number, number]) => paths.push({ path, rect });
+      if (slot === 'head') {
+        const path = new Path2D();
+        if (part.baseElement === 'fungus') {
+          path.moveTo(20, 24); path.quadraticCurveTo(48, -4, 76, 24);
+          path.lineTo(65, 31); path.lineTo(61, 44); path.lineTo(35, 44); path.lineTo(31, 31); path.closePath();
+        } else if (part.baseElement === 'crystal' || part.entityType === 'lithic') {
+          path.moveTo(25, 38); path.lineTo(31, 9); path.lineTo(40, 16);
+          path.lineTo(48, 1); path.lineTo(56, 16); path.lineTo(66, 8);
+          path.lineTo(71, 38); path.lineTo(48, 47); path.closePath();
+        } else if (['avian', 'owl'].includes(part.baseElement)) {
+          path.moveTo(27, 14); path.lineTo(48, 3); path.lineTo(68, 15);
+          path.lineTo(63, 35); path.lineTo(77, 39); path.lineTo(48, 47); path.lineTo(30, 38); path.closePath();
+        } else {
+          path.moveTo(32, 6); path.lineTo(64, 6); path.lineTo(70, 17);
+          path.lineTo(64, 39); path.lineTo(48, 46); path.lineTo(32, 39); path.lineTo(26, 17); path.closePath();
+        }
+        add(path, [20, 0, 58, 48]);
+      } else if (slot === 'torso') {
+        const path = new Path2D();
+        const broad = part.enemyClass === 'guardian' || part.entityType === 'lithic';
+        path.moveTo(broad ? 19 : 27, 42); path.lineTo(broad ? 77 : 69, 42);
+        path.lineTo(broad ? 78 : 73, 79); path.lineTo(61, 92);
+        path.lineTo(35, 92); path.lineTo(broad ? 18 : 23, 79); path.closePath();
+        add(path, [17, 39, 62, 55]);
+      } else if (slot === 'arms') {
+        const left = new Path2D(); const right = new Path2D();
+        if (['avian', 'owl'].includes(part.baseElement)) {
+          left.moveTo(31, 46); left.lineTo(2, 27); left.lineTo(11, 76); left.lineTo(36, 61); left.closePath();
+          right.moveTo(65, 46); right.lineTo(94, 27); right.lineTo(85, 76); right.lineTo(60, 61); right.closePath();
+        } else {
+          left.moveTo(26, 45); left.lineTo(13, 48); left.lineTo(3, 81); left.lineTo(16, 86); left.lineTo(36, 57); left.closePath();
+          right.moveTo(70, 45); right.lineTo(83, 48); right.lineTo(93, 81); right.lineTo(80, 86); right.lineTo(60, 57); right.closePath();
+        }
+        add(left, [0, 35, 38, 54]); add(right, [58, 35, 38, 54]);
+      } else if (slot === 'legs') {
+        if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
+          const path = new Path2D();
+          path.rect(18, 84, 60, 20); path.arc(29, 114, 11, 0, Math.PI * 2); path.arc(67, 114, 11, 0, Math.PI * 2);
+          add(path, [16, 82, 64, 46]);
+        } else if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
+          const path = new Path2D();
+          path.moveTo(29, 84); path.bezierCurveTo(78, 91, 17, 111, 70, 124);
+          path.lineTo(48, 127); path.bezierCurveTo(9, 111, 63, 98, 27, 94); path.closePath();
+          add(path, [18, 82, 60, 46]);
+        } else {
+          const left = new Path2D(); const right = new Path2D();
+          left.moveTo(31, 84); left.lineTo(47, 84); left.lineTo(43, 123); left.lineTo(21, 123); left.closePath();
+          right.moveTo(49, 84); right.lineTo(65, 84); right.lineTo(75, 123); right.lineTo(53, 123); right.closePath();
+          add(left, [18, 82, 32, 46]); add(right, [46, 82, 32, 46]);
+        }
+      } else if (slot === 'core') {
+        const path = new Path2D(); path.arc(48, 62, 13, 0, Math.PI * 2);
+        add(path, [34, 48, 28, 28]);
+      } else {
+        const path = new Path2D();
+        path.moveTo(17, 44); path.lineTo(5, 30); path.lineTo(29, 35);
+        path.lineTo(48, 20); path.lineTo(67, 35); path.lineTo(91, 30);
+        path.lineTo(79, 44); path.lineTo(65, 39); path.lineTo(48, 49); path.lineTo(31, 39); path.closePath();
+        add(path, [3, 17, 90, 35]);
+      }
+      return paths;
+    };
+    let active = true;
     const redraw = () => {
+      if (!active) return;
       ctx.clearRect(0, 0, 96, 128);
       ctx.imageSmoothingEnabled = false;
       for (const slot of drawOrder) {
@@ -739,27 +806,19 @@ function AvatarAssembly({
         const sprite = part ? sprites.get(part.id) : undefined;
         if (!part || !sprite) continue;
         const bounds = boundsOf(sprite);
-        if (slot === 'head') {
-          drawFragment(sprite, bounds, 0.12, 0, 0.76, 0.5, 25, 1, 46, 43);
-        } else if (slot === 'torso') {
-          drawFragment(sprite, bounds, 0.14, 0.2, 0.72, 0.65, 22, 37, 52, 57);
-        } else if (slot === 'arms') {
-          drawFragment(sprite, bounds, 0, 0.16, 0.46, 0.68, 1, 39, 34, 51);
-          drawFragment(sprite, bounds, 0.54, 0.16, 0.46, 0.68, 61, 39, 34, 51);
-        } else if (slot === 'legs') {
-          drawFragment(sprite, bounds, 0.08, 0.47, 0.44, 0.53, 20, 82, 29, 45);
-          drawFragment(sprite, bounds, 0.48, 0.47, 0.44, 0.53, 47, 82, 29, 45);
-        } else if (slot === 'core') {
-          drawFragment(sprite, bounds, 0.3, 0.3, 0.4, 0.4, 36, 49, 24, 24);
-        } else {
-          drawFragment(sprite, bounds, 0, 0, 1, 0.42, 11, 22, 74, 31, 0.86);
+        for (const { path, rect } of partPaths(slot, part)) {
+          drawClippedPart(path, sprite, bounds, ...rect, part.color);
         }
       }
     };
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(redraw, delay));
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
+    return () => {
+      active = false;
+      timers.forEach((timer) => window.clearTimeout(timer));
+      ctx.clearRect(0, 0, 96, 128);
+    };
   }, [components, equipped]);
 
   return (
@@ -4351,14 +4410,11 @@ export default function Game() {
             style={{ position: 'relative', display: 'block', imageRendering: 'pixelated' }}
           />
           {playerSkin === 'assembly' && (
-            <>
-              <div className="avatarBaseSilhouette avatarBaseSilhouetteGameplay" />
-              <AvatarAssembly
-                components={avatarComponents}
-                equipped={equippedAvatarComponents}
-                className="avatarAssemblyGameplay"
-              />
-            </>
+            <AvatarAssembly
+              components={avatarComponents}
+              equipped={equippedAvatarComponents}
+              className="avatarAssemblyGameplay"
+            />
           )}
         </div>
       )}
@@ -4757,7 +4813,11 @@ export default function Game() {
                     }}
                   >
                     {skin.id === 'assembly'
-                      ? <span className="assemblySkinPreview"><i /></span>
+                      ? <AvatarAssembly
+                          components={avatarComponents}
+                          equipped={equippedAvatarComponents}
+                          className="avatarAssemblySkinIcon"
+                        />
                       : skin.preview
                       ? <SkinPreviewCanvas src={skin.preview} />
                       : <span className="skin-default-icon">🤖</span>}
@@ -4771,7 +4831,6 @@ export default function Game() {
               </div>
               <div id="avatarWorkshop">
                 <div id="avatarWorkshopPreview">
-                  <div className="avatarBaseSilhouette" />
                   <AvatarAssembly
                     components={avatarComponents}
                     equipped={equippedAvatarComponents}
@@ -4808,7 +4867,11 @@ export default function Game() {
                               localStorage.setItem(EQUIPPED_COMPONENTS_KEY, JSON.stringify(next));
                             }}
                           >
-                            <AvatarComponentCanvas part={component} thumbnail />
+                            <AvatarAssembly
+                              components={[component]}
+                              equipped={{ [component.slot]: component.id }}
+                              className="avatarAssemblyThumbnail"
+                            />
                             {component.name}
                           </button>
                         ))}
