@@ -803,9 +803,16 @@ canvas#canvas {
 
 /* Customization panel */
 .customization-card {
+  width: min(92vw, 480px);
   max-width: min(92vw, 480px) !important;
   padding-left: 20px !important;
   padding-right: 20px !important;
+  overflow-x: hidden;
+}
+
+.customization-card > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .customization-card #skinPickerRow .skin-btn {
@@ -826,7 +833,18 @@ canvas#canvas {
   width: 100%;
   margin-bottom: 4px;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-padding-inline: 8px;
   padding-bottom: 6px;
+}
+
+#assemblySkillPicker {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto !important;
+  overscroll-behavior-inline: contain;
+  scroll-padding-inline: 8px;
 }
 
 .skin-btn {
@@ -1001,6 +1019,50 @@ canvas#canvas {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .customization-card {
+    width: calc(100vw - 24px);
+    max-width: calc(100vw - 24px) !important;
+    padding: 28px 14px 24px !important;
+    gap: 16px !important;
+  }
+
+  #skinPickerRow {
+    gap: 8px;
+  }
+
+  .skin-btn {
+    min-width: 84px;
+    padding: 8px 7px;
+  }
+
+  #assemblySkillPicker .learned-ability-btn {
+    min-width: 132px !important;
+    max-width: 156px;
+  }
+
+  #avatarWorkshop {
+    grid-template-columns: 78px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  #avatarWorkshopPreview {
+    width: 78px !important;
+  }
+
+  .avatarSlotRow strong {
+    width: 38px !important;
+    flex-basis: 38px !important;
+  }
+
+  .avatarSlotRow button {
+    max-width: 126px !important;
+  }
 }
 
 #avatarWorkshopPreview {
