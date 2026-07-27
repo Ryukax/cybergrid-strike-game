@@ -1059,6 +1059,7 @@ canvas#canvas {
 
   #avatarWorkshopPreview {
     width: 78px !important;
+    height: 182px;
   }
 
   .avatarSlotRow strong {
@@ -1074,7 +1075,7 @@ canvas#canvas {
 #avatarWorkshopPreview {
   position: relative;
   width: 88px;
-  height: 142px;
+  height: 182px;
   overflow: hidden;
   border: 1px solid rgba(125, 211, 252, 0.35);
   border-radius: 12px;
@@ -1082,7 +1083,7 @@ canvas#canvas {
 }
 
 #avatarWorkshopPreview .avatarAssemblyPreview {
-  top: 43%;
+  top: 34%;
 }
 
 #assemblyFitReadout {
@@ -1098,6 +1099,8 @@ canvas#canvas {
   font-size: 6px;
   line-height: 1.2;
   text-transform: uppercase;
+  min-height: 48px;
+  align-content: center;
 }
 
 #assemblyFitReadout b {
