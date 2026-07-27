@@ -515,6 +515,58 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
         polygon([[5, 45], [20, 31], [10, 8], [32, 21], [54, 8], [44, 31], [59, 45], [38, 43], [32, 61], [26, 43]], color);
       }
     }
+
+    // Preserve the source creature's actual visual language inside the
+    // humanoid-compatible silhouette instead of reducing it to a flat icon.
+    // The procedural source may finish loading image-backed layers later, so
+    // refresh it at widening intervals just like the Bestiary preview.
+    const signature = [
+      part.baseElement, part.element, part.entityType, part.enemyClass,
+      part.niche, part.variant, ...part.mutations,
+    ].join(':');
+    const seed = [...signature].reduce(
+      (sum, character) => (sum * 33 + character.charCodeAt(0)) >>> 0,
+      5381,
+    );
+    const sourceGenome: EnemyGenome = {
+      baseElement: part.baseElement as EnemyGenome['baseElement'],
+      element: part.element as EnemyGenome['element'],
+      entityType: part.entityType as EnemyGenome['entityType'],
+      enemyClass: part.enemyClass as EnemyGenome['enemyClass'],
+      niche: part.niche as EnemyGenome['niche'],
+      generation: 2 + part.variant,
+      mutations: part.mutations as EnemyGenome['mutations'],
+      speedScale: 1,
+      hpBonus: part.enemyClass === 'guardian' ? 2 : 0,
+      sizeScale: part.mutations.includes('gigantic') ? 1.2
+        : part.mutations.includes('miniature') ? 0.82 : 1,
+      regeneration: part.niche === 'regenerator' ? 0.2 : 0,
+      phaseChance: part.niche === 'phase' ? 0.25 : 0,
+      fusionLevel: 0,
+    };
+    const sourceSprite = getProceduralVirusSprite(seed, sourceGenome);
+    const humanoidMask = ctx.getImageData(0, 0, 64, 64);
+    const applySourceDetail = () => {
+      ctx.putImageData(humanoidMask, 0, 0);
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = thumbnail ? 0.82 : 0.9;
+      ctx.drawImage(sourceSprite, 48, 8, 144, 144, 0, 0, 64, 64);
+      ctx.restore();
+
+      // Reassert readable pixel-volume after the source texture is clipped.
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fillRect(7, 6, 18, 46);
+      ctx.fillStyle = 'rgba(2,6,23,0.25)';
+      ctx.fillRect(39, 12, 18, 44);
+      ctx.restore();
+    };
+    applySourceDetail();
+    const timers = [100, 300, 700, 1500].map((delay) =>
+      window.setTimeout(applySourceDetail, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [part]);
   return (
     <canvas
