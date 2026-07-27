@@ -90,6 +90,12 @@ interface AvatarComponentDrop {
   color: string;
   variant: number;
   source: string;
+  baseElement: string;
+  element: string;
+  entityType: string;
+  enemyClass: string;
+  niche: string;
+  mutations: string[];
 }
 type EquippedAvatarComponents = Partial<Record<AvatarSlot, string>>;
 const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
@@ -109,6 +115,26 @@ function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
     color: colors[genome.element] ?? '#93c5fd',
     variant: hash % 4,
     source: `${genome.entityType} · ${genome.enemyClass} · ${genome.niche}`,
+    baseElement: genome.baseElement,
+    element: genome.element,
+    entityType: genome.entityType,
+    enemyClass: genome.enemyClass,
+    niche: genome.niche,
+    mutations: [...genome.mutations],
+  };
+}
+
+function normalizedAvatarComponent(component: AvatarComponentDrop): AvatarComponentDrop {
+  const nameWords = String(component.name ?? '').split(/\s+/);
+  const sourceParts = String(component.source ?? '').split('·').map((value) => value.trim());
+  return {
+    ...component,
+    baseElement: component.baseElement || nameWords.slice(1, -1).join(' ') || 'beast',
+    element: component.element || nameWords[0] || 'kinetic',
+    entityType: component.entityType || sourceParts[0] || 'organic',
+    enemyClass: component.enemyClass || sourceParts[1] || 'skirmisher',
+    niche: component.niche || sourceParts[2] || 'hunter',
+    mutations: Array.isArray(component.mutations) ? component.mutations : [],
   };
 }
 
@@ -131,6 +157,36 @@ interface AbilityBlueprint {
 interface GeneratedAbility extends Ability, AbilityBlueprint {
   constitutionSignature: string;
   manifestedAt: number;
+}
+
+function generatedAbilityDescription(ability: GeneratedAbility, rank = 1): string {
+  const target = ability.medium === 'signal' ? 'cyber and mechanical enemies'
+    : ability.medium === 'thermal' ? 'thermal and cryo enemies'
+      : ability.medium === 'phase' ? 'void, radiant, and spectral enemies'
+        : ability.medium === 'fluid' ? 'fluid, corrosive, and aquatic enemies'
+          : ability.medium === 'organic' ? 'bloom, organic, and botanical enemies'
+            : 'all enemies';
+  const scope = ability.delivery === 'projector'
+    ? `Targets ${target} in your row; if none are present, targets the leading enemy.`
+    : ability.delivery === 'pulse'
+      ? `Targets up to ${1 + rank} ${target}; if none are present, targets any enemies.`
+      : `Targets all ${target}; if none are present, targets all enemies.`;
+  const effect = ability.function === 'rupture'
+    ? `Deals ${1 + rank} damage to each target.`
+    : ability.function === 'inhibit'
+      ? `Permanently reduces target speed and delays constitution abilities for ${2 + rank}s.`
+      : ability.function === 'impulse'
+        ? `Pushes each target ${(0.65 + rank * 0.28).toFixed(2)} cells toward the edge.`
+        : ability.function === 'ward'
+          ? `Grants ${1 + Math.floor(rank / 2)} shield charge${1 + Math.floor(rank / 2) === 1 ? '' : 's'}.`
+          : ability.function === 'restore'
+            ? `Restores ${1 + Math.ceil(rank / 2)} HP.`
+            : ability.function === 'reveal'
+              ? `Delays target constitution abilities for ${2 + rank}s and pushes targets ${(0.35 * rank).toFixed(2)} cells.`
+              : 'Moves targets to another lane and permanently reduces their speed by 20%.';
+  return ability.function === 'ward' || ability.function === 'restore'
+    ? effect
+    : `${scope} ${effect}`;
 }
 
 let generatedAbilityRegistry: Record<string, GeneratedAbility> = {};
@@ -225,16 +281,17 @@ function manifestedPlaystyleAbility(signal: PlaystyleSignal): GeneratedAbility {
     cloneDefense: 'ECHO BASTION',
     cloneAutofire: 'SENTRY CHORUS',
   };
-  return {
+  const generated: GeneratedAbility = {
     id: `manifest-style-${signal}`,
     name: manifestationNames[signal],
-    desc: `${manifestation.reason} ${counterpart.desc}`,
+    desc: '',
     cooldown: counterpart.cooldown,
     abilityId: `manifest-style-${signal}`,
     ...components,
     constitutionSignature: `playstyle:${signal}`,
     manifestedAt: Date.now(),
   };
+  return { ...generated, desc: generatedAbilityDescription(generated) };
 }
 
 function normalizedGeneratedAbility(ability: GeneratedAbility): GeneratedAbility {
@@ -242,13 +299,15 @@ function normalizedGeneratedAbility(ability: GeneratedAbility): GeneratedAbility
     const signal = ability.id.slice('manifest-style-'.length) as PlaystyleSignal;
     if (Object.prototype.hasOwnProperty.call(PLAYSTYLE_MANIFESTATIONS, signal)) {
       const canonical = manifestedPlaystyleAbility(signal);
-      return { ...ability, name: canonical.name, desc: canonical.desc };
+      const normalized = { ...ability, name: canonical.name };
+      return { ...normalized, desc: generatedAbilityDescription(normalized) };
     }
   }
   const words = ability.name.trim().split(/\s+/);
   const deduplicated = words.filter((word, index) =>
     index === 0 || word.toLowerCase() !== words[index - 1].toLowerCase());
-  return { ...ability, name: deduplicated.join(' ') };
+  const normalized = { ...ability, name: deduplicated.join(' ') };
+  return { ...normalized, desc: generatedAbilityDescription(normalized) };
 }
 
 interface RunUpgrade {
@@ -302,6 +361,171 @@ function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome })
   return <canvas ref={canvasRef} className="bestiarySprite" width={240} height={160} />;
 }
 
+function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarComponentDrop; thumbnail?: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, 64, 64);
+    ctx.imageSmoothingEnabled = false;
+    const color = part.color;
+    const ink = '#111827';
+    const light = '#f8fafc';
+    const metal = '#64748b';
+    const mechanical = ['robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite', 'turret', 'data-wraith']
+      .includes(part.baseElement) || part.entityType === 'mechanical' || part.entityType === 'synthetic';
+    const polygon = (points: Array<[number, number]>, fill: string) => {
+      ctx.beginPath();
+      points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    };
+    const block = (x: number, y: number, w: number, h: number, fill = color) => {
+      ctx.fillStyle = fill;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, w, h);
+    };
+    const line = (x1: number, y1: number, x2: number, y2: number, width = 5, stroke = color) => {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'square';
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    };
+
+    if (part.slot === 'head') {
+      if (part.baseElement === 'skeleton') {
+        block(15, 13, 34, 31, '#e5e7eb');
+        block(20, 39, 24, 12, '#d1d5db');
+        block(21, 24, 7, 8, ink); block(36, 24, 7, 8, ink);
+        line(28, 43, 28, 49, 3, ink); line(36, 43, 36, 49, 3, ink);
+      } else if (part.baseElement === 'insect' || part.entityType === 'chitinous') {
+        polygon([[16, 18], [32, 8], [48, 18], [44, 48], [32, 55], [20, 48]], color);
+        line(22, 16, 11, 4, 4); line(42, 16, 53, 4, 4);
+        block(20, 26, 8, 8, light); block(36, 26, 8, 8, light);
+        polygon([[22, 47], [12, 58], [30, 52]], metal); polygon([[42, 47], [52, 58], [34, 52]], metal);
+      } else if (part.baseElement === 'avian' || part.baseElement === 'owl') {
+        polygon([[13, 20], [32, 7], [51, 20], [44, 48], [32, 55], [20, 48]], color);
+        block(19, 24, 10, 10, light); block(35, 24, 10, 10, light);
+        polygon([[25, 37], [39, 37], [32, 50]], '#f59e0b');
+      } else if (part.baseElement === 'fungus') {
+        polygon([[7, 28], [14, 13], [32, 6], [50, 13], [57, 28]], color);
+        block(23, 27, 18, 25, '#e2e8f0');
+        block(16, 19, 7, 5, light); block(37, 13, 8, 6, light);
+      } else if (part.baseElement === 'crystal') {
+        polygon([[10, 44], [18, 13], [27, 22], [34, 4], [41, 22], [51, 12], [55, 45], [32, 57]], color);
+        polygon([[18, 18], [34, 4], [31, 45]], light);
+      } else if (mechanical) {
+        block(11, 14, 42, 38, metal);
+        block(15, 19, 34, 19, color);
+        block(19, 25, 26, 7, '#67e8f9');
+        line(32, 14, 32, 4, 4, metal); block(28, 1, 8, 7, color);
+        block(20, 44, 6, 5, ink); block(29, 44, 6, 5, ink); block(38, 44, 6, 5, ink);
+      } else {
+        block(14, 15, 36, 38, color);
+        polygon([[14, 20], [4, 8], [23, 15]], color);
+        polygon([[50, 20], [60, 8], [41, 15]], color);
+        block(20, 27, 7, 7, light); block(37, 27, 7, 7, light);
+      }
+    } else if (part.slot === 'torso') {
+      if (part.baseElement === 'skeleton') {
+        line(32, 5, 32, 59, 6, '#e5e7eb');
+        [16, 27, 38].forEach((y) => { line(32, y, 10, y + 8, 4, '#e5e7eb'); line(32, y, 54, y + 8, 4, '#e5e7eb'); });
+      } else if (part.baseElement === 'plant' || part.entityType === 'botanical') {
+        block(20, 7, 24, 50, '#713f12');
+        polygon([[20, 20], [2, 6], [10, 34]], color); polygon([[44, 20], [62, 6], [54, 34]], color);
+        line(32, 8, 32, 56, 4, '#a3e635');
+      } else if (part.baseElement === 'crystal' || part.entityType === 'lithic') {
+        polygon([[32, 2], [57, 20], [48, 59], [16, 59], [7, 20]], color);
+        polygon([[32, 2], [32, 57], [12, 22]], light);
+      } else if (mechanical) {
+        polygon([[11, 10], [53, 10], [59, 49], [44, 61], [20, 61], [5, 49]], metal);
+        block(16, 17, 32, 29, color);
+        block(23, 23, 18, 12, '#0f172a');
+        line(10, 50, 54, 50, 4, '#94a3b8');
+      } else {
+        polygon([[12, 8], [52, 8], [58, 48], [43, 60], [21, 60], [6, 48]], color);
+        line(16, 20, 48, 20, 4, light); line(20, 35, 44, 35, 4, ink);
+      }
+    } else if (part.slot === 'arms') {
+      if (part.baseElement === 'avian' || part.baseElement === 'owl') {
+        polygon([[30, 20], [3, 4], [12, 38], [30, 49]], color);
+        polygon([[34, 20], [61, 4], [52, 38], [34, 49]], color);
+        line(9, 16, 26, 31, 3, light); line(55, 16, 38, 31, 3, light);
+      } else if (part.baseElement === 'cephalopod' || part.entityType === 'fluidic') {
+        [8, 18, 46, 56].forEach((x, index) => {
+          ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.beginPath();
+          ctx.moveTo(30 + (index < 2 ? -1 : 1) * 4, 18);
+          ctx.quadraticCurveTo(x, 34, x + (index % 2 ? 5 : -5), 58); ctx.stroke();
+        });
+      } else if (mechanical) {
+        block(3, 18, 24, 15, metal); block(37, 18, 24, 15, metal);
+        block(7, 21, 13, 9, color); block(44, 21, 13, 9, color);
+        block(0, 36, 18, 10, '#334155'); block(46, 36, 18, 10, '#334155');
+      } else {
+        line(29, 19, 8, 42, 10); line(35, 19, 56, 42, 10);
+        polygon([[3, 38], [15, 37], [12, 57]], color); polygon([[61, 38], [49, 37], [52, 57]], color);
+      }
+    } else if (part.slot === 'legs') {
+      if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
+        block(10, 10, 44, 20, metal);
+        [14, 34].forEach((x) => {
+          ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(x, 45, 11, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, 45, 5, 0, Math.PI * 2); ctx.fill();
+        });
+      } else if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
+        ctx.strokeStyle = color; ctx.lineWidth = 13; ctx.beginPath();
+        ctx.moveTo(27, 4); ctx.bezierCurveTo(53, 18, 9, 36, 40, 57); ctx.stroke();
+        polygon([[40, 57], [55, 49], [51, 63]], color);
+      } else if (part.baseElement === 'cephalopod' || part.entityType === 'fluidic') {
+        [18, 28, 38, 48].forEach((x, index) => line(31, 6, x, 59, 7, index % 2 ? color : light));
+      } else if (mechanical) {
+        block(13, 3, 16, 44, metal); block(35, 3, 16, 44, metal);
+        block(8, 43, 22, 14, color); block(34, 43, 22, 14, color);
+        line(21, 11, 21, 39, 4, '#cbd5e1'); line(43, 11, 43, 39, 4, '#cbd5e1');
+      } else {
+        line(26, 5, 18, 48, 11); line(38, 5, 46, 48, 11);
+        polygon([[8, 47], [28, 45], [26, 59], [5, 59]], color);
+        polygon([[56, 47], [36, 45], [38, 59], [59, 59]], color);
+      }
+    } else if (part.slot === 'core') {
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(32, 32, 21, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ink; ctx.lineWidth = 5; ctx.stroke();
+      ctx.fillStyle = mechanical ? '#67e8f9' : light; ctx.beginPath(); ctx.arc(32, 32, 9, 0, Math.PI * 2); ctx.fill();
+      if (part.niche === 'phase') { ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 3; ctx.strokeRect(5, 5, 54, 54); }
+    } else {
+      const armored = part.mutations.includes('armored') || part.enemyClass === 'guardian';
+      if (armored) {
+        polygon([[4, 52], [13, 9], [24, 27], [32, 2], [40, 27], [51, 9], [60, 52], [32, 61]], color);
+      } else if (part.niche === 'phase' || part.entityType === 'spectral') {
+        for (let ring = 0; ring < 3; ring++) {
+          ctx.strokeStyle = ring % 2 ? color : light; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(32, 32, 12 + ring * 8, 0.3 * ring, Math.PI * (1.2 + ring * 0.25)); ctx.stroke();
+        }
+      } else {
+        polygon([[5, 45], [20, 31], [10, 8], [32, 21], [54, 8], [44, 31], [59, 45], [38, 43], [32, 61], [26, 43]], color);
+      }
+    }
+  }, [part]);
+  return (
+    <canvas
+      ref={canvasRef}
+      width={64}
+      height={64}
+      className={`avatarPart avatarPart-${part.slot} variant-${part.variant}${thumbnail ? ' avatarPartThumbnail' : ''}`}
+    />
+  );
+}
+
 function AvatarAssembly({
   components,
   equipped,
@@ -316,14 +540,7 @@ function AvatarAssembly({
       {AVATAR_SLOTS.map((slot) => {
         const part = components.find((component) => component.id === equipped[slot]);
         if (!part) return null;
-        return (
-          <span
-            key={slot}
-            className={`avatarPart avatarPart-${slot} variant-${part.variant}`}
-            style={{ backgroundColor: part.color }}
-            title={part.name}
-          />
-        );
+        return <AvatarComponentCanvas key={slot} part={part} />;
       })}
     </div>
   );
@@ -461,26 +678,18 @@ function manifestedAbilityFor(genome: EnemyGenome): GeneratedAbility {
     projector: 'Lance', field: 'Field', shell: 'Shell',
     weave: 'Thread', aperture: 'Gate', pulse: 'Pulse',
   };
-  const functionDescriptions: Record<string, string> = {
-    rupture: 'damages matching enemies',
-    inhibit: 'slows and suppresses matching enemies',
-    impulse: 'drives matching enemies toward the edge',
-    ward: 'converts hostile structure into shielding',
-    restore: 'converts synchronized structure into recovery',
-    reveal: 'exposes phased forms and destabilizes their position',
-    adapt: 'adapts its effect across the occupied lanes',
-  };
   const id = `manifest-${blueprint.medium}-${blueprint.function}-${blueprint.delivery}-${(hash % 4096).toString(36)}`;
-  return {
+  const generated: GeneratedAbility = {
     id,
     name: `${mediumNames[blueprint.medium] ?? blueprint.medium} ${functionNames[blueprint.function] ?? blueprint.function} ${deliveryNames[blueprint.delivery] ?? blueprint.delivery}`.toUpperCase(),
-    desc: `${blueprint.delivery} ${functionDescriptions[blueprint.function] ?? 'alters matching enemies'} through ${blueprint.medium} affinity.`,
+    desc: '',
     cooldown: 9 + (hash % 7),
     ...blueprint,
     abilityId: id,
     constitutionSignature: signature,
     manifestedAt: Date.now(),
   };
+  return { ...generated, desc: generatedAbilityDescription(generated) };
 }
 
 function enemyCounterpartFor(genome: EnemyGenome): EnemyAbility | undefined {
@@ -845,10 +1054,13 @@ export default function Game() {
   const [avatarComponents, setAvatarComponents] = useState<AvatarComponentDrop[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(AVATAR_COMPONENTS_KEY) ?? '[]');
-      return Array.isArray(stored)
+      const normalized = Array.isArray(stored)
         ? stored.filter((component: AvatarComponentDrop) =>
           component?.id && AVATAR_SLOTS.includes(component.slot))
+          .map((component: AvatarComponentDrop) => normalizedAvatarComponent(component))
         : [];
+      localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(normalized));
+      return normalized;
     } catch {
       return [];
     }
@@ -4112,6 +4324,11 @@ export default function Game() {
               {hud.cardOptions.map((id) => {
                 const ability = runtimeAbilityById(id);
                 if (!ability) return null;
+                const generated = generatedAbilityRegistry[id];
+                const rank = learnedAbilities.find((entry) => entry.id === id)?.rank ?? 1;
+                const description = generated
+                  ? generatedAbilityDescription(generated, rank)
+                  : ability.desc;
                 const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
                 const used = hud.usedInHand.includes(id);
                 const disabled = used || cd > 0;
@@ -4128,7 +4345,7 @@ export default function Game() {
                   >
                     {ability.name}<br />
                     <span>
-                      {cd > 0 ? `Cooldown ${cd}s` : used ? 'Used' : ability.desc}
+                      {cd > 0 ? `Cooldown ${cd}s` : used ? 'Used' : description}
                     </span>
                   </button>
                 );
@@ -4368,7 +4585,7 @@ export default function Game() {
                               localStorage.setItem(EQUIPPED_COMPONENTS_KEY, JSON.stringify(next));
                             }}
                           >
-                            <i style={{ backgroundColor: component.color }} />
+                            <AvatarComponentCanvas part={component} thumbnail />
                             {component.name}
                           </button>
                         ))}
@@ -4397,6 +4614,10 @@ export default function Game() {
                     const requiredPrestige = abilityPrestigeRequirement(ability.id);
                     const on = enabledAbilities.has(ability.id);
                     const rank = learned?.rank ?? 0;
+                    const generated = generatedAbilityRegistry[ability.id];
+                    const description = generated
+                      ? generatedAbilityDescription(generated, Math.max(1, rank))
+                      : ability.desc;
                     const nextRankAt = rank > 0 && rank < MAX_ABILITY_RANK
                       ? ABILITY_RANK_THRESHOLDS[rank + 1]
                       : null;
@@ -4422,7 +4643,10 @@ export default function Game() {
                       >
                         <span className="learned-ability-source">{learned?.source ?? 'unmanifested'}</span>
                         <strong>{ability.name}</strong>
-                        <span>{learned?.reason ?? 'Awaiting a matching constitution or playstyle pattern.'}</span>
+                        <span>{description}</span>
+                        {learned?.reason && (
+                          <span className="ability-origin">{learned.reason}</span>
+                        )}
                         <span className="ability-rank">
                           {rank > 0
                             ? `RANK ${rank}/${MAX_ABILITY_RANK} · RESONANCE ${learned?.resonance}${nextRankAt ? `/${nextRankAt}` : ' MAX'}`
