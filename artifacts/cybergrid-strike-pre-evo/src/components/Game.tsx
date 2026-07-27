@@ -629,6 +629,7 @@ export default function Game() {
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skillTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Message system
   const msgFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -912,6 +913,7 @@ export default function Game() {
 
   useEffect(() => () => {
     if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
+    if (skillTapTimerRef.current) clearTimeout(skillTapTimerRef.current);
   }, []);
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
@@ -2278,6 +2280,19 @@ export default function Game() {
     }, 900);
   }, [fireBullet, showMessage, registerPlaystyle]);
 
+  const queueSkillTap = useCallback(() => {
+    if (skillTapTimerRef.current) {
+      clearTimeout(skillTapTimerRef.current);
+      skillTapTimerRef.current = null;
+      cycleActiveControl(1);
+      return;
+    }
+    skillTapTimerRef.current = setTimeout(() => {
+      skillTapTimerRef.current = null;
+      playSkillAnimation();
+    }, 260);
+  }, [cycleActiveControl, playSkillAnimation]);
+
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
@@ -2406,7 +2421,7 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
-    if (gp.skill && !gp.prevSkill) playSkillAnimation();
+    if (gp.skill && !gp.prevSkill) queueSkillTap();
     if (gp.r2 && !gp.prevR2) queueR2ControlCycle();
     const cloneInputActive = cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
@@ -3031,7 +3046,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, playSkillAnimation, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -3438,7 +3453,7 @@ export default function Game() {
       } else if ((ev.key === 'z' || ev.key === 'Z') && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       else if ((ev.key === 'x' || ev.key === 'X') && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       else if ((ev.key === 'c' || ev.key === 'C') && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
-      else if (ev.key === 'v' || ev.key === 'V') playSkillAnimation();
+      else if ((ev.key === 'v' || ev.key === 'V') && !ev.repeat) queueSkillTap();
       else if (ev.key === 'f' || ev.key === 'F') rotateHand();
     };
     const onKeyUp = (ev: KeyboardEvent) => {
@@ -3480,7 +3495,7 @@ export default function Game() {
       window.removeEventListener('keyup', onKeyUp);
       cleanups.forEach((c) => c());
     };
-  }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, playSkillAnimation,
+  }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
     resolveCloneAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
@@ -3893,7 +3908,7 @@ export default function Game() {
             className="control-btn"
             onPointerDown={(event) => {
               event.stopPropagation();
-              playSkillAnimation();
+              queueSkillTap();
             }}
           >
             SKILL
