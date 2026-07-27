@@ -814,6 +814,7 @@ canvas#canvas {
 .customization-card > * {
   min-width: 0;
   max-width: 100%;
+  flex-shrink: 0;
 }
 
 .customization-card #skinPickerRow .skin-btn {
@@ -834,6 +835,8 @@ canvas#canvas {
   width: 100%;
   margin-bottom: 4px;
   overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 118px;
   overscroll-behavior-inline: contain;
   scroll-padding-inline: 8px;
   padding-bottom: 6px;
@@ -844,6 +847,8 @@ canvas#canvas {
   max-width: 100%;
   min-width: 0;
   overflow-x: auto !important;
+  overflow-y: hidden !important;
+  min-height: 64px;
   overscroll-behavior-inline: contain;
   scroll-padding-inline: 8px;
 }
