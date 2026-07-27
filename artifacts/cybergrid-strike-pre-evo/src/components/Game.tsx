@@ -705,30 +705,32 @@ function AvatarAssembly({
         height: Math.min(sprite.height - Math.max(0, minY - 4), maxY - minY + 8),
       };
     };
-    const socketPath = (slot: AvatarSlot) => {
-      const path = new Path2D();
-      if (slot === 'head') {
-        path.moveTo(33, 6); path.lineTo(63, 6); path.lineTo(70, 16);
-        path.lineTo(64, 38); path.lineTo(48, 45); path.lineTo(32, 38); path.lineTo(26, 16); path.closePath();
-      } else if (slot === 'torso') {
-        path.moveTo(29, 42); path.lineTo(67, 42); path.lineTo(73, 78);
-        path.lineTo(61, 91); path.lineTo(35, 91); path.lineTo(23, 78); path.closePath();
-      } else if (slot === 'arms') {
-        path.moveTo(25, 45); path.lineTo(13, 48); path.lineTo(4, 79); path.lineTo(16, 84); path.lineTo(35, 57); path.closePath();
-        path.moveTo(71, 45); path.lineTo(83, 48); path.lineTo(92, 79); path.lineTo(80, 84); path.lineTo(61, 57); path.closePath();
-      } else if (slot === 'legs') {
-        path.moveTo(31, 84); path.lineTo(47, 84); path.lineTo(43, 122); path.lineTo(22, 122); path.closePath();
-        path.moveTo(49, 84); path.lineTo(65, 84); path.lineTo(74, 122); path.lineTo(53, 122); path.closePath();
-      } else if (slot === 'core') {
-        path.arc(48, 61, 13, 0, Math.PI * 2);
-      } else {
-        path.moveTo(17, 44); path.lineTo(6, 31); path.lineTo(28, 35);
-        path.lineTo(48, 20); path.lineTo(68, 35); path.lineTo(90, 31);
-        path.lineTo(79, 44); path.lineTo(66, 39); path.lineTo(48, 48); path.lineTo(30, 39); path.closePath();
-      }
-      return path;
-    };
     const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
+    const drawFragment = (
+      sprite: HTMLCanvasElement,
+      bounds: { x: number; y: number; width: number; height: number },
+      sourceX: number,
+      sourceY: number,
+      sourceWidth: number,
+      sourceHeight: number,
+      targetX: number,
+      targetY: number,
+      targetWidth: number,
+      targetHeight: number,
+      alpha = 1,
+    ) => {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(
+        sprite,
+        bounds.x + bounds.width * sourceX,
+        bounds.y + bounds.height * sourceY,
+        Math.max(1, bounds.width * sourceWidth),
+        Math.max(1, bounds.height * sourceHeight),
+        targetX, targetY, targetWidth, targetHeight,
+      );
+      ctx.restore();
+    };
     const redraw = () => {
       ctx.clearRect(0, 0, 96, 128);
       ctx.imageSmoothingEnabled = false;
@@ -736,15 +738,22 @@ function AvatarAssembly({
         const part = selected.find((candidate) => candidate.slot === slot);
         const sprite = part ? sprites.get(part.id) : undefined;
         if (!part || !sprite) continue;
-        const path = socketPath(slot);
         const bounds = boundsOf(sprite);
-        ctx.save();
-        ctx.clip(path);
-        ctx.drawImage(sprite, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, 96, 128);
-        ctx.restore();
-        ctx.strokeStyle = part.color;
-        ctx.lineWidth = slot === 'core' ? 3 : 2;
-        ctx.stroke(path);
+        if (slot === 'head') {
+          drawFragment(sprite, bounds, 0.12, 0, 0.76, 0.5, 25, 1, 46, 43);
+        } else if (slot === 'torso') {
+          drawFragment(sprite, bounds, 0.14, 0.2, 0.72, 0.65, 22, 37, 52, 57);
+        } else if (slot === 'arms') {
+          drawFragment(sprite, bounds, 0, 0.16, 0.46, 0.68, 1, 39, 34, 51);
+          drawFragment(sprite, bounds, 0.54, 0.16, 0.46, 0.68, 61, 39, 34, 51);
+        } else if (slot === 'legs') {
+          drawFragment(sprite, bounds, 0.08, 0.47, 0.44, 0.53, 20, 82, 29, 45);
+          drawFragment(sprite, bounds, 0.48, 0.47, 0.44, 0.53, 47, 82, 29, 45);
+        } else if (slot === 'core') {
+          drawFragment(sprite, bounds, 0.3, 0.3, 0.4, 0.4, 36, 49, 24, 24);
+        } else {
+          drawFragment(sprite, bounds, 0, 0, 1, 0.42, 11, 22, 74, 31, 0.86);
+        }
       }
     };
     redraw();
