@@ -59,7 +59,7 @@ export function getEnemyMovementClass(base: EnemyBaseElement): EnemyMovementClas
 }
 
 interface ComponentDefinition {
-  source: ComponentSource;
+  source: VisualSource;
   role: FusionRole;
   domains: ElementDomain[];
 }
@@ -92,12 +92,31 @@ const COMPONENT_LIBRARY: ComponentDefinition[] = [
   { source: 'spore', role: 'flank', domains: ['cyber', 'flora', 'mineral'] },
 ];
 
+// Every authored base is also anatomical vocabulary. A component becomes
+// eligible only when the existing crossing matrix sanctions that exact role
+// for the receiving domain. This exposes the complete 25-family × 3-role
+// library without turning any family painting into a repeated final enemy.
+const MATRIX_COMPONENT_LIBRARY: ComponentDefinition[] = BASES.flatMap((sourceBase) =>
+  (['head', 'locomotion', 'flank'] as FusionRole[]).map((role) => ({
+    source: sourceBase,
+    role,
+    domains: [...new Set([
+      ELEMENT_DOMAIN[sourceBase],
+      ...BASES
+        .filter((primaryBase) => getFusionOutcome(primaryBase, sourceBase)?.role === role)
+        .map((primaryBase) => ELEMENT_DOMAIN[primaryBase]),
+    ])],
+  })),
+);
+const COMPLETE_COMPONENT_LIBRARY = [...COMPONENT_LIBRARY, ...MATRIX_COMPONENT_LIBRARY];
+
 function selectComponent(
   primary: EnemyBaseElement,
   seed: number,
 ): ComponentDefinition | undefined {
   const domain = ELEMENT_DOMAIN[primary];
-  const candidates = COMPONENT_LIBRARY.filter((component) => component.domains.includes(domain));
+  const candidates = COMPLETE_COMPONENT_LIBRARY.filter((component) =>
+    component.source !== primary && component.domains.includes(domain));
   return candidates[Math.floor(gene(seed, 310) * candidates.length)];
 }
 
