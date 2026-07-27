@@ -2,6 +2,7 @@ import type { GameState, BoardMetrics, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
+import { ENEMY_ABILITY_WINDUP } from './constants';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -1016,7 +1017,7 @@ export function draw(
         laneShift: '#67e8f9',
         arcArmor: '#facc15',
       };
-      const progress = 1 - Math.min(1, (e.abilityWindup ?? 0) / 0.85);
+      const progress = 1 - Math.min(1, (e.abilityWindup ?? 0) / ENEMY_ABILITY_WINDUP);
       const radius = drawCell * (0.45 + progress * 0.08);
       ctx.save();
       ctx.strokeStyle = telegraphColors[e.ability];

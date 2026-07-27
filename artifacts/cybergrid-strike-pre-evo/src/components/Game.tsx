@@ -30,7 +30,11 @@ function SkinPreviewCanvas({ src }: { src: string }) {
   );
 }
 import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability } from '../game/types';
-import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
+import {
+  ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME,
+  ENEMY_ABILITY_FIRST_CAST_MIN, ENEMY_ABILITY_FIRST_CAST_RANGE, ENEMY_ABILITY_WINDUP,
+  NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL,
+} from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
   ensureAudio, startMusic, stopMusic,
@@ -3462,6 +3466,7 @@ export default function Game() {
       s.ecosystemStats.maxGeneration = Math.max(s.ecosystemStats.maxGeneration, genome.generation);
       if (genome.fusionLevel > 0) s.ecosystemStats.totalFusions++;
       registerSpawn(getMorphSig(value));
+      const enemyAbility = enemyCounterpartFor(genome);
       s.enemies.push({
         colPos: 5.6,
         row,
@@ -3473,9 +3478,11 @@ export default function Game() {
         genome,
         maxHp: hp,
         regenerationCharge: 0,
-        ability: enemyCounterpartFor(genome),
+        ability: enemyAbility,
         counterpartAbilityId: linkedPlayerAbility(genome),
-        abilityCooldown: 4.5 + Math.random() * 3,
+        abilityCooldown: enemyAbility
+          ? ENEMY_ABILITY_FIRST_CAST_MIN + Math.random() * ENEMY_ABILITY_FIRST_CAST_RANGE
+          : 0,
         abilityWindup: 0,
       });
 
@@ -3561,7 +3568,7 @@ export default function Game() {
             e.abilityCooldown = 6.5 + (e.value % 4);
           }
         } else if ((e.abilityCooldown ?? 0) <= 0 && e.colPos > 1.15 && e.colPos < 5.3) {
-          e.abilityWindup = 0.85;
+          e.abilityWindup = ENEMY_ABILITY_WINDUP;
         }
       }
       e.colPos -= e.speed * speedScale * dt;

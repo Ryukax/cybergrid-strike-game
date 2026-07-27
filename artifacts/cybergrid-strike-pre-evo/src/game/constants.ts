@@ -1,6 +1,9 @@
 import type { Ability } from './types';
 
 export const CARD_CHARGE_TIME = 12;
+export const ENEMY_ABILITY_WINDUP = 1.15;
+export const ENEMY_ABILITY_FIRST_CAST_MIN = 1.25;
+export const ENEMY_ABILITY_FIRST_CAST_RANGE = 1.35;
 
 // VS mode NPC tuning
 export const NPC_HP = 8;
