@@ -756,7 +756,9 @@ export function getBoardMetrics(w: number, h: number): BoardMetrics {
   const boardW = cell * 6;
   const boardH = cell * 3;
   const x = (w - boardW) * 0.5;
-  const y = Math.max(h * 0.24, 90);
+  // Portrait needs the grid/card stack high enough to leave a dedicated
+  // control lane for Rotate above Skill. Landscape retains its wider spacing.
+  const y = Math.max(h * (h > w ? 0.18 : 0.24), 90);
   return { cell, boardW, boardH, x, y };
 }
 
