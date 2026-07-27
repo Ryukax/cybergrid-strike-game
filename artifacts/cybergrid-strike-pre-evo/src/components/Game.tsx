@@ -1391,7 +1391,9 @@ type RivalSkillId =
   | 'chrono' | 'singularity' | 'override' | 'architect'
   | 'apex' | 'counter' | 'phase' | 'phoenix'
   | 'rift' | 'vector' | 'gridshift' | 'resonance'
-  | 'exchange' | 'causality' | 'arsenal';
+  | 'exchange' | 'causality' | 'arsenal'
+  | 'assimilation' | 'null' | 'polarity' | 'colossus'
+  | 'predator' | 'orbital' | 'hijack' | 'sovereign';
 interface RivalSkillView {
   active: boolean;
   id: RivalSkillId | null;
@@ -1426,6 +1428,14 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   exchange: 'Code Exchange',
   causality: 'Causality Lock',
   arsenal: 'Living Arsenal',
+  assimilation: 'Arsenal Assimilation',
+  null: 'Null Domain',
+  polarity: 'Polarity Crown',
+  colossus: 'Aegis Colossus',
+  predator: 'Predator Protocol',
+  orbital: 'Orbital Command',
+  hijack: 'Command Hijack',
+  sovereign: 'Last Sovereign',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
@@ -1444,6 +1454,14 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   exchange: ['PROPERTY', 'EXCHANGE', 'REVERSE'],
   causality: ['LOCK', 'EVENT', 'REPEAT'],
   arsenal: ['STRIKE', 'GUARD', 'DRIVE'],
+  assimilation: ['HARVEST', 'ASSEMBLE', 'DEPLOY'],
+  null: ['SUPPRESS', 'FOCUS', 'ANCHOR'],
+  polarity: ['MARK', 'REVERSE', 'COLLIDE'],
+  colossus: ['SIEGE', 'TRAMPLE', 'BULWARK'],
+  predator: ['HUNT', 'TARGET', 'COUNTER'],
+  orbital: ['DESIGNATE', 'ORDNANCE', 'DROP'],
+  hijack: ['ORDER', 'COMMAND', 'BREAK'],
+  sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
 
 const emptyCloneView = (): CloneView => ({
@@ -1756,7 +1774,9 @@ export default function Game() {
     | 'chrono' | 'singularity' | 'override' | 'architect'
     | 'apex' | 'counter' | 'phase' | 'phoenix'
     | 'rift' | 'vector' | 'gridshift' | 'resonance'
-    | 'exchange' | 'causality' | 'arsenal';
+    | 'exchange' | 'causality' | 'arsenal'
+    | 'assimilation' | 'null' | 'polarity' | 'colossus'
+    | 'predator' | 'orbital' | 'hijack' | 'sovereign';
   const SKIN_KEY = 'cgs_player_skin';
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
@@ -3254,6 +3274,51 @@ export default function Game() {
           s.overclockTimer = Math.max(s.overclockTimer, 5 + counts[2]);
           s.ghostTimer = Math.max(s.ghostTimer, 1.5);
         }
+      } else if (active.id === 'assimilation') {
+        const power = Math.max(2, active.charges);
+        for (let row = 0; row < 3; row++) {
+          fireBullet(row, { power, big: true, pierce: active.mode === 1 });
+        }
+        if (active.mode === 2) s.regenTimer = Math.max(s.regenTimer, 6);
+      } else if (active.id === 'null') {
+        for (const enemy of s.enemies) {
+          enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 7);
+          enemy.flash = 0.2;
+        }
+        s.signalJamTimer = Math.max(s.signalJamTimer, 7);
+      } else if (active.id === 'polarity') {
+        for (const enemy of s.enemies) {
+          enemy.colPos = Math.min(5.8, enemy.colPos + 0.7);
+          enemy.hp -= Math.max(1, active.charges);
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+      } else if (active.id === 'colossus') {
+        s.shieldCharges += 2 + active.charges;
+        s.turretTimer = Math.max(s.turretTimer, 5);
+        fireBullet(undefined, { power: 6, big: true, pierce: true });
+      } else if (active.id === 'predator') {
+        const prey = [...s.enemies].sort((a, b) => b.hp - a.hp)[0];
+        if (prey) {
+          s.score += 150;
+          s.enemies = s.enemies.filter((enemy) => enemy !== prey);
+        }
+        s.pierceShots += 3 + active.charges;
+      } else if (active.id === 'orbital') {
+        const rows = active.placements.length ? active.placements : [0, 1, 2];
+        for (const row of rows) fireBullet(row, { power: 5, big: true, pierce: true });
+        s.pulseTimer = Math.max(s.pulseTimer, 4);
+      } else if (active.id === 'hijack') {
+        for (const enemy of s.enemies) {
+          enemy.colPos = Math.min(5.8, enemy.colPos + 0.9);
+          enemy.row = (enemy.row + active.mode + 1) % 3;
+          enemy.flash = 0.2;
+        }
+      } else if (active.id === 'sovereign') {
+        const missing = Math.max(0, 10 - s.hp);
+        for (let row = 0; row < 3; row++) {
+          fireBullet(row, { power: 3 + missing, big: true, pierce: true });
+        }
+        s.shieldCharges += Math.max(1, Math.floor(missing / 2));
       }
     }
     if (active.id === 'chrono') s.slowTimer = 0;
@@ -3584,6 +3649,163 @@ export default function Game() {
         showMessage('Weapon grows toward propulsion blade.', 700);
       }
       next.charges = next.placements.length;
+    } else if (active.id === 'assimilation') {
+      const target = [...s.enemies].sort((a, b) => b.hp - a.hp)[0];
+      if (action === 'primary') {
+        if (!target) showMessage('No enemy weapon system to harvest.', 750);
+        else {
+          next.charges += Math.max(1, Math.ceil(target.hp / 2));
+          target.hp = Math.max(1, target.hp - 2);
+          showMessage('Enemy weapon component harvested.', 750);
+        }
+      } else if (action === 'alternate') {
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Hybrid chassis: ${['RAM CANNON', 'PIERCE ARRAY', 'REGEN FRAME'][next.mode]}.`, 850);
+      } else {
+        fireBullet(undefined, {
+          power: 2 + Math.floor(next.charges / 2),
+          big: true,
+          pierce: next.mode === 1,
+        });
+        if (next.mode === 2) s.hp++;
+        showMessage('Assimilated weapon deployed.', 700);
+      }
+    } else if (active.id === 'null') {
+      if (action === 'primary') {
+        const targets = s.enemies.filter((enemy) => enemy.row === s.player.row);
+        for (const enemy of targets) {
+          enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 6);
+          if (enemy.genome) enemy.genome.regeneration = 0;
+          enemy.flash = 0.18;
+        }
+        next.charges += targets.length;
+        showMessage(targets.length ? 'Lane constitution suppressed.' : 'No constitution in field.', 750);
+      } else if (action === 'alternate') {
+        next.mode = next.mode ? 0 : 1;
+        showMessage(next.mode ? 'Null field focused.' : 'Null field widened.', 700);
+      } else {
+        next.placements = [s.player.row];
+        s.shieldCharges++;
+        showMessage('Suppression field anchored.', 700);
+      }
+    } else if (active.id === 'polarity') {
+      if (action === 'primary') {
+        const targets = s.enemies.filter((enemy) => enemy.row === s.player.row);
+        for (const enemy of targets) {
+          enemy.colPos += next.mode === 0 ? -0.65 : 0.65;
+          enemy.flash = 0.16;
+        }
+        next.charges += targets.length;
+        showMessage(`${next.mode === 0 ? 'Negative' : 'Positive'} polarity assigned.`, 700);
+      } else if (action === 'alternate') {
+        next.mode = next.mode ? 0 : 1;
+        showMessage('All polarities reversed.', 700);
+      } else {
+        const byRow = [0, 1, 2].map((row) => s.enemies.filter((enemy) => enemy.row === row));
+        for (const lane of byRow) {
+          if (lane.length > 1) for (const enemy of lane) enemy.hp -= 2 + next.charges;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        showMessage('Opposed targets collided.', 750);
+      }
+    } else if (active.id === 'colossus') {
+      if (action === 'primary') {
+        fireBullet(undefined, { power: 6 + next.charges, big: true, pierce: true });
+        next.charges++;
+        showMessage('Colossus siege cannon fired.', 700);
+      } else if (action === 'alternate') {
+        const targets = s.enemies.filter((enemy) => enemy.row === s.player.row);
+        for (const enemy of targets) {
+          enemy.hp -= 3;
+          enemy.colPos = Math.min(5.8, enemy.colPos + 1);
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        s.player.col = Math.min(2, s.player.col + 1);
+        showMessage('Colossus trample.', 700);
+      } else {
+        s.shieldCharges += 2;
+        next.charges++;
+        showMessage('Bulwark covers adjacent cells.', 750);
+      }
+    } else if (active.id === 'predator') {
+      const targets = [...s.enemies].sort((a, b) => b.hp - a.hp);
+      const target = targets[next.mode % Math.max(1, targets.length)];
+      if (action === 'primary') {
+        if (!target) showMessage('No prey detected.', 700);
+        else {
+          s.player.row = target.row;
+          target.hp -= 3 + next.charges;
+          target.flash = 0.2;
+          next.charges++;
+          s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+          showMessage(`Prey adaptation ${Math.min(5, next.charges)}/5.`, 700);
+        }
+      } else if (action === 'alternate') {
+        if (targets.length) next.mode = (next.mode + 1) % targets.length;
+        showMessage(targets.length ? 'Priority prey changed.' : 'No prey detected.', 700);
+      } else {
+        s.shieldCharges++;
+        s.ghostTimer = Math.max(s.ghostTimer, 1.25);
+        showMessage('Prey attack pattern countered.', 750);
+      }
+    } else if (active.id === 'orbital') {
+      if (action === 'primary') {
+        if (next.placements.length >= 5) showMessage('Orbital queue full.', 650);
+        else {
+          next.placements = [...next.placements, s.player.row];
+          next.charges = next.placements.length;
+          showMessage(`Strike ${next.charges}/5 designated.`, 650);
+        }
+      } else if (action === 'alternate') {
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Ordnance: ${['PRECISION', 'EMP', 'SUPPLY'][next.mode]}.`, 700);
+      } else {
+        if (next.mode === 0) fireBullet(undefined, { power: 5, big: true, pierce: true });
+        else if (next.mode === 1) s.signalJamTimer = Math.max(s.signalJamTimer, 5);
+        else {
+          s.hp++;
+          s.shieldCharges++;
+        }
+        showMessage('Orbital payload dropped.', 700);
+      }
+    } else if (active.id === 'hijack') {
+      const orders = ['RETREAT', 'HOLD', 'BREAK FORMATION'];
+      if (action === 'alternate') {
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Intercepted order: ${orders[next.mode]}.`, 700);
+      } else if (action === 'primary') {
+        for (const enemy of s.enemies) {
+          if (next.mode === 0) enemy.colPos = Math.min(5.8, enemy.colPos + 0.8);
+          else if (next.mode === 1) enemy.speed = Math.min(enemy.speed, 0.03);
+          else enemy.row = (enemy.row + 1) % 3;
+          enemy.flash = 0.16;
+        }
+        next.charges++;
+        showMessage(`${orders[next.mode]} broadcast.`, 700);
+      } else {
+        for (const enemy of s.enemies) {
+          enemy.hp--;
+          enemy.row = (enemy.row + 2) % 3;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        showMessage('Hostile formation command broken.', 750);
+      }
+    } else if (active.id === 'sovereign') {
+      const missing = Math.max(0, 10 - s.hp);
+      if (action === 'primary') {
+        fireBullet(undefined, { power: 2 + missing, big: true, pierce: missing >= 3 });
+        next.charges++;
+        showMessage(`Authority asserted · power ${2 + missing}.`, 700);
+      } else if (action === 'alternate') {
+        s.hp = Math.max(1, s.hp - 1);
+        s.overclockTimer = Math.max(s.overclockTimer, 3 + missing);
+        next.charges += 2;
+        showMessage('Vitality wagered for authority.', 750);
+      } else {
+        s.shieldCharges += Math.max(1, Math.ceil(missing / 2));
+        s.regenTimer = Math.max(s.regenTimer, 3);
+        showMessage('Sovereign endures scarcity.', 750);
+      }
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
@@ -3597,10 +3819,13 @@ export default function Game() {
       return;
     }
     const s = stateRef.current;
-    if ((id === 'override' || id === 'phase' || id === 'exchange') && s.enemies.length === 0) {
+    if ((id === 'override' || id === 'phase' || id === 'exchange'
+      || id === 'assimilation' || id === 'predator') && s.enemies.length === 0) {
       showMessage(id === 'override' ? 'Neural Override needs an eligible host.'
         : id === 'phase' ? 'Phase Hunt needs a priority target.'
-          : 'Code Exchange needs an enemy constitution.', 1100);
+          : id === 'exchange' ? 'Code Exchange needs an enemy constitution.'
+            : id === 'assimilation' ? 'Arsenal Assimilation needs enemy technology.'
+              : 'Predator Protocol needs eligible prey.', 1100);
       return;
     }
     let initialMode = 0;
@@ -5731,6 +5956,14 @@ export default function Game() {
                   { id: 'exchange', label: 'Proxy', preview: `${import.meta.env.BASE_URL}skins/skill-exchange-idle.png` },
                   { id: 'causality', label: 'Axiom', preview: `${import.meta.env.BASE_URL}skins/skill-causality-idle.png` },
                   { id: 'arsenal', label: 'Forge', preview: `${import.meta.env.BASE_URL}skins/skill-arsenal-idle.png` },
+                  { id: 'assimilation', label: 'Meld', preview: `${import.meta.env.BASE_URL}skins/skill-assimilation-idle.png` },
+                  { id: 'null', label: 'Quietus', preview: `${import.meta.env.BASE_URL}skins/skill-null-idle.png` },
+                  { id: 'polarity', label: 'Dipole', preview: `${import.meta.env.BASE_URL}skins/skill-polarity-idle.png` },
+                  { id: 'colossus', label: 'Bastion', preview: `${import.meta.env.BASE_URL}skins/skill-colossus-idle.png` },
+                  { id: 'predator', label: 'Talon', preview: `${import.meta.env.BASE_URL}skins/skill-predator-idle.png` },
+                  { id: 'orbital', label: 'Zenith', preview: `${import.meta.env.BASE_URL}skins/skill-orbital-idle.png` },
+                  { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}skins/skill-hijack-idle.png` },
+                  { id: 'sovereign', label: 'Regent', preview: `${import.meta.env.BASE_URL}skins/skill-sovereign-idle.png` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
