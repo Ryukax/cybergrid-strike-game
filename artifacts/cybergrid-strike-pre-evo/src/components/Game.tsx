@@ -1030,6 +1030,76 @@ function buildAssemblyPartSprite(part: AvatarComponentDrop): HTMLCanvasElement {
     ctx.fillRect(offset, (offset * 3 + part.generation * 5) % 64, detailStep, 2);
   }
   ctx.restore();
+
+  const componentMask = ctx.getImageData(0, 0, 64, 64);
+  const signature = [
+    part.baseElement, part.element, part.entityType, part.enemyClass,
+    part.niche, part.variant, part.generation, part.fusionLevel,
+    part.fusionElement ?? '', part.fusionAffinity ?? '', ...part.mutations,
+  ].join(':');
+  const seed = [...signature].reduce(
+    (sum, character) => (sum * 33 + character.charCodeAt(0)) >>> 0,
+    5381,
+  );
+  const sourceGenome: EnemyGenome = {
+    baseElement: part.baseElement as EnemyGenome['baseElement'],
+    element: part.element as EnemyGenome['element'],
+    entityType: part.entityType as EnemyGenome['entityType'],
+    enemyClass: part.enemyClass as EnemyGenome['enemyClass'],
+    niche: part.niche as EnemyGenome['niche'],
+    generation: Math.max(part.generation, 2 + part.variant),
+    mutations: part.mutations as EnemyGenome['mutations'],
+    speedScale: 1,
+    hpBonus: part.enemyClass === 'guardian' ? 2 : 0,
+    sizeScale: part.mutations.includes('gigantic') ? 1.2
+      : part.mutations.includes('miniature') ? 0.82 : 1,
+    regeneration: part.niche === 'regenerator' ? 0.2 : 0,
+    phaseChance: part.niche === 'phase' ? 0.25 : 0,
+    fusionLevel: part.fusionLevel,
+    fusionElement: part.fusionElement as EnemyGenome['fusionElement'],
+    fusionAffinity: part.fusionAffinity as EnemyGenome['fusionAffinity'],
+  };
+  const sourceSprite = getProceduralVirusSprite(seed, sourceGenome);
+  const sourceContext = sourceSprite.getContext('2d');
+  if (sourceContext) {
+    const pixels = sourceContext.getImageData(0, 0, sourceSprite.width, sourceSprite.height);
+    let minX = sourceSprite.width;
+    let minY = sourceSprite.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < sourceSprite.height; y += 2) {
+      for (let x = 0; x < sourceSprite.width; x += 2) {
+        if (pixels.data[(y * sourceSprite.width + x) * 4 + 3] < 18) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (maxX >= minX && maxY >= minY) {
+      ctx.putImageData(componentMask, 0, 0);
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.86;
+      ctx.drawImage(
+        sourceSprite,
+        Math.max(0, minX - 4),
+        Math.max(0, minY - 4),
+        Math.min(sourceSprite.width - Math.max(0, minX - 4), maxX - minX + 8),
+        Math.min(sourceSprite.height - Math.max(0, minY - 4), maxY - minY + 8),
+        0, 0, 64, 64,
+      );
+      ctx.restore();
+      // Restore a restrained outline so texture never erases the part's
+      // intended anatomy or socket boundary.
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.globalAlpha = 0.2;
+      ctx.fillStyle = part.color;
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.restore();
+    }
+  }
   return canvas;
 }
 
@@ -1268,6 +1338,7 @@ function AvatarAssembly({
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
+        for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part));
         refreshBounds();
         if (animation === 'static') redraw();
       }, delay));

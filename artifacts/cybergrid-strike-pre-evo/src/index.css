@@ -808,6 +808,7 @@ canvas#canvas {
   padding-left: 20px !important;
   padding-right: 20px !important;
   overflow-x: hidden;
+  flex-shrink: 0;
 }
 
 .customization-card > * {
