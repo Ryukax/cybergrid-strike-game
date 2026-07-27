@@ -873,23 +873,23 @@ let sharedAssemblyComponentAtlas: HTMLImageElement | null = null;
 function getAssemblyComponentAtlas(): HTMLImageElement {
   if (!sharedAssemblyComponentAtlas) {
     sharedAssemblyComponentAtlas = new Image();
+    sharedAssemblyComponentAtlas.decoding = 'async';
     sharedAssemblyComponentAtlas.src =
-      `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png`;
+      `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png?v=2`;
   }
   return sharedAssemblyComponentAtlas;
 }
 
 function buildAssemblyPartSprite(
   part: AvatarComponentDrop,
-  atlas?: HTMLImageElement,
+  atlas: HTMLImageElement,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+  const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
-  if (atlas?.complete && atlas.naturalWidth > 0) {
+  if (atlas.complete && atlas.naturalWidth > 0) {
     const column = assemblyAtlasColumn(part);
     const row = AVATAR_SLOTS.indexOf(part.slot);
     const cellWidth = atlas.naturalWidth / 8;
@@ -918,6 +918,11 @@ function buildAssemblyPartSprite(
     ctx.restore();
     return canvas;
   }
+  // Never expose the legacy geometric renderer while the detailed component
+  // atlas is loading or unavailable. A transparent socket is preferable to a
+  // one-frame primitive that misrepresents the equipped component.
+  return canvas;
+  /* c8 ignore start -- retained temporarily for migration reference only */
   const color = part.color;
   const dark = '#111827';
   const light = '#e2e8f0';
@@ -1115,7 +1120,7 @@ function buildAssemblyPartSprite(
     fusionAffinity: part.fusionAffinity as EnemyGenome['fusionAffinity'],
   };
   const sourceSprite = getProceduralVirusSprite(seed, sourceGenome);
-  const sourceContext = sourceSprite.getContext('2d');
+  const sourceContext = sourceSprite.getContext('2d')!;
   if (sourceContext) {
     const pixels = sourceContext.getImageData(0, 0, sourceSprite.width, sourceSprite.height);
     let minX = sourceSprite.width;
@@ -1156,6 +1161,7 @@ function buildAssemblyPartSprite(
     }
   }
   return canvas;
+  /* c8 ignore stop */
 }
 
 function AvatarAssembly({
@@ -1176,6 +1182,9 @@ function AvatarAssembly({
     .map((slot) => components.find((component) => component.id === equipped[slot]))
     .filter((part): part is AvatarComponentDrop => Boolean(part));
   const fit = analyzeAssemblyFit(selected);
+  const assemblyCanvasKey = AVATAR_SLOTS
+    .map((slot) => equipped[slot] ?? 'none')
+    .join(':');
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -1184,7 +1193,6 @@ function AvatarAssembly({
     const sprites = new Map<string, HTMLCanvasElement>();
     const componentAtlas = getAssemblyComponentAtlas();
     let componentAtlasReady = componentAtlas.complete && componentAtlas.naturalWidth > 0;
-    let componentAtlasFailed = false;
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     if (componentAtlasReady) {
       for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
@@ -1195,15 +1203,8 @@ function AvatarAssembly({
       refreshBounds();
       redraw();
     };
-    const useFallbackSprites = () => {
-      componentAtlasFailed = true;
-      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part));
-      refreshBounds();
-      redraw();
-    };
     if (!componentAtlasReady) {
       componentAtlas.addEventListener('load', hydrateAtlasSprites);
-      componentAtlas.addEventListener('error', useFallbackSprites);
     }
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
@@ -1405,7 +1406,7 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (selected.length >= 2 && (componentAtlasReady || componentAtlasFailed)) {
+      if (selected.length >= 2 && componentAtlasReady) {
         drawUnderstructure(attack);
       }
       // Components must remain the readable body, even when the fit score is
@@ -1438,12 +1439,9 @@ function AvatarAssembly({
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
-        if (componentAtlasReady || componentAtlasFailed) {
+        if (componentAtlasReady) {
           for (const part of selected) {
-            sprites.set(part.id, buildAssemblyPartSprite(
-              part,
-              componentAtlasReady ? componentAtlas : undefined,
-            ));
+            sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
           }
         }
         refreshBounds();
@@ -1453,7 +1451,6 @@ function AvatarAssembly({
       active = false;
       cancelAnimationFrame(frame);
       componentAtlas.removeEventListener('load', hydrateAtlasSprites);
-      componentAtlas.removeEventListener('error', useFallbackSprites);
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
@@ -1468,7 +1465,13 @@ function AvatarAssembly({
       data-fit={fit.build}
       data-locomotion={fit.locomotion}
     >
-      <canvas ref={canvasRef} width={96} height={128} className="avatarAssemblyCanvas" />
+      <canvas
+        key={assemblyCanvasKey}
+        ref={canvasRef}
+        width={96}
+        height={128}
+        className="avatarAssemblyCanvas"
+      />
     </div>
   );
 }
