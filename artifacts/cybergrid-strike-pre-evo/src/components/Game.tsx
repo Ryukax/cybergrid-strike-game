@@ -879,6 +879,11 @@ function AvatarAssembly({
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
+    const foundationIdle = new Image();
+    const foundationAttack = new Image();
+    let foundationIdleReady = false;
+    let foundationAttackReady = false;
+    const foundationBase = `${import.meta.env.BASE_URL}skins/assembly-fit-${fit.build}`;
     const sprites = new Map<string, HTMLCanvasElement>();
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     const seedFor = (part: AvatarComponentDrop) => [...[
@@ -1084,7 +1089,18 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (selected.length >= 2) drawUnderstructure(attack);
+      if (foundationIdleReady) {
+        ctx.save();
+        ctx.globalAlpha = 0.82;
+        const foundation = attack > 0.14 && foundationAttackReady
+          ? foundationAttack
+          : foundationIdle;
+        ctx.drawImage(foundation, 0, 0, 96, 128);
+        ctx.restore();
+      } else if (selected.length >= 2) {
+        drawUnderstructure(attack);
+      }
+      ctx.globalAlpha = 0.64 + fit.cohesion * 0.3;
       for (const slot of drawOrder) {
         const part = selected.find((candidate) => candidate.slot === slot);
         const sprite = part ? sprites.get(part.id) : undefined;
@@ -1094,6 +1110,7 @@ function AvatarAssembly({
           drawFragment(sprite, bounds, ...fragment);
         }
       }
+      ctx.globalAlpha = 1;
       if (attack > 0.15) {
         ctx.globalAlpha = attack * 0.8;
         ctx.strokeStyle = fit.dominantColor;
@@ -1108,6 +1125,16 @@ function AvatarAssembly({
       ctx.restore();
       if (animation !== 'static' || attackPulse > 0) frame = requestAnimationFrame(redraw);
     };
+    foundationIdle.onload = () => {
+      foundationIdleReady = true;
+      if (animation === 'static') redraw();
+    };
+    foundationAttack.onload = () => {
+      foundationAttackReady = true;
+      if (animation === 'static') redraw();
+    };
+    foundationIdle.src = `${foundationBase}-idle.png`;
+    foundationAttack.src = `${foundationBase}-attack.png`;
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
