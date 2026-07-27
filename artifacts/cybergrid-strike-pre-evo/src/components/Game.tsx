@@ -1395,6 +1395,7 @@ interface RivalSkillView {
   id: RivalSkillId | null;
   mode: number;
   charges: number;
+  placements: number[];
   expiresAt: number;
   origin: { col: number; row: number; hp: number };
 }
@@ -1403,6 +1404,7 @@ const emptyRivalSkillView = (): RivalSkillView => ({
   id: null,
   mode: 0,
   charges: 0,
+  placements: [],
   expiresAt: 0,
   origin: { col: 1, row: 1, hp: 5 },
 });
@@ -3115,10 +3117,11 @@ export default function Game() {
     const s = stateRef.current;
     if (release) {
       if (active.id === 'chrono') {
-        for (let row = 0; row < 3; row++) {
-          for (let i = 0; i < Math.max(1, active.charges); i++) {
-            fireBullet(row, { power: 2, big: true, pierce: true });
-          }
+        const queuedRows = active.placements.length > 0
+          ? active.placements
+          : [s.player.row];
+        for (const row of queuedRows) {
+          fireBullet(row, { power: 2, big: true, pierce: true });
         }
       } else if (active.id === 'singularity') {
         for (const enemy of s.enemies) {
@@ -3128,7 +3131,8 @@ export default function Game() {
         }
         s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
       } else if (active.id === 'override') {
-        const host = [...s.enemies].sort((a, b) => b.hp - a.hp)[0];
+        const hosts = [...s.enemies].sort((a, b) => b.hp - a.hp);
+        const host = hosts[active.mode % Math.max(1, hosts.length)];
         if (host) {
           for (let row = 0; row < 3; row++) {
             fireBullet(row, { power: Math.max(2, host.hp), big: true, pierce: true });
@@ -3137,8 +3141,13 @@ export default function Game() {
           s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
         }
       } else if (active.id === 'architect') {
-        s.turretTimer = Math.max(s.turretTimer, 7);
-        s.shieldCharges += Math.max(1, active.charges);
+        const cannons = active.placements.filter((node) => node < 3).length;
+        const relays = active.placements.filter((node) => node >= 3 && node < 6).length;
+        const barriers = active.placements.filter((node) => node >= 6).length;
+        if (cannons > 0) s.turretTimer = Math.max(s.turretTimer, 4 + cannons * 2);
+        if (relays > 0) s.ghostTimer = Math.max(s.ghostTimer, 1 + relays);
+        s.shieldCharges += barriers;
+        if (active.placements.length === 0) s.shieldCharges++;
       } else if (active.id === 'apex') {
         const modes = ['breaker', 'reflector', 'nullifier'];
         const form = modes[active.mode % modes.length];
@@ -3146,8 +3155,10 @@ export default function Game() {
         if (form === 'reflector') s.shieldCharges += 3;
         if (form === 'nullifier') s.signalJamTimer = Math.max(s.signalJamTimer, 8);
       } else if (active.id === 'counter') {
-        for (let row = 0; row < 3; row++) {
-          fireBullet(row, { power: 2 + active.charges, big: true, pierce: true });
+        if (active.charges > 0) {
+          for (let row = 0; row < 3; row++) {
+            fireBullet(row, { power: 2 + active.charges, big: true, pierce: true });
+          }
         }
       } else if (active.id === 'phase') {
         const marked = [...s.enemies].sort((a, b) => b.hp - a.hp).slice(0, 3 + active.charges);
@@ -3161,6 +3172,8 @@ export default function Game() {
         }
       }
     }
+    if (active.id === 'chrono') s.slowTimer = 0;
+    if (active.id === 'phase') s.ghostTimer = 0;
     const cleared = emptyRivalSkillView();
     rivalSkillRef.current = cleared;
     setRivalSkillView(cleared);
@@ -3175,7 +3188,8 @@ export default function Game() {
     let next = { ...active };
     if (active.id === 'chrono') {
       if (action === 'primary') {
-        next.charges = Math.min(5, next.charges + 1);
+        if (next.placements.length < 5) next.placements = [...next.placements, s.player.row];
+        next.charges = next.placements.length;
         showMessage(`Attack queued ×${next.charges}.`, 700);
       } else if (action === 'alternate') {
         s.player.row = (s.player.row + 1) % 3;
@@ -3189,13 +3203,19 @@ export default function Game() {
     } else if (active.id === 'singularity') {
       if (action === 'primary') {
         for (const enemy of s.enemies) {
-          enemy.row += Math.sign(s.player.row - enemy.row);
+          if (next.mode === 0) {
+            enemy.row += Math.sign(s.player.row - enemy.row);
+            enemy.colPos = Math.max(-0.4, enemy.colPos - 0.45);
+          } else {
+            if (enemy.row === s.player.row) enemy.row = enemy.row === 0 ? 1 : enemy.row - 1;
+            enemy.colPos = Math.min(5.8, enemy.colPos + 0.9);
+          }
           enemy.hp -= enemy.row === s.player.row ? 2 : 1;
           enemy.flash = 0.15;
         }
         s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
         next.charges++;
-        showMessage('Gravity collapse.', 700);
+        showMessage(next.mode === 0 ? 'Gravity collapse.' : 'Repulsion burst.', 700);
       } else if (action === 'alternate') {
         next.mode = next.mode ? 0 : 1;
         showMessage(next.mode ? 'Polarity: REPEL' : 'Polarity: ATTRACT', 800);
@@ -3208,29 +3228,57 @@ export default function Game() {
       const hosts = [...s.enemies].sort((a, b) => b.hp - a.hp);
       const host = hosts[active.mode % Math.max(1, hosts.length)];
       if (action === 'primary' && host) {
-        fireBullet(host.row, { power: Math.max(2, Math.ceil(host.hp / 2)), big: true, pierce: true });
-        showMessage('Native attack appropriated.', 800);
+        if (host.ability === 'mendingPulse') {
+          s.hp++;
+          showMessage('Host mending pulse appropriated.', 800);
+        } else if (host.ability === 'laneShift') {
+          for (let row = 0; row < 3; row++) fireBullet(row, { power: 2, big: true });
+          showMessage('Host lane attack appropriated.', 800);
+        } else {
+          fireBullet(host.row, {
+            power: host.ability === 'momentumCharge' ? Math.max(4, Math.ceil(host.hp / 2)) : 2,
+            big: host.ability === 'momentumCharge' || host.ability === 'arcArmor',
+            pierce: host.ability === 'phaseLeap' || host.ability === 'arcArmor',
+          });
+          if (host.ability === 'arcArmor') s.shieldCharges++;
+          showMessage(`${host.ability ? 'Constitution' : 'Native'} attack appropriated.`, 800);
+        }
       } else if (action === 'alternate') {
-        next.mode = (next.mode + 1) % Math.max(1, hosts.length);
-        showMessage('Control transferred.', 700);
+        if (hosts.length === 0) showMessage('No eligible host to transfer into.', 800);
+        else {
+          next.mode = (next.mode + 1) % hosts.length;
+          showMessage('Control transferred.', 700);
+        }
       } else if (host) {
         s.shieldCharges++;
         s.enemies = s.enemies.filter((enemy) => enemy !== host);
         showMessage('Host sacrificed to intercept.', 850);
+      } else {
+        showMessage('No eligible host.', 700);
       }
     } else if (active.id === 'architect') {
       if (action === 'primary') {
-        s.turretTimer = Math.max(s.turretTimer, 4);
-        next.charges++;
-        showMessage('Cannon node placed.', 700);
+        if (next.placements.length >= 3) showMessage('Network full · execute or expire.', 800);
+        else {
+          next.placements = [...next.placements, s.player.row];
+          next.charges = next.placements.length;
+          showMessage('Cannon node placed.', 700);
+        }
       } else if (action === 'alternate') {
-        s.player.row = (s.player.row + 1) % 3;
-        next.charges++;
-        showMessage('Relay jump.', 650);
+        if (next.placements.length >= 3) showMessage('Network full · execute or expire.', 800);
+        else {
+          next.placements = [...next.placements, 3 + s.player.row];
+          next.charges = next.placements.length;
+          s.player.row = (s.player.row + 1) % 3;
+          showMessage('Relay node placed · linked jump.', 700);
+        }
       } else {
-        s.shieldCharges++;
-        next.charges++;
-        showMessage('Barrier node placed.', 700);
+        if (next.placements.length >= 3) showMessage('Network full · execute or expire.', 800);
+        else {
+          next.placements = [...next.placements, 6 + s.player.row];
+          next.charges = next.placements.length;
+          showMessage('Barrier node placed.', 700);
+        }
       }
     } else if (active.id === 'apex') {
       if (action === 'alternate') {
@@ -3248,17 +3296,23 @@ export default function Game() {
       }
     } else if (active.id === 'counter') {
       if (action === 'primary') {
-        fireBullet(undefined, { power: 2 + next.charges, big: true, pierce: true });
-        next.charges = 0;
-        showMessage('Captured force returned.', 750);
+        if (next.charges <= 0) showMessage('Matrix empty · intercept pressure first.', 800);
+        else {
+          fireBullet(next.mode, { power: 2 + next.charges, big: true, pierce: true });
+          next.charges = 0;
+          showMessage('Captured force returned.', 750);
+        }
       } else if (action === 'alternate') {
-        s.player.row = (s.player.row + 1) % 3;
-        showMessage('Matrix redirected.', 650);
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Return lane redirected to ${next.mode + 1}.`, 650);
       } else {
-        next.charges = Math.min(5, next.charges + 1);
-        s.shieldCharges++;
-        if (next.charges >= 3) s.hp++;
-        showMessage(`Pressure captured ×${next.charges}.`, 800);
+        if (next.charges <= 0) showMessage('No captured pressure to convert.', 800);
+        else {
+          s.shieldCharges += Math.ceil(next.charges / 2);
+          if (next.charges >= 3) s.hp++;
+          next.charges = 0;
+          showMessage('Captured pressure converted.', 800);
+        }
       }
     } else if (active.id === 'phase') {
       const targets = [...s.enemies].sort((a, b) => b.hp - a.hp);
@@ -3270,9 +3324,14 @@ export default function Game() {
         s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
         next.charges++;
         showMessage('Phase Strike.', 650);
+      } else if (action === 'primary') {
+        showMessage('No marked target.', 700);
       } else if (action === 'alternate') {
-        next.mode = (next.mode + 1) % Math.max(1, targets.length);
-        showMessage('Priority target changed.', 700);
+        if (targets.length === 0) showMessage('No marked target.', 700);
+        else {
+          next.mode = (next.mode + 1) % targets.length;
+          showMessage('Priority target changed.', 700);
+        }
       } else {
         s.player.col = active.origin.col;
         s.player.row = active.origin.row;
@@ -3291,7 +3350,7 @@ export default function Game() {
         s.player.col = next.origin.col;
         s.player.row = next.origin.row;
         s.hp = Math.max(s.hp, next.origin.hp);
-        next.charges++;
+        next.charges = Math.max(0, next.charges - 1);
         showMessage('Recorded state restored.', 800);
       }
     }
@@ -3307,21 +3366,39 @@ export default function Game() {
       return;
     }
     const s = stateRef.current;
+    if ((id === 'override' || id === 'phase') && s.enemies.length === 0) {
+      showMessage(id === 'override' ? 'Neural Override needs an eligible host.'
+        : 'Phase Hunt needs a priority target.', 1100);
+      return;
+    }
+    let initialMode = 0;
+    if (id === 'apex') {
+      const armored = s.enemies.filter((enemy) =>
+        (enemy.maxHp ?? enemy.hp) >= 4 || enemy.genome?.mutations.includes('armored')).length;
+      const regenerative = s.enemies.filter((enemy) =>
+        enemy.ability === 'mendingPulse' || enemy.genome?.niche === 'regenerator').length;
+      const rangedPressure = s.enemies.filter((enemy) =>
+        enemy.ability === 'laneShift' || enemy.ability === 'arcArmor').length;
+      initialMode = regenerative > Math.max(armored, rangedPressure) ? 2
+        : rangedPressure > armored ? 1 : 0;
+    }
     const next: RivalSkillView = {
       active: true,
       id,
-      mode: 0,
+      mode: initialMode,
       charges: 0,
+      placements: [],
       expiresAt: performance.now() + 9000,
       origin: { col: s.player.col, row: s.player.row, hp: s.hp },
     };
     rivalSkillRef.current = next;
     setRivalSkillView(next);
     if (id === 'chrono') s.slowTimer = Math.max(s.slowTimer, 9);
-    if (id === 'counter') s.shieldCharges++;
     if (id === 'phase') s.ghostTimer = Math.max(s.ghostTimer, 9);
-    if (id === 'phoenix') s.shieldCharges++;
-    showMessage(`${RIVAL_SKILL_LABELS[id]} · X technique · Y shift · B guard`, 1800);
+    const suffix = id === 'apex'
+      ? ` · ${['BREAKER', 'REFLECTOR', 'NULLIFIER'][initialMode]} scan`
+      : '';
+    showMessage(`${RIVAL_SKILL_LABELS[id]}${suffix} · X technique · Y shift · B guard`, 1800);
   }, [finishRivalSkill, showMessage]);
 
   const playSkillAnimation = useCallback(() => {
@@ -3476,14 +3553,15 @@ export default function Game() {
     if (skillTapTimerRef.current) {
       clearTimeout(skillTapTimerRef.current);
       skillTapTimerRef.current = null;
-      cycleActiveControl(1);
+      if (rivalSkillRef.current.active) finishRivalSkill(true);
+      else cycleActiveControl(1);
       return;
     }
     skillTapTimerRef.current = setTimeout(() => {
       skillTapTimerRef.current = null;
       playSkillAnimation();
     }, 260);
-  }, [cycleActiveControl, playSkillAnimation]);
+  }, [cycleActiveControl, finishRivalSkill, playSkillAnimation]);
 
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -3700,6 +3778,13 @@ export default function Game() {
     s.signalJamTimer = Math.max(0, s.signalJamTimer - dt);
     s.stasisGateTimer = Math.max(0, s.stasisGateTimer - dt);
     s.adaptiveAmmoTimer = Math.max(0, s.adaptiveAmmoTimer - dt);
+    const liveRivalSkill = rivalSkillRef.current;
+    if (liveRivalSkill.active && liveRivalSkill.id === 'singularity') {
+      const gravityVelocity = liveRivalSkill.mode === 0 ? -0.22 : 0.65;
+      for (const enemy of s.enemies) {
+        enemy.colPos = Math.max(-0.4, Math.min(5.8, enemy.colPos + gravityVelocity * dt));
+      }
+    }
     if (rivalSkillRef.current.active && performance.now() >= rivalSkillRef.current.expiresAt) {
       finishRivalSkill(true);
     }
@@ -4042,7 +4127,15 @@ export default function Game() {
       }
       if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
         const eloIsIntangible = playerSkinRef.current === 'gem' && !s.autoBuster;
-        if (eloIsIntangible) {
+        const counter = rivalSkillRef.current;
+        if (counter.active && counter.id === 'counter') {
+          const captured = { ...counter, charges: Math.min(5, counter.charges + 1) };
+          rivalSkillRef.current = captured;
+          setRivalSkillView(captured);
+          e.colPos = -9;
+          playHit();
+          showMessage(`Pressure intercepted ×${captured.charges}.`, 800);
+        } else if (eloIsIntangible) {
           // Player phases while automation is disabled. The enemy continues
           // through the occupied cell without damage or consuming a shield.
         } else if (s.shieldCharges > 0) {
@@ -4063,6 +4156,8 @@ export default function Game() {
               s.player.row = phoenix.origin.row;
               s.hp = Math.max(1, phoenix.origin.hp);
               showMessage('Phoenix Circuit restored the recorded state!', 1200);
+            } else {
+              showMessage(`Heat accumulated ×${heated.charges}.`, 800);
             }
           }
           e.colPos = -9;
