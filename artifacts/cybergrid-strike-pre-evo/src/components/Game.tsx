@@ -216,18 +216,18 @@ function manifestedPlaystyleAbility(signal: PlaystyleSignal): GeneratedAbility {
   const manifestation = PLAYSTYLE_MANIFESTATIONS[signal];
   const counterpart = ABILITY_LOOKUP[manifestation.abilityId];
   const components = playerAbilityComponents(counterpart);
-  const signalNames: Record<PlaystyleSignal, string> = {
-    manualFire: 'Deliberate',
-    autoOffFire: 'Disciplined',
-    movement: 'Kinetic',
-    abilityUse: 'Adaptive',
-    rotation: 'Rotating',
-    cloneDefense: 'Echoed',
-    cloneAutofire: 'Autonomous',
+  const manifestationNames: Record<PlaystyleSignal, string> = {
+    manualFire: 'DEADEYE PROTOCOL',
+    autoOffFire: 'QUIET VECTOR',
+    movement: 'SLIPSTREAM DRIVE',
+    abilityUse: 'PATTERN WEAVER',
+    rotation: 'AFFINITY GYRE',
+    cloneDefense: 'ECHO BASTION',
+    cloneAutofire: 'SENTRY CHORUS',
   };
   return {
     id: `manifest-style-${signal}`,
-    name: `${signalNames[signal]} ${counterpart.name}`.toUpperCase(),
+    name: manifestationNames[signal],
     desc: `${manifestation.reason} ${counterpart.desc}`,
     cooldown: counterpart.cooldown,
     abilityId: `manifest-style-${signal}`,
@@ -235,6 +235,20 @@ function manifestedPlaystyleAbility(signal: PlaystyleSignal): GeneratedAbility {
     constitutionSignature: `playstyle:${signal}`,
     manifestedAt: Date.now(),
   };
+}
+
+function normalizedGeneratedAbility(ability: GeneratedAbility): GeneratedAbility {
+  if (ability.id.startsWith('manifest-style-')) {
+    const signal = ability.id.slice('manifest-style-'.length) as PlaystyleSignal;
+    if (Object.prototype.hasOwnProperty.call(PLAYSTYLE_MANIFESTATIONS, signal)) {
+      const canonical = manifestedPlaystyleAbility(signal);
+      return { ...ability, name: canonical.name, desc: canonical.desc };
+    }
+  }
+  const words = ability.name.trim().split(/\s+/);
+  const deduplicated = words.filter((word, index) =>
+    index === 0 || word.toLowerCase() !== words[index - 1].toLowerCase());
+  return { ...ability, name: deduplicated.join(' ') };
 }
 
 interface RunUpgrade {
@@ -858,11 +872,12 @@ export default function Game() {
   const [generatedAbilities, setGeneratedAbilities] = useState<GeneratedAbility[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(GENERATED_ABILITIES_KEY) ?? '[]');
-      const valid = Array.isArray(stored)
+      const valid = (Array.isArray(stored)
         ? stored.filter((ability: GeneratedAbility) =>
           ability?.id?.startsWith('manifest-')
           && ability.name && ability.desc && ability.delivery && ability.function && ability.medium)
-        : [];
+        : []).map((ability: GeneratedAbility) => normalizedGeneratedAbility(ability));
+      localStorage.setItem(GENERATED_ABILITIES_KEY, JSON.stringify(valid));
       generatedAbilityRegistry = Object.fromEntries(valid.map((ability: GeneratedAbility) => [ability.id, ability]));
       return valid;
     } catch {
@@ -872,13 +887,14 @@ export default function Game() {
   });
   const generatedAbilitiesRef = useRef(generatedAbilities);
   const registerGeneratedAbility = useCallback((ability: GeneratedAbility) => {
-    if (generatedAbilityRegistry[ability.id]) return generatedAbilityRegistry[ability.id];
-    const next = [ability, ...generatedAbilitiesRef.current].slice(0, 240);
+    const normalized = normalizedGeneratedAbility(ability);
+    if (generatedAbilityRegistry[normalized.id]) return generatedAbilityRegistry[normalized.id];
+    const next = [normalized, ...generatedAbilitiesRef.current].slice(0, 240);
     generatedAbilitiesRef.current = next;
     generatedAbilityRegistry = Object.fromEntries(next.map((entry) => [entry.id, entry]));
     localStorage.setItem(GENERATED_ABILITIES_KEY, JSON.stringify(next));
     setGeneratedAbilities(next);
-    return ability;
+    return normalized;
   }, []);
   const [learnedAbilities, setLearnedAbilities] = useState<LearnedAbility[]>(() => {
     try {
