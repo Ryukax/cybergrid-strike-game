@@ -2056,3 +2056,247 @@ canvas#canvas {
     display: none;
   }
 }
+
+/* Signature Skill readability ------------------------------------------------
+   Advanced skins briefly replace their ordinary silhouette language with a
+   mechanic-specific effect. The effect follows the player but can extend over
+   neighboring cells, making the active rule readable without covering play. */
+.rivalSkillFx {
+  --skill-color: #67e8f9;
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: 50%;
+  width: 108px;
+  height: 108px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  color: var(--skill-color);
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--skill-color) 75%, transparent));
+  animation: rivalSkillArrival 420ms ease-out both;
+}
+
+.rivalSkillFx i,
+.rivalSkillFx b,
+.rivalSkillFx span {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.skillFxRing {
+  inset: 13px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.62;
+}
+
+.skillFxRing.ringB {
+  inset: 25px;
+  border-style: dashed;
+  animation: rivalRingReverse 2.1s linear infinite;
+}
+
+.skillFxCore {
+  left: 50%;
+  top: 50%;
+  min-width: 27px;
+  height: 27px;
+  transform: translate(-50%, -50%);
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--skill-color) 22%, #020617 78%);
+  font: 700 18px/25px ui-monospace, monospace;
+  text-align: center;
+}
+
+.skillFxNode {
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--skill-color) 18%, #020617 82%);
+  font: 700 10px/16px ui-monospace, monospace;
+  text-align: center;
+}
+
+.skillFxNode.nodeA { left: 5px; top: 45px; }
+.skillFxNode.nodeB { right: 6px; top: 17px; }
+.skillFxNode.nodeC { right: 9px; bottom: 10px; }
+
+.skillFxTrace {
+  left: 17px;
+  right: 17px;
+  top: 53px;
+  height: 2px;
+  background: currentColor;
+  transform-origin: center;
+  opacity: 0.68;
+}
+
+.motif-time .ringA { border-style: dotted; animation: rivalRing 1.8s linear infinite; }
+.motif-time .ringB { clip-path: inset(0 50% 0 0); }
+.motif-time .skillFxTrace { transform: rotate(-58deg); animation: timeHand 1.4s steps(8) infinite; }
+.motif-time .skillFxNode { animation: chronoEcho 1.3s ease-out infinite; }
+
+.motif-gravity .skillFxRing { animation: gravityCollapse 1.25s ease-in infinite; }
+.motif-gravity .skillFxNode { animation: gravityNode 1.25s ease-in infinite; }
+.motif-gravity .skillFxCore { box-shadow: 0 0 18px 8px currentColor; animation: gravityCore 1.25s ease-in-out infinite; }
+
+.motif-control .skillFxTrace,
+.motif-network .skillFxTrace {
+  height: 45px;
+  top: 32px;
+  background:
+    linear-gradient(28deg, transparent 47%, currentColor 48% 52%, transparent 53%),
+    linear-gradient(-28deg, transparent 47%, currentColor 48% 52%, transparent 53%);
+  animation: networkScan 1s steps(4) infinite;
+}
+.motif-control .skillFxNode,
+.motif-network .skillFxNode { border-radius: 2px; animation: commandNode 900ms ease-in-out infinite alternate; }
+
+.motif-build .skillFxRing,
+.motif-grid .skillFxRing {
+  border-radius: 5px;
+  background-image:
+    linear-gradient(currentColor 1px, transparent 1px),
+    linear-gradient(90deg, currentColor 1px, transparent 1px);
+  background-size: 24px 24px;
+  opacity: 0.34;
+  animation: gridTranslate 1.2s steps(3) infinite;
+}
+.motif-build .skillFxNode { border-radius: 2px; animation: nodeConstruct 900ms ease-out infinite; }
+
+.motif-morph .skillFxRing { border-radius: 38% 62% 55% 45%; animation: morphShell 1.8s ease-in-out infinite; }
+.motif-morph .skillFxNode { border-radius: 2px 12px; animation: morphShard 1.2s ease-in-out infinite alternate; }
+
+.motif-shield .skillFxRing,
+.motif-domain .skillFxRing,
+.motif-giant .skillFxRing {
+  border-width: 4px;
+  border-radius: 18px;
+  transform: rotate(45deg);
+  animation: shieldBrace 1.15s ease-in-out infinite;
+}
+.motif-shield .skillFxNode { animation: capturedPressure 950ms ease-in-out infinite; }
+
+.motif-target .skillFxRing,
+.motif-hunt .skillFxRing {
+  border-left-color: transparent;
+  border-right-color: transparent;
+  animation: targetAcquire 1.1s steps(6) infinite;
+}
+.motif-target .skillFxTrace,
+.motif-hunt .skillFxTrace { animation: targetSweep 900ms ease-in-out infinite alternate; }
+
+.motif-fire .skillFxRing {
+  border-radius: 50% 50% 15% 50%;
+  transform: rotate(45deg);
+  animation: phoenixRise 850ms ease-in-out infinite alternate;
+}
+.motif-fire .nodeA { left: 15px; top: 15px; }
+.motif-fire .nodeB { right: 15px; top: 15px; }
+.motif-fire .skillFxNode { clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); animation: emberRise 1s ease-out infinite; }
+
+.motif-portal .ringA { left: -15px; right: 60px; animation: portalOpen 1.1s ease-in-out infinite; }
+.motif-portal .ringB { left: 60px; right: -15px; animation: portalOpen 1.1s .25s ease-in-out infinite; }
+.motif-portal .skillFxTrace { animation: portalTransit 1.1s ease-in-out infinite; }
+
+.motif-vector .skillFxNode { border: 0; background: transparent; font-size: 18px; animation: vectorFlight 1s ease-in infinite; }
+.motif-vector .skillFxTrace { transform: rotate(calc((var(--skill-mode, 0) + 1) * 24deg)); animation: vectorSnap 700ms ease-out infinite; }
+
+.motif-resonance .skillFxRing { border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); animation: resonancePulse 1.25s ease-in-out infinite; }
+.motif-resonance .skillFxTrace { transform: rotate(60deg); box-shadow: 0 0 8px currentColor; }
+
+.motif-exchange .skillFxRing { border-left-color: transparent; border-right-color: transparent; animation: exchangeOrbit 1.15s ease-in-out infinite; }
+.motif-exchange .skillFxCore { border-radius: 4px; animation: exchangeFlip 900ms steps(2) infinite; }
+
+.motif-lock .skillFxRing { animation: lockEvent 1.4s steps(4) infinite; }
+.motif-lock .skillFxTrace { transform: rotate(90deg); animation: lockTick 1.4s steps(2) infinite; }
+.motif-lock .skillFxNode { animation: none; opacity: 0.45; }
+
+.motif-weapon .skillFxTrace {
+  height: 5px;
+  top: 50px;
+  transform: rotate(-38deg) scaleX(1.35);
+  animation: arsenalSlash 780ms ease-out infinite;
+}
+.motif-weapon .skillFxNode,
+.motif-assemble .skillFxNode { animation: assemblePart 1.15s ease-in-out infinite; }
+.motif-assemble .skillFxRing { border-style: dashed; animation: rivalRing 2s linear infinite; }
+
+.motif-domain { width: 154px; height: 154px; opacity: 0.78; }
+.motif-domain .skillFxRing { background: rgba(2, 6, 23, 0.54); animation: nullDomain 1.6s ease-in-out infinite; }
+.motif-domain .skillFxTrace { animation: domainScan 1.2s linear infinite; }
+
+.motif-polarity .nodeA::after,
+.motif-polarity .nodeB::after { display: block; color: currentColor; font-weight: 900; }
+.motif-polarity .nodeA::after { content: "+"; }
+.motif-polarity .nodeB::after { content: "−"; }
+.motif-polarity .skillFxNode { font-size: 0; animation: polarityPull 1.15s ease-in-out infinite alternate; }
+.motif-polarity .skillFxTrace { animation: polarityLine 1.15s ease-in-out infinite alternate; }
+
+.motif-giant { transform: translate(-50%, -50%) scale(1.25); }
+.motif-giant .skillFxCore { transform: translate(-50%, -50%) scale(1.45); }
+.motif-giant .skillFxNode { border-radius: 3px; animation: armorLock 900ms ease-out infinite; }
+
+.motif-orbital .skillFxTrace {
+  left: 49px;
+  right: auto;
+  top: -75px;
+  width: 10px;
+  height: 128px;
+  background: linear-gradient(transparent, currentColor);
+  animation: orbitalStrike 1.25s ease-in infinite;
+}
+.motif-orbital .skillFxRing { animation: targetAcquire 1.25s steps(5) infinite; }
+
+.motif-crown .skillFxRing { clip-path: polygon(0 65%, 18% 20%, 38% 58%, 50% 8%, 65% 58%, 84% 20%, 100% 65%, 85% 100%, 15% 100%); border-radius: 0; animation: sovereignRise 1.2s ease-in-out infinite; }
+.motif-crown .skillFxNode { animation: crownRay 1.2s ease-out infinite; }
+
+@keyframes rivalSkillArrival { from { opacity: 0; transform: translate(-50%, -50%) scale(.35); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+@keyframes rivalRing { to { transform: rotate(360deg); } }
+@keyframes rivalRingReverse { to { transform: rotate(-360deg); } }
+@keyframes timeHand { to { transform: rotate(302deg); } }
+@keyframes chronoEcho { 0% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.7); } }
+@keyframes gravityCollapse { 0% { inset: 2px; opacity: 0; } 80%,100% { inset: 34px; opacity: .9; } }
+@keyframes gravityNode { to { left: 45px; top: 45px; opacity: .1; } }
+@keyframes gravityCore { 50% { transform: translate(-50%, -50%) scale(.7); } }
+@keyframes networkScan { 50% { opacity: .25; transform: scaleX(.75); } }
+@keyframes commandNode { to { box-shadow: 0 0 12px currentColor; } }
+@keyframes gridTranslate { to { background-position: 24px 24px; } }
+@keyframes nodeConstruct { 0% { transform: scale(0); } 55%,100% { transform: scale(1); } }
+@keyframes morphShell { 50% { border-radius: 62% 38% 42% 58%; transform: rotate(35deg); } }
+@keyframes morphShard { to { transform: rotate(55deg) scale(1.3); } }
+@keyframes shieldBrace { 50% { box-shadow: inset 0 0 18px currentColor, 0 0 12px currentColor; } }
+@keyframes capturedPressure { 50% { transform: translateX(15px) scale(.65); } }
+@keyframes targetAcquire { to { transform: rotate(360deg); } }
+@keyframes targetSweep { to { transform: rotate(160deg); } }
+@keyframes phoenixRise { to { transform: rotate(45deg) scale(1.15); box-shadow: 0 0 20px currentColor; } }
+@keyframes emberRise { to { transform: translateY(-26px) scale(.2); opacity: 0; } }
+@keyframes portalOpen { 50% { transform: scaleX(.45); box-shadow: 0 0 15px currentColor; } }
+@keyframes portalTransit { 50% { transform: translateX(50px) scaleX(.2); opacity: .2; } }
+@keyframes vectorFlight { to { transform: translateX(35px); opacity: 0; } }
+@keyframes vectorSnap { 50% { transform: rotate(24deg) scaleX(.55); } }
+@keyframes resonancePulse { 50% { transform: scale(.78); box-shadow: 0 0 18px currentColor; } }
+@keyframes exchangeOrbit { 50% { transform: rotate(180deg) scaleX(.75); } }
+@keyframes exchangeFlip { 50% { transform: translate(-50%, -50%) rotateY(180deg); } }
+@keyframes lockEvent { 50% { transform: rotate(45deg); opacity: 1; } }
+@keyframes lockTick { 50% { transform: rotate(90deg) scaleX(.4); } }
+@keyframes arsenalSlash { 0% { opacity: 0; transform: rotate(-38deg) translateX(-25px); } 55% { opacity: 1; } 100% { opacity: 0; transform: rotate(-38deg) translateX(28px); } }
+@keyframes assemblePart { 50% { transform: translate(-12px, 10px) rotate(45deg); } }
+@keyframes nullDomain { 50% { transform: scale(.88); opacity: .55; } }
+@keyframes domainScan { from { transform: translateY(-35px); } to { transform: translateY(35px); } }
+@keyframes polarityPull { to { transform: translateX(36px) rotate(180deg); } }
+@keyframes polarityLine { to { transform: scaleX(.35); } }
+@keyframes armorLock { 0% { transform: translate(20px, -15px); opacity: 0; } 60%,100% { transform: none; opacity: 1; } }
+@keyframes orbitalStrike { 0%,45% { opacity: .25; transform: scaleY(.15); transform-origin: top; } 75%,100% { opacity: 1; transform: scaleY(1); transform-origin: top; } }
+@keyframes sovereignRise { 50% { transform: translateY(-8px); filter: brightness(1.5); } }
+@keyframes crownRay { to { transform: translateY(-24px); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .rivalSkillFx,
+  .rivalSkillFx * {
+    animation-duration: 2.8s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

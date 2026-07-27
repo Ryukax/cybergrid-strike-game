@@ -1,4 +1,6 @@
-import { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import {
+  useRef, useEffect, useLayoutEffect, useState, useCallback, type CSSProperties,
+} from 'react';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -2185,6 +2187,59 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   hijack: ['ORDER', 'COMMAND', 'BREAK'],
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
+
+const RIVAL_SKILL_VISUALS: Record<RivalSkillId, {
+  motif: string;
+  glyph: string;
+  color: string;
+}> = {
+  chrono: { motif: 'time', glyph: '⌛', color: '#67e8f9' },
+  singularity: { motif: 'gravity', glyph: '●', color: '#c084fc' },
+  override: { motif: 'control', glyph: '⌁', color: '#f472b6' },
+  architect: { motif: 'build', glyph: '□', color: '#fbbf24' },
+  apex: { motif: 'morph', glyph: '◇', color: '#a3e635' },
+  counter: { motif: 'shield', glyph: '⬡', color: '#60a5fa' },
+  phase: { motif: 'target', glyph: '⌖', color: '#e879f9' },
+  phoenix: { motif: 'fire', glyph: '△', color: '#fb7185' },
+  rift: { motif: 'portal', glyph: '◉', color: '#818cf8' },
+  vector: { motif: 'vector', glyph: '➤', color: '#22d3ee' },
+  gridshift: { motif: 'grid', glyph: '▦', color: '#38bdf8' },
+  resonance: { motif: 'resonance', glyph: '△', color: '#fde047' },
+  exchange: { motif: 'exchange', glyph: '⇄', color: '#34d399' },
+  causality: { motif: 'lock', glyph: '◇', color: '#a78bfa' },
+  arsenal: { motif: 'weapon', glyph: '╱', color: '#fb923c' },
+  assimilation: { motif: 'assemble', glyph: '✣', color: '#f59e0b' },
+  null: { motif: 'domain', glyph: '⊘', color: '#64748b' },
+  polarity: { motif: 'polarity', glyph: '±', color: '#f472b6' },
+  colossus: { motif: 'giant', glyph: '⬢', color: '#94a3b8' },
+  predator: { motif: 'hunt', glyph: '⌖', color: '#ef4444' },
+  orbital: { motif: 'orbital', glyph: '◎', color: '#f8fafc' },
+  hijack: { motif: 'network', glyph: '⌘', color: '#4ade80' },
+  sovereign: { motif: 'crown', glyph: '♢', color: '#facc15' },
+};
+
+function RivalSkillEffect({ view }: { view: RivalSkillView }) {
+  if (!view.active || !view.id) return null;
+  const visual = RIVAL_SKILL_VISUALS[view.id];
+  return (
+    <div
+      key={`${view.id}-${view.mode}-${view.charges}-${view.placements.join('-')}`}
+      className={`rivalSkillFx motif-${visual.motif}`}
+      style={{ '--skill-color': visual.color } as CSSProperties}
+      data-mode={view.mode}
+      data-charges={Math.min(6, view.charges)}
+      aria-hidden="true"
+    >
+      <i className="skillFxRing ringA" />
+      <i className="skillFxRing ringB" />
+      <i className="skillFxTrace" />
+      <b className="skillFxCore">{visual.glyph}</b>
+      <span className="skillFxNode nodeA">{visual.glyph}</span>
+      <span className="skillFxNode nodeB">{visual.glyph}</span>
+      <span className="skillFxNode nodeC">{visual.glyph}</span>
+    </div>
+  );
+}
 
 const emptyCloneView = (): CloneView => ({
   visible: false,
@@ -6296,6 +6351,7 @@ export default function Game() {
               attackPulse={assemblyAttackPulse}
             />
           )}
+          <RivalSkillEffect view={rivalSkillView} />
         </div>
       )}
 
