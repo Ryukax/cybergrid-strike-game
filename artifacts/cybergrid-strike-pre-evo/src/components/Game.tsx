@@ -96,12 +96,21 @@ interface AvatarComponentDrop {
   enemyClass: string;
   niche: string;
   mutations: string[];
+  generation: number;
+  fusionLevel: number;
+  fusionElement?: string;
+  fusionAffinity?: string;
 }
 type EquippedAvatarComponents = Partial<Record<AvatarSlot, string>>;
 const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
 
 function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
-  const signature = `${genome.baseElement}:${genome.element}:${genome.entityType}:${genome.enemyClass}:${genome.niche}`;
+  const signature = [
+    genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
+    genome.niche, genome.generation, genome.fusionLevel,
+    genome.fusionElement ?? '', genome.fusionAffinity ?? '',
+    ...genome.mutations.slice().sort(),
+  ].join(':');
   const hash = [...signature].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 17);
   const slot = AVATAR_SLOTS[hash % AVATAR_SLOTS.length];
   const colors: Record<string, string> = {
@@ -109,7 +118,7 @@ function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
     corrosive: '#a3e635', radiant: '#fde68a', void: '#c084fc', bloom: '#4ade80',
   };
   return {
-    id: `avatar-${slot}-${genome.baseElement}-${genome.element}-${genome.entityType}-${genome.enemyClass}`,
+    id: `avatar-${slot}-${hash.toString(36)}-${genome.baseElement}-${genome.element}`,
     slot,
     name: `${genome.element} ${genome.baseElement} ${slot}`,
     color: colors[genome.element] ?? '#93c5fd',
@@ -121,6 +130,10 @@ function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
     enemyClass: genome.enemyClass,
     niche: genome.niche,
     mutations: [...genome.mutations],
+    generation: genome.generation,
+    fusionLevel: genome.fusionLevel,
+    fusionElement: genome.fusionElement,
+    fusionAffinity: genome.fusionAffinity,
   };
 }
 
@@ -135,6 +148,10 @@ function normalizedAvatarComponent(component: AvatarComponentDrop): AvatarCompon
     enemyClass: component.enemyClass || sourceParts[1] || 'skirmisher',
     niche: component.niche || sourceParts[2] || 'hunter',
     mutations: Array.isArray(component.mutations) ? component.mutations : [],
+    generation: Number(component.generation) || 0,
+    fusionLevel: Number(component.fusionLevel) || 0,
+    fusionElement: component.fusionElement,
+    fusionAffinity: component.fusionAffinity,
   };
 }
 
@@ -522,7 +539,8 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
     // refresh it at widening intervals just like the Bestiary preview.
     const signature = [
       part.baseElement, part.element, part.entityType, part.enemyClass,
-      part.niche, part.variant, ...part.mutations,
+      part.niche, part.variant, part.generation, part.fusionLevel,
+      part.fusionElement ?? '', part.fusionAffinity ?? '', ...part.mutations,
     ].join(':');
     const seed = [...signature].reduce(
       (sum, character) => (sum * 33 + character.charCodeAt(0)) >>> 0,
@@ -534,7 +552,7 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
       entityType: part.entityType as EnemyGenome['entityType'],
       enemyClass: part.enemyClass as EnemyGenome['enemyClass'],
       niche: part.niche as EnemyGenome['niche'],
-      generation: 2 + part.variant,
+      generation: Math.max(part.generation, 2 + part.variant),
       mutations: part.mutations as EnemyGenome['mutations'],
       speedScale: 1,
       hpBonus: part.enemyClass === 'guardian' ? 2 : 0,
@@ -542,25 +560,65 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
         : part.mutations.includes('miniature') ? 0.82 : 1,
       regeneration: part.niche === 'regenerator' ? 0.2 : 0,
       phaseChance: part.niche === 'phase' ? 0.25 : 0,
-      fusionLevel: 0,
+      fusionLevel: part.fusionLevel,
+      fusionElement: part.fusionElement as EnemyGenome['fusionElement'],
+      fusionAffinity: part.fusionAffinity as EnemyGenome['fusionAffinity'],
     };
     const sourceSprite = getProceduralVirusSprite(seed, sourceGenome);
     const humanoidMask = ctx.getImageData(0, 0, 64, 64);
     const applySourceDetail = () => {
       ctx.putImageData(humanoidMask, 0, 0);
+      const sourceContext = sourceSprite.getContext('2d');
+      let cropX = 48;
+      let cropY = 8;
+      let cropWidth = 144;
+      let cropHeight = 144;
+      if (sourceContext) {
+        const pixels = sourceContext.getImageData(0, 0, sourceSprite.width, sourceSprite.height);
+        let minX = sourceSprite.width;
+        let minY = sourceSprite.height;
+        let maxX = -1;
+        let maxY = -1;
+        for (let y = 0; y < sourceSprite.height; y += 2) {
+          for (let x = 0; x < sourceSprite.width; x += 2) {
+            if (pixels.data[(y * sourceSprite.width + x) * 4 + 3] < 18) continue;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+        if (maxX >= minX && maxY >= minY) {
+          const padding = 4;
+          cropX = Math.max(0, minX - padding);
+          cropY = Math.max(0, minY - padding);
+          cropWidth = Math.min(sourceSprite.width - cropX, maxX - minX + padding * 2);
+          cropHeight = Math.min(sourceSprite.height - cropY, maxY - minY + padding * 2);
+        }
+      }
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.globalAlpha = thumbnail ? 0.82 : 0.9;
-      ctx.drawImage(sourceSprite, 48, 8, 144, 144, 0, 0, 64, 64);
+      ctx.globalAlpha = thumbnail ? 0.92 : 1;
+      // Fit the complete visible source entity into the humanoid socket. This
+      // carries its actual anatomy, surface detail and fusion crossover rather
+      // than sampling an often-empty fixed rectangle.
+      ctx.drawImage(
+        sourceSprite,
+        cropX, cropY, cropWidth, cropHeight,
+        part.slot === 'arms' ? -4 : 0,
+        part.slot === 'head' ? -2 : 0,
+        part.slot === 'arms' ? 72 : 64,
+        part.slot === 'legs' ? 70 : 64,
+      );
       ctx.restore();
 
       // Reassert readable pixel-volume after the source texture is clipped.
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
-      ctx.fillStyle = 'rgba(255,255,255,0.16)';
-      ctx.fillRect(7, 6, 18, 46);
-      ctx.fillStyle = 'rgba(2,6,23,0.25)';
-      ctx.fillRect(39, 12, 18, 44);
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      ctx.fillRect(7, 6, 12, 46);
+      ctx.fillStyle = 'rgba(2,6,23,0.18)';
+      ctx.fillRect(45, 12, 12, 44);
       ctx.restore();
     };
     applySourceDetail();
