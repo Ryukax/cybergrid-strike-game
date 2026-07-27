@@ -1235,6 +1235,30 @@ function AvatarAssembly({
     const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop, attack: number): Array<
       [number, number, number, number, number, number, number, number]
     > => {
+      if (componentAtlasReady) {
+        if (slot === 'head') {
+          const width = (fit.headProfile === 'broad' ? 47 : fit.headProfile === 'sensor' ? 39 : 43)
+            * fit.headScale;
+          return [[0, 0, 1, 1, 48 - width / 2 + attack * 2, 1 - attack * 2, width, 42]];
+        }
+        if (slot === 'torso') {
+          const width = Math.max(44, fit.torsoWidth + 8);
+          return [[0, 0, 1, 1, 48 - width / 2 + attack * 2, 27, width, fit.build === 'heavy' ? 55 : 51]];
+        }
+        if (slot === 'arms') {
+          const width = Math.min(92, Math.max(72, fit.shoulderSpan + 31) + attack * 8);
+          return [[0, 0, 1, 1, 48 - width / 2 + attack * 3, 28 - attack * 5, width, 58 + attack * 2]];
+        }
+        if (slot === 'legs') {
+          const width = fit.locomotion === 'tentacled' || fit.locomotion === 'serpentine'
+            ? 64 : Math.max(48, fit.hipWidth + 22);
+          return [[0, 0, 1, 1, 48 - width / 2 - attack * 2, 69, width + attack * 4, 59]];
+        }
+        if (slot === 'core') {
+          return [[0, 0, 1, 1, 37 + attack * 2, 43, 22, 22]];
+        }
+        return [[0, 0, 1, 1, 18 + attack * 2, 13, 60, 55]];
+      }
       if (slot === 'head') {
         const width = (fit.headProfile === 'broad' ? 44
           : fit.headProfile === 'sensor' ? 34 : 36) * fit.headScale;
