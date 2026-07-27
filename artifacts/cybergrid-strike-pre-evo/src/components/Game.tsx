@@ -6562,10 +6562,6 @@ export default function Game() {
                     className="avatarAssemblyPreview"
                     animation="showcase"
                   />
-                  <div id="assemblyFitReadout">
-                    <b>PRAGMATIC FIT ACTIVE</b>
-                    <span>{assemblyFit.description}</span>
-                  </div>
                 </div>
                 <div id="avatarComponentSlots">
                   {AVATAR_SLOTS.map((slot) => {
@@ -6610,6 +6606,10 @@ export default function Game() {
                     );
                   })}
                 </div>
+              </div>
+              <div id="assemblyFitReadout">
+                <b>PRAGMATIC FIT</b>
+                <span>{assemblyFit.description}</span>
               </div>
 
               <div id="customSubtitle" style={{ marginTop: '16px' }}>
