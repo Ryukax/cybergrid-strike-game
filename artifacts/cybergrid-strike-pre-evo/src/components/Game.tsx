@@ -966,7 +966,7 @@ function getAssemblyAtlas(part: AvatarComponentDrop): HTMLImageElement {
   const filename = part.slot === 'weapon'
     ? archetype === 'baseline'
       ? 'assembly-weapon-atlas-v1.png'
-      : 'assembly-weapon-atlas-archetypes-v1.png'
+      : `assembly-weapon-atlas-${archetype}-v2.png`
     : archetype === 'baseline'
       ? 'assembly-component-atlas-v1.png?v=2'
       : `assembly-component-atlas-${archetype}-v1.png`;
@@ -1030,9 +1030,7 @@ function buildAssemblyPartSprite(
   if (atlas.complete && atlas.naturalWidth > 0) {
     const archetype = assemblyArchetype(part);
     const column = assemblyAtlasColumn(part);
-    const row = part.slot === 'weapon'
-      ? archetype === 'baseline' ? 0 : { agile: 0, armored: 1, evolved: 2 }[archetype]
-      : BODY_AVATAR_SLOTS.indexOf(part.slot);
+    const row = part.slot === 'weapon' ? 0 : BODY_AVATAR_SLOTS.indexOf(part.slot);
     // Image-generated subjects do not land on perfectly equal mathematical
     // columns. These measured gutters prevent a crop from borrowing detached
     // pixels from the family immediately before or after it.
@@ -1070,19 +1068,18 @@ function buildAssemblyPartSprite(
         [0, 150, 323, 474, 639, 796, 944, 1095, 1254],
       ],
     };
-    const weaponRowBounds = [0, 286, 556, 887];
-    const weaponColumnBounds = [
-      [0, 251, 484, 690, 899, 1137, 1339, 1551, 1774],
-      [0, 262, 473, 689, 896, 1143, 1338, 1567, 1774],
-      [0, 262, 457, 700, 885, 1149, 1339, 1542, 1774],
-    ];
+    const weaponColumnBounds: Record<Exclude<AssemblyArchetype, 'baseline'>, number[]> = {
+      agile: [0, 251, 484, 690, 899, 1137, 1339, 1551, 1774],
+      armored: [0, 262, 473, 689, 896, 1143, 1338, 1567, 1774],
+      evolved: [0, 262, 457, 700, 885, 1149, 1339, 1542, 1774],
+    };
     const customGutters = archetype === 'baseline';
     const columnBounds = customGutters
       ? part.slot === 'weapon'
         ? [0, 365, 645, 890, 1125, 1360, 1610, 1885, 2172]
         : [0, 180, 347, 502, 676, 826, 976, 1115, 1254]
       : part.slot === 'weapon'
-        ? weaponColumnBounds[row]
+        ? weaponColumnBounds[archetype]
         : bodyColumnBounds[archetype][row];
     const atlasScale = atlas.naturalWidth / columnBounds[columnBounds.length - 1];
     const sourceLeft = Math.round(columnBounds[column] * atlasScale);
@@ -1093,7 +1090,7 @@ function buildAssemblyPartSprite(
         ? [0, atlas.naturalHeight]
         : [0, 230, 446, 663, 879, 1030, 1254]
       : part.slot === 'weapon'
-        ? weaponRowBounds
+        ? [0, atlas.naturalHeight]
         : bodyRowBounds[archetype];
     const rowScale = atlas.naturalHeight / rowBounds[rowBounds.length - 1];
     const sourceTop = Math.round(rowBounds[row] * rowScale);
