@@ -869,6 +869,16 @@ function assemblyAtlasColumn(part: AvatarComponentDrop): number {
   return 6;
 }
 
+let sharedAssemblyComponentAtlas: HTMLImageElement | null = null;
+function getAssemblyComponentAtlas(): HTMLImageElement {
+  if (!sharedAssemblyComponentAtlas) {
+    sharedAssemblyComponentAtlas = new Image();
+    sharedAssemblyComponentAtlas.src =
+      `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png`;
+  }
+  return sharedAssemblyComponentAtlas;
+}
+
 function buildAssemblyPartSprite(
   part: AvatarComponentDrop,
   atlas?: HTMLImageElement,
@@ -1172,19 +1182,29 @@ function AvatarAssembly({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
-    const componentAtlas = new Image();
-    let componentAtlasReady = false;
+    const componentAtlas = getAssemblyComponentAtlas();
+    let componentAtlasReady = componentAtlas.complete && componentAtlas.naturalWidth > 0;
+    let componentAtlasFailed = false;
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
-    for (const part of selected) {
-      sprites.set(part.id, buildAssemblyPartSprite(part));
+    if (componentAtlasReady) {
+      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
     }
-    componentAtlas.onload = () => {
+    const hydrateAtlasSprites = () => {
       componentAtlasReady = true;
       for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
       refreshBounds();
       redraw();
     };
-    componentAtlas.src = `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png`;
+    const useFallbackSprites = () => {
+      componentAtlasFailed = true;
+      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part));
+      refreshBounds();
+      redraw();
+    };
+    if (!componentAtlasReady) {
+      componentAtlas.addEventListener('load', hydrateAtlasSprites);
+      componentAtlas.addEventListener('error', useFallbackSprites);
+    }
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
       const source = sprite.getContext('2d');
@@ -1385,7 +1405,9 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (selected.length >= 2) drawUnderstructure(attack);
+      if (selected.length >= 2 && (componentAtlasReady || componentAtlasFailed)) {
+        drawUnderstructure(attack);
+      }
       // Components must remain the readable body, even when the fit score is
       // low. Cohesion now affects placement, never their visibility.
       ctx.globalAlpha = 1;
@@ -1416,11 +1438,13 @@ function AvatarAssembly({
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
-        for (const part of selected) {
-          sprites.set(part.id, buildAssemblyPartSprite(
-            part,
-            componentAtlasReady ? componentAtlas : undefined,
-          ));
+        if (componentAtlasReady || componentAtlasFailed) {
+          for (const part of selected) {
+            sprites.set(part.id, buildAssemblyPartSprite(
+              part,
+              componentAtlasReady ? componentAtlas : undefined,
+            ));
+          }
         }
         refreshBounds();
         if (animation === 'static') redraw();
@@ -1428,6 +1452,8 @@ function AvatarAssembly({
     return () => {
       active = false;
       cancelAnimationFrame(frame);
+      componentAtlas.removeEventListener('load', hydrateAtlasSprites);
+      componentAtlas.removeEventListener('error', useFallbackSprites);
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
