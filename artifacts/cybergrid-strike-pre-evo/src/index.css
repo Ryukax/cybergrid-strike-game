@@ -1039,6 +1039,14 @@ canvas#canvas {
   filter: drop-shadow(0 0 3px rgba(125, 211, 252, 0.65));
 }
 
+.avatarAssemblyCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
 .avatarPart {
   position: absolute;
   image-rendering: pixelated;

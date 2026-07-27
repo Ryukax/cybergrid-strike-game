@@ -645,13 +645,117 @@ function AvatarAssembly({
   equipped: EquippedAvatarComponents;
   className?: string;
 }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const selected = AVATAR_SLOTS
+    .map((slot) => components.find((component) => component.id === equipped[slot]))
+    .filter((part): part is AvatarComponentDrop => Boolean(part));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const sprites = new Map<string, HTMLCanvasElement>();
+    const seedFor = (part: AvatarComponentDrop) => [...[
+      part.baseElement, part.element, part.entityType, part.enemyClass,
+      part.niche, part.generation, part.fusionLevel,
+      part.fusionElement ?? '', part.fusionAffinity ?? '', ...part.mutations,
+    ].join(':')].reduce(
+      (sum, character) => (sum * 33 + character.charCodeAt(0)) >>> 0,
+      5381,
+    );
+    const genomeFor = (part: AvatarComponentDrop): EnemyGenome => ({
+      baseElement: part.baseElement as EnemyGenome['baseElement'],
+      element: part.element as EnemyGenome['element'],
+      entityType: part.entityType as EnemyGenome['entityType'],
+      enemyClass: part.enemyClass as EnemyGenome['enemyClass'],
+      niche: part.niche as EnemyGenome['niche'],
+      generation: Math.max(1, part.generation),
+      mutations: part.mutations as EnemyGenome['mutations'],
+      speedScale: 1,
+      hpBonus: part.enemyClass === 'guardian' ? 2 : 0,
+      sizeScale: part.mutations.includes('gigantic') ? 1.2
+        : part.mutations.includes('miniature') ? 0.82 : 1,
+      regeneration: part.niche === 'regenerator' ? 0.2 : 0,
+      phaseChance: part.niche === 'phase' ? 0.25 : 0,
+      fusionLevel: part.fusionLevel,
+      fusionElement: part.fusionElement as EnemyGenome['fusionElement'],
+      fusionAffinity: part.fusionAffinity as EnemyGenome['fusionAffinity'],
+    });
+    for (const part of selected) {
+      sprites.set(part.id, getProceduralVirusSprite(seedFor(part), genomeFor(part)));
+    }
+
+    const boundsOf = (sprite: HTMLCanvasElement) => {
+      const source = sprite.getContext('2d');
+      if (!source) return { x: 48, y: 8, width: 144, height: 144 };
+      const pixels = source.getImageData(0, 0, sprite.width, sprite.height);
+      let minX = sprite.width; let minY = sprite.height; let maxX = -1; let maxY = -1;
+      for (let y = 0; y < sprite.height; y += 2) {
+        for (let x = 0; x < sprite.width; x += 2) {
+          if (pixels.data[(y * sprite.width + x) * 4 + 3] < 18) continue;
+          minX = Math.min(minX, x); minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+        }
+      }
+      if (maxX < minX || maxY < minY) return { x: 48, y: 8, width: 144, height: 144 };
+      return {
+        x: Math.max(0, minX - 4),
+        y: Math.max(0, minY - 4),
+        width: Math.min(sprite.width - Math.max(0, minX - 4), maxX - minX + 8),
+        height: Math.min(sprite.height - Math.max(0, minY - 4), maxY - minY + 8),
+      };
+    };
+    const socketPath = (slot: AvatarSlot) => {
+      const path = new Path2D();
+      if (slot === 'head') {
+        path.moveTo(33, 6); path.lineTo(63, 6); path.lineTo(70, 16);
+        path.lineTo(64, 38); path.lineTo(48, 45); path.lineTo(32, 38); path.lineTo(26, 16); path.closePath();
+      } else if (slot === 'torso') {
+        path.moveTo(29, 42); path.lineTo(67, 42); path.lineTo(73, 78);
+        path.lineTo(61, 91); path.lineTo(35, 91); path.lineTo(23, 78); path.closePath();
+      } else if (slot === 'arms') {
+        path.moveTo(25, 45); path.lineTo(13, 48); path.lineTo(4, 79); path.lineTo(16, 84); path.lineTo(35, 57); path.closePath();
+        path.moveTo(71, 45); path.lineTo(83, 48); path.lineTo(92, 79); path.lineTo(80, 84); path.lineTo(61, 57); path.closePath();
+      } else if (slot === 'legs') {
+        path.moveTo(31, 84); path.lineTo(47, 84); path.lineTo(43, 122); path.lineTo(22, 122); path.closePath();
+        path.moveTo(49, 84); path.lineTo(65, 84); path.lineTo(74, 122); path.lineTo(53, 122); path.closePath();
+      } else if (slot === 'core') {
+        path.arc(48, 61, 13, 0, Math.PI * 2);
+      } else {
+        path.moveTo(17, 44); path.lineTo(6, 31); path.lineTo(28, 35);
+        path.lineTo(48, 20); path.lineTo(68, 35); path.lineTo(90, 31);
+        path.lineTo(79, 44); path.lineTo(66, 39); path.lineTo(48, 48); path.lineTo(30, 39); path.closePath();
+      }
+      return path;
+    };
+    const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
+    const redraw = () => {
+      ctx.clearRect(0, 0, 96, 128);
+      ctx.imageSmoothingEnabled = false;
+      for (const slot of drawOrder) {
+        const part = selected.find((candidate) => candidate.slot === slot);
+        const sprite = part ? sprites.get(part.id) : undefined;
+        if (!part || !sprite) continue;
+        const path = socketPath(slot);
+        const bounds = boundsOf(sprite);
+        ctx.save();
+        ctx.clip(path);
+        ctx.drawImage(sprite, bounds.x, bounds.y, bounds.width, bounds.height, 0, 0, 96, 128);
+        ctx.restore();
+        ctx.strokeStyle = part.color;
+        ctx.lineWidth = slot === 'core' ? 3 : 2;
+        ctx.stroke(path);
+      }
+    };
+    redraw();
+    const timers = [100, 300, 700, 1500, 3000].map((delay) =>
+      window.setTimeout(redraw, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [components, equipped]);
+
   return (
     <div className={`avatarAssembly ${className}`} aria-label="Equipped humanoid components">
-      {AVATAR_SLOTS.map((slot) => {
-        const part = components.find((component) => component.id === equipped[slot]);
-        if (!part) return null;
-        return <AvatarComponentCanvas key={slot} part={part} />;
-      })}
+      <canvas ref={canvasRef} width={96} height={128} className="avatarAssemblyCanvas" />
     </div>
   );
 }
