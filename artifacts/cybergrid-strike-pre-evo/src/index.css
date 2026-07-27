@@ -825,6 +825,8 @@ canvas#canvas {
   gap: 12px;
   width: 100%;
   margin-bottom: 4px;
+  overflow-x: auto;
+  padding-bottom: 6px;
 }
 
 .skin-btn {
@@ -840,6 +842,7 @@ canvas#canvas {
   touch-action: manipulation;
   transition: all 0.15s;
   flex: 1;
+  min-width: 92px;
 }
 
 .skin-btn.selected {
@@ -938,6 +941,46 @@ canvas#canvas {
   border-radius: 10px;
   font-size: 10px;
   line-height: 1.45;
+}
+
+.skin-skill-label {
+  max-width: 86px;
+  min-height: 22px;
+  color: #67e8f9;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+}
+
+.rivalSkillControls .rivalSkillTitle {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #e0f2fe;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.rivalSkillControls .rivalSkillTitle small {
+  color: #67e8f9;
+}
+
+.rivalPlayerSprite {
+  animation: rivalIdle 1.15s steps(2, end) infinite;
+  transform-origin: 50% 80%;
+}
+
+@keyframes rivalIdle {
+  0%, 100% { margin-top: 0; filter: drop-shadow(0 3px 2px rgba(2, 6, 23, 0.75)); }
+  50% { margin-top: -3px; filter: drop-shadow(0 5px 4px rgba(34, 211, 238, 0.28)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rivalPlayerSprite { animation: none; }
 }
 
 #learnedLoadoutGrid {

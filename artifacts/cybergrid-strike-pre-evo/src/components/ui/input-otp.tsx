@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { OTPInput, OTPInputContext } from 'input-otp';
+import { OTPInput, OTPInputContext, type RenderProps } from 'input-otp';
 import { Minus } from 'lucide-react';
 
 const InputOTP = React.forwardRef<
@@ -31,7 +31,12 @@ const InputOTPSlot = React.forwardRef<
   React.ElementRef<'div'>,
   React.ComponentPropsWithoutRef<'div'> & { index: number }
 >(({ index, className, ...props }, ref) => {
-  const inputOTPContext = React.useContext(OTPInputContext);
+  // Cast across the package's bundled React type boundary. At runtime this is
+  // the same context; the explicit type keeps React 19's stricter useContext
+  // inference from degrading the value to unknown.
+  const inputOTPContext = React.useContext(
+    OTPInputContext as React.Context<RenderProps>,
+  );
   const { char, hasFakeCaret, isActive } = inputOTPContext.slots[index];
 
   return (

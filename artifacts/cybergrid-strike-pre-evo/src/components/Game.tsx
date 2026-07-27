@@ -1242,6 +1242,36 @@ interface CloneView {
   cols: Record<CloneDirection, number | null>;
 }
 
+type RivalSkillId =
+  | 'chrono' | 'singularity' | 'override' | 'architect'
+  | 'apex' | 'counter' | 'phase' | 'phoenix';
+interface RivalSkillView {
+  active: boolean;
+  id: RivalSkillId | null;
+  mode: number;
+  charges: number;
+  expiresAt: number;
+  origin: { col: number; row: number; hp: number };
+}
+const emptyRivalSkillView = (): RivalSkillView => ({
+  active: false,
+  id: null,
+  mode: 0,
+  charges: 0,
+  expiresAt: 0,
+  origin: { col: 1, row: 1, hp: 5 },
+});
+const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
+  chrono: 'Chrono Break',
+  singularity: 'Singularity Engine',
+  override: 'Neural Override',
+  architect: 'Grid Architect',
+  apex: 'Apex Adaptation',
+  counter: 'Counter Matrix',
+  phase: 'Phase Hunt',
+  phoenix: 'Phoenix Circuit',
+};
+
 const emptyCloneView = (): CloneView => ({
   visible: false,
   revealed: false,
@@ -1547,11 +1577,16 @@ export default function Game() {
   }, [learnAbility, registerGeneratedAbility]);
 
   // Player skin
-  type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem' | 'assembly';
+  type PlayerSkin =
+    | 'default' | 'rocket' | 'dots' | 'gem' | 'assembly'
+    | 'chrono' | 'singularity' | 'override' | 'architect'
+    | 'apex' | 'counter' | 'phase' | 'phoenix';
   const SKIN_KEY = 'cgs_player_skin';
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
+  const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1627,6 +1662,15 @@ export default function Game() {
     }, 150);
   }, []);
 
+  const rivalShootFlash = useCallback(() => {
+    if (gifAttackFramesRef.current.length < 1) return;
+    gemAttackFrameRef.current = 0;
+    if (gemAttackTimer.current) clearTimeout(gemAttackTimer.current);
+    gemAttackTimer.current = setTimeout(() => {
+      gemAttackFrameRef.current = -1;
+    }, 360);
+  }, []);
+
   useEffect(() => () => {
     if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
     if (skillTapTimerRef.current) clearTimeout(skillTapTimerRef.current);
@@ -1634,7 +1678,9 @@ export default function Game() {
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
-    if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem') return;
+    const rivalSkin = (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
+      .includes(playerSkin);
+    if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem' && !rivalSkin) return;
     const base = import.meta.env.BASE_URL;
     const loadBmp = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
@@ -1660,6 +1706,11 @@ export default function Game() {
         .then(bitmaps => { gifMoveFramesRef.current = bitmaps; })
         .catch(err => console.error('[gem move] frame load error:', err));
     }
+    if (rivalSkin) {
+      Promise.all([loadBmp(`${base}skins/skill-${playerSkin}-attack.png`)])
+        .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
+        .catch(err => console.error(`[${playerSkin} attack] frame load error:`, err));
+    }
 
     let cancelled = false;
 
@@ -1684,7 +1735,9 @@ export default function Game() {
               `${base}skins/dots_frame_3.png`,
               `${base}skins/dots_frame_4.png`,
             ]
-          : /* gem */ Array.from({ length: 12 }, (_, i) => `${base}skins/gem_frame_${i}.png`);
+          : playerSkin === 'gem'
+          ? Array.from({ length: 12 }, (_, i) => `${base}skins/gem_frame_${i}.png`)
+          : [`${base}skins/skill-${playerSkin}-idle.png`];
         const bitmaps = await Promise.all(urls.map(loadBitmap));
         if (cancelled) { bitmaps.forEach(b => b.close()); return; }
         gifFramesRef.current = bitmaps;
@@ -1857,7 +1910,9 @@ export default function Game() {
     const playerOriginShot = opts?.originCol === undefined;
     if (playerOriginShot && playerSkinRef.current === 'rocket') rocketShootFlash();
     if (playerOriginShot && playerSkinRef.current === 'gem' && s.autoBuster) gemShootFlash();
-  }, [rocketShootFlash, gemShootFlash]);
+    if (playerOriginShot && (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
+      .includes(playerSkinRef.current)) rivalShootFlash();
+  }, [rocketShootFlash, gemShootFlash, rivalShootFlash]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
@@ -2900,9 +2955,230 @@ export default function Game() {
     }, 260);
   }, [cycleActiveControl]);
 
+  const finishRivalSkill = useCallback((release = true) => {
+    const active = rivalSkillRef.current;
+    if (!active.active || !active.id) return;
+    const s = stateRef.current;
+    if (release) {
+      if (active.id === 'chrono') {
+        for (let row = 0; row < 3; row++) {
+          for (let i = 0; i < Math.max(1, active.charges); i++) {
+            fireBullet(row, { power: 2, big: true, pierce: true });
+          }
+        }
+      } else if (active.id === 'singularity') {
+        for (const enemy of s.enemies) {
+          enemy.colPos = Math.min(5.8, enemy.colPos + 1.4);
+          enemy.hp -= 3 + active.charges;
+          enemy.flash = 0.2;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+      } else if (active.id === 'override') {
+        const host = [...s.enemies].sort((a, b) => b.hp - a.hp)[0];
+        if (host) {
+          for (let row = 0; row < 3; row++) {
+            fireBullet(row, { power: Math.max(2, host.hp), big: true, pierce: true });
+          }
+          host.hp = 0;
+          s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        }
+      } else if (active.id === 'architect') {
+        s.turretTimer = Math.max(s.turretTimer, 7);
+        s.shieldCharges += Math.max(1, active.charges);
+      } else if (active.id === 'apex') {
+        const modes = ['breaker', 'reflector', 'nullifier'];
+        const form = modes[active.mode % modes.length];
+        if (form === 'breaker') s.pierceShots += 12;
+        if (form === 'reflector') s.shieldCharges += 3;
+        if (form === 'nullifier') s.signalJamTimer = Math.max(s.signalJamTimer, 8);
+      } else if (active.id === 'counter') {
+        for (let row = 0; row < 3; row++) {
+          fireBullet(row, { power: 2 + active.charges, big: true, pierce: true });
+        }
+      } else if (active.id === 'phase') {
+        const marked = [...s.enemies].sort((a, b) => b.hp - a.hp).slice(0, 3 + active.charges);
+        const markedSet = new Set(marked);
+        s.enemies = s.enemies.filter((enemy) => !markedSet.has(enemy));
+        s.score += marked.length * 100;
+      } else if (active.id === 'phoenix') {
+        const heat = Math.max(1, active.charges);
+        for (let row = 0; row < 3; row++) {
+          fireBullet(row, { power: 2 + heat, big: true, pierce: heat >= 3 });
+        }
+      }
+    }
+    const cleared = emptyRivalSkillView();
+    rivalSkillRef.current = cleared;
+    setRivalSkillView(cleared);
+    showMessage(`${RIVAL_SKILL_LABELS[active.id]} complete.`, 900);
+    updateHud();
+  }, [fireBullet, showMessage, updateHud]);
+
+  const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
+    const active = rivalSkillRef.current;
+    if (!active.active || !active.id) return;
+    const s = stateRef.current;
+    let next = { ...active };
+    if (active.id === 'chrono') {
+      if (action === 'primary') {
+        next.charges = Math.min(5, next.charges + 1);
+        showMessage(`Attack queued ×${next.charges}.`, 700);
+      } else if (action === 'alternate') {
+        s.player.row = (s.player.row + 1) % 3;
+        showMessage('Time Step.', 650);
+      } else {
+        s.player.col = active.origin.col;
+        s.player.row = active.origin.row;
+        s.hp = Math.max(s.hp, active.origin.hp);
+        showMessage('Timeline rewound.', 750);
+      }
+    } else if (active.id === 'singularity') {
+      if (action === 'primary') {
+        for (const enemy of s.enemies) {
+          enemy.row += Math.sign(s.player.row - enemy.row);
+          enemy.hp -= enemy.row === s.player.row ? 2 : 1;
+          enemy.flash = 0.15;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        next.charges++;
+        showMessage('Gravity collapse.', 700);
+      } else if (action === 'alternate') {
+        next.mode = next.mode ? 0 : 1;
+        showMessage(next.mode ? 'Polarity: REPEL' : 'Polarity: ATTRACT', 800);
+      } else {
+        s.shieldCharges++;
+        next.charges++;
+        showMessage('Event Guard captured pressure.', 800);
+      }
+    } else if (active.id === 'override') {
+      const hosts = [...s.enemies].sort((a, b) => b.hp - a.hp);
+      const host = hosts[active.mode % Math.max(1, hosts.length)];
+      if (action === 'primary' && host) {
+        fireBullet(host.row, { power: Math.max(2, Math.ceil(host.hp / 2)), big: true, pierce: true });
+        showMessage('Native attack appropriated.', 800);
+      } else if (action === 'alternate') {
+        next.mode = (next.mode + 1) % Math.max(1, hosts.length);
+        showMessage('Control transferred.', 700);
+      } else if (host) {
+        s.shieldCharges++;
+        s.enemies = s.enemies.filter((enemy) => enemy !== host);
+        showMessage('Host sacrificed to intercept.', 850);
+      }
+    } else if (active.id === 'architect') {
+      if (action === 'primary') {
+        s.turretTimer = Math.max(s.turretTimer, 4);
+        next.charges++;
+        showMessage('Cannon node placed.', 700);
+      } else if (action === 'alternate') {
+        s.player.row = (s.player.row + 1) % 3;
+        next.charges++;
+        showMessage('Relay jump.', 650);
+      } else {
+        s.shieldCharges++;
+        next.charges++;
+        showMessage('Barrier node placed.', 700);
+      }
+    } else if (active.id === 'apex') {
+      if (action === 'alternate') {
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Counter-form: ${['BREAKER', 'REFLECTOR', 'NULLIFIER'][next.mode]}`, 900);
+      } else if (action === 'primary') {
+        if (next.mode === 0) fireBullet(undefined, { power: 5, big: true, pierce: true });
+        else if (next.mode === 1) s.pulseTimer = Math.max(s.pulseTimer, 3);
+        else s.signalJamTimer = Math.max(s.signalJamTimer, 4);
+      } else {
+        if (next.mode === 0) s.ghostTimer = Math.max(s.ghostTimer, 1.5);
+        else if (next.mode === 1) s.shieldCharges += 2;
+        else s.hp++;
+        showMessage('Defensive adaptation expressed.', 800);
+      }
+    } else if (active.id === 'counter') {
+      if (action === 'primary') {
+        fireBullet(undefined, { power: 2 + next.charges, big: true, pierce: true });
+        next.charges = 0;
+        showMessage('Captured force returned.', 750);
+      } else if (action === 'alternate') {
+        s.player.row = (s.player.row + 1) % 3;
+        showMessage('Matrix redirected.', 650);
+      } else {
+        next.charges = Math.min(5, next.charges + 1);
+        s.shieldCharges++;
+        if (next.charges >= 3) s.hp++;
+        showMessage(`Pressure captured ×${next.charges}.`, 800);
+      }
+    } else if (active.id === 'phase') {
+      const targets = [...s.enemies].sort((a, b) => b.hp - a.hp);
+      const target = targets[active.mode % Math.max(1, targets.length)];
+      if (action === 'primary' && target) {
+        s.player.row = target.row;
+        target.hp -= 6;
+        target.flash = 0.2;
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        next.charges++;
+        showMessage('Phase Strike.', 650);
+      } else if (action === 'alternate') {
+        next.mode = (next.mode + 1) % Math.max(1, targets.length);
+        showMessage('Priority target changed.', 700);
+      } else {
+        s.player.col = active.origin.col;
+        s.player.row = active.origin.row;
+        showMessage('Chain broken; unused marks retained.', 800);
+      }
+    } else if (active.id === 'phoenix') {
+      if (action === 'primary') {
+        const heat = Math.max(1, next.charges);
+        fireBullet(undefined, { power: 2 + heat, big: true, pierce: heat >= 3 });
+        next.charges = Math.max(0, next.charges - 2);
+        showMessage(`Heat vented · ${next.charges} retained.`, 800);
+      } else if (action === 'alternate') {
+        next.origin = { col: s.player.col, row: s.player.row, hp: s.hp };
+        showMessage('Restoration anchor moved.', 750);
+      } else {
+        s.player.col = next.origin.col;
+        s.player.row = next.origin.row;
+        s.hp = Math.max(s.hp, next.origin.hp);
+        next.charges++;
+        showMessage('Recorded state restored.', 800);
+      }
+    }
+    rivalSkillRef.current = next;
+    setRivalSkillView(next);
+    updateHud();
+  }, [fireBullet, showMessage, updateHud]);
+
+  const activateRivalSkill = useCallback((id: RivalSkillId) => {
+    const current = rivalSkillRef.current;
+    if (current.active) {
+      finishRivalSkill(true);
+      return;
+    }
+    const s = stateRef.current;
+    const next: RivalSkillView = {
+      active: true,
+      id,
+      mode: 0,
+      charges: 0,
+      expiresAt: performance.now() + 9000,
+      origin: { col: s.player.col, row: s.player.row, hp: s.hp },
+    };
+    rivalSkillRef.current = next;
+    setRivalSkillView(next);
+    if (id === 'chrono') s.slowTimer = Math.max(s.slowTimer, 9);
+    if (id === 'counter') s.shieldCharges++;
+    if (id === 'phase') s.ghostTimer = Math.max(s.ghostTimer, 9);
+    if (id === 'phoenix') s.shieldCharges++;
+    showMessage(`${RIVAL_SKILL_LABELS[id]} · X technique · Y shift · B guard`, 1800);
+  }, [finishRivalSkill, showMessage]);
+
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
     if (phaseRef.current !== 'playing' || !s.running || pausedRef.current) return;
+    const selectedRival = (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as RivalSkillId[])
+      .find((id) => id === playerSkinRef.current);
+    if (selectedRival) {
+      activateRivalSkill(selectedRival);
+      return;
+    }
     const activeClones = cloneSessionRef.current;
     if (activeClones.visible) {
       if (!activeClones.inputActive) return;
@@ -3040,7 +3316,7 @@ export default function Game() {
         skillFxTimerRef.current = null;
       }, 1530);
     }, 900);
-  }, [fireBullet, showMessage, registerPlaystyle]);
+  }, [activateRivalSkill, fireBullet, showMessage, registerPlaystyle]);
 
   const queueSkillTap = useCallback(() => {
     if (skillTapTimerRef.current) {
@@ -3185,6 +3461,12 @@ export default function Game() {
     const gp = gamepadRef.current;
     if (gp.skill && !gp.prevSkill) queueSkillTap();
     if (gp.r2 && !gp.prevR2) queueR2ControlCycle();
+    const rivalInputActive = rivalSkillRef.current.active;
+    if (rivalInputActive) {
+      if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
+      else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
+      else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
+    }
     const cloneInputActive = cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
     if (cloneInputActive) {
@@ -3237,7 +3519,7 @@ export default function Game() {
     }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
-    if (!cloneControlActive && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
+    if (!cloneControlActive && !rivalInputActive && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
       if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
@@ -3264,6 +3546,9 @@ export default function Game() {
     s.signalJamTimer = Math.max(0, s.signalJamTimer - dt);
     s.stasisGateTimer = Math.max(0, s.stasisGateTimer - dt);
     s.adaptiveAmmoTimer = Math.max(0, s.adaptiveAmmoTimer - dt);
+    if (rivalSkillRef.current.active && performance.now() >= rivalSkillRef.current.expiresAt) {
+      finishRivalSkill(true);
+    }
     if (s.pulseTimer > 0) {
       s.pulseTimer = Math.max(0, s.pulseTimer - dt);
       s.pulseTick  = Math.max(0, s.pulseTick  - dt);
@@ -3614,9 +3899,23 @@ export default function Game() {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
           s.hp--;
+          const phoenix = rivalSkillRef.current;
+          if (phoenix.active && phoenix.id === 'phoenix') {
+            const heated = { ...phoenix, charges: Math.min(6, phoenix.charges + 1) };
+            rivalSkillRef.current = heated;
+            setRivalSkillView(heated);
+            if (s.hp <= 0) {
+              s.player.col = phoenix.origin.col;
+              s.player.row = phoenix.origin.row;
+              s.hp = Math.max(1, phoenix.origin.hp);
+              showMessage('Phoenix Circuit restored the recorded state!', 1200);
+            }
+          }
           e.colPos = -9;
           playHit();
-          showMessage('Watch incoming viruses on your row!', 1200);
+          if (!(phoenix.active && phoenix.id === 'phoenix' && s.hp > 0)) {
+            showMessage('Watch incoming viruses on your row!', 1200);
+          }
           if (s.hp <= 0) { updateHud(); endGame(); return; }
         }
       }
@@ -3816,7 +4115,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -3956,7 +4255,9 @@ export default function Game() {
       const skinHasOverlay = playerSkinRef.current === 'rocket'
         || playerSkinRef.current === 'dots'
         || playerSkinRef.current === 'gem'
-        || playerSkinRef.current === 'assembly';
+        || playerSkinRef.current === 'assembly'
+        || (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
+          .includes(playerSkinRef.current);
       if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay);
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
@@ -3967,7 +4268,9 @@ export default function Game() {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
-          const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 0.85 : 0.72;
+          const rivalSkin = (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
+            .includes(playerSkinRef.current);
+          const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 0.85 : rivalSkin ? 1.08 : 0.72;
           const sz = Math.round(m.cell * szScale);
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
@@ -3988,6 +4291,8 @@ export default function Game() {
               // Gem attack takes highest priority
               const aFrames = gifAttackFramesRef.current;
               bitmap = aFrames[gemAttackFrameRef.current % Math.max(1, aFrames.length)];
+            } else if (rivalSkin && gemAttackFrameRef.current >= 0) {
+              bitmap = gifAttackFramesRef.current[0] ?? frames[0];
             } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
               // Gem movement second priority
               const mFrames = gifMoveFramesRef.current;
@@ -4109,6 +4414,9 @@ export default function Game() {
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
     setCloneView(clearedClones);
+    const clearedRivalSkill = emptyRivalSkillView();
+    rivalSkillRef.current = clearedRivalSkill;
+    setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     eloAttackDirectionRef.current = 1;
     gemMoveMirrorRef.current = true;
@@ -4162,6 +4470,9 @@ export default function Game() {
     const clearedClones = emptyCloneView();
     cloneSessionRef.current = clearedClones;
     setCloneView(clearedClones);
+    const clearedRivalSkill = emptyRivalSkillView();
+    rivalSkillRef.current = clearedRivalSkill;
+    setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
@@ -4275,7 +4586,13 @@ export default function Game() {
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
       else if (ev.key === ' ') manualBuster();
       else if ((ev.key === 'q' || ev.key === 'Q') && s.upgradePromptOpen) openUpgradeSelection();
-      else if (cloneSessionRef.current.inputActive && (ev.key === 'z' || ev.key === 'Z')) {
+      else if (rivalSkillRef.current.active && (ev.key === 'z' || ev.key === 'Z')) {
+        resolveRivalSkillAction('primary');
+      } else if (rivalSkillRef.current.active && (ev.key === 'x' || ev.key === 'X')) {
+        resolveRivalSkillAction('alternate');
+      } else if (rivalSkillRef.current.active && (ev.key === 'c' || ev.key === 'C')) {
+        resolveRivalSkillAction('defend');
+      } else if (cloneSessionRef.current.inputActive && (ev.key === 'z' || ev.key === 'Z')) {
         resolveCloneAction('attack');
       } else if (cloneSessionRef.current.inputActive && (ev.key === 'x' || ev.key === 'X')) {
         switchCloneControl();
@@ -4327,7 +4644,7 @@ export default function Game() {
       cleanups.forEach((c) => c());
     };
   }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
-    resolveCloneAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
+    resolveCloneAction, resolveRivalSkillAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -4458,9 +4775,12 @@ export default function Game() {
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
-      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly') && (
+      {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly'
+        || (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[]).includes(playerSkin)) && (
         <div
           ref={spriteWrapRef}
+          className={(['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
+            .includes(playerSkin) ? 'rivalPlayerSprite' : undefined}
           style={{
             position: 'absolute',
             pointerEvents: 'none',
@@ -4567,6 +4887,58 @@ export default function Game() {
             );
           })}
         </>
+      )}
+
+      {phase === 'playing' && rivalSkillView.active && rivalSkillView.id && (
+        <div
+          id="cloneActionControls"
+          className={`rivalSkillControls skill-${rivalSkillView.id}`}
+          style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}
+        >
+          <div className="rivalSkillTitle">
+            {RIVAL_SKILL_LABELS[rivalSkillView.id]}
+            <small>{Math.max(0, Math.ceil((rivalSkillView.expiresAt - performance.now()) / 1000))}s</small>
+          </div>
+          <button className="cloneActionBtn attack" onPointerDown={(event) => {
+            event.stopPropagation();
+            resolveRivalSkillAction('primary');
+          }}>
+            <b>X</b>
+            {rivalSkillView.id === 'chrono' ? 'QUEUE'
+              : rivalSkillView.id === 'singularity' ? 'COLLAPSE'
+              : rivalSkillView.id === 'override' ? 'NATIVE'
+              : rivalSkillView.id === 'architect' ? 'CANNON'
+              : rivalSkillView.id === 'apex' ? 'TECHNIQUE'
+              : rivalSkillView.id === 'counter' ? 'RETURN'
+              : rivalSkillView.id === 'phoenix' ? 'VENT' : 'STRIKE'}
+          </button>
+          <button className="cloneActionBtn switch" onPointerDown={(event) => {
+            event.stopPropagation();
+            resolveRivalSkillAction('alternate');
+          }}>
+            <b>Y</b>
+            {rivalSkillView.id === 'chrono' ? 'STEP'
+              : rivalSkillView.id === 'singularity' ? 'POLARITY'
+              : rivalSkillView.id === 'override' ? 'TRANSFER'
+              : rivalSkillView.id === 'architect' ? 'RELAY'
+              : rivalSkillView.id === 'apex' ? 'FORM'
+              : rivalSkillView.id === 'counter' ? 'REDIRECT'
+              : rivalSkillView.id === 'phoenix' ? 'ANCHOR' : 'TARGET'}
+          </button>
+          <button className="cloneActionBtn defend" onPointerDown={(event) => {
+            event.stopPropagation();
+            resolveRivalSkillAction('defend');
+          }}>
+            <b>B</b>
+            {rivalSkillView.id === 'chrono' ? 'REWIND'
+              : rivalSkillView.id === 'singularity' ? 'GUARD'
+              : rivalSkillView.id === 'override' ? 'SACRIFICE'
+              : rivalSkillView.id === 'architect' ? 'BARRIER'
+              : rivalSkillView.id === 'apex' ? 'ADAPT'
+              : rivalSkillView.id === 'counter' ? 'CONVERT'
+              : rivalSkillView.id === 'phoenix' ? 'RESTORE' : 'BREAK'}
+          </button>
+        </div>
       )}
 
       {phase === 'playing' && cloneView.inputActive && (
@@ -4867,6 +5239,14 @@ export default function Game() {
                   { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
                   { id: 'gem',     label: 'Elo',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
                   { id: 'assembly', label: 'Assembly', preview: null },
+                  { id: 'chrono', label: 'Chrona', preview: `${import.meta.env.BASE_URL}skins/skill-chrono-idle.png` },
+                  { id: 'singularity', label: 'Gravitas', preview: `${import.meta.env.BASE_URL}skins/skill-singularity-idle.png` },
+                  { id: 'override', label: 'Cipher', preview: `${import.meta.env.BASE_URL}skins/skill-override-idle.png` },
+                  { id: 'architect', label: 'Artifex', preview: `${import.meta.env.BASE_URL}skins/skill-architect-idle.png` },
+                  { id: 'apex', label: 'Vesper', preview: `${import.meta.env.BASE_URL}skins/skill-apex-idle.png` },
+                  { id: 'counter', label: 'Aegis', preview: `${import.meta.env.BASE_URL}skins/skill-counter-idle.png` },
+                  { id: 'phase', label: 'Nyx', preview: `${import.meta.env.BASE_URL}skins/skill-phase-idle.png` },
+                  { id: 'phoenix', label: 'Ember', preview: `${import.meta.env.BASE_URL}skins/skill-phoenix-idle.png` },
                 ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
                   <button
                     key={skin.id}
@@ -4888,6 +5268,11 @@ export default function Game() {
                       ? <SkinPreviewCanvas src={skin.preview} />
                       : <span className="skin-default-icon">🤖</span>}
                     <span className="skin-label">{skin.label}</span>
+                    {(skin.id in RIVAL_SKILL_LABELS) && (
+                      <small className="skin-skill-label">
+                        {RIVAL_SKILL_LABELS[skin.id as RivalSkillId]}
+                      </small>
+                    )}
                   </button>
                 ))}
               </div>
