@@ -164,6 +164,30 @@ interface BestiaryEntry {
   synchronizedAbilityId?: string;
 }
 
+function avatarComponentsRecoveredFromBestiary(): AvatarComponentDrop[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
+    if (!Array.isArray(stored)) return [];
+    const recovered = stored
+      .filter((entry: BestiaryEntry) =>
+        entry?.genome?.baseElement
+        && entry.genome.element
+        && entry.genome.entityType
+        && entry.genome.enemyClass
+        && entry.genome.niche)
+      .map((entry: BestiaryEntry) => avatarComponentFromGenome({
+        ...entry.genome,
+        mutations: Array.isArray(entry.genome.mutations) ? entry.genome.mutations : [],
+        generation: Number(entry.genome.generation) || 0,
+        fusionLevel: Number(entry.genome.fusionLevel) || 0,
+      }));
+    return [...new Map(recovered.map((component) => [component.id, component])).values()]
+      .slice(0, 180);
+  } catch {
+    return [];
+  }
+}
+
 interface AbilityBlueprint {
   abilityId: string;
   delivery: string;
@@ -1317,10 +1341,16 @@ export default function Game() {
           component?.id && AVATAR_SLOTS.includes(component.slot))
           .map((component: AvatarComponentDrop) => normalizedAvatarComponent(component))
         : [];
-      localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(normalized));
-      return normalized;
+      const recovered = avatarComponentsRecoveredFromBestiary();
+      const merged = [...new Map(
+        [...normalized, ...recovered].map((component) => [component.id, component]),
+      ).values()].slice(0, 180);
+      localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(merged));
+      return merged;
     } catch {
-      return [];
+      const recovered = avatarComponentsRecoveredFromBestiary();
+      localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(recovered));
+      return recovered;
     }
   });
   const avatarComponentsRef = useRef(avatarComponents);
