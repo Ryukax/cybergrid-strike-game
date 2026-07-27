@@ -930,26 +930,54 @@ function assemblyAtlasColumn(part: AvatarComponentDrop): number {
   return 6;
 }
 
-let sharedAssemblyComponentAtlas: HTMLImageElement | null = null;
-let sharedAssemblyWeaponAtlas: HTMLImageElement | null = null;
-function getAssemblyComponentAtlas(): HTMLImageElement {
-  if (!sharedAssemblyComponentAtlas) {
-    sharedAssemblyComponentAtlas = new Image();
-    sharedAssemblyComponentAtlas.decoding = 'async';
-    sharedAssemblyComponentAtlas.src =
-      `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png?v=2`;
+type AssemblyArchetype = 'baseline' | 'agile' | 'armored' | 'evolved';
+
+function assemblyArchetype(part: AvatarComponentDrop): AssemblyArchetype {
+  if (part.fusionLevel > 0 || part.generation >= 4 || part.mutations.length >= 2
+    || ['replicator', 'mender'].includes(part.enemyClass)) return 'evolved';
+  if (part.enemyClass === 'guardian' || part.niche === 'bulwark'
+    || part.mutations.some((mutation) => ['armored', 'gigantic', 'resilient'].includes(mutation))) {
+    return 'armored';
   }
-  return sharedAssemblyComponentAtlas;
+  if (['skirmisher', 'predator', 'infiltrator'].includes(part.enemyClass)
+    || ['scout', 'hunter', 'phase'].includes(part.niche)
+    || part.mutations.some((mutation) => ['accelerated', 'miniature'].includes(mutation))) {
+    return 'agile';
+  }
+  if (part.slot === 'weapon') {
+    if (/cloneDefense/.test(part.source)) return 'armored';
+    if (/manualFire|autoOffFire|movement/.test(part.source)) return 'agile';
+    if (/abilityUse|rotation|cloneAutofire/.test(part.source)) return 'evolved';
+  }
+  return 'baseline';
 }
 
-function getAssemblyWeaponAtlas(): HTMLImageElement {
-  if (!sharedAssemblyWeaponAtlas) {
-    sharedAssemblyWeaponAtlas = new Image();
-    sharedAssemblyWeaponAtlas.decoding = 'async';
-    sharedAssemblyWeaponAtlas.src =
-      `${import.meta.env.BASE_URL}skins/assembly-weapon-atlas-v1.png`;
+function assemblyVisualSignature(part: AvatarComponentDrop): string {
+  return [
+    part.slot,
+    assemblyAtlasColumn(part),
+    assemblyArchetype(part),
+  ].join(':');
+}
+
+const sharedAssemblyAtlases = new Map<string, HTMLImageElement>();
+function getAssemblyAtlas(part: AvatarComponentDrop): HTMLImageElement {
+  const archetype = assemblyArchetype(part);
+  const filename = part.slot === 'weapon'
+    ? archetype === 'baseline'
+      ? 'assembly-weapon-atlas-v1.png'
+      : 'assembly-weapon-atlas-archetypes-v1.png'
+    : archetype === 'baseline'
+      ? 'assembly-component-atlas-v1.png?v=2'
+      : `assembly-component-atlas-${archetype}-v1.png`;
+  let atlas = sharedAssemblyAtlases.get(filename);
+  if (!atlas) {
+    atlas = new Image();
+    atlas.decoding = 'async';
+    atlas.src = `${import.meta.env.BASE_URL}skins/${filename}`;
+    sharedAssemblyAtlases.set(filename, atlas);
   }
-  return sharedAssemblyWeaponAtlas;
+  return atlas;
 }
 
 function buildAssemblyPartSprite(
@@ -962,19 +990,31 @@ function buildAssemblyPartSprite(
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
   if (atlas.complete && atlas.naturalWidth > 0) {
+    const archetype = assemblyArchetype(part);
     const column = assemblyAtlasColumn(part);
-    const row = part.slot === 'weapon' ? 0 : BODY_AVATAR_SLOTS.indexOf(part.slot);
+    const row = part.slot === 'weapon'
+      ? archetype === 'baseline' ? 0 : { agile: 0, armored: 1, evolved: 2 }[archetype]
+      : BODY_AVATAR_SLOTS.indexOf(part.slot);
     // Image-generated subjects do not land on perfectly equal mathematical
     // columns. These measured gutters prevent a crop from borrowing detached
     // pixels from the family immediately before or after it.
-    const columnBounds = part.slot === 'weapon'
-      ? [0, 365, 645, 890, 1125, 1360, 1610, 1885, 2172]
-      : [0, 180, 347, 502, 676, 826, 976, 1115, 1254];
+    const customGutters = archetype === 'baseline';
+    const columnBounds = customGutters
+      ? part.slot === 'weapon'
+        ? [0, 365, 645, 890, 1125, 1360, 1610, 1885, 2172]
+        : [0, 180, 347, 502, 676, 826, 976, 1115, 1254]
+      : Array.from({ length: 9 }, (_, index) => atlas.naturalWidth * index / 8);
     const atlasScale = atlas.naturalWidth / columnBounds[columnBounds.length - 1];
     const sourceLeft = Math.round(columnBounds[column] * atlasScale);
     const sourceRight = Math.round(columnBounds[column + 1] * atlasScale);
     const cellWidth = sourceRight - sourceLeft;
-    const rowBounds = [0, 230, 446, 663, 879, 1030, 1254];
+    const rowBounds = customGutters && part.slot !== 'weapon'
+      ? [0, 230, 446, 663, 879, 1030, 1254]
+      : Array.from(
+        { length: part.slot === 'weapon' ? (archetype === 'baseline' ? 2 : 4) : 7 },
+        (_, index) => atlas.naturalHeight * index
+          / (part.slot === 'weapon' ? (archetype === 'baseline' ? 1 : 3) : 6),
+      );
     const rowScale = atlas.naturalHeight / rowBounds[rowBounds.length - 1];
     const sourceTop = part.slot === 'weapon' ? 0 : Math.round(rowBounds[row] * rowScale);
     const sourceBottom = part.slot === 'weapon'
@@ -1278,38 +1318,32 @@ function AvatarAssembly({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
-    const componentAtlas = getAssemblyComponentAtlas();
-    const weaponAtlas = getAssemblyWeaponAtlas();
-    let componentAtlasReady = componentAtlas.complete && componentAtlas.naturalWidth > 0;
-    let weaponAtlasReady = weaponAtlas.complete && weaponAtlas.naturalWidth > 0;
-    const atlasFor = (part: AvatarComponentDrop) =>
-      part.slot === 'weapon' ? weaponAtlas : componentAtlas;
-    const atlasReadyFor = (part: AvatarComponentDrop) =>
-      part.slot === 'weapon' ? weaponAtlasReady : componentAtlasReady;
+    const atlasFor = (part: AvatarComponentDrop) => getAssemblyAtlas(part);
+    const atlases = [...new Set(selected.map(atlasFor))];
+    const readyAtlases = new Set(atlases.filter((atlas) =>
+      atlas.complete && atlas.naturalWidth > 0));
+    const atlasReadyFor = (part: AvatarComponentDrop) => readyAtlases.has(atlasFor(part));
+    const bodyAtlasesReady = () => selected
+      .filter((part) => part.slot !== 'weapon')
+      .every(atlasReadyFor);
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const part of selected) {
       if (atlasReadyFor(part)) sprites.set(part.id, buildAssemblyPartSprite(part, atlasFor(part)));
     }
-    const hydrateAtlasSprites = () => {
-      componentAtlasReady = true;
-      for (const part of selected.filter((candidate) => candidate.slot !== 'weapon')) {
-        sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
-      }
-      refreshBounds();
-      redraw();
-    };
-    if (!componentAtlasReady) {
-      componentAtlas.addEventListener('load', hydrateAtlasSprites);
+    const atlasLoadHandlers = new Map<HTMLImageElement, () => void>();
+    for (const atlas of atlases) {
+      if (readyAtlases.has(atlas)) continue;
+      const hydrateAtlasSprites = () => {
+        readyAtlases.add(atlas);
+        for (const part of selected.filter((candidate) => atlasFor(candidate) === atlas)) {
+          sprites.set(part.id, buildAssemblyPartSprite(part, atlas));
+        }
+        refreshBounds();
+        redraw();
+      };
+      atlasLoadHandlers.set(atlas, hydrateAtlasSprites);
+      atlas.addEventListener('load', hydrateAtlasSprites);
     }
-    const hydrateWeaponSprites = () => {
-      weaponAtlasReady = true;
-      for (const part of selected.filter((candidate) => candidate.slot === 'weapon')) {
-        sprites.set(part.id, buildAssemblyPartSprite(part, weaponAtlas));
-      }
-      refreshBounds();
-      redraw();
-    };
-    if (!weaponAtlasReady) weaponAtlas.addEventListener('load', hydrateWeaponSprites);
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
       const source = sprite.getContext('2d');
@@ -1360,11 +1394,11 @@ function AvatarAssembly({
     const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop, attack: number): Array<
       [number, number, number, number, number, number, number, number]
     > => {
-      if (slot === 'weapon' && weaponAtlasReady) {
+      if (slot === 'weapon' && atlasReadyFor(part)) {
         const reach = attack * 13;
         return [[0, 0, 1, 1, 48 + attack * 2, 31 - attack * 5, 46 + reach, 57]];
       }
-      if (slot !== 'weapon' && componentAtlasReady) {
+      if (slot !== 'weapon' && atlasReadyFor(part)) {
         if (slot === 'head') {
           const width = (fit.headProfile === 'broad' ? 47 : fit.headProfile === 'sensor' ? 39 : 43)
             * fit.headScale;
@@ -1514,7 +1548,7 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (selected.length >= 2 && componentAtlasReady) {
+      if (selected.length >= 2 && bodyAtlasesReady()) {
         drawUnderstructure(attack);
       }
       // Components must remain the readable body, even when the fit score is
@@ -1558,8 +1592,9 @@ function AvatarAssembly({
     return () => {
       active = false;
       cancelAnimationFrame(frame);
-      componentAtlas.removeEventListener('load', hydrateAtlasSprites);
-      weaponAtlas.removeEventListener('load', hydrateWeaponSprites);
+      for (const [atlas, handler] of atlasLoadHandlers) {
+        atlas.removeEventListener('load', handler);
+      }
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
@@ -6712,7 +6747,18 @@ export default function Game() {
                 </div>
                 <div id="avatarComponentSlots">
                   {AVATAR_SLOTS.map((slot) => {
-                    const options = avatarComponents.filter((component) => component.slot === slot);
+                    const slotComponents = avatarComponents
+                      .filter((component) => component.slot === slot);
+                    const optionMap = new Map(
+                      [...slotComponents].reverse()
+                        .map((component) => [assemblyVisualSignature(component), component]),
+                    );
+                    const equippedOption = slotComponents.find((component) =>
+                      component.id === equippedAvatarComponents[slot]);
+                    if (equippedOption) {
+                      optionMap.set(assemblyVisualSignature(equippedOption), equippedOption);
+                    }
+                    const options = [...optionMap.values()];
                     return (
                       <div className="avatarSlotRow" key={slot}>
                         <strong>{slot}</strong>
