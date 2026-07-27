@@ -856,13 +856,58 @@ function AvatarComponentCanvas({ part, thumbnail = false }: { part: AvatarCompon
   );
 }
 
-function buildAssemblyPartSprite(part: AvatarComponentDrop): HTMLCanvasElement {
+function assemblyAtlasColumn(part: AvatarComponentDrop): number {
+  const base = part.baseElement;
+  if (['robot', 'drone', 'vehicle', 'cyborg', 'mech', 'nanite', 'turret'].includes(base)
+    || part.entityType === 'mechanical' || part.entityType === 'synthetic') return 0;
+  if (['insect', 'crab'].includes(base) || part.entityType === 'chitinous') return 1;
+  if (['crystal', 'golem'].includes(base) || part.entityType === 'lithic') return 2;
+  if (['plant', 'fungus'].includes(base) || part.entityType === 'botanical') return 3;
+  if (['cephalopod', 'fish'].includes(base) || part.entityType === 'fluidic') return 4;
+  if (base === 'data-wraith' || part.entityType === 'spectral' || part.niche === 'phase') return 5;
+  if (['avian', 'owl'].includes(base)) return 7;
+  return 6;
+}
+
+function buildAssemblyPartSprite(
+  part: AvatarComponentDrop,
+  atlas?: HTMLImageElement,
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   if (!ctx) return canvas;
   ctx.imageSmoothingEnabled = false;
+  if (atlas?.complete && atlas.naturalWidth > 0) {
+    const column = assemblyAtlasColumn(part);
+    const row = AVATAR_SLOTS.indexOf(part.slot);
+    const cellWidth = atlas.naturalWidth / 8;
+    const cellHeight = atlas.naturalHeight / 6;
+    const variantScale = 0.92 + (part.variant % 4) * 0.025;
+    const offset = (1 - variantScale) * 32;
+    ctx.save();
+    ctx.filter = `hue-rotate(${(part.variant * 9 + part.generation * 3) % 24 - 12}deg) saturate(${1 + Math.min(0.28, part.fusionLevel * 0.06)})`;
+    ctx.drawImage(
+      atlas,
+      column * cellWidth,
+      row * cellHeight,
+      cellWidth,
+      cellHeight,
+      offset,
+      offset,
+      64 * variantScale,
+      64 * variantScale,
+    );
+    ctx.restore();
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.globalAlpha = 0.08 + Math.min(0.12, part.fusionLevel * 0.025);
+    ctx.fillStyle = part.color;
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.restore();
+    return canvas;
+  }
   const color = part.color;
   const dark = '#111827';
   const light = '#e2e8f0';
@@ -1127,10 +1172,19 @@ function AvatarAssembly({
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
+    const componentAtlas = new Image();
+    let componentAtlasReady = false;
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const part of selected) {
       sprites.set(part.id, buildAssemblyPartSprite(part));
     }
+    componentAtlas.onload = () => {
+      componentAtlasReady = true;
+      for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part, componentAtlas));
+      refreshBounds();
+      redraw();
+    };
+    componentAtlas.src = `${import.meta.env.BASE_URL}skins/assembly-component-atlas-v1.png`;
 
     const boundsOf = (sprite: HTMLCanvasElement) => {
       const source = sprite.getContext('2d');
@@ -1338,7 +1392,12 @@ function AvatarAssembly({
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
-        for (const part of selected) sprites.set(part.id, buildAssemblyPartSprite(part));
+        for (const part of selected) {
+          sprites.set(part.id, buildAssemblyPartSprite(
+            part,
+            componentAtlasReady ? componentAtlas : undefined,
+          ));
+        }
         refreshBounds();
         if (animation === 'static') redraw();
       }, delay));
