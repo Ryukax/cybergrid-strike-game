@@ -1399,9 +1399,6 @@ function AvatarAssembly({
     const readyAtlases = new Set(atlases.filter((atlas) =>
       atlas.complete && atlas.naturalWidth > 0));
     const atlasReadyFor = (part: AvatarComponentDrop) => readyAtlases.has(atlasFor(part));
-    const bodyAtlasesReady = () => selected
-      .filter((part) => part.slot !== 'weapon')
-      .every(atlasReadyFor);
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     for (const part of selected) {
       if (atlasReadyFor(part)) sprites.set(part.id, buildAssemblyPartSprite(part, atlasFor(part)));
@@ -1582,33 +1579,6 @@ function AvatarAssembly({
     let active = true;
     let frame = 0;
     const animationStarted = performance.now();
-    const drawUnderstructure = (attack: number) => {
-      const color = fit.dominantColor;
-      ctx.save();
-      // This is only a recessed joint scaffold. Equipped components provide
-      // the visible silhouette; the scaffold merely closes tiny socket gaps.
-      ctx.globalAlpha = 0.3;
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = fit.build === 'heavy' ? 11 : 8;
-      ctx.beginPath();
-      ctx.moveTo(48 + attack * 2, 28);
-      ctx.lineTo(48 + attack * 2, 83);
-      ctx.moveTo(48, 43);
-      ctx.lineTo(20 - attack * 3, 62 + attack * 4);
-      ctx.moveTo(48, 43);
-      ctx.lineTo(76 + attack * 9, 52 - attack * 8);
-      ctx.moveTo(48, 77);
-      ctx.lineTo(35 - attack * 3, 111);
-      ctx.moveTo(48, 77);
-      ctx.lineTo(61 + attack * 3, 111);
-      ctx.stroke();
-      ctx.globalAlpha = 0.22;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(3, (fit.build === 'heavy' ? 7 : 5));
-      ctx.stroke();
-      ctx.restore();
-    };
     const redraw = (now = performance.now()) => {
       if (!active) return;
       ctx.clearRect(0, 0, 96, 128);
@@ -1624,9 +1594,6 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (selected.length >= 2 && bodyAtlasesReady()) {
-        drawUnderstructure(attack);
-      }
       // Components must remain the readable body, even when the fit score is
       // low. Cohesion now affects placement, never their visibility.
       ctx.globalAlpha = 1;
