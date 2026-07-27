@@ -879,11 +879,6 @@ function AvatarAssembly({
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const foundationIdle = new Image();
-    const foundationAttack = new Image();
-    let foundationIdleReady = false;
-    let foundationAttackReady = false;
-    const foundationBase = `${import.meta.env.BASE_URL}skins/assembly-fit-${fit.build}`;
     const sprites = new Map<string, HTMLCanvasElement>();
     const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     const seedFor = (part: AvatarComponentDrop) => [...[
@@ -1052,7 +1047,9 @@ function AvatarAssembly({
     const drawUnderstructure = (attack: number) => {
       const color = fit.dominantColor;
       ctx.save();
-      ctx.globalAlpha = 0.78;
+      // This is only a recessed joint scaffold. Equipped components provide
+      // the visible silhouette; the scaffold merely closes tiny socket gaps.
+      ctx.globalAlpha = 0.3;
       ctx.strokeStyle = '#0f172a';
       ctx.lineCap = 'round';
       ctx.lineWidth = fit.build === 'heavy' ? 11 : 8;
@@ -1068,7 +1065,7 @@ function AvatarAssembly({
       ctx.moveTo(48, 77);
       ctx.lineTo(61 + attack * 3, 111);
       ctx.stroke();
-      ctx.globalAlpha = 0.58;
+      ctx.globalAlpha = 0.22;
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(3, (fit.build === 'heavy' ? 7 : 5));
       ctx.stroke();
@@ -1089,18 +1086,10 @@ function AvatarAssembly({
           : 0;
       ctx.save();
       ctx.translate(0, Math.round(idle * 1.5));
-      if (foundationIdleReady) {
-        ctx.save();
-        ctx.globalAlpha = 0.82;
-        const foundation = attack > 0.14 && foundationAttackReady
-          ? foundationAttack
-          : foundationIdle;
-        ctx.drawImage(foundation, 0, 0, 96, 128);
-        ctx.restore();
-      } else if (selected.length >= 2) {
-        drawUnderstructure(attack);
-      }
-      ctx.globalAlpha = 0.64 + fit.cohesion * 0.3;
+      if (selected.length >= 2) drawUnderstructure(attack);
+      // Components must remain the readable body, even when the fit score is
+      // low. Cohesion now affects placement, never their visibility.
+      ctx.globalAlpha = 1;
       for (const slot of drawOrder) {
         const part = selected.find((candidate) => candidate.slot === slot);
         const sprite = part ? sprites.get(part.id) : undefined;
@@ -1125,16 +1114,6 @@ function AvatarAssembly({
       ctx.restore();
       if (animation !== 'static' || attackPulse > 0) frame = requestAnimationFrame(redraw);
     };
-    foundationIdle.onload = () => {
-      foundationIdleReady = true;
-      if (animation === 'static') redraw();
-    };
-    foundationAttack.onload = () => {
-      foundationAttackReady = true;
-      if (animation === 'static') redraw();
-    };
-    foundationIdle.src = `${foundationBase}-idle.png`;
-    foundationAttack.src = `${foundationBase}-attack.png`;
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
       window.setTimeout(() => {
