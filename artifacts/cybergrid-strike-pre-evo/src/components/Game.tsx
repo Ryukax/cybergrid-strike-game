@@ -84,6 +84,8 @@ const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
 const GENERATED_ABILITIES_KEY = 'cgs_generated_abilities_v1';
 const AVATAR_COMPONENTS_KEY = 'cgs_avatar_components_v1';
 const EQUIPPED_COMPONENTS_KEY = 'cgs_equipped_components_v1';
+const ASSEMBLY_SKILL_KEY = 'cgs_assembly_skill_v1';
+const CONSTITUTION_MATRIX_KEY = 'cgs_constitution_matrix_v2';
 const SYNCHRONY_THRESHOLD = 3;
 
 type AvatarSlot = 'head' | 'torso' | 'arms' | 'legs' | 'core' | 'accent';
@@ -110,7 +112,10 @@ const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'ac
 
 interface AssemblyFitProfile {
   build: 'agile' | 'balanced' | 'heavy' | 'fluid';
-  locomotion: 'biped' | 'wheeled' | 'serpentine' | 'tentacled';
+  locomotion: 'biped' | 'wheeled' | 'serpentine' | 'tentacled' | 'hover' | 'quadruped';
+  armature: 'standard' | 'tool' | 'claw' | 'wing' | 'tendril';
+  headProfile: 'compact' | 'standard' | 'broad' | 'sensor';
+  cohesion: number;
   torsoWidth: number;
   shoulderSpan: number;
   hipWidth: number;
@@ -140,26 +145,67 @@ function analyzeAssemblyFit(parts: AvatarComponentDrop[]): AssemblyFitProfile {
     legs && ['vehicle', 'turret'].includes(legs.baseElement) ? 'wheeled'
       : legs && ['serpent', 'fish'].includes(legs.baseElement) ? 'serpentine'
         : legs && (legs.baseElement === 'cephalopod' || legs.entityType === 'fluidic')
-          ? 'tentacled' : 'biped';
+          ? 'tentacled'
+          : legs && ['drone', 'data-wraith', 'nanite'].includes(legs.baseElement) ? 'hover'
+            : legs && ['beast', 'fox', 'crab'].includes(legs.baseElement) ? 'quadruped'
+              : 'biped';
+  const arms = parts.find((part) => part.slot === 'arms');
+  const armature: AssemblyFitProfile['armature'] =
+    arms && ['avian', 'owl'].includes(arms.baseElement) ? 'wing'
+      : arms && (arms.baseElement === 'cephalopod' || arms.entityType === 'fluidic') ? 'tendril'
+        : arms && ['beast', 'fox', 'insect', 'crab'].includes(arms.baseElement) ? 'claw'
+          : arms && ['mechanical', 'synthetic'].includes(arms.entityType) ? 'tool'
+            : 'standard';
+  const head = parts.find((part) => part.slot === 'head');
+  const headProfile: AssemblyFitProfile['headProfile'] =
+    head && ['fungus', 'avian', 'owl', 'crystal'].includes(head.baseElement) ? 'broad'
+      : head && ['drone', 'turret', 'nanite', 'data-wraith'].includes(head.baseElement) ? 'sensor'
+        : head && (head.mutations.includes('miniature') || head.niche === 'scout') ? 'compact'
+          : 'standard';
   const build: AssemblyFitProfile['build'] =
     fluid >= 2 ? 'fluid' : heavy > agile ? 'heavy' : agile > heavy ? 'agile' : 'balanced';
+  const familyKeys = parts.map((part) => `${part.entityType}:${part.enemyClass}:${part.niche}`);
+  const dominantFamilyCount = familyKeys.length
+    ? Math.max(...familyKeys.map((key) => familyKeys.filter((candidate) => candidate === key).length))
+    : 0;
+  const compatiblePairs = parts.reduce((total, part, index) =>
+    total + parts.slice(index + 1).filter((other) =>
+      part.entityType === other.entityType
+      || part.enemyClass === other.enemyClass
+      || part.niche === other.niche
+      || part.element === other.element).length, 0);
+  const pairCount = Math.max(1, (parts.length * (parts.length - 1)) / 2);
+  const cohesion = parts.length <= 1
+    ? 1
+    : Math.min(1, (dominantFamilyCount / parts.length) * 0.45 + (compatiblePairs / pairCount) * 0.55);
   const dominantColor = parts.find((part) => part.slot === 'torso')?.color
     ?? parts.find((part) => part.slot === 'core')?.color
     ?? parts[0]?.color
     ?? '#7dd3fc';
   const torsoWidth = build === 'heavy' ? 48 : build === 'agile' ? 35 : build === 'fluid' ? 39 : 41;
-  const shoulderSpan = build === 'heavy' ? 84 : build === 'agile' ? 70 : 77;
-  const hipWidth = locomotion === 'wheeled' ? 47 : build === 'heavy' ? 40 : 34;
-  const headScale = build === 'heavy' ? 0.92 : build === 'agile' ? 0.84 : 0.88;
+  const shoulderSpan = armature === 'wing' ? 88
+    : armature === 'tendril' ? 82
+      : build === 'heavy' ? 84 : build === 'agile' ? 70 : 77;
+  const hipWidth = locomotion === 'wheeled' ? 49
+    : locomotion === 'quadruped' ? 58
+      : locomotion === 'hover' ? 42
+        : build === 'heavy' ? 40 : 34;
+  const headScale = headProfile === 'broad' ? 0.96
+    : headProfile === 'compact' ? 0.76
+      : headProfile === 'sensor' ? 0.82
+        : build === 'heavy' ? 0.92 : build === 'agile' ? 0.84 : 0.88;
   return {
     build,
     locomotion,
+    armature,
+    headProfile,
+    cohesion,
     torsoWidth,
     shoulderSpan,
     hipWidth,
     headScale,
     dominantColor,
-    description: `${build} ${locomotion} fit · ${parts.length}/6 sockets`,
+    description: `${build} ${locomotion} ${armature} fit · ${Math.round(cohesion * 100)}% cohesion · ${parts.length}/6 sockets`,
   };
 }
 
@@ -214,6 +260,93 @@ function normalizedAvatarComponent(component: AvatarComponentDrop): AvatarCompon
   };
 }
 
+interface ComponentFamilySpec {
+  id: string;
+  label: string;
+  baseElement: EnemyGenome['baseElement'];
+  element: EnemyGenome['element'];
+  entityType: EnemyGenome['entityType'];
+  enemyClass: EnemyGenome['enemyClass'];
+  niche: EnemyGenome['niche'];
+  mutations: EnemyGenome['mutations'];
+  nouns: Record<AvatarSlot, string>;
+}
+
+const SIGNATURE_COMPONENT_FAMILIES: ComponentFamilySpec[] = [
+  {
+    id: 'modular', label: 'Modular', baseElement: 'cyborg', element: 'kinetic',
+    entityType: 'mechanical', enemyClass: 'scavenger', niche: 'opportunist',
+    mutations: ['resilient'],
+    nouns: { head: 'optic', torso: 'harness', arms: 'tool-rig', legs: 'strider', core: 'coupler', accent: 'hardpoint' },
+  },
+  {
+    id: 'suppressor', label: 'Suppressor', baseElement: 'data-wraith', element: 'void',
+    entityType: 'spectral', enemyClass: 'infiltrator', niche: 'phase',
+    mutations: ['resilient'],
+    nouns: { head: 'mask', torso: 'mantle', arms: 'nullifier', legs: 'phase-step', core: 'silencer', accent: 'null-ring' },
+  },
+  {
+    id: 'polar', label: 'Polar', baseElement: 'drone', element: 'voltaic',
+    entityType: 'synthetic', enemyClass: 'support', niche: 'symbiote',
+    mutations: ['accelerated'],
+    nouns: { head: 'conductor', torso: 'yoke', arms: 'inductor', legs: 'flux-step', core: 'dipole', accent: 'node-crown' },
+  },
+  {
+    id: 'siege', label: 'Siege', baseElement: 'mech', element: 'cryo',
+    entityType: 'mechanical', enemyClass: 'guardian', niche: 'bulwark',
+    mutations: ['armored', 'gigantic'],
+    nouns: { head: 'cockpit', torso: 'carapace', arms: 'bastion-rig', legs: 'pile-driver', core: 'reactor', accent: 'plate-array' },
+  },
+  {
+    id: 'pursuit', label: 'Pursuit', baseElement: 'fox', element: 'thermal',
+    entityType: 'synthetic', enemyClass: 'predator', niche: 'hunter',
+    mutations: ['accelerated'],
+    nouns: { head: 'tracker', torso: 'stalker-frame', arms: 'talon', legs: 'pouncer', core: 'prey-sense', accent: 'target-vane' },
+  },
+  {
+    id: 'designation', label: 'Designation', baseElement: 'turret', element: 'radiant',
+    entityType: 'mechanical', enemyClass: 'support', niche: 'scout',
+    mutations: ['resilient'],
+    nouns: { head: 'rangefinder', torso: 'command-rig', arms: 'designator', legs: 'stabilizer', core: 'uplink', accent: 'beacon' },
+  },
+  {
+    id: 'signal', label: 'Signal', baseElement: 'nanite', element: 'voltaic',
+    entityType: 'synthetic', enemyClass: 'infiltrator', niche: 'swarm',
+    mutations: ['miniature', 'volatile'],
+    nouns: { head: 'receiver', torso: 'relay-coat', arms: 'broadcast-rig', legs: 'carrier', core: 'decoder', accent: 'antenna' },
+  },
+  {
+    id: 'regal', label: 'Regal', baseElement: 'golem', element: 'radiant',
+    entityType: 'lithic', enemyClass: 'guardian', niche: 'opportunist',
+    mutations: ['armored', 'resilient'],
+    nouns: { head: 'crest', torso: 'cuirass', arms: 'authority-blade', legs: 'marcher', core: 'sovereign-seal', accent: 'crown-shard' },
+  },
+];
+
+function signatureComponentLibrary(): AvatarComponentDrop[] {
+  const colors: Record<string, string> = {
+    kinetic: '#fbbf24', thermal: '#fb7185', cryo: '#67e8f9', voltaic: '#a78bfa',
+    corrosive: '#a3e635', radiant: '#fde68a', void: '#c084fc', bloom: '#4ade80',
+  };
+  return SIGNATURE_COMPONENT_FAMILIES.flatMap((family, familyIndex) =>
+    AVATAR_SLOTS.map((slot, slotIndex) => ({
+      id: `family-${family.id}-${slot}`,
+      slot,
+      name: `${family.label} ${family.nouns[slot]}`,
+      color: colors[family.element] ?? '#93c5fd',
+      variant: (familyIndex + slotIndex) % 4,
+      source: `${family.entityType} · ${family.enemyClass} · ${family.niche}`,
+      baseElement: family.baseElement,
+      element: family.element,
+      entityType: family.entityType,
+      enemyClass: family.enemyClass,
+      niche: family.niche,
+      mutations: [...family.mutations],
+      generation: 2 + (familyIndex % 3),
+      fusionLevel: familyIndex % 2,
+    })));
+}
+
 interface BestiaryEntry {
   signature: string;
   seed: number;
@@ -241,7 +374,7 @@ function avatarComponentsRecoveredFromBestiary(): AvatarComponentDrop[] {
         fusionLevel: Number(entry.genome.fusionLevel) || 0,
       }));
     return [...new Map(recovered.map((component) => [component.id, component])).values()]
-      .slice(0, 180);
+      .slice(0, 360);
   } catch {
     return [];
   }
@@ -335,6 +468,10 @@ function architecturePrestige(abilities: LearnedAbility[]): number {
 
 function abilityPrestigeRequirement(id: string): number {
   if (ESSENTIAL_ABILITY_IDS.has(id)) return 0;
+  // Manifested abilities have already paid their progression cost through
+  // observed enemy components or playstyle resonance. Do not lock the result
+  // behind a second prestige gate after it is learned.
+  if (id.startsWith('manifest-')) return 0;
   const index = Math.max(0, ABILITY_POOL.findIndex((ability) => ability.id === id));
   return Math.min(5, 1 + Math.floor(index / 18));
 }
@@ -824,9 +961,10 @@ function AvatarAssembly({
       [number, number, number, number, number, number, number, number]
     > => {
       if (slot === 'head') {
-        const wide = ['fungus', 'avian', 'owl', 'crystal'].includes(part.baseElement);
-        const width = (wide ? 44 : 36) * fit.headScale;
-        return [[0.08, 0, 0.84, 0.56, 48 - width / 2 + attack * 3, 4 - attack * 2, width, 29]];
+        const width = (fit.headProfile === 'broad' ? 44
+          : fit.headProfile === 'sensor' ? 34 : 36) * fit.headScale;
+        const height = fit.headProfile === 'sensor' ? 25 : 29;
+        return [[0.08, 0, 0.84, 0.56, 48 - width / 2 + attack * 3, 7 - height / 10 - attack * 2, width, height]];
       }
       if (slot === 'torso') {
         return [[
@@ -838,8 +976,8 @@ function AvatarAssembly({
         ]];
       }
       if (slot === 'arms') {
-        const winged = ['avian', 'owl'].includes(part.baseElement);
-        const fluidArms = part.baseElement === 'cephalopod' || part.entityType === 'fluidic';
+        const winged = fit.armature === 'wing';
+        const fluidArms = fit.armature === 'tendril';
         const armWidth = winged ? 27 : fluidArms ? 22 : 20;
         const armHeight = fluidArms ? 45 : winged ? 39 : 36;
         const leftX = Math.max(0, 48 - fit.shoulderSpan / 2 - attack * 4);
@@ -858,6 +996,18 @@ function AvatarAssembly({
             [0.52, 0.12, 0.48, 0.82, rightX, rightY, armWidth + attack * 6, armHeight],
           ];
         }
+        if (fit.armature === 'tool') {
+          return [
+            [0, 0.12, 0.48, 0.76, leftX, leftY, armWidth + 2, armHeight],
+            [0.48, 0.08, 0.52, 0.8, rightX - attack * 2, rightY, armWidth + 5 + attack * 10, armHeight - attack * 2],
+          ];
+        }
+        if (fit.armature === 'claw') {
+          return [
+            [0, 0.08, 0.5, 0.84, leftX - 2, leftY + attack * 2, armWidth + 4, armHeight + 3],
+            [0.5, 0.08, 0.5, 0.84, rightX, rightY, armWidth + 5 + attack * 8, armHeight + 3],
+          ];
+        }
         return [
           [0, 0.12, 0.48, 0.76, leftX, leftY, armWidth, armHeight],
           [0.52, 0.12, 0.48, 0.76, rightX, rightY, armWidth + attack * 7, armHeight - attack * 3],
@@ -872,6 +1022,15 @@ function AvatarAssembly({
         }
         if (fit.locomotion === 'tentacled') {
           return [[0.03, 0.34, 0.94, 0.66, 24 - attack * 3, 75, 48 + attack * 6, 52]];
+        }
+        if (fit.locomotion === 'hover') {
+          return [[0.04, 0.4, 0.92, 0.58, 27 - attack * 2, 78, 42 + attack * 4, 35]];
+        }
+        if (fit.locomotion === 'quadruped') {
+          return [
+            [0, 0.42, 0.48, 0.58, 48 - fit.hipWidth / 2 - attack * 4, 77, 28, 43],
+            [0.52, 0.42, 0.48, 0.58, 48 + fit.hipWidth / 2 - 28 + attack * 5, 77, 28, 43],
+          ];
         }
         const brace = attack * 4;
         return [
@@ -961,8 +1120,9 @@ function AvatarAssembly({
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
-  }, [components, equipped, animation, attackPulse, fit.build, fit.dominantColor, fit.headScale,
-    fit.hipWidth, fit.locomotion, fit.shoulderSpan, fit.torsoWidth]);
+  }, [components, equipped, animation, attackPulse, fit.armature, fit.build, fit.cohesion,
+    fit.dominantColor, fit.headProfile, fit.headScale, fit.hipWidth, fit.locomotion,
+    fit.shoulderSpan, fit.torsoWidth]);
 
   return (
     <div
@@ -1088,13 +1248,14 @@ function linkedPlayerAbility(genome: EnemyGenome): string {
   return abilityBlueprintFor(genome).abilityId;
 }
 
+function constitutionMatrixSignature(genome: EnemyGenome): string {
+  const blueprint = abilityBlueprintFor(genome);
+  return `${blueprint.medium}:${blueprint.function}:${blueprint.delivery}`;
+}
+
 function manifestedAbilityFor(genome: EnemyGenome): GeneratedAbility {
   const blueprint = abilityBlueprintFor(genome);
-  const movement = getEnemyMovementClass(genome.baseElement);
-  const signature = [
-    blueprint.delivery, blueprint.function, blueprint.medium,
-    genome.entityType, movement, genome.niche,
-  ].join(':');
+  const signature = constitutionMatrixSignature(genome);
   const hash = [...signature].reduce((sum, char) => (sum * 33 + char.charCodeAt(0)) >>> 0, 5381);
   const mediumNames: Record<string, string> = {
     signal: 'Cipher', thermal: 'Thermal', phase: 'Phase',
@@ -1108,7 +1269,7 @@ function manifestedAbilityFor(genome: EnemyGenome): GeneratedAbility {
     projector: 'Lance', field: 'Field', shell: 'Shell',
     weave: 'Thread', aperture: 'Gate', pulse: 'Pulse',
   };
-  const id = `manifest-${blueprint.medium}-${blueprint.function}-${blueprint.delivery}-${(hash % 4096).toString(36)}`;
+  const id = `manifest-${blueprint.medium}-${blueprint.function}-${blueprint.delivery}`;
   const generated: GeneratedAbility = {
     id,
     name: `${mediumNames[blueprint.medium] ?? blueprint.medium} ${functionNames[blueprint.function] ?? blueprint.function} ${deliveryNames[blueprint.delivery] ?? blueprint.delivery}`.toUpperCase(),
@@ -1438,6 +1599,7 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   sovereign: 'Last Sovereign',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
+type AssemblySkillId = 'shadow' | RivalSkillId;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   chrono: ['QUEUE', 'STEP', 'REWIND'],
   singularity: ['COLLAPSE', 'POLARITY', 'GUARD'],
@@ -1568,13 +1730,14 @@ export default function Game() {
           .map((component: AvatarComponentDrop) => normalizedAvatarComponent(component))
         : [];
       const recovered = avatarComponentsRecoveredFromBestiary();
+      const signatureFamilies = signatureComponentLibrary();
       const merged = [...new Map(
-        [...normalized, ...recovered].map((component) => [component.id, component]),
-      ).values()].slice(0, 180);
+        [...signatureFamilies, ...normalized, ...recovered].map((component) => [component.id, component]),
+      ).values()].slice(0, 360);
       localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(merged));
       return merged;
     } catch {
-      const recovered = avatarComponentsRecoveredFromBestiary();
+      const recovered = [...signatureComponentLibrary(), ...avatarComponentsRecoveredFromBestiary()];
       localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(recovered));
       return recovered;
     }
@@ -1590,7 +1753,7 @@ export default function Game() {
   const awardAvatarComponent = useCallback((genome: EnemyGenome) => {
     const component = avatarComponentFromGenome(genome);
     if (avatarComponentsRef.current.some((entry) => entry.id === component.id)) return;
-    const next = [component, ...avatarComponentsRef.current].slice(0, 180);
+    const next = [component, ...avatarComponentsRef.current].slice(0, 360);
     avatarComponentsRef.current = next;
     localStorage.setItem(AVATAR_COMPONENTS_KEY, JSON.stringify(next));
     setAvatarComponents(next);
@@ -1720,7 +1883,51 @@ export default function Game() {
       .map((entry) => entry.synchronizedAbilityId)
       .filter((id): id is string => Boolean(id && runtimeAbilityById(id))),
   ));
+  const constitutionMatrixRef = useRef<Record<string, number>>((() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(CONSTITUTION_MATRIX_KEY) ?? '{}');
+      const observations: Record<string, number> = {};
+      if (stored && typeof stored === 'object') {
+        for (const [signature, value] of Object.entries(stored)) {
+          observations[signature] = Math.max(0, Number(value) || 0);
+        }
+      }
+      for (const entry of bestiaryEntries) {
+        const signature = constitutionMatrixSignature(entry.genome);
+        observations[signature] = Math.max(
+          observations[signature] ?? 0,
+          Math.max(1, entry.observations ?? 1),
+        );
+      }
+      localStorage.setItem(CONSTITUTION_MATRIX_KEY, JSON.stringify(observations));
+      return observations;
+    } catch {
+      return {};
+    }
+  })());
   const recordBestiary = useCallback((seed: number, genome: EnemyGenome) => {
+    const manifested = registerGeneratedAbility(manifestedAbilityFor(genome));
+    const matrixSignature = manifested.constitutionSignature;
+    const matrixObservations = Math.min(
+      999,
+      (constitutionMatrixRef.current[matrixSignature] ?? 0) + 1,
+    );
+    constitutionMatrixRef.current[matrixSignature] = matrixObservations;
+    localStorage.setItem(CONSTITUTION_MATRIX_KEY, JSON.stringify(constitutionMatrixRef.current));
+    const synchronizedAbilityId = matrixObservations >= SYNCHRONY_THRESHOLD
+      ? manifested.id
+      : undefined;
+    if (synchronizedAbilityId) {
+      synchronizedAbilityIdsRef.current.add(synchronizedAbilityId);
+      if (matrixObservations === SYNCHRONY_THRESHOLD
+        || matrixObservations % SYNCHRONY_THRESHOLD === 0) {
+        learnAbility(
+          synchronizedAbilityId,
+          'constitution',
+          `${manifested.medium}/${manifested.function}/${manifested.delivery} enemy components translated.`,
+        );
+      }
+    }
     const signature = [
       genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
       genome.fusionElement ?? 'pure', genome.niche,
@@ -1730,38 +1937,27 @@ export default function Game() {
     const existingIndex = bestiaryRef.current.findIndex((entry) => entry.signature === signature);
     if (existingIndex >= 0) {
       const existing = bestiaryRef.current[existingIndex];
-      const observations = Math.min(SYNCHRONY_THRESHOLD, (existing.observations ?? 1) + 1);
-      const constitution = enemyCounterpartFor(genome);
-      const synchronizedAbilityId = observations >= SYNCHRONY_THRESHOLD && constitution
-        ? registerGeneratedAbility(manifestedAbilityFor(genome)).id
-        : existing.synchronizedAbilityId;
-      const updated = { ...existing, observations, synchronizedAbilityId };
+      const observations = Math.min(SYNCHRONY_THRESHOLD, matrixObservations);
+      const updated = {
+        ...existing,
+        observations,
+        synchronizedAbilityId: synchronizedAbilityId ?? existing.synchronizedAbilityId,
+      };
       bestiaryRef.current = [
         updated,
         ...bestiaryRef.current.filter((_, index) => index !== existingIndex),
       ];
-      if (synchronizedAbilityId) {
-        synchronizedAbilityIdsRef.current.add(synchronizedAbilityId);
-        learnAbility(
-          synchronizedAbilityId,
-          'constitution',
-          `${genome.baseElement}/${genome.element} constitution synchronized.`,
-        );
-      }
       localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
       setBestiaryEntries(bestiaryRef.current);
       return;
     }
-    const constitution = enemyCounterpartFor(genome);
     const entry: BestiaryEntry = {
       signature,
       seed,
       genome: { ...genome, mutations: [...genome.mutations] },
       discoveredAt: Date.now(),
-      observations: 1,
-      synchronizedAbilityId: constitution && SYNCHRONY_THRESHOLD <= 1
-        ? registerGeneratedAbility(manifestedAbilityFor(genome)).id
-        : undefined,
+      observations: Math.min(SYNCHRONY_THRESHOLD, matrixObservations),
+      synchronizedAbilityId,
     };
     bestiaryRef.current = [entry, ...bestiaryRef.current].slice(0, 160);
     localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
@@ -1781,6 +1977,13 @@ export default function Game() {
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
+  const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
+    || RIVAL_SKILL_IDS.includes(storedAssemblySkill as RivalSkillId)
+    ? storedAssemblySkill as AssemblySkillId
+    : 'shadow';
+  const [assemblySkill, setAssemblySkill] = useState<AssemblySkillId>(savedAssemblySkill);
+  const assemblySkillRef = useRef<AssemblySkillId>(savedAssemblySkill);
   const [assemblyAttackPulse, setAssemblyAttackPulse] = useState(0);
   const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
   const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
@@ -3861,7 +4064,10 @@ export default function Game() {
   const playSkillAnimation = useCallback(() => {
     const s = stateRef.current;
     if (phaseRef.current !== 'playing' || !s.running || pausedRef.current) return;
-    const selectedRival = RIVAL_SKILL_IDS.find((id) => id === playerSkinRef.current);
+    const selectedRival = playerSkinRef.current === 'assembly'
+      && assemblySkillRef.current !== 'shadow'
+      ? assemblySkillRef.current
+      : RIVAL_SKILL_IDS.find((id) => id === playerSkinRef.current);
     if (selectedRival) {
       activateRivalSkill(selectedRival);
       return;
@@ -5993,6 +6199,46 @@ export default function Game() {
                   </button>
                 ))}
               </div>
+
+              {playerSkin === 'assembly' && (
+                <>
+                  <div id="customSubtitle" style={{ marginTop: '16px' }}>
+                    Assembly Skill · {assemblySkill === 'shadow'
+                      ? 'Shadow Clone'
+                      : RIVAL_SKILL_LABELS[assemblySkill]}
+                  </div>
+                  <div
+                    id="assemblySkillPicker"
+                    style={{ display: 'flex', gap: '8px', overflowX: 'auto', padding: '4px 0 10px' }}
+                  >
+                    {([
+                      { id: 'shadow' as AssemblySkillId, label: 'Shadow Clone' },
+                      ...RIVAL_SKILL_IDS.map((id) => ({
+                        id: id as AssemblySkillId,
+                        label: RIVAL_SKILL_LABELS[id],
+                      })),
+                    ]).map((skill) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        className={`learned-ability-btn ${assemblySkill === skill.id ? 'enabled selected' : ''}`}
+                        style={{ minWidth: '150px', flex: '0 0 auto' }}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          assemblySkillRef.current = skill.id;
+                          setAssemblySkill(skill.id);
+                          localStorage.setItem(ASSEMBLY_SKILL_KEY, skill.id);
+                        }}
+                      >
+                        <strong>{skill.label}</strong>
+                        <small>{skill.id === 'shadow'
+                          ? 'Distributed clone command'
+                          : RIVAL_SKILL_COMMANDS[skill.id as RivalSkillId].join(' · ')}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div id="customSubtitle" style={{ marginTop: '16px' }}>
                 Assembly Components · {avatarComponents.length} recovered
