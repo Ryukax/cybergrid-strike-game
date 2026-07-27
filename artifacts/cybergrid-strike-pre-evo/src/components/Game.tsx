@@ -108,6 +108,61 @@ interface AvatarComponentDrop {
 type EquippedAvatarComponents = Partial<Record<AvatarSlot, string>>;
 const AVATAR_SLOTS: AvatarSlot[] = ['head', 'torso', 'arms', 'legs', 'core', 'accent'];
 
+interface AssemblyFitProfile {
+  build: 'agile' | 'balanced' | 'heavy' | 'fluid';
+  locomotion: 'biped' | 'wheeled' | 'serpentine' | 'tentacled';
+  torsoWidth: number;
+  shoulderSpan: number;
+  hipWidth: number;
+  headScale: number;
+  dominantColor: string;
+  description: string;
+}
+
+function analyzeAssemblyFit(parts: AvatarComponentDrop[]): AssemblyFitProfile {
+  const score = (predicate: (part: AvatarComponentDrop) => boolean) =>
+    parts.filter(predicate).length;
+  const heavy = score((part) =>
+    part.enemyClass === 'guardian'
+    || part.entityType === 'lithic'
+    || part.mutations.includes('gigantic')
+    || ['golem', 'mech', 'turret'].includes(part.baseElement));
+  const agile = score((part) =>
+    part.niche === 'scout'
+    || part.enemyClass === 'skirmisher'
+    || part.mutations.includes('miniature')
+    || ['avian', 'fox', 'data-wraith'].includes(part.baseElement));
+  const fluid = score((part) =>
+    part.entityType === 'fluidic'
+    || ['cephalopod', 'fish', 'nanite'].includes(part.baseElement));
+  const legs = parts.find((part) => part.slot === 'legs');
+  const locomotion: AssemblyFitProfile['locomotion'] =
+    legs && ['vehicle', 'turret'].includes(legs.baseElement) ? 'wheeled'
+      : legs && ['serpent', 'fish'].includes(legs.baseElement) ? 'serpentine'
+        : legs && (legs.baseElement === 'cephalopod' || legs.entityType === 'fluidic')
+          ? 'tentacled' : 'biped';
+  const build: AssemblyFitProfile['build'] =
+    fluid >= 2 ? 'fluid' : heavy > agile ? 'heavy' : agile > heavy ? 'agile' : 'balanced';
+  const dominantColor = parts.find((part) => part.slot === 'torso')?.color
+    ?? parts.find((part) => part.slot === 'core')?.color
+    ?? parts[0]?.color
+    ?? '#7dd3fc';
+  const torsoWidth = build === 'heavy' ? 48 : build === 'agile' ? 35 : build === 'fluid' ? 39 : 41;
+  const shoulderSpan = build === 'heavy' ? 84 : build === 'agile' ? 70 : 77;
+  const hipWidth = locomotion === 'wheeled' ? 47 : build === 'heavy' ? 40 : 34;
+  const headScale = build === 'heavy' ? 0.92 : build === 'agile' ? 0.84 : 0.88;
+  return {
+    build,
+    locomotion,
+    torsoWidth,
+    shoulderSpan,
+    hipWidth,
+    headScale,
+    dominantColor,
+    description: `${build} ${locomotion} fit · ${parts.length}/6 sockets`,
+  };
+}
+
 function avatarComponentFromGenome(genome: EnemyGenome): AvatarComponentDrop {
   const signature = [
     genome.baseElement, genome.element, genome.entityType, genome.enemyClass,
@@ -668,21 +723,27 @@ function AvatarAssembly({
   components,
   equipped,
   className = '',
+  animation = 'static',
+  attackPulse = 0,
 }: {
   components: AvatarComponentDrop[];
   equipped: EquippedAvatarComponents;
   className?: string;
+  animation?: 'static' | 'idle' | 'showcase';
+  attackPulse?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selected = AVATAR_SLOTS
     .map((slot) => components.find((component) => component.id === equipped[slot]))
     .filter((part): part is AvatarComponentDrop => Boolean(part));
+  const fit = analyzeAssemblyFit(selected);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const sprites = new Map<string, HTMLCanvasElement>();
+    const spriteBounds = new Map<string, { x: number; y: number; width: number; height: number }>();
     const seedFor = (part: AvatarComponentDrop) => [...[
       part.baseElement, part.element, part.entityType, part.enemyClass,
       part.niche, part.generation, part.fusionLevel,
@@ -733,6 +794,10 @@ function AvatarAssembly({
         height: Math.min(sprite.height - Math.max(0, minY - 4), maxY - minY + 8),
       };
     };
+    const refreshBounds = () => {
+      for (const [id, sprite] of sprites) spriteBounds.set(id, boundsOf(sprite));
+    };
+    refreshBounds();
     const drawOrder: AvatarSlot[] = ['accent', 'legs', 'arms', 'torso', 'head', 'core'];
     const drawFragment = (
       sprite: HTMLCanvasElement,
@@ -755,77 +820,157 @@ function AvatarAssembly({
         targetX, targetY, targetWidth, targetHeight,
       );
     };
-    const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop): Array<
+    const partFragments = (slot: AvatarSlot, part: AvatarComponentDrop, attack: number): Array<
       [number, number, number, number, number, number, number, number]
     > => {
       if (slot === 'head') {
         const wide = ['fungus', 'avian', 'owl', 'crystal'].includes(part.baseElement);
-        return [[0.08, 0, 0.84, 0.56, wide ? 25 : 31, 1, wide ? 46 : 34, 31]];
+        const width = (wide ? 44 : 36) * fit.headScale;
+        return [[0.08, 0, 0.84, 0.56, 48 - width / 2 + attack * 3, 4 - attack * 2, width, 29]];
       }
       if (slot === 'torso') {
-        const broad = part.enemyClass === 'guardian' || part.entityType === 'lithic';
-        return [[0.08, 0.15, 0.84, 0.72, broad ? 24 : 29, 35, broad ? 48 : 38, 39]];
+        return [[
+          0.08, 0.15, 0.84, 0.72,
+          48 - fit.torsoWidth / 2 + attack * 2,
+          34,
+          fit.torsoWidth,
+          fit.build === 'heavy' ? 43 : 39,
+        ]];
       }
       if (slot === 'arms') {
+        const winged = ['avian', 'owl'].includes(part.baseElement);
+        const fluidArms = part.baseElement === 'cephalopod' || part.entityType === 'fluidic';
+        const armWidth = winged ? 27 : fluidArms ? 22 : 20;
+        const armHeight = fluidArms ? 45 : winged ? 39 : 36;
+        const leftX = Math.max(0, 48 - fit.shoulderSpan / 2 - attack * 4);
+        const rightX = Math.min(75, 48 + fit.shoulderSpan / 2 - armWidth + attack * 10);
+        const leftY = 39 + attack * 5;
+        const rightY = 39 - attack * 10;
         if (['avian', 'owl'].includes(part.baseElement)) {
           return [
-            [0, 0.08, 0.48, 0.78, 2, 37, 25, 39],
-            [0.52, 0.08, 0.48, 0.78, 69, 37, 25, 39],
+            [0, 0.08, 0.48, 0.78, leftX, leftY, armWidth, armHeight],
+            [0.52, 0.08, 0.48, 0.78, rightX, rightY, armWidth + attack * 5, armHeight],
           ];
         }
-        if (part.baseElement === 'cephalopod' || part.entityType === 'fluidic') {
+        if (fluidArms) {
           return [
-            [0, 0.12, 0.48, 0.82, 8, 40, 18, 45],
-            [0.52, 0.12, 0.48, 0.82, 70, 40, 18, 45],
+            [0, 0.12, 0.48, 0.82, leftX, leftY, armWidth, armHeight],
+            [0.52, 0.12, 0.48, 0.82, rightX, rightY, armWidth + attack * 6, armHeight],
           ];
         }
         return [
-          [0, 0.12, 0.48, 0.76, 7, 40, 20, 36],
-          [0.52, 0.12, 0.48, 0.76, 69, 40, 20, 36],
+          [0, 0.12, 0.48, 0.76, leftX, leftY, armWidth, armHeight],
+          [0.52, 0.12, 0.48, 0.76, rightX, rightY, armWidth + attack * 7, armHeight - attack * 3],
         ];
       }
       if (slot === 'legs') {
-        if (part.baseElement === 'vehicle' || part.baseElement === 'turret') {
-          return [[0, 0.42, 1, 0.58, 25, 79, 46, 43]];
+        if (fit.locomotion === 'wheeled') {
+          return [[0, 0.42, 1, 0.58, 48 - fit.hipWidth / 2 - attack * 2, 78, fit.hipWidth + attack * 4, 44]];
         }
-        if (part.baseElement === 'serpent' || part.baseElement === 'fish') {
-          return [[0.06, 0.4, 0.88, 0.6, 27, 76, 42, 51]];
+        if (fit.locomotion === 'serpentine') {
+          return [[0.06, 0.4, 0.88, 0.6, 25 - attack * 3, 75, 46 + attack * 6, 51]];
         }
+        if (fit.locomotion === 'tentacled') {
+          return [[0.03, 0.34, 0.94, 0.66, 24 - attack * 3, 75, 48 + attack * 6, 52]];
+        }
+        const brace = attack * 4;
         return [
-          [0.04, 0.44, 0.46, 0.56, 29, 77, 17, 49],
-          [0.5, 0.44, 0.46, 0.56, 50, 77, 17, 49],
+          [0.04, 0.44, 0.46, 0.56, 48 - fit.hipWidth / 2 - brace, 76, 17, 49],
+          [0.5, 0.44, 0.46, 0.56, 48 + fit.hipWidth / 2 - 17 + brace, 76, 17, 49],
         ];
       }
-      if (slot === 'core') return [[0.26, 0.26, 0.48, 0.48, 40, 49, 16, 16]];
-      return [[0, 0, 1, 0.38, 25, 26, 46, 15]];
+      if (slot === 'core') return [[0.26, 0.26, 0.48, 0.48, 40 + attack * 2, 49, 16, 16]];
+      return [[0, 0, 1, 0.38, 25 + attack * 2, 25, 46, 15]];
     };
     let active = true;
-    const redraw = () => {
+    let frame = 0;
+    const animationStarted = performance.now();
+    const drawUnderstructure = (attack: number) => {
+      const color = fit.dominantColor;
+      ctx.save();
+      ctx.globalAlpha = 0.78;
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = fit.build === 'heavy' ? 11 : 8;
+      ctx.beginPath();
+      ctx.moveTo(48 + attack * 2, 28);
+      ctx.lineTo(48 + attack * 2, 83);
+      ctx.moveTo(48, 43);
+      ctx.lineTo(20 - attack * 3, 62 + attack * 4);
+      ctx.moveTo(48, 43);
+      ctx.lineTo(76 + attack * 9, 52 - attack * 8);
+      ctx.moveTo(48, 77);
+      ctx.lineTo(35 - attack * 3, 111);
+      ctx.moveTo(48, 77);
+      ctx.lineTo(61 + attack * 3, 111);
+      ctx.stroke();
+      ctx.globalAlpha = 0.58;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(3, (fit.build === 'heavy' ? 7 : 5));
+      ctx.stroke();
+      ctx.restore();
+    };
+    const redraw = (now = performance.now()) => {
       if (!active) return;
       ctx.clearRect(0, 0, 96, 128);
       ctx.imageSmoothingEnabled = false;
+      const idle = animation === 'static' ? 0 : Math.sin(now / 260);
+      const showcaseTime = (now - animationStarted) % 3200;
+      const attackElapsed = now - animationStarted;
+      const attack = animation === 'showcase'
+        ? (showcaseTime > 1900 && showcaseTime < 2550
+          ? Math.sin(((showcaseTime - 1900) / 650) * Math.PI) : 0)
+        : attackPulse > 0 && attackElapsed < 520
+          ? Math.sin((attackElapsed / 520) * Math.PI)
+          : 0;
+      ctx.save();
+      ctx.translate(0, Math.round(idle * 1.5));
+      if (selected.length >= 2) drawUnderstructure(attack);
       for (const slot of drawOrder) {
         const part = selected.find((candidate) => candidate.slot === slot);
         const sprite = part ? sprites.get(part.id) : undefined;
         if (!part || !sprite) continue;
-        const bounds = boundsOf(sprite);
-        for (const fragment of partFragments(slot, part)) {
+        const bounds = spriteBounds.get(part.id) ?? boundsOf(sprite);
+        for (const fragment of partFragments(slot, part, attack)) {
           drawFragment(sprite, bounds, ...fragment);
         }
       }
+      if (attack > 0.15) {
+        ctx.globalAlpha = attack * 0.8;
+        ctx.strokeStyle = fit.dominantColor;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(74, 43);
+        ctx.lineTo(94, 37);
+        ctx.moveTo(76, 48);
+        ctx.lineTo(93, 48);
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (animation !== 'static' || attackPulse > 0) frame = requestAnimationFrame(redraw);
     };
     redraw();
     const timers = [100, 300, 700, 1500, 3000].map((delay) =>
-      window.setTimeout(redraw, delay));
+      window.setTimeout(() => {
+        refreshBounds();
+        if (animation === 'static') redraw();
+      }, delay));
     return () => {
       active = false;
+      cancelAnimationFrame(frame);
       timers.forEach((timer) => window.clearTimeout(timer));
       ctx.clearRect(0, 0, 96, 128);
     };
-  }, [components, equipped]);
+  }, [components, equipped, animation, attackPulse, fit.build, fit.dominantColor, fit.headScale,
+    fit.hipWidth, fit.locomotion, fit.shoulderSpan, fit.torsoWidth]);
 
   return (
-    <div className={`avatarAssembly ${className}`} aria-label="Equipped humanoid components">
+    <div
+      className={`avatarAssembly ${className}`}
+      aria-label={`Pragmatic Assembly: ${fit.description}`}
+      data-fit={fit.build}
+      data-locomotion={fit.locomotion}
+    >
       <canvas ref={canvasRef} width={96} height={128} className="avatarAssemblyCanvas" />
     </div>
   );
@@ -1585,6 +1730,7 @@ export default function Game() {
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const [assemblyAttackPulse, setAssemblyAttackPulse] = useState(0);
   const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
   const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
   // DOM sprite overlay refs (rocket skin in-game)
@@ -1664,11 +1810,16 @@ export default function Game() {
 
   const rivalShootFlash = useCallback(() => {
     if (gifAttackFramesRef.current.length < 1) return;
+    // Auto Fire can produce a new shot before the prior frame timeout ends.
+    // Never restart an in-flight pulse or the rival remains permanently in
+    // the attack pose.
+    if (gemAttackFrameRef.current >= 0) return;
     gemAttackFrameRef.current = 0;
     if (gemAttackTimer.current) clearTimeout(gemAttackTimer.current);
     gemAttackTimer.current = setTimeout(() => {
       gemAttackFrameRef.current = -1;
-    }, 360);
+      gemAttackTimer.current = null;
+    }, 180);
   }, []);
 
   useEffect(() => () => {
@@ -1910,6 +2061,9 @@ export default function Game() {
     const playerOriginShot = opts?.originCol === undefined;
     if (playerOriginShot && playerSkinRef.current === 'rocket') rocketShootFlash();
     if (playerOriginShot && playerSkinRef.current === 'gem' && s.autoBuster) gemShootFlash();
+    if (playerOriginShot && playerSkinRef.current === 'assembly') {
+      setAssemblyAttackPulse((pulse) => pulse + 1);
+    }
     if (playerOriginShot && (['chrono', 'singularity', 'override', 'architect', 'apex', 'counter', 'phase', 'phoenix'] as PlayerSkin[])
       .includes(playerSkinRef.current)) rivalShootFlash();
   }, [rocketShootFlash, gemShootFlash, rivalShootFlash]);
@@ -4662,6 +4816,10 @@ export default function Game() {
   };
 
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
+  const equippedAssemblyParts = AVATAR_SLOTS
+    .map((slot) => avatarComponents.find((component) => component.id === equippedAvatarComponents[slot]))
+    .filter((part): part is AvatarComponentDrop => Boolean(part));
+  const assemblyFit = analyzeAssemblyFit(equippedAssemblyParts);
   const bestiaryPanel = (onBack: () => void) => (
     <div id="bestiaryCard">
       <div id="bestiaryHeader">
@@ -4799,6 +4957,8 @@ export default function Game() {
               components={avatarComponents}
               equipped={equippedAvatarComponents}
               className="avatarAssemblyGameplay"
+              animation="idle"
+              attackPulse={assemblyAttackPulse}
             />
           )}
         </div>
@@ -5286,7 +5446,12 @@ export default function Game() {
                     components={avatarComponents}
                     equipped={equippedAvatarComponents}
                     className="avatarAssemblyPreview"
+                    animation="showcase"
                   />
+                  <div id="assemblyFitReadout">
+                    <b>PRAGMATIC FIT ACTIVE</b>
+                    <span>{assemblyFit.description}</span>
+                  </div>
                 </div>
                 <div id="avatarComponentSlots">
                   {AVATAR_SLOTS.map((slot) => {

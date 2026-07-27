@@ -1006,11 +1006,36 @@ canvas#canvas {
 #avatarWorkshopPreview {
   position: relative;
   width: 88px;
-  height: 112px;
+  height: 142px;
   overflow: hidden;
   border: 1px solid rgba(125, 211, 252, 0.35);
   border-radius: 12px;
   background: radial-gradient(circle, rgba(59, 130, 246, 0.2), rgba(2, 6, 23, 0.9));
+}
+
+#avatarWorkshopPreview .avatarAssemblyPreview {
+  top: 43%;
+}
+
+#assemblyFitReadout {
+  position: absolute;
+  inset: auto 4px 5px;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  color: rgba(219, 234, 254, 0.72);
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid rgba(103, 232, 249, 0.24);
+  border-radius: 6px;
+  font-size: 6px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+#assemblyFitReadout b {
+  color: #67e8f9;
+  font-size: 6px;
+  letter-spacing: 0.06em;
 }
 
 .avatarBaseSilhouette {
