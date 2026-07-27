@@ -29,7 +29,7 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
-import type { GameState, GameMode, EnemyGenome, EnemyAbility } from '../game/types';
+import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability } from '../game/types';
 import { ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME, NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL } from '../game/constants';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
@@ -77,6 +77,7 @@ const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
 const LEARNED_ABILITIES_KEY = 'cgs_learned_abilities_v1';
 const PLAYSTYLE_SIGNALS_KEY = 'cgs_playstyle_signals_v1';
 const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
+const GENERATED_ABILITIES_KEY = 'cgs_generated_abilities_v1';
 const SYNCHRONY_THRESHOLD = 3;
 
 interface BestiaryEntry {
@@ -93,6 +94,21 @@ interface AbilityBlueprint {
   delivery: string;
   function: string;
   medium: string;
+}
+
+interface GeneratedAbility extends Ability, AbilityBlueprint {
+  constitutionSignature: string;
+  manifestedAt: number;
+}
+
+let generatedAbilityRegistry: Record<string, GeneratedAbility> = {};
+
+function runtimeAbilityById(id: string): Ability | undefined {
+  return ABILITY_LOOKUP[id] ?? generatedAbilityRegistry[id];
+}
+
+function runtimeAbilityPool(): Ability[] {
+  return [...ABILITY_POOL, ...Object.values(generatedAbilityRegistry)];
 }
 
 interface LearnedAbility {
@@ -163,6 +179,31 @@ const PLAYSTYLE_MANIFESTATIONS: Record<PlaystyleSignal, {
   cloneDefense: { threshold: 5, abilityId: 'shield', reason: 'Clone guarding manifested a portable ward.' },
   cloneAutofire: { threshold: 4, abilityId: 'turret', reason: 'Persistent clone fire manifested autonomous coverage.' },
 };
+
+function manifestedPlaystyleAbility(signal: PlaystyleSignal): GeneratedAbility {
+  const manifestation = PLAYSTYLE_MANIFESTATIONS[signal];
+  const counterpart = ABILITY_LOOKUP[manifestation.abilityId];
+  const components = playerAbilityComponents(counterpart);
+  const signalNames: Record<PlaystyleSignal, string> = {
+    manualFire: 'Deliberate',
+    autoOffFire: 'Disciplined',
+    movement: 'Kinetic',
+    abilityUse: 'Adaptive',
+    rotation: 'Rotating',
+    cloneDefense: 'Echoed',
+    cloneAutofire: 'Autonomous',
+  };
+  return {
+    id: `manifest-style-${signal}`,
+    name: `${signalNames[signal]} ${counterpart.name}`.toUpperCase(),
+    desc: `${manifestation.reason} ${counterpart.desc}`,
+    cooldown: counterpart.cooldown,
+    abilityId: `manifest-style-${signal}`,
+    ...components,
+    constitutionSignature: `playstyle:${signal}`,
+    manifestedAt: Date.now(),
+  };
+}
 
 interface RunUpgrade {
   id: string;
@@ -327,6 +368,48 @@ function linkedPlayerAbility(genome: EnemyGenome): string {
   return abilityBlueprintFor(genome).abilityId;
 }
 
+function manifestedAbilityFor(genome: EnemyGenome): GeneratedAbility {
+  const blueprint = abilityBlueprintFor(genome);
+  const movement = getEnemyMovementClass(genome.baseElement);
+  const signature = [
+    blueprint.delivery, blueprint.function, blueprint.medium,
+    genome.entityType, movement, genome.niche,
+  ].join(':');
+  const hash = [...signature].reduce((sum, char) => (sum * 33 + char.charCodeAt(0)) >>> 0, 5381);
+  const mediumNames: Record<string, string> = {
+    signal: 'Cipher', thermal: 'Thermal', phase: 'Phase',
+    fluid: 'Tidal', organic: 'Verdant', kinetic: 'Kinetic',
+  };
+  const functionNames: Record<string, string> = {
+    rupture: 'Rupture', inhibit: 'Snare', impulse: 'Drive', ward: 'Aegis',
+    restore: 'Weave', reveal: 'Beacon', adapt: 'Shift',
+  };
+  const deliveryNames: Record<string, string> = {
+    projector: 'Lance', field: 'Field', shell: 'Shell',
+    weave: 'Thread', aperture: 'Gate', pulse: 'Pulse',
+  };
+  const functionDescriptions: Record<string, string> = {
+    rupture: 'damages matching enemies',
+    inhibit: 'slows and suppresses matching enemies',
+    impulse: 'drives matching enemies toward the edge',
+    ward: 'converts hostile structure into shielding',
+    restore: 'converts synchronized structure into recovery',
+    reveal: 'exposes phased forms and destabilizes their position',
+    adapt: 'adapts its effect across the occupied lanes',
+  };
+  const id = `manifest-${blueprint.medium}-${blueprint.function}-${blueprint.delivery}-${(hash % 4096).toString(36)}`;
+  return {
+    id,
+    name: `${mediumNames[blueprint.medium] ?? blueprint.medium} ${functionNames[blueprint.function] ?? blueprint.function} ${deliveryNames[blueprint.delivery] ?? blueprint.delivery}`.toUpperCase(),
+    desc: `${blueprint.delivery} ${functionDescriptions[blueprint.function] ?? 'alters matching enemies'} through ${blueprint.medium} affinity.`,
+    cooldown: 9 + (hash % 7),
+    ...blueprint,
+    abilityId: id,
+    constitutionSignature: signature,
+    manifestedAt: Date.now(),
+  };
+}
+
 function enemyCounterpartFor(genome: EnemyGenome): EnemyAbility | undefined {
   const mature = genome.fusionLevel > 0 || (genome.generation >= 2 && genome.mutations.length >= 2);
   if (!mature) return undefined;
@@ -400,10 +483,11 @@ function randomAbilityOptions(
   hp = 5,
   synchronizedIds?: Set<string>,
 ): string[] {
+  const availableAbilities = runtimeAbilityPool();
   const source = enabledIds
-    ? ABILITY_POOL.filter((a) => enabledIds.has(a.id))
-    : ABILITY_POOL;
-  const pool = [...(source.length > 0 ? source : ABILITY_POOL)];
+    ? availableAbilities.filter((a) => enabledIds.has(a.id))
+    : availableAbilities;
+  const pool = [...(source.length > 0 ? source : availableAbilities)];
   const categoryIds: Record<AbilityCategory, string[]> = {
     offense: pool.filter((ability) => OFFENSE_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
     control: pool.filter((ability) => CONTROL_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
@@ -537,7 +621,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     autoBuster: true,
     shieldCharges: 0,
     pierceShots: 0,
-    abilityCooldowns: Object.fromEntries(ABILITY_POOL.map((a) => [a.id, 0])),
+    abilityCooldowns: Object.fromEntries(runtimeAbilityPool().map((a) => [a.id, 0])),
     currentCardOptions: randomAbilityOptions(undefined, enabledIds),
     // VS mode
     gameMode: mode,
@@ -685,12 +769,37 @@ export default function Game() {
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
   const [cloneView, setCloneView] = useState<CloneView>(emptyCloneView);
+  const [generatedAbilities, setGeneratedAbilities] = useState<GeneratedAbility[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(GENERATED_ABILITIES_KEY) ?? '[]');
+      const valid = Array.isArray(stored)
+        ? stored.filter((ability: GeneratedAbility) =>
+          ability?.id?.startsWith('manifest-')
+          && ability.name && ability.desc && ability.delivery && ability.function && ability.medium)
+        : [];
+      generatedAbilityRegistry = Object.fromEntries(valid.map((ability: GeneratedAbility) => [ability.id, ability]));
+      return valid;
+    } catch {
+      generatedAbilityRegistry = {};
+      return [];
+    }
+  });
+  const generatedAbilitiesRef = useRef(generatedAbilities);
+  const registerGeneratedAbility = useCallback((ability: GeneratedAbility) => {
+    if (generatedAbilityRegistry[ability.id]) return generatedAbilityRegistry[ability.id];
+    const next = [ability, ...generatedAbilitiesRef.current].slice(0, 240);
+    generatedAbilitiesRef.current = next;
+    generatedAbilityRegistry = Object.fromEntries(next.map((entry) => [entry.id, entry]));
+    localStorage.setItem(GENERATED_ABILITIES_KEY, JSON.stringify(next));
+    setGeneratedAbilities(next);
+    return ability;
+  }, []);
   const [learnedAbilities, setLearnedAbilities] = useState<LearnedAbility[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(LEARNED_ABILITIES_KEY) ?? '[]');
       const learned = Array.isArray(stored)
         ? stored
-          .filter((entry: LearnedAbility) => entry?.id && ABILITY_LOOKUP[entry.id])
+          .filter((entry: LearnedAbility) => entry?.id && runtimeAbilityById(entry.id))
           .map((entry: LearnedAbility) => {
             const resonance = Math.max(1, Number(entry.resonance) || 1);
             return {
@@ -730,7 +839,7 @@ export default function Game() {
     }
   })());
   const learnAbility = useCallback((id: string, source: LearnedAbility['source'], reason: string) => {
-    if (!ABILITY_LOOKUP[id] || ESSENTIAL_ABILITY_IDS.has(id)) return;
+    if (!runtimeAbilityById(id) || ESSENTIAL_ABILITY_IDS.has(id)) return;
     const previous = learnedAbilitiesRef.current;
     const existing = previous.find((entry) => entry.id === id);
     const resonance = Math.min(
@@ -760,9 +869,10 @@ export default function Game() {
     localStorage.setItem(PLAYSTYLE_SIGNALS_KEY, JSON.stringify(playstyleSignalsRef.current));
     const manifestation = PLAYSTYLE_MANIFESTATIONS[signal];
     if (next >= manifestation.threshold && (next - manifestation.threshold) % manifestation.threshold === 0) {
-      learnAbility(manifestation.abilityId, 'playstyle', manifestation.reason);
+      const generated = registerGeneratedAbility(manifestedPlaystyleAbility(signal));
+      learnAbility(generated.id, 'playstyle', manifestation.reason);
     }
-  }, [learnAbility]);
+  }, [learnAbility, registerGeneratedAbility]);
   const [bestiaryEntries, setBestiaryEntries] = useState<BestiaryEntry[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(BESTIARY_KEY) ?? '[]');
@@ -780,7 +890,7 @@ export default function Game() {
   const synchronizedAbilityIdsRef = useRef(new Set(
     bestiaryEntries
       .map((entry) => entry.synchronizedAbilityId)
-      .filter((id): id is string => Boolean(id && ABILITY_LOOKUP[id])),
+      .filter((id): id is string => Boolean(id && runtimeAbilityById(id))),
   ));
   const recordBestiary = useCallback((seed: number, genome: EnemyGenome) => {
     const signature = [
@@ -795,7 +905,7 @@ export default function Game() {
       const observations = Math.min(SYNCHRONY_THRESHOLD, (existing.observations ?? 1) + 1);
       const constitution = enemyCounterpartFor(genome);
       const synchronizedAbilityId = observations >= SYNCHRONY_THRESHOLD && constitution
-        ? linkedPlayerAbility(genome)
+        ? registerGeneratedAbility(manifestedAbilityFor(genome)).id
         : existing.synchronizedAbilityId;
       const updated = { ...existing, observations, synchronizedAbilityId };
       bestiaryRef.current = [
@@ -822,13 +932,13 @@ export default function Game() {
       discoveredAt: Date.now(),
       observations: 1,
       synchronizedAbilityId: constitution && SYNCHRONY_THRESHOLD <= 1
-        ? linkedPlayerAbility(genome)
+        ? registerGeneratedAbility(manifestedAbilityFor(genome)).id
         : undefined,
     };
     bestiaryRef.current = [entry, ...bestiaryRef.current].slice(0, 160);
     localStorage.setItem(BESTIARY_KEY, JSON.stringify(bestiaryRef.current));
     setBestiaryEntries(bestiaryRef.current);
-  }, [learnAbility]);
+  }, [learnAbility, registerGeneratedAbility]);
 
   // Player skin
   type PlayerSkin = 'default' | 'rocket' | 'dots' | 'gem';
@@ -1008,7 +1118,7 @@ export default function Game() {
       const stored = JSON.parse(localStorage.getItem(ENABLED_ABILITIES_KEY) ?? 'null');
       if (Array.isArray(stored)) {
         const valid = stored.filter((id): id is string =>
-          typeof id === 'string' && ALL_ABILITY_IDS.has(id) && unlockedIds.has(id));
+          typeof id === 'string' && Boolean(runtimeAbilityById(id)) && unlockedIds.has(id));
         if (valid.length > 0) return new Set(valid);
       }
     } catch {
@@ -1193,7 +1303,8 @@ export default function Game() {
   const useCard = useCallback((type: string) => {
     const s = stateRef.current;
     if (!s.running || !s.cardsReady) return;
-    const ability = ABILITY_LOOKUP[type];
+    const ability = runtimeAbilityById(type);
+    const generated = generatedAbilityRegistry[type];
     if (!ability) return;
     // Already used this hand or on cooldown — do nothing
     if (s.usedInHand.includes(type)) return;
@@ -1224,7 +1335,52 @@ export default function Game() {
     };
 
     // ── Existing ────────────────────────────────────────────────────────────
-    if (type === 'shotgun') {
+    if (generated) {
+      const rank = learnedAbilitiesRef.current.find((entry) => entry.id === type)?.rank ?? 1;
+      const mediumMatch = (enemy: GameState['enemies'][number]) => {
+        const genome = enemy.genome;
+        if (!genome) return generated.medium === 'kinetic';
+        const movement = movementClassOf(enemy);
+        if (generated.medium === 'signal') return genome.entityType === 'mechanical' || CYBER_BASES.has(genome.baseElement);
+        if (generated.medium === 'thermal') return genome.element === 'thermal' || genome.element === 'cryo';
+        if (generated.medium === 'phase') return genome.element === 'void' || genome.element === 'radiant' || movement === 'spectral';
+        if (generated.medium === 'fluid') return genome.entityType === 'fluidic' || genome.element === 'corrosive' || movement === 'aquatic';
+        if (generated.medium === 'organic') return genome.element === 'bloom' || genome.entityType === 'organic' || genome.entityType === 'botanical';
+        return true;
+      };
+      let targets = living().filter(mediumMatch);
+      if (targets.length === 0) targets = living();
+      if (generated.delivery === 'projector') {
+        const rowTargets = targets.filter((enemy) => enemy.row === s.player.row);
+        targets = rowTargets.length > 0 ? rowTargets : targets.slice(0, 1);
+      } else if (generated.delivery === 'pulse') {
+        targets = targets.slice(0, Math.min(targets.length, 1 + rank));
+      }
+      if (generated.function === 'rupture') {
+        strike((enemy) => targets.includes(enemy), 1 + rank);
+      } else if (generated.function === 'inhibit') {
+        for (const enemy of targets) { enemy.speed *= Math.max(0.28, 0.72 - rank * 0.06); enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 2 + rank); enemy.flash = 0.16; }
+      } else if (generated.function === 'impulse') {
+        for (const enemy of targets) { enemy.colPos = Math.min(5.8, enemy.colPos + 0.65 + rank * 0.28); enemy.flash = 0.16; }
+      } else if (generated.function === 'ward') {
+        s.shieldCharges = Math.min(9, s.shieldCharges + 1 + Math.floor(rank / 2));
+      } else if (generated.function === 'restore') {
+        s.hp += 1 + Math.ceil(rank / 2);
+      } else if (generated.function === 'reveal') {
+        for (const enemy of targets) {
+          enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 2 + rank);
+          enemy.colPos = Math.min(5.8, enemy.colPos + 0.35 * rank);
+          enemy.flash = 0.16;
+        }
+      } else {
+        for (const enemy of targets) {
+          enemy.row = (enemy.row + 1 + (rank % 2)) % 3;
+          enemy.speed *= 0.8;
+          enemy.flash = 0.16;
+        }
+      }
+      showMessage(`${generated.name} manifested at Rank ${rank}!`, 1500);
+    } else if (type === 'shotgun') {
       for (let ro = -1; ro <= 1; ro++) {
         const tr = s.player.row + ro;
         if (tr >= 0 && tr < 3) fireBullet(tr, { power: 2, big: true });
@@ -2538,7 +2694,7 @@ export default function Game() {
       updateHud();
     }
 
-    for (const a of ABILITY_POOL) {
+    for (const a of runtimeAbilityPool()) {
       if (s.abilityCooldowns[a.id] > 0) {
         s.abilityCooldowns[a.id] = Math.max(0, s.abilityCooldowns[a.id] - dt);
       }
@@ -3535,7 +3691,9 @@ export default function Game() {
             const genome = entry.genome;
             const constitutionAbility = enemyCounterpartFor(genome);
             const blueprint = abilityBlueprintFor(genome);
-            const linkedAbility = ABILITY_LOOKUP[blueprint.abilityId];
+            const linkedAbility = entry.synchronizedAbilityId
+              ? runtimeAbilityById(entry.synchronizedAbilityId)
+              : manifestedAbilityFor(genome);
             const observations = Math.max(1, entry.observations ?? 1);
             const synchronized = Boolean(entry.synchronizedAbilityId);
             return (
@@ -3826,7 +3984,7 @@ export default function Game() {
           {hud.cardsReady && (
             <div id="cardChoices">
               {hud.cardOptions.map((id) => {
-                const ability = ABILITY_LOOKUP[id];
+                const ability = runtimeAbilityById(id);
                 if (!ability) return null;
                 const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
                 const used = hud.usedInHand.includes(id);
@@ -4047,7 +4205,11 @@ export default function Game() {
                 rank other abilities as they arise; prestige unlocks them for your loadout.
               </div>
               <div id="learnedLoadoutGrid">
-                  {ABILITY_POOL.map((ability) => {
+                  {runtimeAbilityPool()
+                    .filter((ability) =>
+                      ESSENTIAL_ABILITY_IDS.has(ability.id)
+                      || learnedAbilities.some((entry) => entry.id === ability.id))
+                    .map((ability) => {
                     const learned = learnedAbilities.find((entry) => entry.id === ability.id);
                     const unlocked = abilityIsUnlocked(learned, learnedAbilities);
                     const requiredPrestige = abilityPrestigeRequirement(ability.id);
