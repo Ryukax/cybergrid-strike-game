@@ -2554,29 +2554,29 @@ const SKILL_EXECUTION_MOTIFS: Record<RivalSkillId, [SkillExecutionMotif, SkillEx
   sovereign: ['sovereign', 'exchange', 'restore'],
 };
 
-const SKILL_VFX_ATLAS_FRAME: Record<SkillExecutionMotif, number> = {
-  time: 0,
-  gravity: 1,
-  command: 2,
-  construct: 3,
-  morph: 4,
-  reflect: 5,
-  dash: 6,
-  restore: 7,
-  portal: 6,
-  vector: 2,
-  grid: 3,
-  resonance: 3,
-  exchange: 2,
-  lock: 5,
-  weapon: 6,
-  harvest: 4,
-  suppress: 4,
-  polarity: 2,
-  colossus: 4,
-  target: 5,
-  orbital: 3,
-  sovereign: 4,
+const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b'; row: number }> = {
+  time: { sheet: 'a', row: 0 },
+  gravity: { sheet: 'a', row: 1 },
+  command: { sheet: 'a', row: 2 },
+  construct: { sheet: 'a', row: 3 },
+  grid: { sheet: 'a', row: 3 },
+  resonance: { sheet: 'a', row: 3 },
+  orbital: { sheet: 'a', row: 3 },
+  morph: { sheet: 'b', row: 0 },
+  harvest: { sheet: 'b', row: 0 },
+  suppress: { sheet: 'b', row: 0 },
+  colossus: { sheet: 'b', row: 0 },
+  sovereign: { sheet: 'b', row: 0 },
+  reflect: { sheet: 'b', row: 1 },
+  lock: { sheet: 'b', row: 1 },
+  polarity: { sheet: 'b', row: 1 },
+  dash: { sheet: 'b', row: 2 },
+  weapon: { sheet: 'b', row: 2 },
+  portal: { sheet: 'b', row: 2 },
+  target: { sheet: 'b', row: 2 },
+  vector: { sheet: 'b', row: 2 },
+  exchange: { sheet: 'b', row: 2 },
+  restore: { sheet: 'b', row: 3 },
 };
 
 function SignatureSkillFx({
@@ -2591,15 +2591,20 @@ function SignatureSkillFx({
   lastAction: RivalSkillView['lastAction'];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const atlasRef = useRef<HTMLImageElement | null>(null);
+  const sequenceRefs = useRef<{ a: HTMLImageElement | null; b: HTMLImageElement | null }>({
+    a: null,
+    b: null,
+  });
   const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
 
   useEffect(() => {
-    const atlas = new Image();
-    atlas.src = `${import.meta.env.BASE_URL}effects/signature-skill-vfx-atlas.png`;
-    atlasRef.current = atlas;
+    const sequenceA = new Image();
+    const sequenceB = new Image();
+    sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png`;
+    sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png`;
+    sequenceRefs.current = { a: sequenceA, b: sequenceB };
     return () => {
-      atlasRef.current = null;
+      sequenceRefs.current = { a: null, b: null };
     };
   }, []);
 
@@ -2640,8 +2645,8 @@ function SignatureSkillFx({
       const intro = Math.min(1, (now - startedAt) / 420);
       const execution = executionRef.current;
       const executionAge = (now - execution.startedAt) / 1000;
-      const executionProgress = Math.min(1, executionAge / 0.72);
-      const executing = execution.action !== null && executionAge < 0.72;
+      const executionProgress = Math.min(1, executionAge / 1.05);
+      const executing = execution.action !== null && executionAge < 1.05;
 
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
@@ -2815,15 +2820,13 @@ function SignatureSkillFx({
           }
         }
 
-        const atlas = atlasRef.current;
-        if (atlas?.complete && atlas.naturalWidth > 0) {
-          const atlasFrame = motif === null
-            ? SKILL_VFX_ATLAS_FRAME[SKILL_EXECUTION_MOTIFS[id][0]]
-            : SKILL_VFX_ATLAS_FRAME[motif];
-          const atlasCol = atlasFrame % 4;
-          const atlasRow = Math.floor(atlasFrame / 4);
-          const sourceWidth = atlas.naturalWidth / 4;
-          const sourceHeight = atlas.naturalHeight / 2;
+        const sequenceMotif = motif ?? SKILL_EXECUTION_MOTIFS[id][0];
+        const sequence = SKILL_VFX_SEQUENCE[sequenceMotif];
+        const sheet = sequenceRefs.current[sequence.sheet];
+        if (sheet?.complete && sheet.naturalWidth > 0) {
+          const sequenceFrame = Math.min(3, Math.floor(executionProgress * 4));
+          const sourceWidth = sheet.naturalWidth / 4;
+          const sourceHeight = sheet.naturalHeight / 4;
           const vfxTarget = motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
             ? target
             : motif === 'dash' || motif === 'weapon'
@@ -2844,9 +2847,9 @@ function SignatureSkillFx({
           if (motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
           if (motif === 'reflect') ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
           ctx.drawImage(
-            atlas,
-            atlasCol * sourceWidth,
-            atlasRow * sourceHeight,
+            sheet,
+            sequenceFrame * sourceWidth,
+            sequence.row * sourceHeight,
             sourceWidth,
             sourceHeight,
             -drawWidth / 2,
