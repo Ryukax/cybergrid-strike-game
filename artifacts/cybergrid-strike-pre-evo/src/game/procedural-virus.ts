@@ -671,12 +671,15 @@ function graft(
   kind?: GenericComponentKind,
 ): void {
   if (!ready(image)) return;
+  const output = ctx;
+  const patch = document.createElement('canvas');
+  patch.width = SPRITE_SIZE;
+  patch.height = SPRITE_SIZE;
+  ctx = patch.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
   ctx.save();
   graftMask(ctx, seed, region, kind);
   ctx.clip();
-  // Replace this anatomical socket instead of layering a second complete
-  // painting over the anchor silhouette.
-  ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   ctx.globalAlpha = alpha;
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
@@ -760,6 +763,15 @@ function graft(
   }
   ctx.filter = 'none';
   ctx.restore();
+
+  // Replace only pixels for which the donor actually supplied visible
+  // anatomy. Transparent padding inside a source crop must never punch a
+  // rectangular or polygonal hole through the anchor.
+  output.save();
+  output.globalCompositeOperation = 'destination-out';
+  output.drawImage(patch, 0, 0);
+  output.restore();
+  output.drawImage(patch, 0, 0);
 }
 
 function outlineSilhouette(ctx: CanvasRenderingContext2D): void {
