@@ -3762,22 +3762,6 @@ export default function Game() {
             loadBitmap(`${base}skins/skill-${playerSkin}-idle.png`),
             loadBitmap(`${base}skins/skill-${playerSkin}-attack.png`),
           ]);
-          if (playerSkin === 'chrono') {
-            // The authored Chrono attack sheet includes a wide clock-blade
-            // extension whose inner ribs collapse into three detached cyan
-            // lines at gameplay scale. Keep the committed body/weapon pose;
-            // the contextual projectile renderer supplies the connected
-            // temporal release without those misleading extra marks.
-            const attackCrop = await createImageBitmap(
-              rawAttack,
-              0,
-              0,
-              Math.round(rawAttack.width * 158 / 240),
-              rawAttack.height,
-            );
-            rawAttack.close();
-            rawAttack = attackCrop;
-          }
           if (playerSkin === 'hijack') {
             const idleCrop = await createImageBitmap(
               rawIdle,

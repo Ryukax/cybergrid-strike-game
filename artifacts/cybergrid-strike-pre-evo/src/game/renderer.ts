@@ -829,35 +829,6 @@ function drawSkinProjectileEffect(
   ctx.shadowColor = config.color;
   ctx.shadowBlur = radius * 2.4;
 
-  // One attached tapered wake. Detached dots/parallel streaks read as extra
-  // projectiles at mobile scale, so the trail now grows directly from the
-  // projectile body and fades continuously behind it.
-  const trailLength = radius * (4.6 + config.motif * 0.24);
-  const trailWave = Math.sin(time + config.motif * 0.71) * radius * 0.22;
-  const trailGradient = ctx.createLinearGradient(-trailLength, 0, -radius * 0.4, 0);
-  trailGradient.addColorStop(0, 'rgba(0,0,0,0)');
-  trailGradient.addColorStop(0.52, config.color);
-  trailGradient.addColorStop(1, config.accent);
-  ctx.globalAlpha = 0.72;
-  ctx.fillStyle = trailGradient;
-  ctx.beginPath();
-  ctx.moveTo(-trailLength, trailWave);
-  ctx.quadraticCurveTo(
-    -trailLength * 0.48,
-    -radius * 0.36 + trailWave,
-    -radius * 0.35,
-    -radius * 0.5,
-  );
-  ctx.lineTo(-radius * 0.35, radius * 0.5);
-  ctx.quadraticCurveTo(
-    -trailLength * 0.48,
-    radius * 0.36 + trailWave,
-    -trailLength,
-    trailWave,
-  );
-  ctx.closePath();
-  ctx.fill();
-
   ctx.globalAlpha = 0.88;
   ctx.strokeStyle = config.color;
   ctx.fillStyle = config.accent;
@@ -1203,10 +1174,6 @@ export function draw(
       ctx.beginPath();
       ctx.arc(bx, by, energyRadius * 1.35, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(bx - direction * energyRadius * 3.2, by);
-      ctx.lineTo(bx - direction * energyRadius * 1.15, by);
-      ctx.stroke();
     } else {
       // A compact physical projectile with a metal nose, casing and tracer.
       ctx.translate(bx, by);
@@ -1222,12 +1189,6 @@ export function draw(
       ctx.lineTo(radius * 0.85, radius * 0.46);
       ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = b.pierce ? 'rgba(192,132,252,0.55)' : 'rgba(253,224,71,0.55)';
-      ctx.lineWidth = Math.max(1.5, radius * 0.35);
-      ctx.beginPath();
-      ctx.moveTo(-radius * 3.4, 0);
-      ctx.lineTo(-radius * 1.35, 0);
-      ctx.stroke();
     }
     ctx.restore();
     drawSkinProjectileEffect(ctx, bx, by, radius, direction, b.effectSkin);
