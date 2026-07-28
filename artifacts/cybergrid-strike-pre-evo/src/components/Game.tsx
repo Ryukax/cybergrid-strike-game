@@ -2471,14 +2471,14 @@ const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
   'null', 'polarity', 'colossus', 'predator', 'orbital', 'hijack',
   'sovereign',
 ]);
-type RivalAttackEffect = 'beam' | 'field' | 'construct' | 'claw' | 'circuit';
+type RivalAttackEffect = 'none' | 'field' | 'construct' | 'claw' | 'circuit';
 const RIVAL_ATTACK_EFFECTS: Record<RivalSkillId, RivalAttackEffect> = {
-  chrono: 'beam', singularity: 'field', override: 'circuit', architect: 'construct',
-  apex: 'claw', counter: 'field', phase: 'beam', phoenix: 'claw',
-  rift: 'beam', vector: 'beam', gridshift: 'construct', resonance: 'construct',
+  chrono: 'none', singularity: 'field', override: 'circuit', architect: 'construct',
+  apex: 'claw', counter: 'field', phase: 'none', phoenix: 'claw',
+  rift: 'none', vector: 'none', gridshift: 'construct', resonance: 'construct',
   exchange: 'circuit', causality: 'field', arsenal: 'claw',
   assimilation: 'claw', null: 'field', polarity: 'field', colossus: 'construct',
-  predator: 'claw', orbital: 'beam', hijack: 'circuit', sovereign: 'claw',
+  predator: 'claw', orbital: 'none', hijack: 'circuit', sovereign: 'claw',
 };
 type AssemblySkillId = 'shadow' | RivalSkillId;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
@@ -7323,14 +7323,7 @@ export default function Game() {
                   sctx.lineWidth = Math.max(1, sz * 0.025);
                   sctx.shadowColor = effectColor;
                   sctx.shadowBlur = sz * 0.08 * impact;
-                  if (effect === 'beam') {
-                    for (let trail = -1; trail <= 1; trail++) {
-                      sctx.beginPath();
-                      sctx.moveTo(sz * 0.58, oy + trail * sz * 0.08);
-                      sctx.lineTo(sz * (0.92 + impact * 0.16), oy + trail * sz * 0.035);
-                      sctx.stroke();
-                    }
-                  } else if (effect === 'field') {
+                  if (effect === 'field') {
                     sctx.beginPath();
                     sctx.arc(ox, oy, sz * (0.08 + impact * 0.2), 0, Math.PI * 2);
                     sctx.stroke();
@@ -7348,7 +7341,7 @@ export default function Game() {
                       sctx.arc(ox, oy + slash * sz * 0.07, sz * (0.16 + impact * 0.08), -0.75, 0.75);
                       sctx.stroke();
                     }
-                  } else {
+                  } else if (effect === 'circuit') {
                     sctx.beginPath();
                     sctx.moveTo(sz * 0.57, oy);
                     sctx.lineTo(ox, oy - sz * 0.13);
