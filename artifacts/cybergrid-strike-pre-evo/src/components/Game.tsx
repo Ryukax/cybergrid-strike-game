@@ -3580,20 +3580,22 @@ export default function Game() {
   }, []);
 
   const scrollMenuTargetIntoView = useCallback((target: Element | null) => {
-    target?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-      behavior: 'smooth',
-    });
+    const menu = document.getElementById('mainMenu');
+    if (!menu || !target) return;
+    const menuRect = menu.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const padding = 18;
+    if (targetRect.bottom > menuRect.bottom - padding) {
+      menu.scrollTop += targetRect.bottom - menuRect.bottom + padding;
+    } else if (targetRect.top < menuRect.top + padding) {
+      menu.scrollTop += targetRect.top - menuRect.top - padding;
+    }
   }, []);
 
   const scrollMenuByDpad = useCallback((direction: number) => {
     const menu = document.getElementById('mainMenu');
     if (!menu) return;
-    menu.scrollBy({
-      top: direction * Math.max(96, menu.clientHeight * 0.55),
-      behavior: 'smooth',
-    });
+    menu.scrollTop += direction * Math.max(96, menu.clientHeight * 0.55);
   }, []);
 
   const disperseClone = useCallback((direction: CloneDirection, returnControl: boolean) => {
