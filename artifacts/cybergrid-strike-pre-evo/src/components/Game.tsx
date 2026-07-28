@@ -3579,6 +3579,23 @@ export default function Game() {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
   }, []);
 
+  const scrollMenuTargetIntoView = useCallback((target: Element | null) => {
+    target?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: 'smooth',
+    });
+  }, []);
+
+  const scrollMenuByDpad = useCallback((direction: number) => {
+    const menu = document.getElementById('mainMenu');
+    if (!menu) return;
+    menu.scrollBy({
+      top: direction * Math.max(96, menu.clientHeight * 0.55),
+      behavior: 'smooth',
+    });
+  }, []);
+
   const disperseClone = useCallback((direction: CloneDirection, returnControl: boolean) => {
     const expiryTimer = cloneExpiryTimersRef.current[direction];
     if (expiryTimer) clearTimeout(expiryTimer);
@@ -5594,6 +5611,8 @@ export default function Game() {
           const direction = gp.moveY > 0 ? 1 : -1;
           menuSelectionRef.current = (menuSelectionRef.current + direction + 5) % 5;
           setMenuSelection(menuSelectionRef.current);
+          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
+          scrollMenuTargetIntoView(document.getElementById(ids[menuSelectionRef.current]));
           menuNavCooldownRef.current = 0.22;
         }
         if (gp.fire && !gp.prevFire) {
@@ -5608,6 +5627,10 @@ export default function Game() {
         }
         if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       } else if (menuScreenRef.current === 'options') {
+        if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
+          scrollMenuByDpad(gp.moveY > 0 ? 1 : -1);
+          menuNavCooldownRef.current = 0.22;
+        }
         if (gp.fire && !gp.prevFire) document.getElementById('menuDpadToggleBtn')?.click();
         if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       } else if (menuScreenRef.current === 'customization') {
@@ -5651,10 +5674,11 @@ export default function Game() {
             });
             customizationSelectionRef.current = bestIndex;
             buttons[customizationSelectionRef.current]?.classList.add('gamepad-selected');
-            buttons[customizationSelectionRef.current]?.scrollIntoView({
-              block: 'nearest',
-              inline: 'nearest',
-            });
+            if (bestIndex === buttons.indexOf(current) && useVertical) {
+              scrollMenuByDpad(vertical);
+            } else {
+              scrollMenuTargetIntoView(buttons[customizationSelectionRef.current]);
+            }
             menuNavCooldownRef.current = 0.18;
           } else {
             buttons[customizationSelectionRef.current]?.classList.add('gamepad-selected');
@@ -5839,7 +5863,7 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [update, handleGamepad, moveBestiarySelection]);
+  }, [update, handleGamepad, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
