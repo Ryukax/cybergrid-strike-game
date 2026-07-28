@@ -69,6 +69,70 @@ type GenericComponentKind =
   | 'legs' | 'treads' | 'wings' | 'fins' | 'tendrils' | 'roots' | 'hover'
   | 'armor' | 'weapon' | 'growth' | 'emitter' | 'phase';
 
+interface CompositionPlan {
+  head: GenericComponentKind;
+  locomotion: GenericComponentKind;
+  flank: GenericComponentKind;
+}
+
+interface BodyPlanVocabulary {
+  head: GenericComponentKind[];
+  locomotion: GenericComponentKind[];
+  flank: GenericComponentKind[];
+}
+
+// A body plan is decided before donor artwork is selected. These vocabularies
+// describe stable, mechanically plausible silhouettes rather than named
+// species: a flier must receive lift, a fortress must receive support, etc.
+const BODY_PLAN_VOCABULARY: Record<BodyType, BodyPlanVocabulary> = {
+  biped: { head: ['optic', 'sensor', 'crown'], locomotion: ['legs', 'treads', 'hover'], flank: ['weapon', 'armor', 'emitter'] },
+  quadruped: { head: ['maw', 'sensor', 'optic'], locomotion: ['legs'], flank: ['armor', 'growth', 'weapon'] },
+  arthropod: { head: ['sensor', 'maw', 'optic'], locomotion: ['legs', 'treads'], flank: ['armor', 'weapon', 'emitter'] },
+  flier: { head: ['optic', 'sensor'], locomotion: ['wings', 'hover'], flank: ['emitter', 'weapon', 'phase'] },
+  hover: { head: ['optic', 'sensor', 'crown'], locomotion: ['hover', 'wings'], flank: ['weapon', 'emitter', 'phase'] },
+  serpentine: { head: ['sensor', 'maw', 'optic'], locomotion: ['fins', 'tendrils'], flank: ['armor', 'emitter', 'growth'] },
+  tentacled: { head: ['sensor', 'maw', 'crown'], locomotion: ['tendrils', 'hover'], flank: ['growth', 'emitter', 'armor'] },
+  rooted: { head: ['crown', 'sensor', 'optic'], locomotion: ['roots'], flank: ['growth', 'armor', 'emitter'] },
+  colony: { head: ['sensor', 'crown', 'optic'], locomotion: ['roots', 'tendrils', 'hover'], flank: ['growth', 'emitter', 'phase'] },
+  aquatic: { head: ['sensor', 'optic', 'maw'], locomotion: ['fins', 'tendrils'], flank: ['armor', 'emitter', 'growth'] },
+  burrower: { head: ['sensor', 'maw', 'optic'], locomotion: ['legs', 'treads'], flank: ['armor', 'weapon', 'growth'] },
+  vehicle: { head: ['optic', 'sensor'], locomotion: ['treads', 'hover'], flank: ['weapon', 'armor', 'emitter'] },
+  fortress: { head: ['sensor', 'crown', 'optic'], locomotion: ['treads', 'roots', 'legs'], flank: ['armor', 'weapon', 'emitter'] },
+  spectral: { head: ['sensor', 'optic', 'crown'], locomotion: ['hover', 'tendrils'], flank: ['phase', 'emitter', 'growth'] },
+};
+
+function chooseKind(
+  seed: number,
+  salt: number,
+  choices: GenericComponentKind[],
+): GenericComponentKind {
+  return choices[Math.floor(gene(seed, salt) * choices.length)] ?? choices[0];
+}
+
+function buildCompositionPlan(
+  genome: EnemyGenome,
+  seed: number,
+  bodyType: BodyType,
+): CompositionPlan {
+  const vocabulary = BODY_PLAN_VOCABULARY[bodyType];
+  const locomotionChoices = genome.mutations.includes('accelerated')
+    ? vocabulary.locomotion.filter((kind) => ['legs', 'treads', 'wings', 'fins', 'hover'].includes(kind))
+    : vocabulary.locomotion;
+  return {
+    head: chooseKind(seed, 401 + genome.generation, vocabulary.head),
+    locomotion: chooseKind(
+      seed,
+      409 + genome.enemyClass.length,
+      locomotionChoices.length > 0 ? locomotionChoices : vocabulary.locomotion,
+    ),
+    flank: genome.mutations.includes('armored') && vocabulary.flank.includes('armor')
+      ? 'armor'
+      : genome.niche === 'phase' && vocabulary.flank.includes('phase')
+        ? 'phase'
+        : chooseKind(seed, 419 + genome.mutations.length, vocabulary.flank),
+  };
+}
+
 function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
   const domain = ELEMENT_DOMAIN[component.source as EnemyBaseElement]
     ?? (['automaton', 'capsid', 'phage'].includes(component.source) ? 'machine'
@@ -150,6 +214,7 @@ function selectGenericComponent(
   seed: number,
   role: FusionRole,
   excluded: VisualSource[] = [],
+  plannedKinds: GenericComponentKind[] = [],
 ): ComponentDefinition | undefined {
   const domain = ELEMENT_DOMAIN[genome.baseElement];
   const candidates = COMPLETE_COMPONENT_LIBRARY.filter((component) =>
@@ -158,6 +223,10 @@ function selectGenericComponent(
     && !excluded.includes(component.source)
     && component.domains.includes(domain));
   if (candidates.length === 0) return undefined;
+  const plannedCandidates = plannedKinds.length > 0
+    ? candidates.filter((component) => plannedKinds.includes(genericComponentKind(component)))
+    : [];
+  const eligibleCandidates = plannedCandidates.length > 0 ? plannedCandidates : candidates;
   const preferredKinds: Partial<Record<EnemyGenome['enemyClass'], GenericComponentKind[]>> = {
     skirmisher: ['sensor', 'wings', 'fins', 'hover', 'emitter'],
     guardian: ['crown', 'treads', 'roots', 'armor'],
@@ -169,7 +238,7 @@ function selectGenericComponent(
     scavenger: ['optic', 'legs', 'treads', 'weapon'],
   };
   const preferred = preferredKinds[genome.enemyClass] ?? [];
-  const weighted = candidates.flatMap((component) => {
+  const weighted = eligibleCandidates.flatMap((component) => {
     const kind = genericComponentKind(component);
     const weight = preferred.includes(kind) ? 4
       : (genome.niche === 'phase' && kind === 'phase') ? 5
@@ -489,12 +558,15 @@ type MatrixRegion = FusionRole;
 
 function fusionComponentKind(
   outcome: NonNullable<ReturnType<typeof getFusionOutcome>>,
+  plan: CompositionPlan,
 ): GenericComponentKind {
   if (outcome.function === 'sensor') return 'sensor';
   if (outcome.function === 'armor') return 'armor';
-  if (outcome.function === 'propulsion') return 'hover';
+  if (outcome.function === 'propulsion') return plan.locomotion;
   if (outcome.function === 'weapon') return 'weapon';
-  if (outcome.function === 'growth' || outcome.function === 'colony') return 'growth';
+  if (outcome.function === 'growth' || outcome.function === 'colony') {
+    return outcome.role === 'locomotion' ? plan.locomotion : 'growth';
+  }
   return 'phase';
 }
 
@@ -763,12 +835,20 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Body-plan compatibility is the hard rule. Element, type and class then
   // color and refine the sockets, allowing broad combinations without asking
   // a complete authored family painting to serve as the final creature.
-  const headComponent = selectGenericComponent(genome, seed + 160, 'head');
+  const compositionPlan = buildCompositionPlan(genome, seed, bodyType);
+  const headComponent = selectGenericComponent(
+    genome,
+    seed + 160,
+    'head',
+    [],
+    [compositionPlan.head],
+  );
   const locomotionComponent = selectGenericComponent(
     genome,
     seed + 165,
     'locomotion',
     headComponent ? [headComponent.source] : [],
+    [compositionPlan.locomotion],
   );
   const flankComponent = selectGenericComponent(
     genome,
@@ -776,6 +856,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     'flank',
     [headComponent?.source, locomotionComponent?.source]
       .filter((candidate): candidate is VisualSource => Boolean(candidate)),
+    [compositionPlan.flank],
   );
   const headPool = COMPATIBLE_HEADS[bodyType];
   const locomotionPool = [
@@ -832,7 +913,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Every entity is assembled. A whole family sprite is never the final image:
   // its central anatomy supplies only the core while independent donors fill
   // the head and locomotion sockets.
-  const fusionKind = fusionOutcome ? fusionComponentKind(fusionOutcome) : undefined;
+  const fusionKind = fusionOutcome ? fusionComponentKind(fusionOutcome, compositionPlan) : undefined;
   const fusionActive = genome.fusionLevel > 0
     && fusionOutcome
     && fusionBase !== genome.baseElement;
