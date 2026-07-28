@@ -3582,6 +3582,21 @@ export default function Game() {
   const scrollMenuTargetIntoView = useCallback((target: Element | null) => {
     const menu = document.getElementById('mainMenu');
     if (!menu || !target) return;
+    const skinRow = target.closest<HTMLElement>('#skinPickerRow');
+    if (skinRow && target instanceof HTMLElement) {
+      // Safari can update the selected button without repainting an
+      // overflow row moved by scrollIntoView. Position the row explicitly.
+      const skinRowRect = skinRow.getBoundingClientRect();
+      const skinTargetRect = target.getBoundingClientRect();
+      const targetLeft =
+        skinRow.scrollLeft + skinTargetRect.left - skinRowRect.left;
+      const centeredLeft =
+        targetLeft - (skinRow.clientWidth - skinTargetRect.width) / 2;
+      skinRow.scrollLeft = Math.max(
+        0,
+        Math.min(centeredLeft, skinRow.scrollWidth - skinRow.clientWidth),
+      );
+    }
     let horizontalScroller: HTMLElement | null = target.parentElement;
     while (horizontalScroller && horizontalScroller !== menu) {
       if (horizontalScroller.scrollWidth > horizontalScroller.clientWidth + 1) break;
