@@ -2471,15 +2471,6 @@ const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
   'null', 'polarity', 'colossus', 'predator', 'orbital', 'hijack',
   'sovereign',
 ]);
-type RivalAttackEffect = 'none' | 'field' | 'construct' | 'claw' | 'circuit';
-const RIVAL_ATTACK_EFFECTS: Record<RivalSkillId, RivalAttackEffect> = {
-  chrono: 'none', singularity: 'field', override: 'circuit', architect: 'construct',
-  apex: 'claw', counter: 'field', phase: 'none', phoenix: 'claw',
-  rift: 'none', vector: 'none', gridshift: 'construct', resonance: 'construct',
-  exchange: 'circuit', causality: 'field', arsenal: 'claw',
-  assimilation: 'claw', null: 'field', polarity: 'field', colossus: 'construct',
-  predator: 'claw', orbital: 'none', hijack: 'none', sovereign: 'claw',
-};
 type AssemblySkillId = 'shadow' | RivalSkillId;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   chrono: ['QUEUE', 'STEP', 'REWIND'],
@@ -2506,6 +2497,219 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   hijack: ['ORDER', 'COMMAND', 'BREAK'],
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
+
+interface RivalSkillGuide {
+  summary: string;
+  commands: [string, string, string];
+}
+
+const RIVAL_SKILL_GUIDE: Record<RivalSkillId, RivalSkillGuide> = {
+  chrono: {
+    summary: 'Slow time, record attacks and visited cells, then resolve the plan when the Skill ends.',
+    commands: [
+      'QUEUE — stores an attack in the current lane; queued attacks fire together when time resumes.',
+      'STEP — cycles instantly through cells you visited during Chrono Break.',
+      'REWIND — returns to the activation cell and restores the HP recorded at activation.',
+    ],
+  },
+  singularity: {
+    summary: 'Deploy a gravity core. Polarity governs what Collapse and Guard do to nearby pressure.',
+    commands: [
+      'COLLAPSE — attracts enemies into the core, compresses them, and destroys the captured formation.',
+      'POLARITY — toggles ATTRACT (pull inward) and REPEL (push outward); it changes subsequent core behavior.',
+      'GUARD — captures nearby enemy pressure into the core instead of dealing damage immediately.',
+    ],
+  },
+  override: {
+    summary: 'Appropriate an eligible living enemy host and use its constitution as a temporary weapon.',
+    commands: [
+      'NATIVE — performs the possessed host’s native attack; requires an eligible host.',
+      'TRANSFER — moves control to another eligible host; nothing happens when no other host exists.',
+      'SACRIFICE — expends the host to intercept pressure, then returns control to Player.',
+    ],
+  },
+  architect: {
+    summary: 'Place a three-node battlefield network; the fourth placement executes or replaces the network.',
+    commands: [
+      'CANNON — places an autonomous lane-firing node.',
+      'RELAY — places a linked jump node; paired relays transfer Player between their cells.',
+      'BARRIER — places a blocking node that absorbs an enemy advance.',
+    ],
+  },
+  apex: {
+    summary: 'Scan the current formation and cycle a counter-form tailored to its strongest constitution.',
+    commands: [
+      'TECHNIQUE — uses the active form’s offensive countermeasure.',
+      'FORM — cycles Breaker (armor), Reflector (projectiles), and Nullifier (special traits).',
+      'ADAPT — performs the active form’s defensive response and stabilizes it briefly.',
+    ],
+  },
+  counter: {
+    summary: 'Intercept enemy pressure before spending it; an empty matrix cannot Return, Redirect, or Convert.',
+    commands: [
+      'RETURN — fires captured pressure back at its source.',
+      'REDIRECT — cycles the return lane between lanes 1, 2, and 3.',
+      'CONVERT — turns captured pressure into protection or recovery.',
+    ],
+  },
+  phase: {
+    summary: 'Mark priority prey and perform invulnerable chained strikes against the selected target.',
+    commands: [
+      'STRIKE — phase-strikes the currently marked target.',
+      'TARGET — changes priority target; requires at least one marked enemy.',
+      'BREAK — ends the chain safely while retaining unused marks.',
+    ],
+  },
+  phoenix: {
+    summary: 'Record a restoration anchor and convert damage accumulated as heat into offense or recovery.',
+    commands: [
+      'VENT — releases accumulated heat as an attack; retained heat is shown after venting.',
+      'ANCHOR — moves the recorded restoration position and state.',
+      'RESTORE — returns to the anchor and restores its recorded state.',
+    ],
+  },
+  rift: {
+    summary: 'Anchor two linked portals before traversing or reflecting attacks through the circuit.',
+    commands: [
+      'TRAVERSE — jumps through the linked portal pair; both portals must exist.',
+      'PORTAL — anchors Portal 1, then Portal 2; further uses reposition the pair.',
+      'REFLECT — arms the rift to return the next compatible incoming attack.',
+    ],
+  },
+  vector: {
+    summary: 'Manipulate active trajectories; commands require a projectile or moving target in the lane.',
+    commands: [
+      'REDIRECT — turns an eligible vector toward a new target.',
+      'ACCELERATE — increases the speed and impact of all active trajectories.',
+      'ARREST — suspends a vector in place for later release.',
+    ],
+  },
+  gridshift: {
+    summary: 'Change board geometry by choosing a row, column, or lock operation and its direction.',
+    commands: [
+      'SHIFT — executes the selected operation in its forward/right direction.',
+      'OPERATION — cycles ROW, COLUMN, and LOCK.',
+      'REVERSE — executes the selected operation in its reverse/left direction.',
+    ],
+  },
+  resonance: {
+    summary: 'Place three marks; their geometry determines the completed array’s battlefield effect.',
+    commands: [
+      'MARK — places the next resonance mark (1/3 through 3/3).',
+      'MOVE MARK — repositions the most recent mark; place one first.',
+      'ACTIVATE — resolves the array only after all three marks exist.',
+    ],
+  },
+  exchange: {
+    summary: 'Choose SPEED, ARMOR, or REGENERATION and exchange that property with the selected enemy.',
+    commands: [
+      'PROPERTY — cycles the property to be exchanged.',
+      'EXCHANGE — swaps the selected property between Player and target.',
+      'REVERSE — returns the borrowed strength and reapplies the weakness to the target.',
+    ],
+  },
+  causality: {
+    summary: 'Choose POSITION, ATTACK, or HEALTH, lock its current event, then reproduce it.',
+    commands: [
+      'LOCK — records the selected event as the current causal lock.',
+      'EVENT — cycles POSITION, ATTACK, and HEALTH.',
+      'REPEAT — repeats the recorded event; a lock must exist first.',
+    ],
+  },
+  arsenal: {
+    summary: 'A behavior-driven weapon evolves according to whether Player strikes, guards, or drives.',
+    commands: [
+      'STRIKE — grows the weapon toward a piercing rail-lance.',
+      'GUARD — grows the weapon toward a shield-cannon.',
+      'DRIVE — grows the weapon toward a propulsion blade.',
+    ],
+  },
+  assimilation: {
+    summary: 'Harvest enemy weapon constitutions and assemble them into one temporary hybrid chassis.',
+    commands: [
+      'HARVEST — captures a component from an eligible enemy.',
+      'ASSEMBLE — cycles PIERCE ARRAY, REGEN FRAME, and RAM CANNON builds.',
+      'DEPLOY — manifests the selected completed chassis.',
+    ],
+  },
+  null: {
+    summary: 'Suppress constitution abilities within a movable field; direct damage is intentionally modest.',
+    commands: [
+      'SUPPRESS — disables constitutions in the field or reports when none are present.',
+      'FOCUS — toggles a narrow stronger field and a wider weaker field.',
+      'ANCHOR — fixes the suppression field to the current cell.',
+    ],
+  },
+  polarity: {
+    summary: 'Assign opposing charges, reverse them globally, then force opposite targets to collide.',
+    commands: [
+      'MARK — alternates negative and positive polarity on selected targets.',
+      'REVERSE — swaps every assigned polarity.',
+      'COLLIDE — pulls oppositely charged targets together.',
+    ],
+  },
+  colossus: {
+    summary: 'Pilot a multi-cell combat frame specialized for siege, movement pressure, and broad defense.',
+    commands: [
+      'SIEGE — anchors and fires the Colossus lane cannon.',
+      'TRAMPLE — advances through and displaces smaller enemies.',
+      'BULWARK — protects Player and adjacent cells.',
+    ],
+  },
+  predator: {
+    summary: 'Study one priority prey through five adaptation stages, then exploit its revealed weakness.',
+    commands: [
+      'HUNT — advances prey adaptation from 1/5 toward full analysis.',
+      'TARGET — changes priority prey and may reset adaptation progress.',
+      'COUNTER — executes the learned response to the prey’s attack pattern.',
+    ],
+  },
+  orbital: {
+    summary: 'Designate up to five ordered strike locations, choose ordnance, then release the payload.',
+    commands: [
+      'DESIGNATE — adds the next strike marker (1/5 through 5/5).',
+      'ORDNANCE — cycles EMP, SUPPLY, and PRECISION payloads.',
+      'DROP — executes all designated orbital actions in order.',
+    ],
+  },
+  hijack: {
+    summary: 'Broadcast formation-level orders rather than possessing an individual enemy.',
+    commands: [
+      'ORDER — repeats the current broadcast.',
+      'COMMAND — cycles HOLD, BREAK FORMATION, and RETREAT.',
+      'BREAK — severs hostile formation command and returns units to independent behavior.',
+    ],
+  },
+  sovereign: {
+    summary: 'Convert low health and lost space into authority; greater risk produces a stronger release.',
+    commands: [
+      'ASSERT — releases accumulated authority as power.',
+      'GAMBIT — wagers vitality to increase authority.',
+      'ENDURE — preserves the scarcity state and converts it into defense.',
+    ],
+  },
+};
+
+function SkillGuidePanel({ id }: { id: RivalSkillId }) {
+  const guide = RIVAL_SKILL_GUIDE[id];
+  return (
+    <section className="skillGuidePanel" aria-label={`${RIVAL_SKILL_LABELS[id]} guide`}>
+      <header>
+        <strong>{RIVAL_SKILL_LABELS[id]} — How to use</strong>
+        <span>V / L2 activates · X, Y, B execute commands</span>
+      </header>
+      <p>{guide.summary}</p>
+      <div className="skillGuideCommands">
+        {guide.commands.map((command, index) => (
+          <div key={command}>
+            <kbd>{(['X', 'Y', 'B'] as const)[index]}</kbd>
+            <span>{command}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 const SIGNATURE_SKILL_COLORS: Record<RivalSkillId, [string, string]> = {
   chrono: ['#93c5fd', '#e9d5ff'], singularity: ['#a78bfa', '#111827'],
@@ -2554,29 +2758,29 @@ const SKILL_EXECUTION_MOTIFS: Record<RivalSkillId, [SkillExecutionMotif, SkillEx
   sovereign: ['sovereign', 'exchange', 'restore'],
 };
 
-const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b'; row: number }> = {
+const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b' | 'c'; row: number }> = {
   time: { sheet: 'a', row: 0 },
   gravity: { sheet: 'a', row: 1 },
-  command: { sheet: 'a', row: 2 },
-  construct: { sheet: 'a', row: 3 },
+  command: { sheet: 'c', row: 1 },
+  construct: { sheet: 'c', row: 3 },
   grid: { sheet: 'a', row: 3 },
   resonance: { sheet: 'a', row: 3 },
   orbital: { sheet: 'a', row: 3 },
-  morph: { sheet: 'b', row: 0 },
+  morph: { sheet: 'c', row: 3 },
   harvest: { sheet: 'b', row: 0 },
   suppress: { sheet: 'b', row: 0 },
-  colossus: { sheet: 'b', row: 0 },
-  sovereign: { sheet: 'b', row: 0 },
-  reflect: { sheet: 'b', row: 1 },
-  lock: { sheet: 'b', row: 1 },
+  colossus: { sheet: 'c', row: 3 },
+  sovereign: { sheet: 'c', row: 3 },
+  reflect: { sheet: 'c', row: 2 },
+  lock: { sheet: 'c', row: 1 },
   polarity: { sheet: 'b', row: 1 },
   dash: { sheet: 'b', row: 2 },
-  weapon: { sheet: 'b', row: 2 },
+  weapon: { sheet: 'c', row: 0 },
   portal: { sheet: 'b', row: 2 },
   target: { sheet: 'b', row: 2 },
   vector: { sheet: 'b', row: 2 },
-  exchange: { sheet: 'b', row: 2 },
-  restore: { sheet: 'b', row: 3 },
+  exchange: { sheet: 'c', row: 1 },
+  restore: { sheet: 'c', row: 2 },
 };
 
 // The signature sheets are authored, textured animations. Earlier revisions
@@ -2597,20 +2801,27 @@ function SignatureSkillFx({
   lastAction: RivalSkillView['lastAction'];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sequenceRefs = useRef<{ a: HTMLImageElement | null; b: HTMLImageElement | null }>({
+  const sequenceRefs = useRef<{
+    a: HTMLImageElement | null;
+    b: HTMLImageElement | null;
+    c: HTMLImageElement | null;
+  }>({
     a: null,
     b: null,
+    c: null,
   });
   const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
 
   useEffect(() => {
     const sequenceA = new Image();
     const sequenceB = new Image();
+    const sequenceC = new Image();
     sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png`;
     sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png`;
-    sequenceRefs.current = { a: sequenceA, b: sequenceB };
+    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c.png`;
+    sequenceRefs.current = { a: sequenceA, b: sequenceB, c: sequenceC };
     return () => {
-      sequenceRefs.current = { a: null, b: null };
+      sequenceRefs.current = { a: null, b: null, c: null };
     };
   }, []);
 
@@ -3253,6 +3464,7 @@ export default function Game() {
   const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
+  const rivalAttackFxSheetRef = useRef<HTMLImageElement | null>(null);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
     north: null,
     south: null,
@@ -3701,6 +3913,15 @@ export default function Game() {
   useEffect(() => () => {
     if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
     if (skillTapTimerRef.current) clearTimeout(skillTapTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const sheet = new Image();
+    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c.png`;
+    rivalAttackFxSheetRef.current = sheet;
+    return () => {
+      rivalAttackFxSheetRef.current = null;
+    };
   }, []);
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
@@ -7247,7 +7468,6 @@ export default function Game() {
             // Gem idle: auto-cycle; Gem attack: use gifAttackFramesRef + gemAttackFrameRef
             let bitmap: ImageBitmap;
             let rivalAttackBitmap: ImageBitmap | undefined;
-            let rivalAttackBlend = 0;
             let rivalAttackProgress = 0;
             if (playerSkinRef.current === 'rocket' && rocketFrameRef.current >= 0) {
               // Rocket attack — cycle through gifAttackFramesRef
@@ -7264,12 +7484,6 @@ export default function Game() {
                 1,
                 (performance.now() - rivalAttackStartedRef.current) / RIVAL_ATTACK_DURATION,
               ));
-              const strikeProgress = Math.max(0, Math.min(
-                1,
-                (rivalAttackProgress - 0.14) / 0.5,
-              ));
-              const eased = strikeProgress * strikeProgress * (3 - 2 * strikeProgress);
-              rivalAttackBlend = Math.sin(eased * Math.PI);
             } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
               // Gem movement second priority
               const mFrames = gifMoveFramesRef.current;
@@ -7297,77 +7511,37 @@ export default function Game() {
                 sctx.scale(-1, 1);
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
                 sctx.restore();
-              } else if (rivalAttackBitmap && rivalAttackBlend > 0) {
-                const rivalId = playerSkinRef.current as RivalSkillId;
-                const effect = RIVAL_ATTACK_EFFECTS[rivalId];
-                const paletteIndex = Math.max(0, RIVAL_SKILL_IDS.indexOf(rivalId));
-                const effectColor = `hsl(${(paletteIndex * 47 + 188) % 360} 92% 68%)`;
-                const anticipation = rivalAttackProgress < 0.2
-                  ? Math.sin((rivalAttackProgress / 0.2) * Math.PI)
-                  : 0;
-                const impact = rivalAttackProgress > 0.34 && rivalAttackProgress < 0.72
-                  ? Math.sin(((rivalAttackProgress - 0.34) / 0.38) * Math.PI)
-                  : 0;
+              } else if (rivalAttackBitmap) {
+                // Never cross-fade the idle and attack bodies. Their different
+                // silhouettes were being seen simultaneously as motion blur.
+                const committed = rivalAttackProgress >= 0.16 && rivalAttackProgress <= 0.9;
+                sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
 
-                // Stage 1: visibly gather momentum in the idle silhouette.
-                sctx.globalAlpha = 1 - rivalAttackBlend;
-                sctx.save();
-                sctx.translate(-sz * 0.035 * anticipation, sz * 0.025 * anticipation);
-                sctx.scale(1 - anticipation * 0.035, 1 + anticipation * 0.035);
-                sctx.drawImage(bitmap, 0, 0, sz, sz);
-                sctx.restore();
-
-                // Stage 2: commit the authored attack pose with a forward lunge.
-                sctx.save();
-                sctx.globalAlpha = rivalAttackBlend;
-                sctx.translate(sz * 0.085 * rivalAttackBlend, -sz * 0.03 * rivalAttackBlend);
-                sctx.scale(1 + rivalAttackBlend * 0.065, 1 - rivalAttackBlend * 0.025);
-                sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
-                sctx.restore();
-
-                // Stage 3: give each discipline a readable animated impact.
-                if (impact > 0) {
-                  const ox = sz * (0.69 + impact * 0.12);
-                  const oy = sz * 0.46;
+                // Advanced skins use the authored raster weapon sequence,
+                // replacing the former circles, claw arcs and circuit lines.
+                const sheet = rivalAttackFxSheetRef.current;
+                if (committed && sheet?.complete && sheet.naturalWidth > 0) {
+                  const effectProgress = Math.max(0, Math.min(1, (rivalAttackProgress - 0.2) / 0.62));
+                  const effectFrame = Math.min(3, Math.floor(effectProgress * 4));
+                  const sourceWidth = sheet.naturalWidth / 4;
+                  const sourceHeight = sheet.naturalHeight / 4;
                   sctx.save();
-                  sctx.globalAlpha = impact * 0.9;
-                  sctx.strokeStyle = effectColor;
-                  sctx.fillStyle = effectColor;
-                  sctx.lineWidth = Math.max(1, sz * 0.025);
-                  sctx.shadowColor = effectColor;
-                  sctx.shadowBlur = sz * 0.08 * impact;
-                  if (effect === 'field') {
-                    sctx.beginPath();
-                    sctx.arc(ox, oy, sz * (0.08 + impact * 0.2), 0, Math.PI * 2);
-                    sctx.stroke();
-                    sctx.beginPath();
-                    sctx.arc(ox, oy, sz * (0.03 + impact * 0.1), 0, Math.PI * 2);
-                    sctx.stroke();
-                  } else if (effect === 'construct') {
-                    const unit = sz * (0.07 + impact * 0.035);
-                    for (let cell = 0; cell < 3; cell++) {
-                      sctx.strokeRect(ox + cell * unit * 0.8, oy - unit * (1 + cell % 2), unit, unit);
-                    }
-                  } else if (effect === 'claw') {
-                    for (let slash = -1; slash <= 1; slash++) {
-                      sctx.beginPath();
-                      sctx.arc(ox, oy + slash * sz * 0.07, sz * (0.16 + impact * 0.08), -0.75, 0.75);
-                      sctx.stroke();
-                    }
-                  } else if (effect === 'circuit') {
-                    sctx.beginPath();
-                    sctx.moveTo(sz * 0.57, oy);
-                    sctx.lineTo(ox, oy - sz * 0.13);
-                    sctx.lineTo(ox + sz * 0.08, oy + sz * 0.1);
-                    sctx.lineTo(sz * 0.96, oy - sz * 0.04);
-                    sctx.stroke();
-                    for (let node = 0; node < 3; node++) {
-                      sctx.fillRect(ox + node * sz * 0.08, oy - sz * 0.02, sz * 0.035, sz * 0.035);
-                    }
-                  }
+                  sctx.globalCompositeOperation = 'screen';
+                  sctx.globalAlpha = Math.sin(effectProgress * Math.PI) * 0.94;
+                  sctx.imageSmoothingEnabled = false;
+                  sctx.drawImage(
+                    sheet,
+                    effectFrame * sourceWidth,
+                    0,
+                    sourceWidth,
+                    sourceHeight,
+                    sz * 0.45,
+                    sz * 0.13,
+                    sz * 0.72,
+                    sz * 0.72,
+                  );
                   sctx.restore();
                 }
-                sctx.globalAlpha = 1;
               } else {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }
@@ -8418,6 +8592,10 @@ export default function Game() {
                 ))}
               </div>
 
+              {RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId) && (
+                <SkillGuidePanel id={playerSkin as RivalSkillId} />
+              )}
+
               {playerSkin === 'assembly' && (
                 <>
                   <div id="customSubtitle" style={{ marginTop: '16px' }}>
@@ -8455,6 +8633,9 @@ export default function Game() {
                       </button>
                     ))}
                   </div>
+                  {assemblySkill !== 'shadow' && (
+                    <SkillGuidePanel id={assemblySkill} />
+                  )}
                 </>
               )}
 

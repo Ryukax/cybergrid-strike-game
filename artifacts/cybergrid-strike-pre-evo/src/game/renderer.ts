@@ -821,70 +821,39 @@ function drawSkinProjectileEffect(
 ) {
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
   if (!config) return;
-  const time = performance.now() * 0.012;
+  const sheet = getAdvancedProjectileSheet();
+  if (!sheet?.complete || sheet.naturalWidth <= 0) return;
+  const frame = Math.floor(performance.now() / 90) % 4;
+  const sourceWidth = sheet.naturalWidth / 4;
+  const sourceHeight = sheet.naturalHeight / 4;
+  const size = radius * 7.2;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(direction, 1);
-  ctx.lineCap = 'round';
-  ctx.shadowColor = config.color;
-  ctx.shadowBlur = radius * 2.4;
-
-  ctx.globalAlpha = 0.88;
-  ctx.strokeStyle = config.color;
-  ctx.fillStyle = config.accent;
-  ctx.lineWidth = Math.max(1.2, radius * 0.2);
-  if (config.motif === 0) {
-    // Forge/flame/prismatic burst.
-    for (let ray = 0; ray < 5; ray++) {
-      const angle = time + ray * Math.PI * 0.4;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * radius * 1.25, Math.sin(angle) * radius * 1.25);
-      ctx.lineTo(Math.cos(angle) * radius * 2.25, Math.sin(angle) * radius * 2.25);
-      ctx.stroke();
-    }
-  } else if (config.motif === 1) {
-    // Temporal/resonant echo rings.
-    for (let ring = 0; ring < 2; ring++) {
-      ctx.beginPath();
-      ctx.ellipse(-ring * radius * 1.05, 0, radius * (1.35 + ring * 0.35), radius * 0.8, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  } else if (config.motif === 2) {
-    // Gravity, portal, polarity, or sovereign orbit.
-    ctx.rotate(time * 0.45);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, radius * 2.25, radius * 0.82, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(radius * 2.25, 0, radius * 0.42, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (config.motif === 3) {
-    // Hijack/exchange data packets.
-    for (let bit = 0; bit < 3; bit++) {
-      ctx.globalAlpha = 0.86 - bit * 0.18;
-      ctx.strokeRect(
-        -radius * (1.1 + bit * 1.0),
-        -radius * (0.72 - bit * 0.12),
-        radius * 0.72,
-        radius * 0.72,
-      );
-    }
-  } else if (config.motif === 4) {
-    // Grid/orbital/suppression targeting reticle.
-    ctx.strokeRect(-radius * 1.35, -radius * 1.35, radius * 2.7, radius * 2.7);
-    ctx.beginPath();
-    ctx.moveTo(-radius * 2.2, 0); ctx.lineTo(radius * 2.2, 0);
-    ctx.moveTo(0, -radius * 2.2); ctx.lineTo(0, radius * 2.2);
-    ctx.stroke();
-  } else {
-    // Vector and hunting skins receive a traveling slash/chevron.
-    ctx.beginPath();
-    ctx.moveTo(-radius * 1.6, -radius * 1.45);
-    ctx.lineTo(radius * 1.75, 0);
-    ctx.lineTo(-radius * 1.6, radius * 1.45);
-    ctx.stroke();
-  }
+  ctx.globalCompositeOperation = 'screen';
+  ctx.globalAlpha = 0.94;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    sheet,
+    frame * sourceWidth,
+    0,
+    sourceWidth,
+    sourceHeight,
+    -size * 0.46,
+    -size * 0.5,
+    size,
+    size,
+  );
   ctx.restore();
+}
+
+let advancedProjectileSheet: HTMLImageElement | null = null;
+function getAdvancedProjectileSheet(): HTMLImageElement | null {
+  if (advancedProjectileSheet) return advancedProjectileSheet;
+  if (typeof Image === 'undefined') return null;
+  advancedProjectileSheet = new Image();
+  advancedProjectileSheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c.png`;
+  return advancedProjectileSheet;
 }
 
 
