@@ -1,4 +1,4 @@
-import type { GameState, BoardMetrics, EnemyGenome } from './types';
+import type { GameState, BoardMetrics, Enemy, EnemyGenome } from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
@@ -14,6 +14,23 @@ const NICHE_COLORS: Record<string, string> = {
   symbiote: '#f472b6',
   opportunist: '#fb923c',
 };
+
+// Combat value is intentionally coarse and repeats frequently. Give every
+// spawned object a stable visual identity so repeated values and formations do
+// not repeatedly select the same donor head, chassis, and locomotion sockets.
+const enemyVisualIdentity = new WeakMap<Enemy, number>();
+let nextEnemyVisualIdentity = 1;
+
+function getEnemyVisualSeed(enemy: Enemy): number {
+  const existing = enemyVisualIdentity.get(enemy);
+  if (existing !== undefined) return existing;
+  const identity = nextEnemyVisualIdentity++;
+  const seed = (enemy.value ?? 6) * 131
+    + (enemy.formationId ?? 0) * 257
+    + identity * 104729;
+  enemyVisualIdentity.set(enemy, seed);
+  return seed;
+}
 
 function visualGene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
@@ -982,7 +999,7 @@ export function draw(
     ctx.save();
     ctx.translate(ex, ey);
     if (genome) {
-      const visualSeed = (e.value ?? 6) + (e.formationId ?? 0) * 257;
+      const visualSeed = getEnemyVisualSeed(e);
       const sprite = getProceduralVirusSprite(visualSeed, genome);
       const motion = getEntityMotion(genome.baseElement, now, visualSeed);
       const spriteWidth = drawCell * 1.48;

@@ -806,64 +806,18 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ? source(flankComponent.source, 'flank', () => render(canvas, seed, genome))
     : undefined;
 
-  if (!ready(primary)) {
-    // The sprite canvas is cached immediately, while Safari may still be
-    // decoding its component PNGs. Never expose an empty cached enemy during
-    // that window (or indefinitely after a failed asset request).
-    const fallback = canvas.getContext('2d')!;
-    fallback.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
-    fallback.save();
-    fallback.translate(OUTPUT_WIDTH / 2, OUTPUT_HEIGHT / 2);
-    fallback.strokeStyle = genome.element === 'cryo' ? '#67e8f9'
-      : genome.element === 'thermal' ? '#fb7185'
-      : genome.element === 'radiant' ? '#fde047'
-      : genome.element === 'corrosive' ? '#86efac'
-      : genome.element === 'void' ? '#c084fc'
-      : '#60a5fa';
-    fallback.fillStyle = fallback.strokeStyle;
-    fallback.lineWidth = 5;
-    fallback.globalAlpha = 0.82;
-    fallback.shadowColor = fallback.strokeStyle;
-    fallback.shadowBlur = 7;
-    const bodyType = BODY_TYPE[genome.baseElement];
-    fallback.beginPath();
-    if (bodyType === 'serpentine') {
-      fallback.moveTo(-54, 14);
-      fallback.bezierCurveTo(-24, -38, 8, 42, 52, -12);
-      fallback.lineWidth = 15;
-      fallback.stroke();
-    } else if (bodyType === 'quadruped') {
-      fallback.roundRect(-42, -23, 84, 48, 17);
-      fallback.stroke();
-      fallback.strokeRect(-34, 18, 13, 27);
-      fallback.strokeRect(21, 18, 13, 27);
-    } else if (bodyType === 'flier' || bodyType === 'hover') {
-      fallback.moveTo(-55, 10);
-      fallback.lineTo(-15, -28);
-      fallback.lineTo(0, 4);
-      fallback.lineTo(18, -28);
-      fallback.lineTo(55, 10);
-      fallback.lineTo(0, 35);
-      fallback.closePath();
-      fallback.stroke();
-    } else if (bodyType === 'fortress') {
-      fallback.roundRect(-47, -38, 94, 76, 10);
-      fallback.stroke();
-      fallback.strokeRect(-33, -24, 66, 48);
-    } else {
-      fallback.roundRect(
-        -34, -42, 68, 84,
-        bodyType === 'tentacled' || bodyType === 'aquatic' ? 28 : 14,
-      );
-      fallback.stroke();
-      fallback.strokeRect(-49, -8, 15, 34);
-      fallback.strokeRect(34, -8, 15, 34);
-    }
-    fallback.globalAlpha = 1;
-    fallback.beginPath();
-    fallback.arc(0, 0, 8, 0, Math.PI * 2);
-    fallback.fill();
-    fallback.restore();
+  // Publish the sprite atomically. Safari decodes each PNG independently;
+  // drawing the core or a geometric stand-in before its sockets are ready
+  // produces the one-frame polygon/mound flash seen during play.
+  const requiredImages = [
+    primary,
+    head,
+    locomotion,
+    ...(fusionOutcome ? [fusion] : []),
+    ...(flankImage ? [flankImage] : []),
+  ];
+  if (requiredImages.some((image) => !ready(image))) {
+    canvas.getContext('2d')!.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     return;
   }
 
