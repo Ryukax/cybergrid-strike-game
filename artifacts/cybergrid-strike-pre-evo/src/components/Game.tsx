@@ -3782,12 +3782,33 @@ export default function Game() {
             rawIdle = idleCrop;
             rawAttack = attackCrop;
           }
-          const pair = REGISTERED_RIVAL_FRAME_FIXES.has(playerSkin as RivalSkillId)
-            ? await sanitizeRivalSkinPair(rawIdle, rawAttack)
-            : {
-                idle: await sanitizeRivalSkinFrame(rawIdle),
-                attack: await sanitizeRivalSkinFrame(rawAttack),
-              };
+          let pair: { idle: ImageBitmap; attack: ImageBitmap };
+          if (playerSkin === 'chrono') {
+            // Chrono's attack is intentionally much wider than his body. The
+            // generic island sanitizer interprets the clock-blade as peripheral
+            // effect art and clips its outer arc. Normalize the complete authored
+            // 3:2 frame into a square while preserving its aspect ratio.
+            const chronoCanvas = document.createElement('canvas');
+            chronoCanvas.width = 160;
+            chronoCanvas.height = 160;
+            const chronoCtx = chronoCanvas.getContext('2d')!;
+            chronoCtx.imageSmoothingEnabled = false;
+            chronoCtx.clearRect(0, 0, 160, 160);
+            chronoCtx.drawImage(rawAttack, 2, 28, 156, 104);
+            const [idle, attack] = await Promise.all([
+              sanitizeRivalSkinFrame(rawIdle),
+              createImageBitmap(chronoCanvas),
+            ]);
+            rawAttack.close();
+            pair = { idle, attack };
+          } else if (REGISTERED_RIVAL_FRAME_FIXES.has(playerSkin as RivalSkillId)) {
+            pair = await sanitizeRivalSkinPair(rawIdle, rawAttack);
+          } else {
+            pair = {
+              idle: await sanitizeRivalSkinFrame(rawIdle),
+              attack: await sanitizeRivalSkinFrame(rawAttack),
+            };
+          }
           if (cancelled) {
             pair.idle.close();
             pair.attack.close();
