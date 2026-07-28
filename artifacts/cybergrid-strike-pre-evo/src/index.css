@@ -1020,6 +1020,107 @@ canvas#canvas {
   line-height: 1.45;
 }
 
+#abilityPresetControls {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 11px;
+  padding: 9px;
+  border: 1px solid rgba(103, 232, 249, 0.25);
+  border-radius: 11px;
+  background: rgba(8, 20, 40, 0.62);
+}
+
+#abilityPresetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #c4b5fd;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+#abilityPresetHeader button {
+  padding: 5px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  border-radius: 7px;
+  color: rgba(219, 234, 254, 0.72);
+  background: rgba(15, 23, 42, 0.78);
+  font-size: 7px;
+  font-weight: 900;
+}
+
+#abilityPresetHeader button.enabled {
+  color: #86efac;
+  border-color: rgba(134, 239, 172, 0.7);
+  background: rgba(20, 83, 45, 0.38);
+}
+
+#abilityPresetPicker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+#abilityPresetPicker button {
+  min-width: 0;
+  padding: 6px 4px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+  color: rgba(219, 234, 254, 0.65);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+#abilityPresetPicker button.selected {
+  color: #f5d0fe;
+  border-color: #a78bfa;
+  background: linear-gradient(135deg, rgba(67, 56, 202, 0.48), rgba(126, 34, 206, 0.42));
+  box-shadow: 0 0 10px rgba(139, 92, 246, 0.2);
+}
+
+#abilityPresetPicker button.custom {
+  border-style: dashed;
+}
+
+#abilityPresetPicker button.custom.selected {
+  border-style: solid;
+  border-color: #67e8f9;
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.4), rgba(67, 56, 202, 0.42));
+}
+
+#abilityPresetPicker b {
+  color: #67e8f9;
+  font-size: 9px;
+}
+
+#abilityPresetPicker span {
+  overflow: hidden;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+}
+
+#abilityPresetPicker small {
+  min-width: 17px;
+  padding: 2px;
+  color: #86efac;
+  border-radius: 999px;
+  background: rgba(21, 128, 61, 0.2);
+  font-size: 7px;
+}
+
+#abilityPresetControls p {
+  margin: 0;
+  color: rgba(219, 234, 254, 0.52);
+  font-size: 7px;
+  line-height: 1.35;
+}
+
 #avatarWorkshop {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);

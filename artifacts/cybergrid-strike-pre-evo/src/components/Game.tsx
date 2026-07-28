@@ -47,6 +47,14 @@ import { getEnemyMovementClass, getProceduralVirusSprite, type EnemyMovementClas
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
+const ABILITY_PRESETS_KEY = 'cgs_ability_presets_v1';
+const ACTIVE_ABILITY_PRESET_KEY = 'cgs_active_ability_preset_v1';
+const AUTO_ROTATE_PRESETS_KEY = 'cgs_auto_rotate_ability_presets_v1';
+const ABILITY_PRESET_NAMES = [
+  'BALANCED', 'ASSAULT', 'CONTROL', 'SURVIVAL',
+  'CONSTITUTION', 'PLAYSTYLE', 'CUSTOM',
+] as const;
+const ABILITY_PRESET_COUNT = ABILITY_PRESET_NAMES.length;
 const OFFENSE_ABILITY_IDS = new Set([
   'shotgun', 'pierce', 'bomb', 'mirror', 'nuke', 'barrage', 'purge', 'surge',
   'megabomb', 'double', 'voltage', 'snipe', 'chain', 'cluster', 'flak',
@@ -1794,6 +1802,147 @@ async function sanitizeRivalSkinFrame(bitmap: ImageBitmap): Promise<ImageBitmap>
   return cleaned;
 }
 
+async function sanitizeRivalSkinPair(
+  idleBitmap: ImageBitmap,
+  attackBitmap: ImageBitmap,
+): Promise<{ idle: ImageBitmap; attack: ImageBitmap }> {
+  type Island = {
+    pixels: number[];
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  };
+  const inspect = (bitmap: ImageBitmap) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(bitmap, 0, 0);
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const visited = new Uint8Array(canvas.width * canvas.height);
+    const islands: Island[] = [];
+    for (let start = 0; start < visited.length; start++) {
+      if (visited[start] || image.data[start * 4 + 3] < 18) continue;
+      const queue = [start];
+      const pixels: number[] = [];
+      visited[start] = 1;
+      let minX = canvas.width;
+      let minY = canvas.height;
+      let maxX = -1;
+      let maxY = -1;
+      while (queue.length) {
+        const pixel = queue.pop()!;
+        pixels.push(pixel);
+        const x = pixel % canvas.width;
+        const y = Math.floor(pixel / canvas.width);
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if ((!dx && !dy) || nx < 0 || nx >= canvas.width || ny < 0 || ny >= canvas.height) continue;
+            const next = ny * canvas.width + nx;
+            if (visited[next] || image.data[next * 4 + 3] < 18) continue;
+            visited[next] = 1;
+            queue.push(next);
+          }
+        }
+      }
+      islands.push({ pixels, minX, minY, maxX, maxY });
+    }
+    islands.sort((left, right) => right.pixels.length - left.pixels.length);
+    return { canvas, ctx, image, islands };
+  };
+  const idle = inspect(idleBitmap);
+  const attack = inspect(attackBitmap);
+  if (idle.islands.length === 0 || attack.islands.length === 0) {
+    return { idle: idleBitmap, attack: attackBitmap };
+  }
+  const idleBody = idle.islands[0];
+  const idleWidth = idleBody.maxX - idleBody.minX + 1;
+  const idleHeight = idleBody.maxY - idleBody.minY + 1;
+  const attackLargest = attack.islands[0].pixels.length;
+  const attackBodyIsland = attack.islands
+    .filter((island) => island.pixels.length >= attackLargest * 0.24)
+    .sort((left, right) => left.minX - right.minX)[0] ?? attack.islands[0];
+  let attackBody = attackBodyIsland;
+  const attackBodyWidth = attackBody.maxX - attackBody.minX + 1;
+  if (attackBodyWidth > idleWidth * 1.55) {
+    const cutoff = Math.min(
+      attack.canvas.width - 1,
+      attackBody.minX + Math.ceil(idleWidth * 1.28),
+    );
+    const bodyPixels = attackBody.pixels.filter((pixel) => pixel % attack.canvas.width <= cutoff);
+    if (bodyPixels.length > 0) {
+      attackBody = {
+        pixels: bodyPixels,
+        minX: Math.min(...bodyPixels.map((pixel) => pixel % attack.canvas.width)),
+        minY: Math.min(...bodyPixels.map((pixel) => Math.floor(pixel / attack.canvas.width))),
+        maxX: Math.max(...bodyPixels.map((pixel) => pixel % attack.canvas.width)),
+        maxY: Math.max(...bodyPixels.map((pixel) => Math.floor(pixel / attack.canvas.width))),
+      };
+    }
+  }
+  const gap = (body: Island, island: Island) => {
+    const gapX = Math.max(0, body.minX - island.maxX, island.minX - body.maxX);
+    const gapY = Math.max(0, body.minY - island.maxY, island.minY - body.maxY);
+    return Math.hypot(gapX, gapY);
+  };
+  const retainIdle = idle.islands.filter((island, index) =>
+    index === 0
+    || (
+      island.pixels.length >= 18
+      && gap(idleBody, island) <= 14
+      && island.minY > 8
+      && island.maxY < idle.canvas.height - 8
+    ));
+  const retainAttack = attack.islands.filter((island) =>
+    (
+      island === attackBodyIsland
+      || island.pixels.length >= attackLargest * 0.012
+      || gap(attackBody, island) <= 24
+    )
+    && island.minY > 9
+    && island.maxY < attack.canvas.height - 9);
+
+  const clean = (
+    inspected: ReturnType<typeof inspect>,
+    retained: Island[],
+    body: Island,
+  ) => {
+    const keep = new Set(retained.flatMap((island) => island.pixels));
+    for (let pixel = 0; pixel < inspected.canvas.width * inspected.canvas.height; pixel++) {
+      if (!keep.has(pixel)) inspected.image.data[pixel * 4 + 3] = 0;
+    }
+    inspected.ctx.putImageData(inspected.image, 0, 0);
+    const output = document.createElement('canvas');
+    output.width = 160;
+    output.height = 160;
+    const outputCtx = output.getContext('2d')!;
+    outputCtx.imageSmoothingEnabled = false;
+    const scale = Math.min(112 / idleWidth, 126 / idleHeight);
+    const bodyCenterX = (body.minX + body.maxX + 1) / 2;
+    const bodyCenterY = (body.minY + body.maxY + 1) / 2;
+    outputCtx.drawImage(
+      inspected.canvas,
+      Math.round(67 - bodyCenterX * scale),
+      Math.round(82 - bodyCenterY * scale),
+      Math.round(inspected.canvas.width * scale),
+      Math.round(inspected.canvas.height * scale),
+    );
+    return createImageBitmap(output);
+  };
+  const [cleanIdle, cleanAttack] = await Promise.all([
+    clean(idle, retainIdle, idleBody),
+    clean(attack, retainAttack, attackBody),
+  ]);
+  idleBitmap.close();
+  attackBitmap.close();
+  return { idle: cleanIdle, attack: cleanAttack };
+}
+
 function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {
   return enemy.genome ? getEnemyMovementClass(enemy.genome.baseElement) : undefined;
 }
@@ -2261,6 +2410,12 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   sovereign: 'Last Sovereign',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
+const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
+  'override', 'architect', 'apex', 'counter', 'phase', 'vector',
+  'gridshift', 'resonance', 'exchange', 'causality', 'arsenal',
+  'null', 'polarity', 'colossus', 'predator', 'orbital', 'hijack',
+  'sovereign',
+]);
 type RivalAttackEffect = 'beam' | 'field' | 'construct' | 'claw' | 'circuit';
 const RIVAL_ATTACK_EFFECTS: Record<RivalSkillId, RivalAttackEffect> = {
   chrono: 'beam', singularity: 'field', override: 'circuit', architect: 'construct',
@@ -2771,7 +2926,6 @@ export default function Game() {
       new Promise((resolve, reject) => {
         const img = new Image();
         img.onload  = () => createImageBitmap(img)
-          .then((bitmap) => rivalSkin ? sanitizeRivalSkinFrame(bitmap) : bitmap)
           .then(resolve)
           .catch(reject);
         img.onerror = () => reject(new Error(`Failed to load ${url}`));
@@ -2794,19 +2948,12 @@ export default function Game() {
         .then(bitmaps => { gifMoveFramesRef.current = bitmaps; })
         .catch(err => console.error('[gem move] frame load error:', err));
     }
-    if (rivalSkin) {
-      Promise.all([loadBmp(`${base}skins/skill-${playerSkin}-attack.png`)])
-        .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
-        .catch(err => console.error(`[${playerSkin} attack] frame load error:`, err));
-    }
-
     let cancelled = false;
 
     const loadBitmap = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
         const img = new Image();
         img.onload  = () => createImageBitmap(img)
-          .then((bitmap) => rivalSkin ? sanitizeRivalSkinFrame(bitmap) : bitmap)
           .then(resolve)
           .catch(reject);
         img.onerror = () => reject(new Error(`Failed to load ${url}`));
@@ -2816,6 +2963,27 @@ export default function Game() {
     (async () => {
       try {
         const base = import.meta.env.BASE_URL;
+        if (rivalSkin) {
+          const [rawIdle, rawAttack] = await Promise.all([
+            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png`),
+            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png`),
+          ]);
+          const pair = REGISTERED_RIVAL_FRAME_FIXES.has(playerSkin as RivalSkillId)
+            ? await sanitizeRivalSkinPair(rawIdle, rawAttack)
+            : {
+                idle: await sanitizeRivalSkinFrame(rawIdle),
+                attack: await sanitizeRivalSkinFrame(rawAttack),
+              };
+          if (cancelled) {
+            pair.idle.close();
+            pair.attack.close();
+            return;
+          }
+          gifFramesRef.current = [pair.idle];
+          gifAttackFramesRef.current = [pair.attack];
+          rocketFrameRef.current = -1;
+          return;
+        }
         const urls = playerSkin === 'rocket'
           ? [`${base}skins/rocket_idle.png`]
           : playerSkin === 'dots'
@@ -2877,8 +3045,73 @@ export default function Game() {
     }
     return new Set(unlockedIds);
   })();
-  const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(initialEnabledAbilities);
-  const enabledAbilitiesRef = useRef<Set<string>>(initialEnabledAbilities);
+  const initialAbilityPresets = (() => {
+    const unlocked = learnedAbilities
+      .filter((entry) => abilityIsUnlocked(entry, learnedAbilities))
+      .map((entry) => entry.id)
+      .filter((id) => Boolean(runtimeAbilityById(id)));
+    const essential = unlocked.filter((id) => ESSENTIAL_ABILITY_IDS.has(id));
+    const learnedSource = (source: LearnedAbility['source']) => learnedAbilities
+      .filter((entry) => entry.source === source && unlocked.includes(entry.id))
+      .map((entry) => entry.id);
+    const merge = (...groups: string[][]) => [...new Set([...essential, ...groups.flat()])];
+    const suggested = [
+      [...initialEnabledAbilities],
+      merge(unlocked.filter((id) => OFFENSE_ABILITY_IDS.has(id))),
+      merge(unlocked.filter((id) => CONTROL_ABILITY_IDS.has(id))),
+      merge(unlocked.filter((id) =>
+        ['shield', 'armor', 'regen', 'drain', 'recover', 'ghost', 'rearguard', 'counter'].includes(id))),
+      merge(learnedSource('constitution')),
+      merge(learnedSource('playstyle')),
+      merge([]),
+    ];
+    try {
+      const stored = JSON.parse(localStorage.getItem(ABILITY_PRESETS_KEY) ?? 'null');
+      if (Array.isArray(stored) && stored.length === ABILITY_PRESET_COUNT) {
+        return stored.map((ids: unknown, index: number) => {
+          const valid = Array.isArray(ids)
+            ? ids.filter((id): id is string => typeof id === 'string' && unlocked.includes(id))
+            : [];
+          return valid.length > 0 ? merge(valid) : suggested[index];
+        });
+      }
+    } catch {
+      // Use the six strategically suggested pools.
+    }
+    localStorage.setItem(ABILITY_PRESETS_KEY, JSON.stringify(suggested));
+    return suggested;
+  })();
+  const savedPresetIndex = Math.max(
+    0,
+    Math.min(ABILITY_PRESET_COUNT - 1, Number(localStorage.getItem(ACTIVE_ABILITY_PRESET_KEY)) || 0),
+  );
+  const [abilityPresets, setAbilityPresets] = useState<string[][]>(initialAbilityPresets);
+  const abilityPresetsRef = useRef<string[][]>(initialAbilityPresets);
+  const [activeAbilityPreset, setActiveAbilityPreset] = useState(savedPresetIndex);
+  const activeAbilityPresetRef = useRef(savedPresetIndex);
+  const [autoRotateAbilityPresets, setAutoRotateAbilityPresets] = useState(
+    () => localStorage.getItem(AUTO_ROTATE_PRESETS_KEY) === 'on',
+  );
+  const autoRotateAbilityPresetsRef = useRef(autoRotateAbilityPresets);
+  const initialPresetAbilities = new Set(
+    initialAbilityPresets[savedPresetIndex]?.length
+      ? initialAbilityPresets[savedPresetIndex]
+      : initialEnabledAbilities,
+  );
+  const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(initialPresetAbilities);
+  const enabledAbilitiesRef = useRef<Set<string>>(initialPresetAbilities);
+
+  const activateAbilityPreset = useCallback((index: number) => {
+    const normalized = (index + ABILITY_PRESET_COUNT) % ABILITY_PRESET_COUNT;
+    const next = new Set(abilityPresetsRef.current[normalized] ?? []);
+    if (next.size === 0) return;
+    activeAbilityPresetRef.current = normalized;
+    setActiveAbilityPreset(normalized);
+    localStorage.setItem(ACTIVE_ABILITY_PRESET_KEY, String(normalized));
+    enabledAbilitiesRef.current = next;
+    setEnabledAbilities(next);
+    localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...next]));
+  }, []);
 
   const [boardBottom, setBoardBottom] = useState(0);
 
@@ -5373,6 +5606,9 @@ export default function Game() {
           : `New hand in ${secs}s`;
       }
       if (s.cardTimer >= CARD_CHARGE_TIME) {
+        if (autoRotateAbilityPresetsRef.current) {
+          activateAbilityPreset(activeAbilityPresetRef.current + 1);
+        }
         s.currentCardOptions = randomAbilityOptions(
           s.currentCardOptions,
           enabledAbilitiesRef.current,
@@ -5903,7 +6139,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -7285,7 +7521,47 @@ export default function Game() {
               </div>
               <div id="abilityArchitectureHelp">
                 Essential protocols remain available. Enemy synchronization and playstyle resonance
-                rank other abilities as they arise; prestige unlocks them for your loadout.
+                rank other abilities as they arise; prestige unlocks them for your presets.
+              </div>
+              <div id="abilityPresetControls">
+                <div id="abilityPresetHeader">
+                  <strong>ROTATING PRESETS</strong>
+                  <button
+                    className={autoRotateAbilityPresets ? 'enabled' : ''}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setAutoRotateAbilityPresets((previous) => {
+                        const next = !previous;
+                        autoRotateAbilityPresetsRef.current = next;
+                        localStorage.setItem(AUTO_ROTATE_PRESETS_KEY, next ? 'on' : 'off');
+                        return next;
+                      });
+                    }}
+                  >
+                    AUTO ROTATE: {autoRotateAbilityPresets ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+                <div id="abilityPresetPicker">
+                  {ABILITY_PRESET_NAMES.map((name, index) => (
+                    <button
+                      key={name}
+                      className={`${activeAbilityPreset === index ? 'selected' : ''} ${name === 'CUSTOM' ? 'custom' : ''}`}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        activateAbilityPreset(index);
+                      }}
+                    >
+                      <b>{index + 1}</b>
+                      <span>{name}</span>
+                      <small>{abilityPresets[index]?.length ?? 0}</small>
+                    </button>
+                  ))}
+                </div>
+                <p>
+                  Edit the selected pool below. Custom begins with essential abilities only.
+                  Each hand still deals three cards; Auto Rotate advances to the next preset
+                  whenever a fresh hand arrives.
+                </p>
               </div>
               <div id="learnedLoadoutGrid">
                   {runtimeAbilityPool()
@@ -7319,6 +7595,11 @@ export default function Game() {
                             } else {
                               next.add(ability.id);
                             }
+                            const updatedPresets = abilityPresetsRef.current.map((preset, index) =>
+                              index === activeAbilityPresetRef.current ? [...next] : preset);
+                            abilityPresetsRef.current = updatedPresets;
+                            setAbilityPresets(updatedPresets);
+                            localStorage.setItem(ABILITY_PRESETS_KEY, JSON.stringify(updatedPresets));
                             enabledAbilitiesRef.current = next;
                             localStorage.setItem(ENABLED_ABILITIES_KEY, JSON.stringify([...next]));
                             return next;
@@ -7341,7 +7622,7 @@ export default function Game() {
                             ? `UNLEARNED · PRESTIGE ${requiredPrestige}`
                             : !unlocked
                               ? `LEARNED · LOCKED UNTIL PRESTIGE ${requiredPrestige}`
-                              : on ? 'IN LOADOUT' : 'RESERVE'}
+                              : on ? `IN ${ABILITY_PRESET_NAMES[activeAbilityPreset]}` : 'RESERVE'}
                         </b>
                       </button>
                     );
