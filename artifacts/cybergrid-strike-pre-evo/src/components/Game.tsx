@@ -2292,7 +2292,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     running: true,
     score: 0,
     wave: 1,
-    hp: 5,
+    hp: mode === 'vs' ? NPC_HP : 5,
     timer: 0,
     enemySpawnTimer: 0.4,
     directorRecoveryTimer: 0,

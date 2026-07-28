@@ -6,7 +6,7 @@ export const ENEMY_ABILITY_FIRST_CAST_MIN = 1.25;
 export const ENEMY_ABILITY_FIRST_CAST_RANGE = 1.35;
 
 // VS mode NPC tuning
-export const NPC_HP = 8;
+export const NPC_HP = 100;
 export const NPC_FIRE_INTERVAL = 0.45;   // seconds between NPC shots
 export const NPC_MOVE_INTERVAL = 0.75;   // seconds between NPC row changes
 
