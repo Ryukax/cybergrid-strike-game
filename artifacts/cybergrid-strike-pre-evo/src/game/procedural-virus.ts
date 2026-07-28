@@ -786,16 +786,17 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     fallback.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
     fallback.save();
     fallback.translate(OUTPUT_WIDTH / 2, OUTPUT_HEIGHT / 2);
-    fallback.fillStyle = genome.element === 'cryo' ? '#67e8f9'
+    fallback.strokeStyle = genome.element === 'cryo' ? '#67e8f9'
       : genome.element === 'thermal' ? '#fb7185'
       : genome.element === 'radiant' ? '#fde047'
       : genome.element === 'corrosive' ? '#86efac'
       : genome.element === 'void' ? '#c084fc'
       : '#60a5fa';
-    fallback.strokeStyle = '#e0f2fe';
-    fallback.lineWidth = 4;
-    fallback.shadowColor = fallback.fillStyle;
-    fallback.shadowBlur = 10;
+    fallback.fillStyle = fallback.strokeStyle;
+    fallback.lineWidth = 5;
+    fallback.globalAlpha = 0.82;
+    fallback.shadowColor = fallback.strokeStyle;
+    fallback.shadowBlur = 7;
     const bodyType = BODY_TYPE[genome.baseElement];
     fallback.beginPath();
     if (bodyType === 'serpentine') {
@@ -805,9 +806,9 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       fallback.stroke();
     } else if (bodyType === 'quadruped') {
       fallback.roundRect(-42, -23, 84, 48, 17);
-      fallback.fill();
-      fallback.fillRect(-34, 18, 13, 31);
-      fallback.fillRect(21, 18, 13, 31);
+      fallback.stroke();
+      fallback.strokeRect(-34, 18, 13, 27);
+      fallback.strokeRect(21, 18, 13, 27);
     } else if (bodyType === 'flier' || bodyType === 'hover') {
       fallback.moveTo(-55, 10);
       fallback.lineTo(-15, -28);
@@ -816,20 +817,24 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       fallback.lineTo(55, 10);
       fallback.lineTo(0, 35);
       fallback.closePath();
-      fallback.fill();
+      fallback.stroke();
     } else if (bodyType === 'fortress') {
       fallback.roundRect(-47, -38, 94, 76, 10);
-      fallback.fill();
+      fallback.stroke();
       fallback.strokeRect(-33, -24, 66, 48);
     } else {
       fallback.roundRect(
         -34, -42, 68, 84,
         bodyType === 'tentacled' || bodyType === 'aquatic' ? 28 : 14,
       );
-      fallback.fill();
-      fallback.fillRect(-52, -10, 19, 42);
-      fallback.fillRect(33, -10, 19, 42);
+      fallback.stroke();
+      fallback.strokeRect(-49, -8, 15, 34);
+      fallback.strokeRect(34, -8, 15, 34);
     }
+    fallback.globalAlpha = 1;
+    fallback.beginPath();
+    fallback.arc(0, 0, 8, 0, Math.PI * 2);
+    fallback.fill();
     fallback.restore();
     return;
   }
