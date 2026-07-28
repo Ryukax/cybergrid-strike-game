@@ -2522,6 +2522,63 @@ const SIGNATURE_SKILL_COLORS: Record<RivalSkillId, [string, string]> = {
   sovereign: ['#f43f5e', '#fde047'],
 };
 
+type SkillExecutionMotif =
+  | 'time' | 'gravity' | 'command' | 'construct' | 'morph' | 'reflect'
+  | 'dash' | 'restore' | 'portal' | 'vector' | 'grid' | 'resonance'
+  | 'exchange' | 'lock' | 'weapon' | 'harvest' | 'suppress' | 'polarity'
+  | 'colossus' | 'target' | 'orbital' | 'sovereign';
+
+const SKILL_EXECUTION_MOTIFS: Record<RivalSkillId, [SkillExecutionMotif, SkillExecutionMotif, SkillExecutionMotif]> = {
+  chrono: ['time', 'portal', 'restore'],
+  singularity: ['gravity', 'polarity', 'reflect'],
+  override: ['command', 'portal', 'harvest'],
+  architect: ['construct', 'portal', 'reflect'],
+  apex: ['morph', 'morph', 'morph'],
+  counter: ['reflect', 'vector', 'restore'],
+  phase: ['dash', 'target', 'restore'],
+  phoenix: ['weapon', 'construct', 'restore'],
+  rift: ['portal', 'construct', 'reflect'],
+  vector: ['vector', 'vector', 'lock'],
+  gridshift: ['grid', 'grid', 'grid'],
+  resonance: ['resonance', 'resonance', 'resonance'],
+  exchange: ['target', 'exchange', 'exchange'],
+  causality: ['lock', 'target', 'time'],
+  arsenal: ['weapon', 'reflect', 'dash'],
+  assimilation: ['harvest', 'morph', 'weapon'],
+  null: ['suppress', 'target', 'construct'],
+  polarity: ['polarity', 'polarity', 'gravity'],
+  colossus: ['weapon', 'dash', 'colossus'],
+  predator: ['dash', 'target', 'reflect'],
+  orbital: ['target', 'morph', 'orbital'],
+  hijack: ['command', 'target', 'suppress'],
+  sovereign: ['sovereign', 'exchange', 'restore'],
+};
+
+const SKILL_VFX_ATLAS_FRAME: Record<SkillExecutionMotif, number> = {
+  time: 0,
+  gravity: 1,
+  command: 2,
+  construct: 3,
+  morph: 4,
+  reflect: 5,
+  dash: 6,
+  restore: 7,
+  portal: 6,
+  vector: 2,
+  grid: 3,
+  resonance: 3,
+  exchange: 2,
+  lock: 5,
+  weapon: 6,
+  harvest: 4,
+  suppress: 4,
+  polarity: 2,
+  colossus: 4,
+  target: 5,
+  orbital: 3,
+  sovereign: 4,
+};
+
 function SignatureSkillFx({
   id,
   stateRef,
@@ -2534,7 +2591,17 @@ function SignatureSkillFx({
   lastAction: RivalSkillView['lastAction'];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const atlasRef = useRef<HTMLImageElement | null>(null);
   const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
+
+  useEffect(() => {
+    const atlas = new Image();
+    atlas.src = `${import.meta.env.BASE_URL}effects/signature-skill-vfx-atlas.png`;
+    atlasRef.current = atlas;
+    return () => {
+      atlasRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     executionRef.current = { tick: actionTick, action: lastAction, startedAt: performance.now() };
@@ -2639,6 +2706,8 @@ function SignatureSkillFx({
         const easeOut = 1 - Math.pow(1 - executionProgress, 3);
         const fade = Math.sin(executionProgress * Math.PI);
         const target = enemies[0] ?? center(4, state.player.row);
+        const actionIndex = execution.action === 'primary' ? 0 : execution.action === 'alternate' ? 1 : 2;
+        const motif = execution.action === 'activate' ? null : SKILL_EXECUTION_MOTIFS[id][actionIndex];
         ctx.save();
         ctx.globalAlpha = Math.max(0, fade) * 0.92;
         ctx.shadowBlur = board.cell * 0.18;
@@ -2743,6 +2812,236 @@ function SignatureSkillFx({
           ctx.fill();
           for (let brace = 0; brace < 3; brace++) {
             ring(player.x, player.y, board.cell * (0.18 + brace * 0.1 - close * 0.06), brace === 1 ? accent : primary, 0.72 - brace * 0.12);
+          }
+        }
+
+        const atlas = atlasRef.current;
+        if (atlas?.complete && atlas.naturalWidth > 0) {
+          const atlasFrame = motif === null
+            ? SKILL_VFX_ATLAS_FRAME[SKILL_EXECUTION_MOTIFS[id][0]]
+            : SKILL_VFX_ATLAS_FRAME[motif];
+          const atlasCol = atlasFrame % 4;
+          const atlasRow = Math.floor(atlasFrame / 4);
+          const sourceWidth = atlas.naturalWidth / 4;
+          const sourceHeight = atlas.naturalHeight / 2;
+          const vfxTarget = motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
+            ? target
+            : motif === 'dash' || motif === 'weapon'
+              ? {
+                  x: player.x + (target.x - player.x) * Math.min(0.72, easeOut),
+                  y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
+                }
+              : player;
+          const baseSize = board.cell * (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18);
+          const revealScale = 0.55 + easeOut * 0.55;
+          const drawWidth = baseSize * revealScale;
+          const drawHeight = drawWidth * (sourceHeight / sourceWidth);
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = Math.min(0.96, fade * 1.35);
+          ctx.imageSmoothingEnabled = false;
+          ctx.translate(vfxTarget.x, vfxTarget.y);
+          if (motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
+          if (motif === 'reflect') ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
+          ctx.drawImage(
+            atlas,
+            atlasCol * sourceWidth,
+            atlasRow * sourceHeight,
+            sourceWidth,
+            sourceHeight,
+            -drawWidth / 2,
+            -drawHeight / 2,
+            drawWidth,
+            drawHeight,
+          );
+          ctx.restore();
+        }
+
+        // The command's constitution is drawn over the body motion. This is
+        // deliberately semantic: Restore flows back into the user, Sacrifice
+        // collapses a host, Drop descends from orbit, Rewind reverses a clock,
+        // and so on, rather than every B command looking like the same shield.
+        if (motif === 'time') {
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = board.cell * 0.045;
+          ctx.beginPath();
+          ctx.arc(player.x, player.y, board.cell * 0.38, Math.PI * 0.2, Math.PI * (1.85 - easeOut * 1.45), true);
+          ctx.stroke();
+          arrow(
+            { x: player.x + board.cell * 0.29, y: player.y - board.cell * 0.12 },
+            { x: player.x + board.cell * 0.2, y: player.y - board.cell * 0.28 },
+            accent,
+          );
+        } else if (motif === 'gravity') {
+          const core = { x: (player.x + target.x) / 2, y: (player.y + target.y) / 2 };
+          enemies.slice(0, 4).forEach((enemy) => arrow(enemy, core, primary));
+          ring(core.x, core.y, board.cell * (0.08 + easeOut * 0.16), accent, 0.88);
+        } else if (motif === 'command') {
+          enemies.slice(0, 4).forEach((enemy, index) => {
+            const relay = { x: (player.x + enemy.x) / 2, y: (player.y + enemy.y) / 2 - board.cell * 0.12 };
+            line(player, relay, primary, 0.76);
+            arrow(relay, enemy, index % 2 ? accent : primary);
+            node(enemy.x, enemy.y, accent, board.cell * 0.045);
+          });
+        } else if (motif === 'construct') {
+          const cellX = board.x + Math.round((player.x - board.x) / board.cell) * board.cell;
+          const cellY = board.y + state.player.row * board.cell;
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = board.cell * 0.05;
+          ctx.strokeRect(
+            cellX + board.cell * (0.5 - easeOut * 0.44),
+            cellY + board.cell * (0.5 - easeOut * 0.44),
+            board.cell * easeOut * 0.88,
+            board.cell * easeOut * 0.88,
+          );
+          node(cellX + board.cell * 0.5, cellY + board.cell * 0.5, accent, board.cell * 0.08 * easeOut);
+        } else if (motif === 'morph') {
+          for (let layer = 0; layer < 3; layer++) {
+            ctx.strokeStyle = layer % 2 ? accent : primary;
+            ctx.lineWidth = board.cell * 0.035;
+            ctx.beginPath();
+            for (let point = 0; point <= 6; point++) {
+              const angle = point / 6 * Math.PI * 2 + t * (layer % 2 ? -1 : 1);
+              const radius = board.cell * (0.2 + layer * 0.09) * easeOut;
+              const x = player.x + Math.cos(angle) * radius;
+              const y = player.y + Math.sin(angle) * radius;
+              if (point === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+          }
+        } else if (motif === 'reflect') {
+          const impact = {
+            x: player.x + (target.x - player.x) * 0.42,
+            y: player.y + (target.y - player.y) * 0.42,
+          };
+          arrow(target, impact, accent);
+          arrow(impact, target, primary);
+          ring(impact.x, impact.y, board.cell * (0.1 + easeOut * 0.14), '#f8fafc', 0.88);
+        } else if (motif === 'dash') {
+          ctx.setLineDash([board.cell * 0.11, board.cell * 0.06]);
+          line(player, target, primary, 0.85);
+          ctx.setLineDash([]);
+          const strike = {
+            x: player.x + (target.x - player.x) * easeOut,
+            y: player.y + (target.y - player.y) * easeOut,
+          };
+          line(
+            { x: strike.x - board.cell * 0.16, y: strike.y - board.cell * 0.2 },
+            { x: strike.x + board.cell * 0.16, y: strike.y + board.cell * 0.2 },
+            accent,
+            0.9,
+          );
+        } else if (motif === 'restore') {
+          for (let particle = 0; particle < 7; particle++) {
+            const angle = particle / 7 * Math.PI * 2;
+            const radius = board.cell * (0.46 * (1 - easeOut));
+            node(
+              player.x + Math.cos(angle) * radius,
+              player.y + Math.sin(angle) * radius,
+              particle % 2 ? accent : primary,
+              board.cell * 0.035,
+            );
+          }
+          ring(player.x, player.y, board.cell * (0.15 + easeOut * 0.17), accent, 0.85);
+        } else if (motif === 'portal') {
+          const destination = center(state.player.col, (state.player.row + 1) % 3);
+          ring(player.x, player.y, board.cell * (0.12 + easeOut * 0.16), primary, 0.9);
+          ring(destination.x, destination.y, board.cell * (0.12 + easeOut * 0.16), accent, 0.9);
+          arrow(player, destination, '#f8fafc');
+        } else if (motif === 'vector') {
+          enemies.slice(0, 5).forEach((enemy, index) => arrow(
+            enemy,
+            { x: enemy.x + board.cell * (index % 2 ? -0.48 : 0.48) * easeOut, y: enemy.y },
+            index % 2 ? accent : primary,
+          ));
+        } else if (motif === 'grid') {
+          const rowY = board.y + (state.player.row + 0.5) * board.cell;
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = board.cell * 0.045;
+          ctx.strokeRect(board.x + board.cell * 0.04, rowY - board.cell * 0.42, board.boardW - board.cell * 0.08, board.cell * 0.84);
+          arrow(
+            { x: board.x + board.cell * 0.3, y: rowY },
+            { x: board.x + board.boardW - board.cell * 0.3, y: rowY },
+            accent,
+          );
+        } else if (motif === 'resonance') {
+          const marks = [center(0, 0), center(2, 1), center(1, 2)];
+          marks.forEach((mark, index) => {
+            line(mark, marks[(index + 1) % marks.length], index % 2 ? accent : primary, 0.85);
+            node(mark.x, mark.y, index % 2 ? accent : primary, board.cell * 0.07 * easeOut);
+          });
+        } else if (motif === 'exchange') {
+          arrow(player, target, primary);
+          arrow(
+            { x: target.x, y: target.y + board.cell * 0.12 },
+            { x: player.x, y: player.y + board.cell * 0.12 },
+            accent,
+          );
+          node((player.x + target.x) / 2, (player.y + target.y) / 2, '#f8fafc', board.cell * 0.055);
+        } else if (motif === 'lock') {
+          ring(target.x, target.y, board.cell * (0.18 + easeOut * 0.08), primary, 0.88);
+          ctx.strokeStyle = accent;
+          ctx.lineWidth = board.cell * 0.06;
+          ctx.strokeRect(target.x - board.cell * 0.12, target.y - board.cell * 0.03, board.cell * 0.24, board.cell * 0.2);
+          ctx.beginPath();
+          ctx.arc(target.x, target.y - board.cell * 0.03, board.cell * 0.1, Math.PI, 0);
+          ctx.stroke();
+        } else if (motif === 'weapon') {
+          const tip = { x: player.x + board.cell * (0.28 + easeOut * 0.38), y: player.y - board.cell * 0.08 };
+          ctx.lineWidth = board.cell * 0.1;
+          line(player, tip, primary, 0.9);
+          ring(tip.x, tip.y, board.cell * (0.06 + easeOut * 0.1), accent, 0.85);
+          arrow(tip, target, accent);
+        } else if (motif === 'harvest') {
+          enemies.slice(0, 3).forEach((enemy, index) => {
+            const progress = (easeOut + index * 0.13) % 1;
+            const part = {
+              x: enemy.x + (player.x - enemy.x) * progress,
+              y: enemy.y + (player.y - enemy.y) * progress,
+            };
+            line(enemy, player, index % 2 ? accent : primary, 0.35);
+            node(part.x, part.y, index % 2 ? accent : primary, board.cell * 0.045);
+          });
+        } else if (motif === 'suppress') {
+          enemies.slice(0, 5).forEach((enemy) => {
+            ring(enemy.x, enemy.y, board.cell * (0.14 + easeOut * 0.07), primary, 0.72);
+            line(
+              { x: enemy.x - board.cell * 0.11, y: enemy.y - board.cell * 0.11 },
+              { x: enemy.x + board.cell * 0.11, y: enemy.y + board.cell * 0.11 },
+              accent,
+              0.9,
+            );
+          });
+        } else if (motif === 'polarity') {
+          enemies.slice(0, 4).forEach((enemy, index) => {
+            ring(enemy.x, enemy.y, board.cell * 0.18, index % 2 ? accent : primary, 0.8);
+            arrow(enemy, index % 2 ? player : target, index % 2 ? accent : primary);
+          });
+        } else if (motif === 'colossus') {
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = board.cell * 0.065;
+          ctx.strokeRect(player.x - board.cell * 0.38, player.y - board.cell * 0.58, board.cell * 0.76, board.cell * 1.12);
+          ctx.fillStyle = accent;
+          ctx.globalAlpha = 0.22 + fade * 0.2;
+          ctx.fillRect(player.x - board.cell * 0.7, player.y - board.cell * 0.25, board.cell * 1.4, board.cell * 0.62);
+        } else if (motif === 'target') {
+          reticle(target, accent);
+          line(player, target, primary, 0.62);
+        } else if (motif === 'orbital') {
+          reticle(target, primary);
+          const sky = { x: target.x, y: board.y - board.cell * 0.5 };
+          ctx.lineWidth = board.cell * (0.05 + easeOut * 0.12);
+          line(sky, target, accent, 0.92);
+          ring(target.x, target.y, board.cell * easeOut * 0.3, primary, 0.82);
+        } else if (motif === 'sovereign') {
+          for (let ray = 0; ray < 7; ray++) {
+            const angle = -Math.PI + ray / 6 * Math.PI;
+            line(
+              { x: player.x + Math.cos(angle) * board.cell * 0.2, y: player.y + Math.sin(angle) * board.cell * 0.2 },
+              { x: player.x + Math.cos(angle) * board.cell * (0.32 + easeOut * 0.2), y: player.y + Math.sin(angle) * board.cell * (0.32 + easeOut * 0.2) },
+              ray % 2 ? accent : primary,
+              0.86,
+            );
           }
         }
 
