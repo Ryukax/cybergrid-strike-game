@@ -18,7 +18,31 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       let frame: CanvasImageSource = img;
       let disposable: ImageBitmap | undefined;
       if (src.includes('/skins/skill-') || src.includes('skins/skill-')) {
-        const bitmap = await createImageBitmap(img);
+        let bitmap = await createImageBitmap(img);
+        // These three authored sheets contain extra artwork connected to the
+        // primary alpha island. Crop to their intentional subject window
+        // before connected-component cleanup so the debris cannot win or
+        // survive the island analysis.
+        const subjectWindows: Record<string, [number, number, number, number]> = {
+          override: [34, 20, 154, 140],
+          apex: [27, 20, 194, 140],
+          hijack: [4, 24, 188, 120],
+        };
+        const skinMatch = src.match(/skill-([a-z]+)-idle/i);
+        const subject = skinMatch ? subjectWindows[skinMatch[1]] : undefined;
+        if (subject) {
+          const scaleX = bitmap.width / 240;
+          const scaleY = bitmap.height / 160;
+          const cropped = await createImageBitmap(
+            bitmap,
+            Math.round(subject[0] * scaleX),
+            Math.round(subject[1] * scaleY),
+            Math.round(subject[2] * scaleX),
+            Math.round(subject[3] * scaleY),
+          );
+          bitmap.close();
+          bitmap = cropped;
+        }
         disposable = await sanitizeRivalSkinFrame(bitmap, true);
         frame = disposable;
       }
@@ -3288,8 +3312,8 @@ export default function Game() {
   }, []);
 
   type AttackStyle = NonNullable<Bullet['attackStyle']>;
-  const resolveAttackStyle = useCallback((): AttackStyle => {
-    const skin = playerSkinRef.current;
+  const resolveAttackStyle = useCallback((skinOverride?: PlayerSkin): AttackStyle => {
+    const skin = skinOverride ?? playerSkinRef.current;
     const skinAttackLanguage: Record<PlayerSkin, AttackStyle> = {
       default: 'physical',
       rocket: 'physical',
@@ -5796,7 +5820,10 @@ export default function Game() {
     // Spawn enemies
     s.enemySpawnTimer -= dt;
     const populationCap = s.hp <= 2 ? 5 : 7;
-    if (s.enemySpawnTimer <= 0 && s.directorRecoveryTimer <= 0 && directorLiving.length < populationCap) {
+    if (s.gameMode !== 'vs'
+      && s.enemySpawnTimer <= 0
+      && s.directorRecoveryTimer <= 0
+      && directorLiving.length < populationCap) {
       const value = pickDiverseSeed();
       const livingEnemies = s.enemies.filter((enemy) => enemy.colPos >= -1);
       const lanePopulation: [number, number, number] = [0, 0, 0];
@@ -6109,17 +6136,6 @@ export default function Game() {
                 attackStyle: resolveAttackStyle(),
               });
             }
-            // VS mode: killing a red enemy sends a green attack at the NPC
-            if (s.gameMode === 'vs') {
-              s.npcEnemies.push({
-                colPos: 2.6,
-                row: Math.floor(Math.random() * 3),
-                speed: 1.15 + Math.random() * 0.5,
-                hp: 1,
-                flash: 0,
-                value: (() => { const v = pickDiverseSeed(); registerSpawn(getMorphSig(v)); return v; })(),
-              });
-            }
             // Record kill for CGRD reward
             rewardAccRef.current.recordKill(e.value ?? 1);
             setSessionCGRD(rewardAccRef.current.totalCGRD);
@@ -6157,16 +6173,15 @@ export default function Game() {
     // ── VS mode: NPC AI ───────────────────────────────────────────────────────
     if (s.gameMode === 'vs') {
       const npc = s.npc;
+      const npcCol = 3 + npc.col;
 
       // Move toward the most-advanced (rightmost) incoming green attack
       npc.moveCooldown -= dt;
       if (npc.moveCooldown <= 0) {
         npc.moveCooldown = NPC_MOVE_INTERVAL;
-        const active = s.npcEnemies.filter((e) => e.colPos > 2.4 && e.colPos < 5.5);
-        if (active.length > 0 && Math.random() < 0.75) {
-          const target = active.reduce((a, b) => a.colPos > b.colPos ? a : b);
-          if (npc.row < target.row) npc.row++;
-          else if (npc.row > target.row) npc.row--;
+        if (Math.random() < 0.68) {
+          if (npc.row < s.player.row) npc.row++;
+          else if (npc.row > s.player.row) npc.row--;
         } else if (Math.random() < 0.2) {
           npc.row = Math.max(0, Math.min(2, npc.row + (Math.random() < 0.5 ? 1 : -1)));
         }
@@ -6175,25 +6190,21 @@ export default function Game() {
       // Fire a left-moving bullet only when a green attack is in the NPC's row
       npc.fireCooldown -= dt;
       if (npc.fireCooldown <= 0) {
-        const hasTarget = s.npcEnemies.some(
-          (e) => e.row === npc.row && e.colPos > 2.4 && e.colPos < 5.5,
-        );
-        if (hasTarget) {
-          s.npcBullets.push({
-            colPos: 3 + npc.col - 0.55,
-            row: npc.row,
-            speed: -8.5,
-            power: 1,
-            big: false,
-            pierce: false,
-          });
-        }
+        s.npcBullets.push({
+          colPos: npcCol - 0.55,
+          row: npc.row,
+          speed: -6.4,
+          power: 1,
+          big: false,
+          pierce: false,
+          attackStyle: resolveAttackStyle(npcSkinRef.current),
+        });
         npc.fireCooldown = NPC_FIRE_INTERVAL;
       }
 
       // Move NPC bullets left; remove when they exit the active zone
       for (const b of s.npcBullets) b.colPos += b.speed * dt;
-      s.npcBullets = s.npcBullets.filter((b) => b.colPos > 2.4);
+      s.npcBullets = s.npcBullets.filter((b) => b.colPos > -1);
 
       // Move green attacks right; score against NPC when they reach the right wall
       for (const e of s.npcEnemies) {
@@ -6238,6 +6249,39 @@ export default function Game() {
           }
         }
       }
+
+      // Direct duel collisions: Player shots cross the seam into the selected
+      // NPC, while the NPC's return fire crosses back into the Player grid.
+      for (const bullet of s.bullets) {
+        if (bullet.colPos > 20 || bullet.row !== npc.row) continue;
+        if (Math.abs(bullet.colPos - npcCol) < (bullet.big ? 0.52 : 0.38)) {
+          if (!bullet.pierce) bullet.colPos = 99;
+          if (npc.shieldCharges > 0) {
+            npc.shieldCharges--;
+          } else {
+            npc.hp -= bullet.power ?? 1;
+            s.score += 100;
+            if (npc.hp <= 0) { updateHud(); endGame(true); return; }
+          }
+          playHit();
+          updateHud();
+        }
+      }
+      for (const bullet of s.npcBullets) {
+        if (bullet.row !== s.player.row) continue;
+        if (Math.abs(bullet.colPos - s.player.col) < (bullet.big ? 0.52 : 0.38)) {
+          bullet.colPos = -9;
+          if (s.shieldCharges > 0) {
+            s.shieldCharges--;
+          } else if (s.ghostTimer <= 0) {
+            s.hp -= bullet.power ?? 1;
+            if (s.hp <= 0) { updateHud(); endGame(false); return; }
+          }
+          playHit();
+          updateHud();
+        }
+      }
+      s.npcBullets = s.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.colPos < 7);
     }
   }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset]);
 
@@ -6703,7 +6747,7 @@ export default function Game() {
     setPhase('playing');
     updateHud();
     if (mode === 'vs') {
-      showMessage('VS NPC — kill viruses to send green attacks at the NPC!', 3000);
+      showMessage('DIRECT DUEL — move, fire, and reduce the opposing NPC to 0 HP!', 3000);
     } else {
       showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
     }
