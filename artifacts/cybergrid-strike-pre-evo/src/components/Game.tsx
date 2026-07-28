@@ -3053,10 +3053,30 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         if (rivalSkin) {
-          const [rawIdle, rawAttack] = await Promise.all([
+          let [rawIdle, rawAttack] = await Promise.all([
             loadBitmap(`${base}skins/skill-${playerSkin}-idle.png`),
             loadBitmap(`${base}skins/skill-${playerSkin}-attack.png`),
           ]);
+          if (playerSkin === 'hijack') {
+            const idleCrop = await createImageBitmap(
+              rawIdle,
+              Math.round(rawIdle.width * 4 / 240),
+              Math.round(rawIdle.height * 24 / 160),
+              Math.round(rawIdle.width * 188 / 240),
+              Math.round(rawIdle.height * 100 / 160),
+            );
+            const attackCrop = await createImageBitmap(
+              rawAttack,
+              0,
+              Math.round(rawAttack.height * 18 / 160),
+              Math.round(rawAttack.width * 142 / 240),
+              Math.round(rawAttack.height * 82 / 160),
+            );
+            rawIdle.close();
+            rawAttack.close();
+            rawIdle = idleCrop;
+            rawAttack = attackCrop;
+          }
           const pair = REGISTERED_RIVAL_FRAME_FIXES.has(playerSkin as RivalSkillId)
             ? await sanitizeRivalSkinPair(rawIdle, rawAttack)
             : {
@@ -3128,7 +3148,18 @@ export default function Game() {
       : `${base}skins/skill-${npcSkin}-idle.png`;
     const img = new Image();
     img.onload = async () => {
-      const raw = await createImageBitmap(img);
+      let raw = await createImageBitmap(img);
+      if (npcSkin === 'hijack') {
+        const cropped = await createImageBitmap(
+          raw,
+          Math.round(raw.width * 4 / 240),
+          Math.round(raw.height * 24 / 160),
+          Math.round(raw.width * 188 / 240),
+          Math.round(raw.height * 100 / 160),
+        );
+        raw.close();
+        raw = cropped;
+      }
       const frame = RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)
         ? await sanitizeRivalSkinFrame(raw)
         : raw;
