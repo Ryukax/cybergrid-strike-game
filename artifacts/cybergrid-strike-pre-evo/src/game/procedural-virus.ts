@@ -415,11 +415,11 @@ function coreMask(ctx: CanvasRenderingContext2D, seed: number): void {
   const broad = gene(seed, 350) > 0.48;
   ctx.beginPath();
   if (broad) {
-    ctx.moveTo(9, 13); ctx.lineTo(38, 10); ctx.lineTo(44, 22);
-    ctx.lineTo(39, 37); ctx.lineTo(10, 39); ctx.lineTo(4, 24);
+    ctx.moveTo(9, 15); ctx.lineTo(38, 13); ctx.lineTo(43, 21);
+    ctx.lineTo(38, 34); ctx.lineTo(10, 35); ctx.lineTo(5, 23);
   } else {
-    ctx.moveTo(14, 8); ctx.lineTo(34, 9); ctx.lineTo(40, 20);
-    ctx.lineTo(35, 40); ctx.lineTo(13, 41); ctx.lineTo(7, 22);
+    ctx.moveTo(15, 12); ctx.lineTo(33, 13); ctx.lineTo(39, 20);
+    ctx.lineTo(34, 35); ctx.lineTo(14, 36); ctx.lineTo(8, 22);
   }
   ctx.closePath();
 }
@@ -447,7 +447,7 @@ function drawCore(
     image.naturalHeight * 0.24,
     image.naturalWidth * 0.56,
     image.naturalHeight * 0.5,
-    6, 6, 37, 38,
+    8, 11, 33, 27,
   );
   ctx.filter = 'none';
   ctx.restore();
@@ -486,6 +486,17 @@ function genomeFilter(genome: EnemyGenome, seed: number): string {
 }
 
 type MatrixRegion = FusionRole;
+
+function fusionComponentKind(
+  outcome: NonNullable<ReturnType<typeof getFusionOutcome>>,
+): GenericComponentKind {
+  if (outcome.function === 'sensor') return 'sensor';
+  if (outcome.function === 'armor') return 'armor';
+  if (outcome.function === 'propulsion') return 'hover';
+  if (outcome.function === 'weapon') return 'weapon';
+  if (outcome.function === 'growth' || outcome.function === 'colony') return 'growth';
+  return 'phase';
+}
 
 function graftMask(
   ctx: CanvasRenderingContext2D,
@@ -529,14 +540,31 @@ function graftMask(
       ctx.lineTo(5, 47);
     }
   } else {
-    // A side/flank graft, varied without obscuring the primary silhouette.
+    // A single bounded flank socket; armor, weapons and growths replace one
+    // another instead of accumulating over the chassis.
     const right = gene(seed, 71) > 0.5;
-    if (right) {
-      ctx.moveTo(29, 5); ctx.lineTo(47, 3); ctx.lineTo(47, 45);
-      ctx.lineTo(27, 43); ctx.lineTo(30, 32); ctx.lineTo(26, 21);
+    const direction = right ? 1 : -1;
+    const center = right ? 35 : 13;
+    if (kind === 'weapon' || kind === 'emitter') {
+      ctx.moveTo(center - 4 * direction, 15);
+      ctx.lineTo(center + 11 * direction, 9);
+      ctx.lineTo(center + 12 * direction, 19);
+      ctx.lineTo(center + 3 * direction, 25);
+      ctx.lineTo(center + 9 * direction, 32);
+      ctx.lineTo(center - 5 * direction, 29);
+    } else if (kind === 'growth' || kind === 'phase') {
+      ctx.moveTo(center - 7 * direction, 12);
+      ctx.lineTo(center + 5 * direction, 6);
+      ctx.lineTo(center + 3 * direction, 18);
+      ctx.lineTo(center + 10 * direction, 24);
+      ctx.lineTo(center + 1 * direction, 35);
+      ctx.lineTo(center - 8 * direction, 28);
     } else {
-      ctx.moveTo(1, 4); ctx.lineTo(18, 6); ctx.lineTo(21, 20);
-      ctx.lineTo(17, 31); ctx.lineTo(20, 44); ctx.lineTo(1, 46);
+      ctx.moveTo(center - 9 * direction, 11);
+      ctx.lineTo(center + 8 * direction, 8);
+      ctx.lineTo(center + 10 * direction, 28);
+      ctx.lineTo(center + 2 * direction, 36);
+      ctx.lineTo(center - 8 * direction, 30);
     }
   }
   ctx.closePath();
@@ -850,27 +878,56 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Every entity is assembled. A whole family sprite is never the final image:
   // its central anatomy supplies only the core while independent donors fill
   // the head and locomotion sockets.
+  const fusionKind = fusionOutcome ? fusionComponentKind(fusionOutcome) : undefined;
+  const fusionActive = genome.fusionLevel > 0
+    && fusionOutcome
+    && fusionBase !== genome.baseElement;
+  const resolvedHead = fusionActive && fusionOutcome.role === 'head'
+    ? { image: fusion, base: fusionBase, kind: fusionKind }
+    : {
+        image: head,
+        base: headBase,
+        kind: headComponent ? genericComponentKind(headComponent) : undefined,
+      };
+  const resolvedLocomotion = fusionActive && fusionOutcome.role === 'locomotion'
+    ? { image: fusion, base: fusionBase, kind: fusionKind }
+    : {
+        image: locomotion,
+        base: locomotionBase,
+        kind: locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
+      };
   graft(
     ctx,
-    head,
-    headBase,
+    resolvedHead.image,
+    resolvedHead.base,
     seed + 31,
     genome,
     'head',
     0.98,
-    headComponent ? genericComponentKind(headComponent) : undefined,
+    resolvedHead.kind,
   );
   graft(
     ctx,
-    locomotion,
-    locomotionBase,
+    resolvedLocomotion.image,
+    resolvedLocomotion.base,
     seed + 37,
     genome,
     'locomotion',
     0.97,
-    locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
+    resolvedLocomotion.kind,
   );
-  if (flankComponent && flankImage) {
+  if (fusionActive && fusionOutcome.role === 'flank') {
+    graft(
+      ctx,
+      fusion,
+      fusionBase,
+      seed + 41,
+      genome,
+      'flank',
+      0.9,
+      fusionKind,
+    );
+  } else if (flankComponent && flankImage) {
     graft(
       ctx,
       flankImage,
@@ -882,9 +939,8 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       genericComponentKind(flankComponent),
     );
   }
-  if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
-    graft(ctx, fusion, fusionBase, seed + 41, genome, fusionOutcome.role, 0.9);
 
+  if (fusionActive) {
     // A restrained seam makes the graft read as connected engineered anatomy.
     ctx.save();
     ctx.globalCompositeOperation = 'source-atop';
