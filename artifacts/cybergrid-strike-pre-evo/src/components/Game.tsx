@@ -1586,6 +1586,7 @@ function AvatarAssembly({
       const idle = animation === 'static' ? 0 : Math.sin(now / 260);
       const showcaseTime = (now - animationStarted) % 3200;
       const attackElapsed = now - animationStarted;
+      const attackDuration = 760;
       const attackEnvelope = (elapsed: number, duration: number) => {
         const linear = Math.max(0, Math.min(1, elapsed / duration));
         const eased = linear * linear * (3 - 2 * linear);
@@ -1594,13 +1595,20 @@ function AvatarAssembly({
       const attack = animation === 'showcase'
         ? (showcaseTime > 1900 && showcaseTime < 2550
           ? attackEnvelope(showcaseTime - 1900, 650) : 0)
-        : attackPulse > 0 && attackElapsed < 640
-          ? attackEnvelope(attackElapsed, 640)
+        : attackPulse > 0 && attackElapsed < attackDuration
+          ? attackEnvelope(attackElapsed, attackDuration)
           : 0;
+      const attackProgress = attackPulse > 0
+        ? Math.max(0, Math.min(1, attackElapsed / attackDuration))
+        : 0;
+      const anticipation = attackProgress < 0.2
+        ? Math.sin((attackProgress / 0.2) * Math.PI)
+        : 0;
       ctx.save();
       // Preserve sub-pixel motion so the assembled body accelerates and
       // recovers continuously instead of snapping between integer positions.
-      ctx.translate(attack * 1.4, idle * 1.5 - attack * 0.8);
+      ctx.translate(attack * 2.2 - anticipation * 1.4, idle * 1.5 - attack * 1.2 + anticipation * 0.6);
+      ctx.scale(1 + attack * 0.025 - anticipation * 0.02, 1 - attack * 0.018 + anticipation * 0.025);
       // Components must remain the readable body, even when the fit score is
       // low. Cohesion now affects placement, never their visibility.
       ctx.globalAlpha = 1;
@@ -1615,15 +1623,35 @@ function AvatarAssembly({
       }
       ctx.globalAlpha = 1;
       if (attack > 0.15) {
-        ctx.globalAlpha = attack * 0.8;
+        ctx.globalAlpha = attack * 0.84;
         ctx.strokeStyle = fit.dominantColor;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2 + attack * 2;
         ctx.beginPath();
-        ctx.moveTo(74, 43);
-        ctx.lineTo(94, 37);
-        ctx.moveTo(76, 48);
-        ctx.lineTo(93, 48);
+        ctx.moveTo(68 + attack * 7, 40);
+        ctx.lineTo(95, 31 - attack * 4);
+        ctx.moveTo(70 + attack * 6, 46);
+        ctx.lineTo(95, 45);
+        ctx.moveTo(68 + attack * 7, 52);
+        ctx.lineTo(94, 59 + attack * 3);
         ctx.stroke();
+      }
+      if (attackProgress > 0.34 && attackProgress < 0.72) {
+        const impact = Math.sin(((attackProgress - 0.34) / 0.38) * Math.PI);
+        ctx.globalAlpha = impact * 0.9;
+        ctx.strokeStyle = '#f8fafc';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(91, 45, 4 + impact * 10, -Math.PI * 0.65, Math.PI * 0.65);
+        ctx.stroke();
+        ctx.fillStyle = fit.dominantColor;
+        for (let spark = 0; spark < 4; spark++) {
+          const angle = -0.9 + spark * 0.6;
+          ctx.fillRect(
+            90 + Math.cos(angle) * (8 + impact * 13),
+            45 + Math.sin(angle) * (8 + impact * 13),
+            2, 2,
+          );
+        }
       }
       ctx.restore();
       if (animation !== 'static' || attackPulse > 0) frame = requestAnimationFrame(redraw);
@@ -2229,6 +2257,15 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   sovereign: 'Last Sovereign',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
+type RivalAttackEffect = 'beam' | 'field' | 'construct' | 'claw' | 'circuit';
+const RIVAL_ATTACK_EFFECTS: Record<RivalSkillId, RivalAttackEffect> = {
+  chrono: 'beam', singularity: 'field', override: 'circuit', architect: 'construct',
+  apex: 'claw', counter: 'field', phase: 'beam', phoenix: 'claw',
+  rift: 'beam', vector: 'beam', gridshift: 'construct', resonance: 'construct',
+  exchange: 'circuit', causality: 'field', arsenal: 'claw',
+  assimilation: 'claw', null: 'field', polarity: 'field', colossus: 'construct',
+  predator: 'claw', orbital: 'beam', hijack: 'circuit', sovereign: 'claw',
+};
 type AssemblySkillId = 'shadow' | RivalSkillId;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   chrono: ['QUEUE', 'STEP', 'REWIND'],
@@ -2638,7 +2675,7 @@ export default function Game() {
   const gemAttackFrameRef  = useRef(-1);
   const gemAttackTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rivalAttackStartedRef = useRef(-1);
-  const RIVAL_ATTACK_DURATION = 460;
+  const RIVAL_ATTACK_DURATION = 720;
 
   // Gem skin — move frames; gemMoveStartRef = performance.now() timestamp when move began, -1 = idle
   const gifMoveFramesRef   = useRef<ImageBitmap[]>([]);
@@ -5931,6 +5968,7 @@ export default function Game() {
             let bitmap: ImageBitmap;
             let rivalAttackBitmap: ImageBitmap | undefined;
             let rivalAttackBlend = 0;
+            let rivalAttackProgress = 0;
             if (playerSkinRef.current === 'rocket' && rocketFrameRef.current >= 0) {
               // Rocket attack — cycle through gifAttackFramesRef
               const aFrames = gifAttackFramesRef.current;
@@ -5942,11 +5980,15 @@ export default function Game() {
             } else if (rivalSkin && gemAttackFrameRef.current >= 0) {
               bitmap = frames[0];
               rivalAttackBitmap = gifAttackFramesRef.current[0];
-              const linear = Math.max(0, Math.min(
+              rivalAttackProgress = Math.max(0, Math.min(
                 1,
                 (performance.now() - rivalAttackStartedRef.current) / RIVAL_ATTACK_DURATION,
               ));
-              const eased = linear * linear * (3 - 2 * linear);
+              const strikeProgress = Math.max(0, Math.min(
+                1,
+                (rivalAttackProgress - 0.14) / 0.5,
+              ));
+              const eased = strikeProgress * strikeProgress * (3 - 2 * strikeProgress);
               rivalAttackBlend = Math.sin(eased * Math.PI);
             } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
               // Gem movement second priority
@@ -5976,16 +6018,82 @@ export default function Game() {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
                 sctx.restore();
               } else if (rivalAttackBitmap && rivalAttackBlend > 0) {
-                // Blend through anticipation, strike, and recovery rather than
-                // replacing idle with a single attack still for 180 ms.
+                const rivalId = playerSkinRef.current as RivalSkillId;
+                const effect = RIVAL_ATTACK_EFFECTS[rivalId];
+                const paletteIndex = Math.max(0, RIVAL_SKILL_IDS.indexOf(rivalId));
+                const effectColor = `hsl(${(paletteIndex * 47 + 188) % 360} 92% 68%)`;
+                const anticipation = rivalAttackProgress < 0.2
+                  ? Math.sin((rivalAttackProgress / 0.2) * Math.PI)
+                  : 0;
+                const impact = rivalAttackProgress > 0.34 && rivalAttackProgress < 0.72
+                  ? Math.sin(((rivalAttackProgress - 0.34) / 0.38) * Math.PI)
+                  : 0;
+
+                // Stage 1: visibly gather momentum in the idle silhouette.
                 sctx.globalAlpha = 1 - rivalAttackBlend;
+                sctx.save();
+                sctx.translate(-sz * 0.035 * anticipation, sz * 0.025 * anticipation);
+                sctx.scale(1 - anticipation * 0.035, 1 + anticipation * 0.035);
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.restore();
+
+                // Stage 2: commit the authored attack pose with a forward lunge.
                 sctx.save();
                 sctx.globalAlpha = rivalAttackBlend;
-                sctx.translate(sz * 0.045 * rivalAttackBlend, -sz * 0.018 * rivalAttackBlend);
-                sctx.scale(1 + rivalAttackBlend * 0.035, 1 - rivalAttackBlend * 0.018);
+                sctx.translate(sz * 0.085 * rivalAttackBlend, -sz * 0.03 * rivalAttackBlend);
+                sctx.scale(1 + rivalAttackBlend * 0.065, 1 - rivalAttackBlend * 0.025);
                 sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
                 sctx.restore();
+
+                // Stage 3: give each discipline a readable animated impact.
+                if (impact > 0) {
+                  const ox = sz * (0.69 + impact * 0.12);
+                  const oy = sz * 0.46;
+                  sctx.save();
+                  sctx.globalAlpha = impact * 0.9;
+                  sctx.strokeStyle = effectColor;
+                  sctx.fillStyle = effectColor;
+                  sctx.lineWidth = Math.max(1, sz * 0.025);
+                  sctx.shadowColor = effectColor;
+                  sctx.shadowBlur = sz * 0.08 * impact;
+                  if (effect === 'beam') {
+                    for (let trail = -1; trail <= 1; trail++) {
+                      sctx.beginPath();
+                      sctx.moveTo(sz * 0.58, oy + trail * sz * 0.08);
+                      sctx.lineTo(sz * (0.92 + impact * 0.16), oy + trail * sz * 0.035);
+                      sctx.stroke();
+                    }
+                  } else if (effect === 'field') {
+                    sctx.beginPath();
+                    sctx.arc(ox, oy, sz * (0.08 + impact * 0.2), 0, Math.PI * 2);
+                    sctx.stroke();
+                    sctx.beginPath();
+                    sctx.arc(ox, oy, sz * (0.03 + impact * 0.1), 0, Math.PI * 2);
+                    sctx.stroke();
+                  } else if (effect === 'construct') {
+                    const unit = sz * (0.07 + impact * 0.035);
+                    for (let cell = 0; cell < 3; cell++) {
+                      sctx.strokeRect(ox + cell * unit * 0.8, oy - unit * (1 + cell % 2), unit, unit);
+                    }
+                  } else if (effect === 'claw') {
+                    for (let slash = -1; slash <= 1; slash++) {
+                      sctx.beginPath();
+                      sctx.arc(ox, oy + slash * sz * 0.07, sz * (0.16 + impact * 0.08), -0.75, 0.75);
+                      sctx.stroke();
+                    }
+                  } else {
+                    sctx.beginPath();
+                    sctx.moveTo(sz * 0.57, oy);
+                    sctx.lineTo(ox, oy - sz * 0.13);
+                    sctx.lineTo(ox + sz * 0.08, oy + sz * 0.1);
+                    sctx.lineTo(sz * 0.96, oy - sz * 0.04);
+                    sctx.stroke();
+                    for (let node = 0; node < 3; node++) {
+                      sctx.fillRect(ox + node * sz * 0.08, oy - sz * 0.02, sz * 0.035, sz * 0.035);
+                    }
+                  }
+                  sctx.restore();
+                }
                 sctx.globalAlpha = 1;
               } else {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
