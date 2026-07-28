@@ -434,17 +434,22 @@ function drawCore(
   ctx.save();
   coreMask(ctx, seed);
   ctx.clip();
-  ctx.fillStyle = genome.element === 'cryo' ? '#67e8f9'
-    : genome.element === 'thermal' ? '#fb7185'
-    : genome.element === 'radiant' ? '#fde047'
-    : genome.element === 'corrosive' || genome.element === 'bloom' ? '#86efac'
-    : genome.element === 'void' ? '#c084fc'
-    : genome.element === 'voltaic' ? '#38bdf8'
-    : '#94a3b8';
-  ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.globalAlpha = 0.68;
-  drawFitted(ctx, image, base, seed, genome);
+  // The core takes only an internal material/chassis sample. Excluding the
+  // authored top and lower outline prevents caps, faces, tails, and complete
+  // animal torsos from surviving as the primary silhouette.
+  ctx.filter = genomeFilter(genome, seed);
+  const sampleShift = (gene(seed, 352) - 0.5) * image.naturalWidth * 0.12;
+  drawOriented(
+    ctx,
+    image,
+    base,
+    image.naturalWidth * 0.22 + sampleShift,
+    image.naturalHeight * 0.24,
+    image.naturalWidth * 0.56,
+    image.naturalHeight * 0.5,
+    6, 6, 37, 38,
+  );
+  ctx.filter = 'none';
   ctx.restore();
 }
 
@@ -551,19 +556,7 @@ function graft(
   ctx.save();
   graftMask(ctx, seed, region, kind);
   ctx.clip();
-  ctx.fillStyle = genome.element === 'cryo' ? '#67e8f9'
-    : genome.element === 'thermal' ? '#fb7185'
-    : genome.element === 'radiant' ? '#fde047'
-    : genome.element === 'corrosive' || genome.element === 'bloom' ? '#86efac'
-    : genome.element === 'void' ? '#c084fc'
-    : genome.element === 'voltaic' ? '#38bdf8'
-    : '#94a3b8';
   ctx.globalAlpha = alpha;
-  ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
-  // Donor artwork supplies material texture only; the procedural mask above
-  // owns the silhouette and cannot reproduce a complete family archetype.
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.globalAlpha = alpha * 0.72;
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
     // Heads contribute functional subregions rather than recognizable whole
