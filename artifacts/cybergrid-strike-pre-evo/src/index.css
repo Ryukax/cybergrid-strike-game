@@ -2014,8 +2014,17 @@ canvas#canvas {
   /* Menus can exceed the short landscape viewport, especially on iOS.
      Keep the overlay itself as the scroll container and avoid auto margins
      centering oversized cards above the reachable scroll origin. */
+  body:has(#game.menu-open),
+  #game.menu-open {
+    touch-action: pan-y;
+  }
+
   #mainMenu {
-    height: 100dvh;
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100svh;
+    max-height: 100dvh;
     min-height: 0;
     justify-content: flex-start;
     overflow-x: hidden;
@@ -2023,6 +2032,7 @@ canvas#canvas {
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
     touch-action: pan-y;
+    scrollbar-gutter: stable;
     padding-top: max(14px, env(safe-area-inset-top));
     padding-right: max(16px, env(safe-area-inset-right));
     padding-bottom: max(24px, env(safe-area-inset-bottom));

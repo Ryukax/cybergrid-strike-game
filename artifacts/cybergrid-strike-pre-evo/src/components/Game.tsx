@@ -6227,7 +6227,7 @@ export default function Game() {
   );
 
   return (
-    <div id="game">
+    <div id="game" className={phase === 'menu' ? 'menu-open' : undefined}>
       <canvas
         ref={canvasRef}
         id="canvas"
