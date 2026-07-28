@@ -438,6 +438,21 @@ function source(base: VisualSource, role: SourceRole, onReady: () => void): HTML
   return image;
 }
 
+function wholeSource(base: VisualSource, onReady: () => void): HTMLImageElement {
+  const cacheKey = `${base}:whole`;
+  const cached = sourceCache.get(cacheKey);
+  if (cached) {
+    if (!cached.complete) cached.addEventListener('load', onReady, { once: true });
+    return cached;
+  }
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = `${import.meta.env.BASE_URL}enemies/${base}.png`;
+  image.addEventListener('load', onReady, { once: true });
+  sourceCache.set(cacheKey, image);
+  return image;
+}
+
 function ready(image: HTMLImageElement): boolean {
   return image.complete && image.naturalWidth > 0;
 }
@@ -502,8 +517,10 @@ function drawAnchorSilhouette(
   seed: number,
   genome: EnemyGenome,
 ): void {
-  // The atlas entries are complete authored figures. Preserve exactly one as
-  // the visual grammar, then replace bounded sockets on that figure.
+  // Preserve one complete authored figure as the visual grammar, then replace
+  // bounded sockets on that figure. The role-specific `*-core.png` files are
+  // torso components, not complete bodies; using one here caused the tiny,
+  // apparently invisible enemies and the recurring purple mining mound.
   const availableWidth = 44;
   const availableHeight = 44;
   const bounds = opaqueBounds(image);
@@ -816,7 +833,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const ctx = stage.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
 
-  const primary = source(genome.baseElement, 'core', () => render(canvas, seed, genome));
+  const primary = wholeSource(genome.baseElement, () => render(canvas, seed, genome));
   // Deliberate composition matrix: the chassis remains primary while every
   // secondary element contributes through a sanctioned functional socket.
   const bodyType = BODY_TYPE[genome.baseElement];
