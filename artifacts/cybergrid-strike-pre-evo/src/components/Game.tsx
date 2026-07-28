@@ -2219,6 +2219,8 @@ interface RivalSkillView {
   mode: number;
   charges: number;
   placements: number[];
+  chronoPositions: Array<{ col: number; row: number }>;
+  chronoPositionIndex: number;
   expiresAt: number;
   origin: { col: number; row: number; hp: number };
 }
@@ -2228,6 +2230,8 @@ const emptyRivalSkillView = (): RivalSkillView => ({
   mode: 0,
   charges: 0,
   placements: [],
+  chronoPositions: [],
+  chronoPositionIndex: 0,
   expiresAt: 0,
   origin: { col: 1, row: 1, hp: 5 },
 });
@@ -3011,6 +3015,20 @@ export default function Game() {
     // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
+    const chrono = rivalSkillRef.current;
+    if (chrono.active && chrono.id === 'chrono') {
+      const positions = chrono.chronoPositions.filter((position) =>
+        position.col !== col || position.row !== row);
+      positions.push({ col, row });
+      const recorded = positions.slice(-9);
+      const updated = {
+        ...chrono,
+        chronoPositions: recorded,
+        chronoPositionIndex: recorded.length - 1,
+      };
+      rivalSkillRef.current = updated;
+      setRivalSkillView(updated);
+    }
     registerPlaystyle('movement');
     s.moveFlash = 0.15;
     playMove();
@@ -4290,8 +4308,17 @@ export default function Game() {
         next.charges = next.placements.length;
         showMessage(`Attack queued ×${next.charges}.`, 700);
       } else if (action === 'alternate') {
-        s.player.row = (s.player.row + 1) % 3;
-        showMessage('Time Step.', 650);
+        if (next.chronoPositions.length < 2) {
+          showMessage('Move first to record another Time Step.', 900);
+        } else {
+          const index = (next.chronoPositionIndex + 1) % next.chronoPositions.length;
+          const destination = next.chronoPositions[index];
+          s.player.col = destination.col;
+          s.player.row = destination.row;
+          s.moveFlash = 0.15;
+          next.chronoPositionIndex = index;
+          showMessage(`Time Step ${index + 1}/${next.chronoPositions.length}.`, 700);
+        }
       } else {
         s.player.col = active.origin.col;
         s.player.row = active.origin.row;
@@ -4794,6 +4821,10 @@ export default function Game() {
       mode: initialMode,
       charges: 0,
       placements: [],
+      chronoPositions: id === 'chrono'
+        ? [{ col: s.player.col, row: s.player.row }]
+        : [],
+      chronoPositionIndex: 0,
       expiresAt: performance.now() + 9000,
       origin: { col: s.player.col, row: s.player.row, hp: s.hp },
     };
