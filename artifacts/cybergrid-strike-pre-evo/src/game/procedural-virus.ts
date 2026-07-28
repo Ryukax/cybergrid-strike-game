@@ -438,21 +438,6 @@ function source(base: VisualSource, role: SourceRole, onReady: () => void): HTML
   return image;
 }
 
-function wholeSource(base: VisualSource, onReady: () => void): HTMLImageElement {
-  const cacheKey = `${base}:whole`;
-  const cached = sourceCache.get(cacheKey);
-  if (cached) {
-    if (!cached.complete) cached.addEventListener('load', onReady, { once: true });
-    return cached;
-  }
-  const image = new Image();
-  image.decoding = 'async';
-  image.src = `${import.meta.env.BASE_URL}enemies/${base}.png`;
-  image.addEventListener('load', onReady, { once: true });
-  sourceCache.set(cacheKey, image);
-  return image;
-}
-
 function ready(image: HTMLImageElement): boolean {
   return image.complete && image.naturalWidth > 0;
 }
@@ -510,19 +495,19 @@ function drawOriented(
   ctx.restore();
 }
 
-function drawAnchorSilhouette(
+function drawCoreChassis(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
   base: EnemyBaseElement,
   seed: number,
   genome: EnemyGenome,
 ): void {
-  // Preserve one complete authored figure as the visual grammar, then replace
-  // bounded sockets on that figure. The role-specific `*-core.png` files are
-  // torso components, not complete bodies; using one here caused the tiny,
-  // apparently invisible enemies and the recurring purple mining mound.
-  const availableWidth = 44;
-  const availableHeight = 44;
+  // A family contributes only its bounded central material/chassis module.
+  // It must never contribute a complete snail, bird, mushroom, machine, etc.
+  // The generous fit keeps small core crops readable without restoring their
+  // donor's complete silhouette.
+  const availableWidth = 36;
+  const availableHeight = 32;
   const bounds = opaqueBounds(image);
   const sourceAspect = bounds.width / Math.max(1, bounds.height);
   const fitWidth = sourceAspect >= 1
@@ -531,11 +516,11 @@ function drawAnchorSilhouette(
   const fitHeight = sourceAspect >= 1
     ? Math.min(availableHeight, availableWidth / sourceAspect)
     : availableHeight;
-  const scale = 0.94 + gene(seed, 354) * 0.06;
+  const scale = 0.92 + gene(seed, 354) * 0.08;
   const width = fitWidth * scale;
   const height = fitHeight * scale;
   const x = (SPRITE_SIZE - width) / 2;
-  const y = SPRITE_SIZE - height - 1;
+  const y = 10 + (availableHeight - height) / 2;
   ctx.save();
   ctx.filter = genomeFilter(genome, seed);
   drawOriented(
@@ -833,9 +818,9 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const ctx = stage.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
 
-  const primary = wholeSource(genome.baseElement, () => render(canvas, seed, genome));
-  // Deliberate composition matrix: the chassis remains primary while every
-  // secondary element contributes through a sanctioned functional socket.
+  const primary = source(genome.baseElement, 'core', () => render(canvas, seed, genome));
+  // Deliberate composition matrix: even the base is only a core component.
+  // Independent donors provide the remaining functional sockets.
   const bodyType = BODY_TYPE[genome.baseElement];
   // Body-plan compatibility is the hard rule. Element, type and class then
   // color and refine the sockets, allowing broad combinations without asking
@@ -916,24 +901,16 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ctx.translate(-1.5, 1);
     ctx.scale(1.07, 0.96);
   }
-  drawAnchorSilhouette(ctx, primary, genome.baseElement, seed, genome);
+  drawCoreChassis(ctx, primary, genome.baseElement, seed, genome);
   ctx.restore();
 
-  // Every entity is assembled. A whole family sprite is never the final image:
-  // its central anatomy supplies only the core while independent donors fill
-  // the head and locomotion sockets.
+  // Every entity is assembled. No authored family sprite is ever the final
+  // image: the base supplies only the core while independent donors fill the
+  // head, locomotion and flank sockets.
   const fusionKind = fusionOutcome ? fusionComponentKind(fusionOutcome, compositionPlan) : undefined;
   const fusionActive = genome.fusionLevel > 0
     && fusionOutcome
     && fusionBase !== genome.baseElement;
-  // One contrasting socket is enough to communicate the hybrid concept. The
-  // anchor supplies a coherent animal/object silhouette and the genome filter
-  // supplies its elemental material; additional sockets would become a mesh.
-  const conceptRole: FusionRole = fusionActive
-    ? fusionOutcome.role
-    : ANIMAL_SOURCES.has(genome.baseElement)
-      ? 'flank'
-      : gene(seed, 431) > 0.5 ? 'head' : 'locomotion';
   const resolvedHead = fusionActive && fusionOutcome.role === 'head'
     ? { image: fusion, base: fusionBase, kind: fusionKind }
     : {
@@ -948,29 +925,27 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
         base: locomotionBase,
         kind: locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
       };
-  if (conceptRole === 'head') {
-    graft(
-      ctx,
-      resolvedHead.image,
-      resolvedHead.base,
-      seed + 31,
-      genome,
-      'head',
-      0.98,
-      resolvedHead.kind,
-    );
-  } else if (conceptRole === 'locomotion') {
-    graft(
-      ctx,
-      resolvedLocomotion.image,
-      resolvedLocomotion.base,
-      seed + 37,
-      genome,
-      'locomotion',
-      0.97,
-      resolvedLocomotion.kind,
-    );
-  } else if (fusionActive && fusionOutcome.role === 'flank') {
+  graft(
+    ctx,
+    resolvedHead.image,
+    resolvedHead.base,
+    seed + 31,
+    genome,
+    'head',
+    0.98,
+    resolvedHead.kind,
+  );
+  graft(
+    ctx,
+    resolvedLocomotion.image,
+    resolvedLocomotion.base,
+    seed + 37,
+    genome,
+    'locomotion',
+    0.97,
+    resolvedLocomotion.kind,
+  );
+  if (fusionActive && fusionOutcome.role === 'flank') {
     graft(
       ctx,
       fusion,
