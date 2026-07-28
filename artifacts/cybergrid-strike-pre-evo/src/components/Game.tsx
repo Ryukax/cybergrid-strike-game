@@ -2478,7 +2478,7 @@ const RIVAL_ATTACK_EFFECTS: Record<RivalSkillId, RivalAttackEffect> = {
   rift: 'none', vector: 'none', gridshift: 'construct', resonance: 'construct',
   exchange: 'circuit', causality: 'field', arsenal: 'claw',
   assimilation: 'claw', null: 'field', polarity: 'field', colossus: 'construct',
-  predator: 'claw', orbital: 'none', hijack: 'circuit', sovereign: 'claw',
+  predator: 'claw', orbital: 'none', hijack: 'none', sovereign: 'claw',
 };
 type AssemblySkillId = 'shadow' | RivalSkillId;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
