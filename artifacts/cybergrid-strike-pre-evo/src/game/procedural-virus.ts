@@ -434,6 +434,16 @@ function drawCore(
   ctx.save();
   coreMask(ctx, seed);
   ctx.clip();
+  ctx.fillStyle = genome.element === 'cryo' ? '#67e8f9'
+    : genome.element === 'thermal' ? '#fb7185'
+    : genome.element === 'radiant' ? '#fde047'
+    : genome.element === 'corrosive' || genome.element === 'bloom' ? '#86efac'
+    : genome.element === 'void' ? '#c084fc'
+    : genome.element === 'voltaic' ? '#38bdf8'
+    : '#94a3b8';
+  ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalAlpha = 0.68;
   drawFitted(ctx, image, base, seed, genome);
   ctx.restore();
 }
@@ -472,16 +482,47 @@ function genomeFilter(genome: EnemyGenome, seed: number): string {
 
 type MatrixRegion = FusionRole;
 
-function graftMask(ctx: CanvasRenderingContext2D, seed: number, region: MatrixRegion): void {
+function graftMask(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  region: MatrixRegion,
+  kind?: GenericComponentKind,
+): void {
   ctx.beginPath();
   if (region === 'head') {
-    // Head and shoulders.
-    ctx.moveTo(5, 2); ctx.lineTo(45, 2); ctx.lineTo(39, 19);
-    ctx.lineTo(27, 17); ctx.lineTo(20, 21); ctx.lineTo(7, 17);
+    if (kind === 'optic') {
+      ctx.roundRect(12, 4, 24, 17, 7);
+    } else if (kind === 'sensor') {
+      ctx.moveTo(19, 2); ctx.lineTo(29, 2); ctx.lineTo(33, 18);
+      ctx.lineTo(27, 23); ctx.lineTo(18, 20); ctx.lineTo(15, 9);
+    } else if (kind === 'maw') {
+      ctx.moveTo(9, 8); ctx.lineTo(39, 7); ctx.lineTo(34, 22);
+      ctx.lineTo(24, 18); ctx.lineTo(14, 23);
+    } else {
+      // Crown/neutral cranial plate, deliberately not a cap or animal head.
+      ctx.moveTo(8, 11); ctx.lineTo(15, 3); ctx.lineTo(23, 8);
+      ctx.lineTo(31, 2); ctx.lineTo(40, 12); ctx.lineTo(35, 21);
+      ctx.lineTo(13, 20);
+    }
   } else if (region === 'locomotion') {
-    // Lower locomotion assembly.
-    ctx.moveTo(4, 27); ctx.lineTo(17, 24); ctx.lineTo(25, 28);
-    ctx.lineTo(43, 24); ctx.lineTo(47, 47); ctx.lineTo(2, 47);
+    if (kind === 'fins') {
+      ctx.moveTo(5, 31); ctx.lineTo(24, 26); ctx.lineTo(43, 32);
+      ctx.lineTo(31, 38); ctx.lineTo(44, 45); ctx.lineTo(17, 43);
+    } else if (kind === 'treads') {
+      ctx.roundRect(2, 30, 44, 15, 7);
+    } else if (kind === 'wings' || kind === 'hover') {
+      ctx.moveTo(3, 29); ctx.lineTo(18, 25); ctx.lineTo(24, 34);
+      ctx.lineTo(31, 25); ctx.lineTo(45, 29); ctx.lineTo(38, 42);
+      ctx.lineTo(10, 42);
+    } else if (kind === 'tendrils' || kind === 'roots') {
+      ctx.moveTo(9, 25); ctx.lineTo(39, 25); ctx.lineTo(45, 47);
+      ctx.lineTo(32, 39); ctx.lineTo(25, 47); ctx.lineTo(17, 38);
+      ctx.lineTo(3, 47);
+    } else {
+      ctx.moveTo(8, 25); ctx.lineTo(40, 25); ctx.lineTo(43, 47);
+      ctx.lineTo(29, 47); ctx.lineTo(24, 35); ctx.lineTo(19, 47);
+      ctx.lineTo(5, 47);
+    }
   } else {
     // A side/flank graft, varied without obscuring the primary silhouette.
     const right = gene(seed, 71) > 0.5;
@@ -508,9 +549,21 @@ function graft(
 ): void {
   if (!ready(image)) return;
   ctx.save();
-  graftMask(ctx, seed, region);
+  graftMask(ctx, seed, region, kind);
   ctx.clip();
+  ctx.fillStyle = genome.element === 'cryo' ? '#67e8f9'
+    : genome.element === 'thermal' ? '#fb7185'
+    : genome.element === 'radiant' ? '#fde047'
+    : genome.element === 'corrosive' || genome.element === 'bloom' ? '#86efac'
+    : genome.element === 'void' ? '#c084fc'
+    : genome.element === 'voltaic' ? '#38bdf8'
+    : '#94a3b8';
   ctx.globalAlpha = alpha;
+  ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+  // Donor artwork supplies material texture only; the procedural mask above
+  // owns the silhouette and cannot reproduce a complete family archetype.
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalAlpha = alpha * 0.72;
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
     // Heads contribute functional subregions rather than recognizable whole
