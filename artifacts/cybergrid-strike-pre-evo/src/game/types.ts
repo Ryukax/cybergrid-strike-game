@@ -45,6 +45,11 @@ export interface Bullet {
   power: number;
   big: boolean;
   pierce: boolean;
+  attackStyle?:
+    | 'physical' | 'energy' | 'melee'
+    | 'temporal' | 'gravity' | 'portal' | 'vector'
+    | 'grid' | 'resonance' | 'adaptive' | 'reflective'
+    | 'swarm' | 'suppression' | 'polarity' | 'orbital';
 }
 
 export type EnemyAbility =

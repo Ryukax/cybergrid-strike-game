@@ -926,14 +926,175 @@ export function draw(
     const bx = m.x + b.colPos * m.cell;
     const by = m.y + (b.row + 0.5) * m.cell;
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
-    ctx.fillStyle = b.pierce ? '#c084fc' : '#fde047';
-    ctx.beginPath();
-    ctx.arc(bx, by, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = b.pierce ? 'rgba(192,132,252,0.25)' : 'rgba(253,224,71,0.25)';
-    ctx.beginPath();
-    ctx.arc(bx - m.cell * 0.09, by, radius * 1.5, 0, Math.PI * 2);
-    ctx.fill();
+    const direction = Math.sign(b.speed) || 1;
+    const attackStyle = b.attackStyle ?? 'physical';
+    ctx.save();
+    if (attackStyle === 'melee') {
+      // The collision carrier still crosses the lane, but reads as its user
+      // advancing through a sword combination rather than as a detached orb.
+      const stride = (performance.now() * 0.014 + b.colPos * 1.7) % (Math.PI * 2);
+      ctx.translate(bx, by);
+      ctx.scale(direction, 1);
+      ctx.strokeStyle = b.pierce ? '#e9d5ff' : '#f8fafc';
+      ctx.lineWidth = Math.max(2, m.cell * 0.035);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 2.25, -1.05 + Math.sin(stride) * 0.18, 1.05);
+      ctx.stroke();
+      ctx.strokeStyle = b.pierce ? 'rgba(192,132,252,0.55)' : 'rgba(96,165,250,0.55)';
+      ctx.lineWidth *= 2.2;
+      ctx.beginPath();
+      ctx.arc(-radius * 0.3, 0, radius * 2.65, -0.9, 0.78);
+      ctx.stroke();
+      ctx.fillStyle = '#dbeafe';
+      ctx.fillRect(-radius * 1.65, -radius * 0.22, radius * 2.35, radius * 0.44);
+      ctx.fillStyle = '#93c5fd';
+      ctx.fillRect(-radius * 1.2, -radius * 0.65, radius * 0.28, radius * 1.3);
+    } else if (attackStyle === 'swarm') {
+      ctx.translate(bx, by);
+      ctx.scale(direction, 1);
+      for (let i = 0; i < 5; i++) {
+        const phase = performance.now() * 0.012 + i * 1.7 + b.colPos;
+        const x = (i - 2) * radius * 0.72;
+        const y = Math.sin(phase) * radius * 1.25;
+        ctx.fillStyle = i % 2 ? '#67e8f9' : '#c084fc';
+        ctx.beginPath();
+        ctx.moveTo(x + radius * 0.6, y);
+        ctx.lineTo(x - radius * 0.35, y - radius * 0.42);
+        ctx.lineTo(x - radius * 0.35, y + radius * 0.42);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (attackStyle === 'temporal') {
+      const phase = performance.now() * 0.006;
+      ctx.strokeStyle = b.pierce ? '#e9d5ff' : '#93c5fd';
+      ctx.lineWidth = Math.max(1.4, radius * 0.24);
+      for (let i = 0; i < 3; i++) {
+        ctx.globalAlpha = 1 - i * 0.25;
+        ctx.beginPath();
+        ctx.arc(
+          bx - direction * i * radius * 1.45,
+          by,
+          radius * (1.25 + i * 0.22),
+          phase + i,
+          phase + i + Math.PI * 1.45,
+        );
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx - radius * 0.15, by - radius * 1.05, radius * 0.3, radius * 1.05);
+      ctx.fillRect(bx, by - radius * 0.15, direction * radius * 0.75, radius * 0.3);
+    } else if (
+      attackStyle === 'gravity' || attackStyle === 'portal'
+      || attackStyle === 'vector' || attackStyle === 'grid'
+      || attackStyle === 'resonance' || attackStyle === 'polarity'
+    ) {
+      const spatialColors = {
+        gravity: ['#111827', '#a78bfa'],
+        portal: ['#312e81', '#22d3ee'],
+        vector: ['#0f766e', '#5eead4'],
+        grid: ['#172554', '#60a5fa'],
+        resonance: ['#4c1d95', '#f0abfc'],
+        polarity: ['#be123c', '#38bdf8'],
+      } as const;
+      const [core, edge] = spatialColors[attackStyle];
+      const spin = performance.now() * 0.008 * direction;
+      ctx.translate(bx, by);
+      ctx.rotate(spin);
+      ctx.fillStyle = core;
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = Math.max(1.5, radius * 0.28);
+      ctx.beginPath();
+      if (attackStyle === 'grid') {
+        ctx.rect(-radius, -radius, radius * 2, radius * 2);
+      } else if (attackStyle === 'vector') {
+        ctx.moveTo(radius * 1.5, 0);
+        ctx.lineTo(-radius, -radius);
+        ctx.lineTo(-radius * 0.35, 0);
+        ctx.lineTo(-radius, radius);
+        ctx.closePath();
+      } else {
+        ctx.arc(0, 0, radius * 1.25, 0, Math.PI * 2);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 2.05, 0.3, Math.PI * 1.35);
+      ctx.stroke();
+    } else if (
+      attackStyle === 'adaptive' || attackStyle === 'reflective'
+      || attackStyle === 'suppression' || attackStyle === 'orbital'
+    ) {
+      const effectColor = attackStyle === 'suppression' ? '#a5b4fc'
+        : attackStyle === 'orbital' ? '#fbbf24'
+          : attackStyle === 'reflective' ? '#f0abfc' : '#4ade80';
+      ctx.translate(bx, by);
+      ctx.scale(direction, 1);
+      ctx.strokeStyle = effectColor;
+      ctx.fillStyle = attackStyle === 'suppression' ? '#111827' : effectColor;
+      ctx.lineWidth = Math.max(1.4, radius * 0.25);
+      ctx.beginPath();
+      const points = attackStyle === 'adaptive' ? 6 : 4;
+      for (let i = 0; i < points; i++) {
+        const angle = (i / points) * Math.PI * 2;
+        const distance = i % 2 ? radius * 0.7 : radius * 1.55;
+        const x = Math.cos(angle) * distance;
+        const y = Math.sin(angle) * distance;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      if (attackStyle === 'orbital') {
+        ctx.beginPath();
+        ctx.moveTo(0, -radius * 3.2);
+        ctx.lineTo(0, radius * 2.2);
+        ctx.stroke();
+      }
+    } else if (attackStyle === 'energy') {
+      const pulse = 0.88 + Math.sin(performance.now() * 0.018 + b.colPos) * 0.16;
+      const energyRadius = radius * pulse;
+      const glow = ctx.createRadialGradient(bx, by, 0, bx, by, energyRadius * 2.8);
+      glow.addColorStop(0, '#ffffff');
+      glow.addColorStop(0.22, b.pierce ? '#e879f9' : '#67e8f9');
+      glow.addColorStop(1, 'rgba(59,130,246,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(bx, by, energyRadius * 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = b.pierce ? '#c084fc' : '#22d3ee';
+      ctx.lineWidth = Math.max(1.5, radius * 0.3);
+      ctx.beginPath();
+      ctx.arc(bx, by, energyRadius * 1.35, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx - direction * energyRadius * 3.2, by);
+      ctx.lineTo(bx - direction * energyRadius * 1.15, by);
+      ctx.stroke();
+    } else {
+      // A compact physical projectile with a metal nose, casing and tracer.
+      ctx.translate(bx, by);
+      ctx.scale(direction, 1);
+      ctx.fillStyle = b.pierce ? '#d8b4fe' : '#fbbf24';
+      ctx.beginPath();
+      ctx.roundRect(-radius * 1.45, -radius * 0.46, radius * 2.3, radius * 0.92, radius * 0.4);
+      ctx.fill();
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.moveTo(radius * 0.85, -radius * 0.46);
+      ctx.lineTo(radius * 1.55, 0);
+      ctx.lineTo(radius * 0.85, radius * 0.46);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = b.pierce ? 'rgba(192,132,252,0.55)' : 'rgba(253,224,71,0.55)';
+      ctx.lineWidth = Math.max(1.5, radius * 0.35);
+      ctx.beginPath();
+      ctx.moveTo(-radius * 3.4, 0);
+      ctx.lineTo(-radius * 1.35, 0);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // NPC bullets (VS mode — cyan, moving left, trail on right side)

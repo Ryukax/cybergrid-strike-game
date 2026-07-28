@@ -2979,6 +2979,63 @@ export default function Game() {
     }
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
     const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+    const skin = playerSkinRef.current;
+    type AttackStyle = NonNullable<(typeof s.bullets)[number]['attackStyle']>;
+    const skinAttackLanguage: Record<PlayerSkin, AttackStyle> = {
+      default: 'physical',
+      rocket: 'physical',
+      dots: 'energy',
+      gem: 'energy',
+      assembly: 'adaptive',
+      chrono: 'temporal',
+      singularity: 'gravity',
+      override: 'swarm',
+      architect: 'grid',
+      apex: 'adaptive',
+      counter: 'reflective',
+      phase: 'melee',
+      phoenix: 'energy',
+      rift: 'portal',
+      vector: 'vector',
+      gridshift: 'grid',
+      resonance: 'resonance',
+      exchange: 'adaptive',
+      causality: 'temporal',
+      arsenal: 'adaptive',
+      assimilation: 'adaptive',
+      null: 'suppression',
+      polarity: 'polarity',
+      colossus: 'physical',
+      predator: 'melee',
+      orbital: 'orbital',
+      hijack: 'swarm',
+      sovereign: 'energy',
+    };
+    let attackStyle: AttackStyle = skinAttackLanguage[skin];
+    if (skin === 'assembly') {
+      try {
+        const equipped = JSON.parse(localStorage.getItem(EQUIPPED_COMPONENTS_KEY) ?? '{}') as EquippedAvatarComponents;
+        const weapon = avatarComponentsRef.current.find((part) =>
+          part.slot === 'weapon' && part.id === equipped.weapon);
+        const weaponLanguage = `${weapon?.name ?? ''} ${weapon?.id ?? ''}`.toLowerCase();
+        attackStyle = /blade|sword|scythe|claw|talon|gauntlet|axe/.test(weaponLanguage)
+          ? 'melee'
+          : /swarm|hive|drone|colony/.test(weaponLanguage) ? 'swarm'
+            : /chrono|clock|causal|time/.test(weaponLanguage) ? 'temporal'
+              : /gravity|mass|singularity/.test(weaponLanguage) ? 'gravity'
+                : /rift|portal|gate/.test(weaponLanguage) ? 'portal'
+                  : /null|silence|suppress/.test(weaponLanguage) ? 'suppression'
+                    : /polar|magnet/.test(weaponLanguage) ? 'polarity'
+                      : /resonan|harmonic|chime/.test(weaponLanguage) ? 'resonance'
+                        : /orbital|beacon|designator/.test(weaponLanguage) ? 'orbital'
+                          : /reflect|mirror|counter/.test(weaponLanguage) ? 'reflective'
+                            : /arc|beam|caster|phase|pulse|prism|energy|void|radiant/.test(weaponLanguage)
+            ? 'energy'
+            : 'physical';
+      } catch {
+        attackStyle = 'physical';
+      }
+    }
     s.bullets.push({
       colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
       row,
@@ -2986,6 +3043,7 @@ export default function Game() {
       power,
       big,
       pierce,
+      attackStyle,
     });
     if (s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
@@ -2996,6 +3054,7 @@ export default function Game() {
         power: Math.max(1, power - 1),
         big: false,
         pierce: false,
+        attackStyle,
       });
     }
     playShot();
