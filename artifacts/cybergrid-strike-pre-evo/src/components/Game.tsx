@@ -19,7 +19,7 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       let disposable: ImageBitmap | undefined;
       if (src.includes('/skins/skill-') || src.includes('skins/skill-')) {
         const bitmap = await createImageBitmap(img);
-        disposable = await sanitizeRivalSkinFrame(bitmap);
+        disposable = await sanitizeRivalSkinFrame(bitmap, true);
         frame = disposable;
       }
       if (cancelled) {
@@ -1724,7 +1724,10 @@ function AvatarAssembly({
   );
 }
 
-async function sanitizeRivalSkinFrame(bitmap: ImageBitmap): Promise<ImageBitmap> {
+async function sanitizeRivalSkinFrame(
+  bitmap: ImageBitmap,
+  previewOnly = false,
+): Promise<ImageBitmap> {
   const source = document.createElement('canvas');
   source.width = bitmap.width;
   source.height = bitmap.height;
@@ -1781,10 +1784,16 @@ async function sanitizeRivalSkinFrame(bitmap: ImageBitmap): Promise<ImageBitmap>
     const gapY = Math.max(0, primary.minY - island.maxY, island.minY - primary.maxY);
     return Math.hypot(gapX, gapY);
   };
-  const retained = islands.filter((island, index) =>
-    index === 0
-    || island.pixels.length >= primary.pixels.length * 0.18
-    || (island.pixels.length >= 20 && gapFromPrimary(island) <= 28));
+  // Gameplay may retain nearby weapon/effect islands. A menu thumbnail must
+  // show one unambiguous subject: keeping even a second large island is what
+  // produced the duplicated weapons, partial bodies, and afterimages visible
+  // beside every rival in Customization.
+  const retained = previewOnly
+    ? [primary]
+    : islands.filter((island, index) =>
+        index === 0
+        || island.pixels.length >= primary.pixels.length * 0.18
+        || (island.pixels.length >= 20 && gapFromPrimary(island) <= 28));
   const retainedPixels = new Set(retained.flatMap((island) => island.pixels));
   for (let pixel = 0; pixel < visited.length; pixel++) {
     if (!retainedPixels.has(pixel)) image.data[pixel * 4 + 3] = 0;
