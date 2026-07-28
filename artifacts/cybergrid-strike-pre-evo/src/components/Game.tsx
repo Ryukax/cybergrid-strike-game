@@ -2818,7 +2818,7 @@ function SignatureSkillFx({
     const sequenceC = new Image();
     sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png`;
     sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png`;
-    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c.png`;
+    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png`;
     sequenceRefs.current = { a: sequenceA, b: sequenceB, c: sequenceC };
     return () => {
       sequenceRefs.current = { a: null, b: null, c: null };
@@ -3917,7 +3917,7 @@ export default function Game() {
 
   useEffect(() => {
     const sheet = new Image();
-    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c.png`;
+    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png`;
     rivalAttackFxSheetRef.current = sheet;
     return () => {
       rivalAttackFxSheetRef.current = null;
