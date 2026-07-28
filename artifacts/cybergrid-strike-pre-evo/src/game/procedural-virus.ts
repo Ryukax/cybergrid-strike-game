@@ -64,6 +64,41 @@ interface ComponentDefinition {
   domains: ElementDomain[];
 }
 
+type GenericComponentKind =
+  | 'sensor' | 'maw' | 'crown' | 'optic'
+  | 'legs' | 'treads' | 'wings' | 'fins' | 'tendrils' | 'roots' | 'hover'
+  | 'armor' | 'weapon' | 'growth' | 'emitter' | 'phase';
+
+function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
+  const domain = ELEMENT_DOMAIN[component.source as EnemyBaseElement]
+    ?? (['automaton', 'capsid', 'phage'].includes(component.source) ? 'machine'
+      : component.source === 'beetle' ? 'chitin'
+      : component.source === 'jelly' ? 'fluid'
+      : component.source === 'spore' ? 'flora'
+      : component.source === 'parasite' || component.source === 'gremlin' ? 'fauna'
+      : 'cyber');
+  if (component.role === 'head') {
+    if (domain === 'machine' || domain === 'cyber') return 'optic';
+    if (domain === 'mineral' || domain === 'flora') return 'crown';
+    if (domain === 'spectral') return 'sensor';
+    return 'maw';
+  }
+  if (component.role === 'locomotion') {
+    if (['vehicle', 'turret', 'mech', 'automaton'].includes(component.source)) return 'treads';
+    if (['avian', 'owl', 'drone'].includes(component.source)) return 'wings';
+    if (['fish', 'serpent', 'snail'].includes(component.source)) return 'fins';
+    if (['cephalopod', 'jelly', 'parasite'].includes(component.source)) return 'tendrils';
+    if (['plant', 'fungus', 'spore'].includes(component.source)) return 'roots';
+    if (domain === 'spectral' || domain === 'cyber') return 'hover';
+    return 'legs';
+  }
+  if (domain === 'mineral' || domain === 'chitin') return 'armor';
+  if (domain === 'flora' || domain === 'fluid') return 'growth';
+  if (domain === 'spectral') return 'phase';
+  if (domain === 'machine') return 'weapon';
+  return 'emitter';
+}
+
 // Former full characters are retained only as cropped anatomical vocabulary.
 // A definition is eligible only where that part has a practical body socket.
 const COMPONENT_LIBRARY: ComponentDefinition[] = [
@@ -110,14 +145,47 @@ const MATRIX_COMPONENT_LIBRARY: ComponentDefinition[] = BASES.flatMap((sourceBas
 );
 const COMPLETE_COMPONENT_LIBRARY = [...COMPONENT_LIBRARY, ...MATRIX_COMPONENT_LIBRARY];
 
-function selectComponent(
-  primary: EnemyBaseElement,
+function selectGenericComponent(
+  genome: EnemyGenome,
   seed: number,
+  role: FusionRole,
+  excluded: VisualSource[] = [],
 ): ComponentDefinition | undefined {
-  const domain = ELEMENT_DOMAIN[primary];
+  const domain = ELEMENT_DOMAIN[genome.baseElement];
   const candidates = COMPLETE_COMPONENT_LIBRARY.filter((component) =>
-    component.source !== primary && component.domains.includes(domain));
-  return candidates[Math.floor(gene(seed, 310) * candidates.length)];
+    component.role === role
+    && component.source !== genome.baseElement
+    && !excluded.includes(component.source)
+    && component.domains.includes(domain));
+  if (candidates.length === 0) return undefined;
+  const preferredKinds: Partial<Record<EnemyGenome['enemyClass'], GenericComponentKind[]>> = {
+    skirmisher: ['sensor', 'wings', 'fins', 'hover', 'emitter'],
+    guardian: ['crown', 'treads', 'roots', 'armor'],
+    predator: ['maw', 'legs', 'tendrils', 'weapon'],
+    replicator: ['sensor', 'tendrils', 'roots', 'growth'],
+    mender: ['crown', 'roots', 'hover', 'growth'],
+    infiltrator: ['optic', 'wings', 'fins', 'phase'],
+    support: ['sensor', 'hover', 'roots', 'emitter'],
+    scavenger: ['optic', 'legs', 'treads', 'weapon'],
+  };
+  const preferred = preferredKinds[genome.enemyClass] ?? [];
+  const weighted = candidates.flatMap((component) => {
+    const kind = genericComponentKind(component);
+    const weight = preferred.includes(kind) ? 4
+      : (genome.niche === 'phase' && kind === 'phase') ? 5
+      : (genome.mutations.includes('armored') && kind === 'armor') ? 4
+      : (genome.mutations.includes('accelerated')
+        && ['wings', 'fins', 'hover', 'legs'].includes(kind)) ? 3
+      : 1;
+    return Array.from({ length: weight }, () => component);
+  });
+  const identitySalt =
+    genome.niche.length * 37
+    + genome.enemyClass.length * 53
+    + genome.element.length * 71
+    + genome.generation * 97
+    + genome.mutations.length * 131;
+  return weighted[Math.floor(gene(seed + identitySalt, 310 + role.length) * weighted.length)];
 }
 
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
@@ -565,6 +633,20 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Body-plan compatibility is the hard rule. Element, type and class then
   // color and refine the sockets, allowing broad combinations without asking
   // a complete authored family painting to serve as the final creature.
+  const headComponent = selectGenericComponent(genome, seed + 160, 'head');
+  const locomotionComponent = selectGenericComponent(
+    genome,
+    seed + 165,
+    'locomotion',
+    headComponent ? [headComponent.source] : [],
+  );
+  const flankComponent = selectGenericComponent(
+    genome,
+    seed + 175,
+    'flank',
+    [headComponent?.source, locomotionComponent?.source]
+      .filter((candidate): candidate is VisualSource => Boolean(candidate)),
+  );
   const headPool = COMPATIBLE_HEADS[bodyType];
   const locomotionPool = [
     ...new Set([
@@ -572,8 +654,10 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       ...COMPATIBLE_LOCOMOTION[bodyType],
     ]),
   ];
-  const headBase = selectDifferent(headPool, genome.baseElement, gene(seed, 160));
-  const locomotionBase = selectDifferent(locomotionPool, genome.baseElement, gene(seed, 165));
+  const headBase = headComponent?.source
+    ?? selectDifferent(headPool, genome.baseElement, gene(seed, 160));
+  const locomotionBase = locomotionComponent?.source
+    ?? selectDifferent(locomotionPool, genome.baseElement, gene(seed, 165));
   const fusionPool = compatibleFusionDonors(genome.baseElement, BASES);
   const generatedFusionBase = fusionPool[Math.floor(gene(seed, 170) * fusionPool.length)] ?? genome.baseElement;
   const fusionBase = genome.fusionElement && getFusionOutcome(genome.baseElement, genome.fusionElement)
@@ -588,9 +672,8 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const head = source(headBase, 'head', () => render(canvas, seed, genome));
   const locomotion = source(locomotionBase, 'locomotion', () => render(canvas, seed, genome));
   const fusion = source(fusionBase, fusionOutcome?.role ?? 'flank', () => render(canvas, seed, genome));
-  const component = selectComponent(genome.baseElement, seed);
-  const componentImage = component
-    ? source(component.source, component.role, () => render(canvas, seed, genome))
+  const flankImage = flankComponent
+    ? source(flankComponent.source, 'flank', () => render(canvas, seed, genome))
     : undefined;
 
   if (!ready(primary)) {
@@ -660,12 +743,10 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // Every entity is assembled. A whole family sprite is never the final image:
   // its central anatomy supplies only the core while independent donors fill
   // the head and locomotion sockets.
-  const componentHead = component?.role === 'head' ? componentImage : undefined;
-  const componentLocomotion = component?.role === 'locomotion' ? componentImage : undefined;
   graft(
     ctx,
-    componentHead ?? head,
-    componentHead ? component!.source : headBase,
+    head,
+    headBase,
     seed + 31,
     genome,
     'head',
@@ -673,15 +754,23 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   );
   graft(
     ctx,
-    componentLocomotion ?? locomotion,
-    componentLocomotion ? component!.source : locomotionBase,
+    locomotion,
+    locomotionBase,
     seed + 37,
     genome,
     'locomotion',
     0.97,
   );
-  if (genome.fusionLevel === 0 && component?.role === 'flank' && componentImage) {
-    graft(ctx, componentImage, component.source, seed + 43, genome, 'flank', 0.86);
+  if (flankComponent && flankImage) {
+    graft(
+      ctx,
+      flankImage,
+      flankComponent.source,
+      seed + 43,
+      genome,
+      'flank',
+      genome.fusionLevel > 0 ? 0.68 : 0.86,
+    );
   }
   if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
     graft(ctx, fusion, fusionBase, seed + 41, genome, fusionOutcome.role, 0.9);
