@@ -2579,6 +2579,12 @@ const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b'; row: n
   restore: { sheet: 'b', row: 3 },
 };
 
+// The signature sheets are authored, textured animations. Earlier revisions
+// also painted generic circles, arrows, boxes and polygon sigils over them.
+// That diagnostic-style layer made every discipline look like the same basic
+// geometry, so it is deliberately disabled in the shipped presentation.
+const SHOW_PRIMITIVE_SKILL_DIAGRAMS = false;
+
 function SignatureSkillFx({
   id,
   stateRef,
@@ -2718,7 +2724,7 @@ function SignatureSkillFx({
         ctx.shadowBlur = board.cell * 0.18;
         ctx.shadowColor = execution.action === 'defend' ? accent : primary;
 
-        if (execution.action === 'activate') {
+        if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && execution.action === 'activate') {
           const rise = board.cell * (0.42 - easeOut * 0.42);
           // Energy gathers at the feet, climbs through the body, and opens as
           // the discipline's colored sigil before its board effect appears.
@@ -2737,7 +2743,7 @@ function SignatureSkillFx({
             if (point === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
           }
           ctx.stroke();
-        } else if (execution.action === 'primary') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && execution.action === 'primary') {
           const dx = target.x - player.x;
           const dy = target.y - player.y;
           const length = Math.max(1, Math.hypot(dx, dy));
@@ -2773,7 +2779,7 @@ function SignatureSkillFx({
           } else {
             ring(reach.x, reach.y, board.cell * (0.08 + easeOut * 0.18), accent, 0.75);
           }
-        } else if (execution.action === 'alternate') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && execution.action === 'alternate') {
           for (let arc = 0; arc < 3; arc++) {
             ctx.strokeStyle = arc % 2 ? accent : primary;
             ctx.lineWidth = board.cell * (0.025 + arc * 0.012);
@@ -2802,7 +2808,7 @@ function SignatureSkillFx({
               accent,
             );
           }
-        } else {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS) {
           const close = 1 - easeOut;
           ctx.fillStyle = primary;
           ctx.globalAlpha = 0.09 + fade * 0.18;
@@ -2861,7 +2867,7 @@ function SignatureSkillFx({
         // deliberately semantic: Restore flows back into the user, Sacrifice
         // collapses a host, Drop descends from orbit, Rewind reverses a clock,
         // and so on, rather than every B command looking like the same shield.
-        if (motif === 'time') {
+        if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'time') {
           ctx.strokeStyle = accent;
           ctx.lineWidth = board.cell * 0.045;
           ctx.beginPath();
@@ -2872,16 +2878,16 @@ function SignatureSkillFx({
             { x: player.x + board.cell * 0.2, y: player.y - board.cell * 0.28 },
             accent,
           );
-        } else if (motif === 'gravity') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'gravity') {
           const core = { x: (player.x + target.x) / 2, y: (player.y + target.y) / 2 };
           enemies.slice(0, 4).forEach((enemy) => arrow(enemy, core, primary));
           ring(core.x, core.y, board.cell * (0.08 + easeOut * 0.16), accent, 0.88);
-        } else if (motif === 'command') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'command') {
           enemies.slice(0, 4).forEach((enemy, index) => {
             node(enemy.x, enemy.y, accent, board.cell * 0.045);
             ring(enemy.x, enemy.y, board.cell * (0.1 + easeOut * 0.08), index % 2 ? accent : primary, 0.65);
           });
-        } else if (motif === 'construct') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'construct') {
           const cellX = board.x + Math.round((player.x - board.x) / board.cell) * board.cell;
           const cellY = board.y + state.player.row * board.cell;
           ctx.strokeStyle = primary;
@@ -2893,7 +2899,7 @@ function SignatureSkillFx({
             board.cell * easeOut * 0.88,
           );
           node(cellX + board.cell * 0.5, cellY + board.cell * 0.5, accent, board.cell * 0.08 * easeOut);
-        } else if (motif === 'morph') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'morph') {
           for (let layer = 0; layer < 3; layer++) {
             ctx.strokeStyle = layer % 2 ? accent : primary;
             ctx.lineWidth = board.cell * 0.035;
@@ -2907,7 +2913,7 @@ function SignatureSkillFx({
             }
             ctx.stroke();
           }
-        } else if (motif === 'reflect') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'reflect') {
           const impact = {
             x: player.x + (target.x - player.x) * 0.42,
             y: player.y + (target.y - player.y) * 0.42,
@@ -2915,7 +2921,7 @@ function SignatureSkillFx({
           arrow(target, impact, accent);
           arrow(impact, target, primary);
           ring(impact.x, impact.y, board.cell * (0.1 + easeOut * 0.14), '#f8fafc', 0.88);
-        } else if (motif === 'dash') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'dash') {
           const strike = {
             x: player.x + (target.x - player.x) * easeOut,
             y: player.y + (target.y - player.y) * easeOut,
@@ -2926,7 +2932,7 @@ function SignatureSkillFx({
             accent,
             0.9,
           );
-        } else if (motif === 'restore') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'restore') {
           for (let particle = 0; particle < 7; particle++) {
             const angle = particle / 7 * Math.PI * 2;
             const radius = board.cell * (0.46 * (1 - easeOut));
@@ -2938,18 +2944,18 @@ function SignatureSkillFx({
             );
           }
           ring(player.x, player.y, board.cell * (0.15 + easeOut * 0.17), accent, 0.85);
-        } else if (motif === 'portal') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'portal') {
           const destination = center(state.player.col, (state.player.row + 1) % 3);
           ring(player.x, player.y, board.cell * (0.12 + easeOut * 0.16), primary, 0.9);
           ring(destination.x, destination.y, board.cell * (0.12 + easeOut * 0.16), accent, 0.9);
           arrow(player, destination, '#f8fafc');
-        } else if (motif === 'vector') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'vector') {
           enemies.slice(0, 5).forEach((enemy, index) => arrow(
             enemy,
             { x: enemy.x + board.cell * (index % 2 ? -0.48 : 0.48) * easeOut, y: enemy.y },
             index % 2 ? accent : primary,
           ));
-        } else if (motif === 'grid') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'grid') {
           const rowY = board.y + (state.player.row + 0.5) * board.cell;
           ctx.strokeStyle = primary;
           ctx.lineWidth = board.cell * 0.045;
@@ -2959,17 +2965,17 @@ function SignatureSkillFx({
             { x: board.x + board.boardW - board.cell * 0.3, y: rowY },
             accent,
           );
-        } else if (motif === 'resonance') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'resonance') {
           const marks = [center(0, 0), center(2, 1), center(1, 2)];
           marks.forEach((mark, index) => {
             line(mark, marks[(index + 1) % marks.length], index % 2 ? accent : primary, 0.85);
             node(mark.x, mark.y, index % 2 ? accent : primary, board.cell * 0.07 * easeOut);
           });
-        } else if (motif === 'exchange') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'exchange') {
           ring(player.x, player.y, board.cell * (0.12 + easeOut * 0.08), primary, 0.72);
           ring(target.x, target.y, board.cell * (0.12 + easeOut * 0.08), accent, 0.72);
           node((player.x + target.x) / 2, (player.y + target.y) / 2, '#f8fafc', board.cell * 0.055);
-        } else if (motif === 'lock') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'lock') {
           ring(target.x, target.y, board.cell * (0.18 + easeOut * 0.08), primary, 0.88);
           ctx.strokeStyle = accent;
           ctx.lineWidth = board.cell * 0.06;
@@ -2977,12 +2983,12 @@ function SignatureSkillFx({
           ctx.beginPath();
           ctx.arc(target.x, target.y - board.cell * 0.03, board.cell * 0.1, Math.PI, 0);
           ctx.stroke();
-        } else if (motif === 'weapon') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'weapon') {
           const tip = { x: player.x + board.cell * (0.28 + easeOut * 0.38), y: player.y - board.cell * 0.08 };
           ctx.lineWidth = board.cell * 0.1;
           line(player, tip, primary, 0.9);
           ring(tip.x, tip.y, board.cell * (0.06 + easeOut * 0.1), accent, 0.85);
-        } else if (motif === 'harvest') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'harvest') {
           enemies.slice(0, 3).forEach((enemy, index) => {
             const progress = (easeOut + index * 0.13) % 1;
             const part = {
@@ -2991,7 +2997,7 @@ function SignatureSkillFx({
             };
             node(part.x, part.y, index % 2 ? accent : primary, board.cell * 0.045);
           });
-        } else if (motif === 'suppress') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'suppress') {
           enemies.slice(0, 5).forEach((enemy) => {
             ring(enemy.x, enemy.y, board.cell * (0.14 + easeOut * 0.07), primary, 0.72);
             line(
@@ -3001,26 +3007,26 @@ function SignatureSkillFx({
               0.9,
             );
           });
-        } else if (motif === 'polarity') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'polarity') {
           enemies.slice(0, 4).forEach((enemy, index) => {
             ring(enemy.x, enemy.y, board.cell * 0.18, index % 2 ? accent : primary, 0.8);
           });
-        } else if (motif === 'colossus') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'colossus') {
           ctx.strokeStyle = primary;
           ctx.lineWidth = board.cell * 0.065;
           ctx.strokeRect(player.x - board.cell * 0.38, player.y - board.cell * 0.58, board.cell * 0.76, board.cell * 1.12);
           ctx.fillStyle = accent;
           ctx.globalAlpha = 0.22 + fade * 0.2;
           ctx.fillRect(player.x - board.cell * 0.7, player.y - board.cell * 0.25, board.cell * 1.4, board.cell * 0.62);
-        } else if (motif === 'target') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'target') {
           reticle(target, accent);
-        } else if (motif === 'orbital') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'orbital') {
           reticle(target, primary);
           const sky = { x: target.x, y: board.y - board.cell * 0.5 };
           ctx.lineWidth = board.cell * (0.05 + easeOut * 0.12);
           line(sky, target, accent, 0.92);
           ring(target.x, target.y, board.cell * easeOut * 0.3, primary, 0.82);
-        } else if (motif === 'sovereign') {
+        } else if (SHOW_PRIMITIVE_SKILL_DIAGRAMS && motif === 'sovereign') {
           for (let ray = 0; ray < 7; ray++) {
             const angle = -Math.PI + ray / 6 * Math.PI;
             line(
@@ -3046,7 +3052,9 @@ function SignatureSkillFx({
         ctx.restore();
       }
 
-      if (id === 'chrono' || id === 'causality') {
+      if (!SHOW_PRIMITIVE_SKILL_DIAGRAMS) {
+        // The authored execution sequence above is the complete visible VFX.
+      } else if (id === 'chrono' || id === 'causality') {
         ring(player.x, player.y, board.cell * (0.35 + pulse * 0.06));
         ctx.globalAlpha = 0.75 * intro;
         ctx.strokeStyle = accent;
