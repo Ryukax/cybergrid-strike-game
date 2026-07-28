@@ -3585,17 +3585,28 @@ export default function Game() {
     const skinRow = target.closest<HTMLElement>('#skinPickerRow');
     if (skinRow && target instanceof HTMLElement) {
       // Safari can update the selected button without repainting an
-      // overflow row moved by scrollIntoView. Position the row explicitly.
-      const skinRowRect = skinRow.getBoundingClientRect();
-      const skinTargetRect = target.getBoundingClientRect();
-      const targetLeft =
-        skinRow.scrollLeft + skinTargetRect.left - skinRowRect.left;
-      const centeredLeft =
-        targetLeft - (skinRow.clientWidth - skinTargetRect.width) / 2;
-      skinRow.scrollLeft = Math.max(
-        0,
-        Math.min(centeredLeft, skinRow.scrollWidth - skinRow.clientWidth),
-      );
+      // overflow row moved during the controller frame. Reposition after
+      // WebKit commits layout, then repeat once after its momentum layer.
+      const centerSkin = () => {
+        const skinRowRect = skinRow.getBoundingClientRect();
+        const skinTargetRect = target.getBoundingClientRect();
+        const targetLeft =
+          skinRow.scrollLeft + skinTargetRect.left - skinRowRect.left;
+        const centeredLeft =
+          targetLeft - (skinRow.clientWidth - skinTargetRect.width) / 2;
+        skinRow.scrollTo({
+          left: Math.max(
+            0,
+            Math.min(centeredLeft, skinRow.scrollWidth - skinRow.clientWidth),
+          ),
+          behavior: 'auto',
+        });
+      };
+      centerSkin();
+      requestAnimationFrame(() => {
+        centerSkin();
+        requestAnimationFrame(centerSkin);
+      });
     }
     let horizontalScroller: HTMLElement | null = target.parentElement;
     while (horizontalScroller && horizontalScroller !== menu) {
