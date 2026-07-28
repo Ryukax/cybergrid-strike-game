@@ -829,17 +829,34 @@ function drawSkinProjectileEffect(
   ctx.shadowColor = config.color;
   ctx.shadowBlur = radius * 2.4;
 
-  // Animated particulate wake; phase and spacing differ per signature motif.
-  for (let index = 0; index < 4; index++) {
-    const phase = time + index * 1.63 + config.motif * 0.71;
-    const px = -radius * (2.1 + index * 1.18);
-    const py = Math.sin(phase) * radius * (0.45 + config.motif * 0.08);
-    ctx.globalAlpha = 0.72 - index * 0.13;
-    ctx.fillStyle = index % 2 ? config.accent : config.color;
-    ctx.beginPath();
-    ctx.arc(px, py, radius * (0.3 + (index % 2) * 0.12), 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // One attached tapered wake. Detached dots/parallel streaks read as extra
+  // projectiles at mobile scale, so the trail now grows directly from the
+  // projectile body and fades continuously behind it.
+  const trailLength = radius * (4.6 + config.motif * 0.24);
+  const trailWave = Math.sin(time + config.motif * 0.71) * radius * 0.22;
+  const trailGradient = ctx.createLinearGradient(-trailLength, 0, -radius * 0.4, 0);
+  trailGradient.addColorStop(0, 'rgba(0,0,0,0)');
+  trailGradient.addColorStop(0.52, config.color);
+  trailGradient.addColorStop(1, config.accent);
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = trailGradient;
+  ctx.beginPath();
+  ctx.moveTo(-trailLength, trailWave);
+  ctx.quadraticCurveTo(
+    -trailLength * 0.48,
+    -radius * 0.36 + trailWave,
+    -radius * 0.35,
+    -radius * 0.5,
+  );
+  ctx.lineTo(-radius * 0.35, radius * 0.5);
+  ctx.quadraticCurveTo(
+    -trailLength * 0.48,
+    radius * 0.36 + trailWave,
+    -trailLength,
+    trailWave,
+  );
+  ctx.closePath();
+  ctx.fill();
 
   ctx.globalAlpha = 0.88;
   ctx.strokeStyle = config.color;
