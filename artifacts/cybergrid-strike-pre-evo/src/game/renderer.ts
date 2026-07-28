@@ -784,6 +784,121 @@ type Ctx2D = CanvasRenderingContext2D & {
   roundRect: (x: number, y: number, w: number, h: number, r: number) => void;
 };
 
+const PROJECTILE_EFFECTS: Record<string, { color: string; accent: string; motif: number }> = {
+  assembly: { color: '#67e8f9', accent: '#facc15', motif: 0 },
+  chrono: { color: '#93c5fd', accent: '#e9d5ff', motif: 1 },
+  singularity: { color: '#a78bfa', accent: '#111827', motif: 2 },
+  override: { color: '#c084fc', accent: '#22d3ee', motif: 3 },
+  architect: { color: '#60a5fa', accent: '#f8fafc', motif: 4 },
+  apex: { color: '#84cc16', accent: '#f0abfc', motif: 0 },
+  counter: { color: '#f0abfc', accent: '#f8fafc', motif: 1 },
+  phase: { color: '#818cf8', accent: '#e9d5ff', motif: 5 },
+  phoenix: { color: '#fb923c', accent: '#fde047', motif: 0 },
+  rift: { color: '#22d3ee', accent: '#8b5cf6', motif: 2 },
+  vector: { color: '#5eead4', accent: '#f8fafc', motif: 5 },
+  gridshift: { color: '#38bdf8', accent: '#a7f3d0', motif: 4 },
+  resonance: { color: '#f0abfc', accent: '#67e8f9', motif: 1 },
+  exchange: { color: '#4ade80', accent: '#f472b6', motif: 3 },
+  causality: { color: '#c4b5fd', accent: '#f8fafc', motif: 1 },
+  arsenal: { color: '#f59e0b', accent: '#f8fafc', motif: 0 },
+  assimilation: { color: '#34d399', accent: '#fb923c', motif: 3 },
+  null: { color: '#6366f1', accent: '#030712', motif: 4 },
+  polarity: { color: '#38bdf8', accent: '#fb7185', motif: 2 },
+  colossus: { color: '#fbbf24', accent: '#94a3b8', motif: 0 },
+  predator: { color: '#fb7185', accent: '#f8fafc', motif: 5 },
+  orbital: { color: '#fde047', accent: '#60a5fa', motif: 4 },
+  hijack: { color: '#c084fc', accent: '#2dd4bf', motif: 3 },
+  sovereign: { color: '#f43f5e', accent: '#facc15', motif: 2 },
+};
+
+function drawSkinProjectileEffect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  direction: number,
+  skin?: string,
+) {
+  const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
+  if (!config) return;
+  const time = performance.now() * 0.012;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(direction, 1);
+  ctx.lineCap = 'round';
+  ctx.shadowColor = config.color;
+  ctx.shadowBlur = radius * 2.4;
+
+  // Animated particulate wake; phase and spacing differ per signature motif.
+  for (let index = 0; index < 4; index++) {
+    const phase = time + index * 1.63 + config.motif * 0.71;
+    const px = -radius * (2.1 + index * 1.18);
+    const py = Math.sin(phase) * radius * (0.45 + config.motif * 0.08);
+    ctx.globalAlpha = 0.72 - index * 0.13;
+    ctx.fillStyle = index % 2 ? config.accent : config.color;
+    ctx.beginPath();
+    ctx.arc(px, py, radius * (0.3 + (index % 2) * 0.12), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 0.88;
+  ctx.strokeStyle = config.color;
+  ctx.fillStyle = config.accent;
+  ctx.lineWidth = Math.max(1.2, radius * 0.2);
+  if (config.motif === 0) {
+    // Forge/flame/prismatic burst.
+    for (let ray = 0; ray < 5; ray++) {
+      const angle = time + ray * Math.PI * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * radius * 1.25, Math.sin(angle) * radius * 1.25);
+      ctx.lineTo(Math.cos(angle) * radius * 2.25, Math.sin(angle) * radius * 2.25);
+      ctx.stroke();
+    }
+  } else if (config.motif === 1) {
+    // Temporal/resonant echo rings.
+    for (let ring = 0; ring < 2; ring++) {
+      ctx.beginPath();
+      ctx.ellipse(-ring * radius * 1.05, 0, radius * (1.35 + ring * 0.35), radius * 0.8, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else if (config.motif === 2) {
+    // Gravity, portal, polarity, or sovereign orbit.
+    ctx.rotate(time * 0.45);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 2.25, radius * 0.82, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(radius * 2.25, 0, radius * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (config.motif === 3) {
+    // Hijack/exchange data packets.
+    for (let bit = 0; bit < 3; bit++) {
+      ctx.globalAlpha = 0.86 - bit * 0.18;
+      ctx.strokeRect(
+        -radius * (1.1 + bit * 1.0),
+        -radius * (0.72 - bit * 0.12),
+        radius * 0.72,
+        radius * 0.72,
+      );
+    }
+  } else if (config.motif === 4) {
+    // Grid/orbital/suppression targeting reticle.
+    ctx.strokeRect(-radius * 1.35, -radius * 1.35, radius * 2.7, radius * 2.7);
+    ctx.beginPath();
+    ctx.moveTo(-radius * 2.2, 0); ctx.lineTo(radius * 2.2, 0);
+    ctx.moveTo(0, -radius * 2.2); ctx.lineTo(0, radius * 2.2);
+    ctx.stroke();
+  } else {
+    // Vector and hunting skins receive a traveling slash/chevron.
+    ctx.beginPath();
+    ctx.moveTo(-radius * 1.6, -radius * 1.45);
+    ctx.lineTo(radius * 1.75, 0);
+    ctx.lineTo(-radius * 1.6, radius * 1.45);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -1098,6 +1213,7 @@ export function draw(
       ctx.stroke();
     }
     ctx.restore();
+    drawSkinProjectileEffect(ctx, bx, by, radius, direction, b.effectSkin);
   }
 
   // NPC bullets (VS mode — cyan, moving left, trail on right side)
@@ -1114,6 +1230,7 @@ export function draw(
       ctx.beginPath();
       ctx.arc(bx + m.cell * 0.09, by, radius * 1.5, 0, Math.PI * 2); // trail on right
       ctx.fill();
+      drawSkinProjectileEffect(ctx, bx, by, radius, -1, b.effectSkin);
     }
   }
 

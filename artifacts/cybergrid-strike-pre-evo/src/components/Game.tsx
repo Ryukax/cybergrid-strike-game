@@ -3434,6 +3434,7 @@ export default function Game() {
       big,
       pierce,
       attackStyle,
+      effectSkin: playerSkinRef.current,
     });
     if (s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
@@ -3445,6 +3446,7 @@ export default function Game() {
         big: false,
         pierce: false,
         attackStyle,
+        effectSkin: playerSkinRef.current,
       });
     }
     playShot();
@@ -3783,6 +3785,7 @@ export default function Game() {
         big: true,
         pierce: true,
         attackStyle: resolveAttackStyle(),
+        effectSkin: playerSkinRef.current,
       });
       playShot();
       showMessage('Sniper — power-5 mega-shot fired!', 1200);
@@ -3962,6 +3965,7 @@ export default function Game() {
           big: false,
           pierce: true,
           attackStyle: resolveAttackStyle(),
+          effectSkin: playerSkinRef.current,
         });
       }
       showMessage('Rearguard fired in both directions!', 1200);
@@ -6165,6 +6169,7 @@ export default function Game() {
                 big: false,
                 pierce: false,
                 attackStyle: resolveAttackStyle(),
+                effectSkin: playerSkinRef.current,
               });
             }
             // Record kill for CGRD reward
@@ -6229,6 +6234,7 @@ export default function Game() {
           big: false,
           pierce: false,
           attackStyle: resolveAttackStyle(npcSkinRef.current),
+          effectSkin: npcSkinRef.current,
         });
         npc.fireCooldown = NPC_FIRE_INTERVAL;
       }

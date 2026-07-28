@@ -50,6 +50,8 @@ export interface Bullet {
     | 'temporal' | 'gravity' | 'portal' | 'vector'
     | 'grid' | 'resonance' | 'adaptive' | 'reflective'
     | 'swarm' | 'suppression' | 'polarity' | 'orbital';
+  /** Skin identity used only for additional projectile animation effects. */
+  effectSkin?: string;
 }
 
 export type EnemyAbility =
