@@ -1663,6 +1663,102 @@ function AvatarAssembly({
   );
 }
 
+async function sanitizeRivalSkinFrame(bitmap: ImageBitmap): Promise<ImageBitmap> {
+  const source = document.createElement('canvas');
+  source.width = bitmap.width;
+  source.height = bitmap.height;
+  const sourceCtx = source.getContext('2d', { willReadFrequently: true });
+  if (!sourceCtx) return bitmap;
+  sourceCtx.drawImage(bitmap, 0, 0);
+  const image = sourceCtx.getImageData(0, 0, source.width, source.height);
+  const visited = new Uint8Array(source.width * source.height);
+  type Island = {
+    pixels: number[];
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  };
+  const islands: Island[] = [];
+  for (let start = 0; start < visited.length; start++) {
+    if (visited[start] || image.data[start * 4 + 3] < 18) continue;
+    const queue = [start];
+    const pixels: number[] = [];
+    visited[start] = 1;
+    let minX = source.width;
+    let minY = source.height;
+    let maxX = -1;
+    let maxY = -1;
+    while (queue.length) {
+      const pixel = queue.pop()!;
+      pixels.push(pixel);
+      const x = pixel % source.width;
+      const y = Math.floor(pixel / source.width);
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if ((!dx && !dy) || nx < 0 || nx >= source.width || ny < 0 || ny >= source.height) continue;
+          const next = ny * source.width + nx;
+          if (visited[next] || image.data[next * 4 + 3] < 18) continue;
+          visited[next] = 1;
+          queue.push(next);
+        }
+      }
+    }
+    islands.push({ pixels, minX, minY, maxX, maxY });
+  }
+  if (islands.length === 0) return bitmap;
+  islands.sort((left, right) => right.pixels.length - left.pixels.length);
+  const primary = islands[0];
+  const gapFromPrimary = (island: Island) => {
+    const gapX = Math.max(0, primary.minX - island.maxX, island.minX - primary.maxX);
+    const gapY = Math.max(0, primary.minY - island.maxY, island.minY - primary.maxY);
+    return Math.hypot(gapX, gapY);
+  };
+  const retained = islands.filter((island, index) =>
+    index === 0
+    || island.pixels.length >= primary.pixels.length * 0.18
+    || (island.pixels.length >= 20 && gapFromPrimary(island) <= 28));
+  const retainedPixels = new Set(retained.flatMap((island) => island.pixels));
+  for (let pixel = 0; pixel < visited.length; pixel++) {
+    if (!retainedPixels.has(pixel)) image.data[pixel * 4 + 3] = 0;
+  }
+  sourceCtx.putImageData(image, 0, 0);
+  const minX = Math.min(...retained.map((island) => island.minX));
+  const minY = Math.min(...retained.map((island) => island.minY));
+  const maxX = Math.max(...retained.map((island) => island.maxX));
+  const maxY = Math.max(...retained.map((island) => island.maxY));
+  const cropWidth = Math.max(1, maxX - minX + 1);
+  const cropHeight = Math.max(1, maxY - minY + 1);
+  const output = document.createElement('canvas');
+  output.width = bitmap.width;
+  output.height = bitmap.height;
+  const outputCtx = output.getContext('2d');
+  if (!outputCtx) return bitmap;
+  outputCtx.imageSmoothingEnabled = false;
+  const scale = Math.min(
+    output.width * 0.82 / cropWidth,
+    output.height * 0.9 / cropHeight,
+  );
+  const drawWidth = Math.round(cropWidth * scale);
+  const drawHeight = Math.round(cropHeight * scale);
+  outputCtx.drawImage(
+    source,
+    minX, minY, cropWidth, cropHeight,
+    Math.round((output.width - drawWidth) / 2),
+    Math.round((output.height - drawHeight) / 2),
+    drawWidth, drawHeight,
+  );
+  const cleaned = await createImageBitmap(output);
+  bitmap.close();
+  return cleaned;
+}
+
 function movementClassOf(enemy: GameState['enemies'][number]): EnemyMovementClass | undefined {
   return enemy.genome ? getEnemyMovementClass(enemy.genome.baseElement) : undefined;
 }
@@ -2622,7 +2718,10 @@ export default function Game() {
     const loadBmp = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload  = () => createImageBitmap(img).then(resolve).catch(reject);
+        img.onload  = () => createImageBitmap(img)
+          .then((bitmap) => rivalSkin ? sanitizeRivalSkinFrame(bitmap) : bitmap)
+          .then(resolve)
+          .catch(reject);
         img.onerror = () => reject(new Error(`Failed to load ${url}`));
         img.src = url;
       });
@@ -2654,7 +2753,10 @@ export default function Game() {
     const loadBitmap = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload  = () => createImageBitmap(img).then(resolve).catch(reject);
+        img.onload  = () => createImageBitmap(img)
+          .then((bitmap) => rivalSkin ? sanitizeRivalSkinFrame(bitmap) : bitmap)
+          .then(resolve)
+          .catch(reject);
         img.onerror = () => reject(new Error(`Failed to load ${url}`));
         img.src = url;
       });
