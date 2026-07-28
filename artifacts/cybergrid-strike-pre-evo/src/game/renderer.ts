@@ -1008,10 +1008,16 @@ export function draw(
       ctx.translate(motion.x, motion.y);
       ctx.scale(motion.scaleX, motion.scaleY);
       ctx.imageSmoothingEnabled = false;
-      ctx.globalAlpha = genome.niche === 'phase' ? 0.72 : 1;
+      // Phase is communicated by its aura, never by making portions of the
+      // authored body difficult to see against the board.
+      ctx.globalAlpha = 1;
       if (e.flash > 0) ctx.filter = 'brightness(1.8)';
-      ctx.shadowColor = `rgba(95, 220, 255, ${0.08 + motion.glow * 0.16})`;
-      ctx.shadowBlur = 2 + motion.glow * 5;
+      ctx.shadowColor = genome.niche === 'phase'
+        ? `rgba(192, 132, 252, ${0.3 + motion.glow * 0.28})`
+        : `rgba(95, 220, 255, ${0.08 + motion.glow * 0.16})`;
+      ctx.shadowBlur = genome.niche === 'phase'
+        ? 5 + motion.glow * 7
+        : 2 + motion.glow * 5;
       ctx.drawImage(sprite, -spriteWidth / 2, -spriteHeight / 2, spriteWidth, spriteHeight);
       ctx.restore();
     } else {
