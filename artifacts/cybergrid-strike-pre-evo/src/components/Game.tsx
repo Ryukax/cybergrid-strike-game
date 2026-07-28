@@ -2764,8 +2764,6 @@ function SignatureSkillFx({
               ring(player.x, player.y, board.cell * (0.2 + easeOut * (0.22 + wave * 0.16)), wave % 2 ? accent : primary, 0.6 - wave * 0.12);
             }
           } else if (id === 'phase' || id === 'predator' || id === 'colossus' || id === 'arsenal') {
-            ctx.lineWidth = board.cell * 0.1;
-            line(player, reach, primary, 0.84);
             line(
               { x: reach.x - uy * board.cell * 0.16, y: reach.y + ux * board.cell * 0.16 },
               { x: reach.x + uy * board.cell * 0.16, y: reach.y - ux * board.cell * 0.16 },
@@ -2773,7 +2771,6 @@ function SignatureSkillFx({
               0.8,
             );
           } else {
-            arrow(player, reach, primary);
             ring(reach.x, reach.y, board.cell * (0.08 + easeOut * 0.18), accent, 0.75);
           }
         } else if (execution.action === 'alternate') {
@@ -2881,10 +2878,8 @@ function SignatureSkillFx({
           ring(core.x, core.y, board.cell * (0.08 + easeOut * 0.16), accent, 0.88);
         } else if (motif === 'command') {
           enemies.slice(0, 4).forEach((enemy, index) => {
-            const relay = { x: (player.x + enemy.x) / 2, y: (player.y + enemy.y) / 2 - board.cell * 0.12 };
-            line(player, relay, primary, 0.76);
-            arrow(relay, enemy, index % 2 ? accent : primary);
             node(enemy.x, enemy.y, accent, board.cell * 0.045);
+            ring(enemy.x, enemy.y, board.cell * (0.1 + easeOut * 0.08), index % 2 ? accent : primary, 0.65);
           });
         } else if (motif === 'construct') {
           const cellX = board.x + Math.round((player.x - board.x) / board.cell) * board.cell;
@@ -2921,9 +2916,6 @@ function SignatureSkillFx({
           arrow(impact, target, primary);
           ring(impact.x, impact.y, board.cell * (0.1 + easeOut * 0.14), '#f8fafc', 0.88);
         } else if (motif === 'dash') {
-          ctx.setLineDash([board.cell * 0.11, board.cell * 0.06]);
-          line(player, target, primary, 0.85);
-          ctx.setLineDash([]);
           const strike = {
             x: player.x + (target.x - player.x) * easeOut,
             y: player.y + (target.y - player.y) * easeOut,
@@ -2974,12 +2966,8 @@ function SignatureSkillFx({
             node(mark.x, mark.y, index % 2 ? accent : primary, board.cell * 0.07 * easeOut);
           });
         } else if (motif === 'exchange') {
-          arrow(player, target, primary);
-          arrow(
-            { x: target.x, y: target.y + board.cell * 0.12 },
-            { x: player.x, y: player.y + board.cell * 0.12 },
-            accent,
-          );
+          ring(player.x, player.y, board.cell * (0.12 + easeOut * 0.08), primary, 0.72);
+          ring(target.x, target.y, board.cell * (0.12 + easeOut * 0.08), accent, 0.72);
           node((player.x + target.x) / 2, (player.y + target.y) / 2, '#f8fafc', board.cell * 0.055);
         } else if (motif === 'lock') {
           ring(target.x, target.y, board.cell * (0.18 + easeOut * 0.08), primary, 0.88);
@@ -2994,7 +2982,6 @@ function SignatureSkillFx({
           ctx.lineWidth = board.cell * 0.1;
           line(player, tip, primary, 0.9);
           ring(tip.x, tip.y, board.cell * (0.06 + easeOut * 0.1), accent, 0.85);
-          arrow(tip, target, accent);
         } else if (motif === 'harvest') {
           enemies.slice(0, 3).forEach((enemy, index) => {
             const progress = (easeOut + index * 0.13) % 1;
@@ -3002,7 +2989,6 @@ function SignatureSkillFx({
               x: enemy.x + (player.x - enemy.x) * progress,
               y: enemy.y + (player.y - enemy.y) * progress,
             };
-            line(enemy, player, index % 2 ? accent : primary, 0.35);
             node(part.x, part.y, index % 2 ? accent : primary, board.cell * 0.045);
           });
         } else if (motif === 'suppress') {
@@ -3018,7 +3004,6 @@ function SignatureSkillFx({
         } else if (motif === 'polarity') {
           enemies.slice(0, 4).forEach((enemy, index) => {
             ring(enemy.x, enemy.y, board.cell * 0.18, index % 2 ? accent : primary, 0.8);
-            arrow(enemy, index % 2 ? player : target, index % 2 ? accent : primary);
           });
         } else if (motif === 'colossus') {
           ctx.strokeStyle = primary;
@@ -3029,7 +3014,6 @@ function SignatureSkillFx({
           ctx.fillRect(player.x - board.cell * 0.7, player.y - board.cell * 0.25, board.cell * 1.4, board.cell * 0.62);
         } else if (motif === 'target') {
           reticle(target, accent);
-          line(player, target, primary, 0.62);
         } else if (motif === 'orbital') {
           reticle(target, primary);
           const sky = { x: target.x, y: board.y - board.cell * 0.5 };
@@ -3105,10 +3089,8 @@ function SignatureSkillFx({
         });
       } else if (id === 'override' || id === 'hijack') {
         enemies.forEach((enemy, index) => {
-          const mid = { x: (player.x + enemy.x) / 2, y: (player.y + enemy.y) / 2 + Math.sin(t * 5 + index) * 5 };
-          line(player, mid, primary, 0.6);
-          line(mid, enemy, accent, 0.6);
           node(enemy.x, enemy.y, index % 2 ? primary : accent, board.cell * 0.045);
+          ring(enemy.x, enemy.y, board.cell * (0.12 + pulse * 0.06), index % 2 ? primary : accent, 0.55);
         });
       } else if (id === 'exchange' || id === 'assimilation') {
         enemies.slice(0, 4).forEach((enemy, index) => arrow(
@@ -3136,7 +3118,6 @@ function SignatureSkillFx({
         ctx.beginPath();
         ctx.arc(player.x, player.y, board.cell * 0.34, -Math.PI * 0.72, Math.PI * 0.72);
         ctx.stroke();
-        enemies.forEach((enemy) => line(enemy, player, accent, 0.24));
       } else if (id === 'phase' || id === 'predator') {
         ctx.setLineDash([board.cell * 0.08, board.cell * 0.07]);
         enemies.slice(0, 4).forEach((enemy, index) => {
