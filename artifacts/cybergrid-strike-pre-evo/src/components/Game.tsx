@@ -1586,14 +1586,21 @@ function AvatarAssembly({
       const idle = animation === 'static' ? 0 : Math.sin(now / 260);
       const showcaseTime = (now - animationStarted) % 3200;
       const attackElapsed = now - animationStarted;
+      const attackEnvelope = (elapsed: number, duration: number) => {
+        const linear = Math.max(0, Math.min(1, elapsed / duration));
+        const eased = linear * linear * (3 - 2 * linear);
+        return Math.sin(eased * Math.PI);
+      };
       const attack = animation === 'showcase'
         ? (showcaseTime > 1900 && showcaseTime < 2550
-          ? Math.sin(((showcaseTime - 1900) / 650) * Math.PI) : 0)
-        : attackPulse > 0 && attackElapsed < 520
-          ? Math.sin((attackElapsed / 520) * Math.PI)
+          ? attackEnvelope(showcaseTime - 1900, 650) : 0)
+        : attackPulse > 0 && attackElapsed < 640
+          ? attackEnvelope(attackElapsed, 640)
           : 0;
       ctx.save();
-      ctx.translate(0, Math.round(idle * 1.5));
+      // Preserve sub-pixel motion so the assembled body accelerates and
+      // recovers continuously instead of snapping between integer positions.
+      ctx.translate(attack * 1.4, idle * 1.5 - attack * 0.8);
       // Components must remain the readable body, even when the fit score is
       // low. Cohesion now affects placement, never their visibility.
       ctx.globalAlpha = 1;
@@ -2630,6 +2637,8 @@ export default function Game() {
   const gifAttackFramesRef = useRef<ImageBitmap[]>([]);
   const gemAttackFrameRef  = useRef(-1);
   const gemAttackTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rivalAttackStartedRef = useRef(-1);
+  const RIVAL_ATTACK_DURATION = 460;
 
   // Gem skin — move frames; gemMoveStartRef = performance.now() timestamp when move began, -1 = idle
   const gifMoveFramesRef   = useRef<ImageBitmap[]>([]);
@@ -2698,11 +2707,13 @@ export default function Game() {
     // the attack pose.
     if (gemAttackFrameRef.current >= 0) return;
     gemAttackFrameRef.current = 0;
+    rivalAttackStartedRef.current = performance.now();
     if (gemAttackTimer.current) clearTimeout(gemAttackTimer.current);
     gemAttackTimer.current = setTimeout(() => {
       gemAttackFrameRef.current = -1;
+      rivalAttackStartedRef.current = -1;
       gemAttackTimer.current = null;
-    }, 180);
+    }, RIVAL_ATTACK_DURATION);
   }, []);
 
   useEffect(() => () => {
@@ -2799,6 +2810,7 @@ export default function Game() {
       gifMoveFramesRef.current = [];
       rocketFrameRef.current = -1;
       gemAttackFrameRef.current = -1;
+      rivalAttackStartedRef.current = -1;
       gemMoveStartRef.current = -1;
     };
   }, [playerSkin]);
@@ -5917,6 +5929,8 @@ export default function Game() {
             // Dots: auto-cycle walk animation via performance.now()
             // Gem idle: auto-cycle; Gem attack: use gifAttackFramesRef + gemAttackFrameRef
             let bitmap: ImageBitmap;
+            let rivalAttackBitmap: ImageBitmap | undefined;
+            let rivalAttackBlend = 0;
             if (playerSkinRef.current === 'rocket' && rocketFrameRef.current >= 0) {
               // Rocket attack — cycle through gifAttackFramesRef
               const aFrames = gifAttackFramesRef.current;
@@ -5926,7 +5940,14 @@ export default function Game() {
               const aFrames = gifAttackFramesRef.current;
               bitmap = aFrames[gemAttackFrameRef.current % Math.max(1, aFrames.length)];
             } else if (rivalSkin && gemAttackFrameRef.current >= 0) {
-              bitmap = gifAttackFramesRef.current[0] ?? frames[0];
+              bitmap = frames[0];
+              rivalAttackBitmap = gifAttackFramesRef.current[0];
+              const linear = Math.max(0, Math.min(
+                1,
+                (performance.now() - rivalAttackStartedRef.current) / RIVAL_ATTACK_DURATION,
+              ));
+              const eased = linear * linear * (3 - 2 * linear);
+              rivalAttackBlend = Math.sin(eased * Math.PI);
             } else if (playerSkinRef.current === 'gem' && gemMoveStartRef.current >= 0) {
               // Gem movement second priority
               const mFrames = gifMoveFramesRef.current;
@@ -5954,6 +5975,18 @@ export default function Game() {
                 sctx.scale(-1, 1);
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
                 sctx.restore();
+              } else if (rivalAttackBitmap && rivalAttackBlend > 0) {
+                // Blend through anticipation, strike, and recovery rather than
+                // replacing idle with a single attack still for 180 ms.
+                sctx.globalAlpha = 1 - rivalAttackBlend;
+                sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.save();
+                sctx.globalAlpha = rivalAttackBlend;
+                sctx.translate(sz * 0.045 * rivalAttackBlend, -sz * 0.018 * rivalAttackBlend);
+                sctx.scale(1 + rivalAttackBlend * 0.035, 1 - rivalAttackBlend * 0.018);
+                sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                sctx.restore();
+                sctx.globalAlpha = 1;
               } else {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }

@@ -29,6 +29,14 @@ const BASES: EnemyBaseElement[] = [
 const CHARACTER_BASES = new Set<EnemyBaseElement>([
   'crab', 'owl', 'fox', 'snail', 'fish', 'mole', 'turret',
 ]);
+const ANIMAL_SOURCES = new Set<VisualSource>([
+  'insect', 'beast', 'avian', 'serpent', 'cephalopod', 'crab', 'owl',
+  'fox', 'snail', 'fish', 'mole', 'gremlin', 'beetle', 'parasite',
+]);
+const OBJECT_SOURCES = new Set<VisualSource>([
+  'robot', 'drone', 'vehicle', 'cyborg', 'mech', 'turret',
+  'automaton', 'capsid', 'phage',
+]);
 // All enemies advance from right to left. These source paintings were authored
 // facing right, so normalize them before they enter any composition socket.
 const RIGHT_FACING_SOURCES = new Set<VisualSource>(['cyborg', 'data-wraith']);
@@ -133,6 +141,15 @@ function buildCompositionPlan(
   };
 }
 
+function contrastingConceptSources(
+  base: EnemyBaseElement,
+  seed: number,
+): Set<VisualSource> {
+  if (ANIMAL_SOURCES.has(base)) return OBJECT_SOURCES;
+  if (OBJECT_SOURCES.has(base)) return ANIMAL_SOURCES;
+  return gene(seed, 427) > 0.5 ? ANIMAL_SOURCES : OBJECT_SOURCES;
+}
+
 function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
   const domain = ELEMENT_DOMAIN[component.source as EnemyBaseElement]
     ?? (['automaton', 'capsid', 'phage'].includes(component.source) ? 'machine'
@@ -215,6 +232,7 @@ function selectGenericComponent(
   role: FusionRole,
   excluded: VisualSource[] = [],
   plannedKinds: GenericComponentKind[] = [],
+  preferredSources: Set<VisualSource> | undefined = undefined,
 ): ComponentDefinition | undefined {
   const domain = ELEMENT_DOMAIN[genome.baseElement];
   const candidates = COMPLETE_COMPONENT_LIBRARY.filter((component) =>
@@ -226,7 +244,13 @@ function selectGenericComponent(
   const plannedCandidates = plannedKinds.length > 0
     ? candidates.filter((component) => plannedKinds.includes(genericComponentKind(component)))
     : [];
-  const eligibleCandidates = plannedCandidates.length > 0 ? plannedCandidates : candidates;
+  const kindCandidates = plannedCandidates.length > 0 ? plannedCandidates : candidates;
+  const contrastingCandidates = preferredSources
+    ? kindCandidates.filter((component) => preferredSources.has(component.source))
+    : [];
+  const eligibleCandidates = contrastingCandidates.length > 0
+    ? contrastingCandidates
+    : kindCandidates;
   const preferredKinds: Partial<Record<EnemyGenome['enemyClass'], GenericComponentKind[]>> = {
     skirmisher: ['sensor', 'wings', 'fins', 'hover', 'emitter'],
     guardian: ['crown', 'treads', 'roots', 'armor'],
@@ -480,43 +504,37 @@ function drawFitted(
   ctx.filter = 'none';
 }
 
-function coreMask(ctx: CanvasRenderingContext2D, seed: number): void {
-  const broad = gene(seed, 350) > 0.48;
-  ctx.beginPath();
-  if (broad) {
-    ctx.moveTo(9, 15); ctx.lineTo(38, 13); ctx.lineTo(43, 21);
-    ctx.lineTo(38, 34); ctx.lineTo(10, 35); ctx.lineTo(5, 23);
-  } else {
-    ctx.moveTo(15, 12); ctx.lineTo(33, 13); ctx.lineTo(39, 20);
-    ctx.lineTo(34, 35); ctx.lineTo(14, 36); ctx.lineTo(8, 22);
-  }
-  ctx.closePath();
-}
-
-function drawCore(
+function drawAnchorSilhouette(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
   base: EnemyBaseElement,
   seed: number,
   genome: EnemyGenome,
 ): void {
+  // The atlas entries are complete authored figures. Preserve exactly one as
+  // the visual grammar, then replace bounded sockets on that figure.
+  const availableWidth = 44;
+  const availableHeight = 44;
+  const sourceAspect = image.naturalWidth / Math.max(1, image.naturalHeight);
+  const fitWidth = sourceAspect >= 1
+    ? availableWidth
+    : Math.min(availableWidth, availableHeight * sourceAspect);
+  const fitHeight = sourceAspect >= 1
+    ? Math.min(availableHeight, availableWidth / sourceAspect)
+    : availableHeight;
+  const scale = 0.94 + gene(seed, 354) * 0.06;
+  const width = fitWidth * scale;
+  const height = fitHeight * scale;
+  const x = (SPRITE_SIZE - width) / 2;
+  const y = SPRITE_SIZE - height - 1;
   ctx.save();
-  coreMask(ctx, seed);
-  ctx.clip();
-  // The core takes only an internal material/chassis sample. Excluding the
-  // authored top and lower outline prevents caps, faces, tails, and complete
-  // animal torsos from surviving as the primary silhouette.
   ctx.filter = genomeFilter(genome, seed);
-  const sampleShift = (gene(seed, 352) - 0.5) * image.naturalWidth * 0.12;
   drawOriented(
     ctx,
     image,
     base,
-    image.naturalWidth * 0.22 + sampleShift,
-    image.naturalHeight * 0.24,
-    image.naturalWidth * 0.56,
-    image.naturalHeight * 0.5,
-    8, 11, 33, 27,
+    0, 0, image.naturalWidth, image.naturalHeight,
+    x, y, width, height,
   );
   ctx.filter = 'none';
   ctx.restore();
@@ -656,6 +674,9 @@ function graft(
   ctx.save();
   graftMask(ctx, seed, region, kind);
   ctx.clip();
+  // Replace this anatomical socket instead of layering a second complete
+  // painting over the anchor silhouette.
+  ctx.clearRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   ctx.globalAlpha = alpha;
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
@@ -836,12 +857,14 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // color and refine the sockets, allowing broad combinations without asking
   // a complete authored family painting to serve as the final creature.
   const compositionPlan = buildCompositionPlan(genome, seed, bodyType);
+  const conceptSources = contrastingConceptSources(genome.baseElement, seed);
   const headComponent = selectGenericComponent(
     genome,
     seed + 160,
     'head',
     [],
     [compositionPlan.head],
+    conceptSources,
   );
   const locomotionComponent = selectGenericComponent(
     genome,
@@ -849,6 +872,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     'locomotion',
     headComponent ? [headComponent.source] : [],
     [compositionPlan.locomotion],
+    conceptSources,
   );
   const flankComponent = selectGenericComponent(
     genome,
@@ -857,6 +881,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     [headComponent?.source, locomotionComponent?.source]
       .filter((candidate): candidate is VisualSource => Boolean(candidate)),
     [compositionPlan.flank],
+    conceptSources,
   );
   const headPool = COMPATIBLE_HEADS[bodyType];
   const locomotionPool = [
@@ -907,7 +932,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ctx.translate(-1.5, 1);
     ctx.scale(1.07, 0.96);
   }
-  drawCore(ctx, primary, genome.baseElement, seed, genome);
+  drawAnchorSilhouette(ctx, primary, genome.baseElement, seed, genome);
   ctx.restore();
 
   // Every entity is assembled. A whole family sprite is never the final image:
@@ -917,6 +942,14 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   const fusionActive = genome.fusionLevel > 0
     && fusionOutcome
     && fusionBase !== genome.baseElement;
+  // One contrasting socket is enough to communicate the hybrid concept. The
+  // anchor supplies a coherent animal/object silhouette and the genome filter
+  // supplies its elemental material; additional sockets would become a mesh.
+  const conceptRole: FusionRole = fusionActive
+    ? fusionOutcome.role
+    : ANIMAL_SOURCES.has(genome.baseElement)
+      ? 'flank'
+      : gene(seed, 431) > 0.5 ? 'head' : 'locomotion';
   const resolvedHead = fusionActive && fusionOutcome.role === 'head'
     ? { image: fusion, base: fusionBase, kind: fusionKind }
     : {
@@ -931,27 +964,29 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
         base: locomotionBase,
         kind: locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
       };
-  graft(
-    ctx,
-    resolvedHead.image,
-    resolvedHead.base,
-    seed + 31,
-    genome,
-    'head',
-    0.98,
-    resolvedHead.kind,
-  );
-  graft(
-    ctx,
-    resolvedLocomotion.image,
-    resolvedLocomotion.base,
-    seed + 37,
-    genome,
-    'locomotion',
-    0.97,
-    resolvedLocomotion.kind,
-  );
-  if (fusionActive && fusionOutcome.role === 'flank') {
+  if (conceptRole === 'head') {
+    graft(
+      ctx,
+      resolvedHead.image,
+      resolvedHead.base,
+      seed + 31,
+      genome,
+      'head',
+      0.98,
+      resolvedHead.kind,
+    );
+  } else if (conceptRole === 'locomotion') {
+    graft(
+      ctx,
+      resolvedLocomotion.image,
+      resolvedLocomotion.base,
+      seed + 37,
+      genome,
+      'locomotion',
+      0.97,
+      resolvedLocomotion.kind,
+    );
+  } else if (fusionActive && fusionOutcome.role === 'flank') {
     graft(
       ctx,
       fusion,
