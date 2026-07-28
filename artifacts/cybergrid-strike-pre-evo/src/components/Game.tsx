@@ -3582,6 +3582,23 @@ export default function Game() {
   const scrollMenuTargetIntoView = useCallback((target: Element | null) => {
     const menu = document.getElementById('mainMenu');
     if (!menu || !target) return;
+    let horizontalScroller: HTMLElement | null = target.parentElement;
+    while (horizontalScroller && horizontalScroller !== menu) {
+      if (horizontalScroller.scrollWidth > horizontalScroller.clientWidth + 1) break;
+      horizontalScroller = horizontalScroller.parentElement;
+    }
+    if (horizontalScroller && horizontalScroller !== menu) {
+      const scrollerRect = horizontalScroller.getBoundingClientRect();
+      const horizontalTargetRect = target.getBoundingClientRect();
+      const horizontalPadding = 12;
+      if (horizontalTargetRect.right > scrollerRect.right - horizontalPadding) {
+        horizontalScroller.scrollLeft +=
+          horizontalTargetRect.right - scrollerRect.right + horizontalPadding;
+      } else if (horizontalTargetRect.left < scrollerRect.left + horizontalPadding) {
+        horizontalScroller.scrollLeft +=
+          horizontalTargetRect.left - scrollerRect.left - horizontalPadding;
+      }
+    }
     const menuRect = menu.getBoundingClientRect();
     const targetRect = target.getBoundingClientRect();
     const padding = 18;
