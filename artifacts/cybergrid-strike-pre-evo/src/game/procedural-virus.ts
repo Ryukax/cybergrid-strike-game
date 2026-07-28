@@ -593,7 +593,61 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     ? source(component.source, component.role, () => render(canvas, seed, genome))
     : undefined;
 
-  if (!ready(primary)) return;
+  if (!ready(primary)) {
+    // The sprite canvas is cached immediately, while Safari may still be
+    // decoding its component PNGs. Never expose an empty cached enemy during
+    // that window (or indefinitely after a failed asset request).
+    const fallback = canvas.getContext('2d')!;
+    fallback.clearRect(0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    fallback.save();
+    fallback.translate(OUTPUT_WIDTH / 2, OUTPUT_HEIGHT / 2);
+    fallback.fillStyle = genome.element === 'cryo' ? '#67e8f9'
+      : genome.element === 'thermal' ? '#fb7185'
+      : genome.element === 'radiant' ? '#fde047'
+      : genome.element === 'corrosive' ? '#86efac'
+      : genome.element === 'void' ? '#c084fc'
+      : '#60a5fa';
+    fallback.strokeStyle = '#e0f2fe';
+    fallback.lineWidth = 4;
+    fallback.shadowColor = fallback.fillStyle;
+    fallback.shadowBlur = 10;
+    const bodyType = BODY_TYPE[genome.baseElement];
+    fallback.beginPath();
+    if (bodyType === 'serpentine') {
+      fallback.moveTo(-54, 14);
+      fallback.bezierCurveTo(-24, -38, 8, 42, 52, -12);
+      fallback.lineWidth = 15;
+      fallback.stroke();
+    } else if (bodyType === 'quadruped') {
+      fallback.roundRect(-42, -23, 84, 48, 17);
+      fallback.fill();
+      fallback.fillRect(-34, 18, 13, 31);
+      fallback.fillRect(21, 18, 13, 31);
+    } else if (bodyType === 'flier' || bodyType === 'hover') {
+      fallback.moveTo(-55, 10);
+      fallback.lineTo(-15, -28);
+      fallback.lineTo(0, 4);
+      fallback.lineTo(18, -28);
+      fallback.lineTo(55, 10);
+      fallback.lineTo(0, 35);
+      fallback.closePath();
+      fallback.fill();
+    } else if (bodyType === 'fortress') {
+      fallback.roundRect(-47, -38, 94, 76, 10);
+      fallback.fill();
+      fallback.strokeRect(-33, -24, 66, 48);
+    } else {
+      fallback.roundRect(
+        -34, -42, 68, 84,
+        bodyType === 'tentacled' || bodyType === 'aquatic' ? 28 : 14,
+      );
+      fallback.fill();
+      fallback.fillRect(-52, -10, 19, 42);
+      fallback.fillRect(33, -10, 19, 42);
+    }
+    fallback.restore();
+    return;
+  }
 
   ctx.save();
   if (genome.mutations.includes('accelerated')) {
