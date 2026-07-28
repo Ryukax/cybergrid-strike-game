@@ -791,6 +791,7 @@ export function draw(
   h: number,
   state: GameState,
   hasOverlay?: boolean,
+  npcHasOverlay?: boolean,
 ) {
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
   ctx.fillStyle = '#06101e';
@@ -910,15 +911,17 @@ export function draw(
       ctx.stroke();
     }
 
-    // NPC body (mirror of player, gun faces LEFT)
-    ctx.fillStyle = '#34d399';
-    ctx.beginPath();
-    (ctx as Ctx2D).roundRect(npcX - m.cell * 0.22, npcY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
-    ctx.fill();
-    ctx.fillStyle = '#dbeafe';
-    ctx.fillRect(npcX - m.cell * 0.23, npcY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12); // gun LEFT
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(npcX - m.cell * 0.06, npcY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+    if (!npcHasOverlay) {
+      // NPC body (mirror of player, gun faces LEFT)
+      ctx.fillStyle = '#34d399';
+      ctx.beginPath();
+      (ctx as Ctx2D).roundRect(npcX - m.cell * 0.22, npcY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
+      ctx.fill();
+      ctx.fillStyle = '#dbeafe';
+      ctx.fillRect(npcX - m.cell * 0.23, npcY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12); // gun LEFT
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillRect(npcX - m.cell * 0.06, npcY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+    }
   }
 
   // Player bullets

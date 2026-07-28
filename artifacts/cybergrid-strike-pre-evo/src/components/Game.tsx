@@ -2542,11 +2542,13 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
-  const [menuScreen, setMenuScreen] = useState<'main' | 'customization' | 'bestiary' | 'options'>('main');
-  const menuScreenRef = useRef<'main' | 'customization' | 'bestiary' | 'options'>('main');
+  type MenuScreen = 'main' | 'vs-select' | 'customization' | 'bestiary' | 'options';
+  const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
+  const menuScreenRef = useRef<MenuScreen>('main');
   const [menuSelection, setMenuSelection] = useState(0);
   const menuSelectionRef = useRef(0);
   const customizationSelectionRef = useRef(0);
+  const vsSelectionRef = useRef(0);
   const [pauseSelection, setPauseSelection] = useState(0);
   const pauseSelectionRef = useRef(0);
   const [upgradeSelection, setUpgradeSelection] = useState(0);
@@ -2827,6 +2829,11 @@ export default function Game() {
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const [npcSkin, setNpcSkin] = useState<PlayerSkin>('default');
+  const npcSkinRef = useRef<PlayerSkin>('default');
+  const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
+  const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const npcFrameRef = useRef<ImageBitmap | null>(null);
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
     || RIVAL_SKILL_IDS.includes(storedAssemblySkill as RivalSkillId)
@@ -2840,6 +2847,37 @@ export default function Game() {
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const skinOptions: { id: PlayerSkin; label: string; preview: string | null }[] = [
+    { id: 'default', label: 'Default', preview: null },
+    { id: 'rocket', label: 'Rocket', preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
+    { id: 'dots', label: 'Dots', preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
+    { id: 'gem', label: 'Elo', preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
+    { id: 'assembly', label: 'Assembly', preview: null },
+    { id: 'chrono', label: 'Chrona', preview: `${import.meta.env.BASE_URL}skins/skill-chrono-idle.png` },
+    { id: 'singularity', label: 'Gravitas', preview: `${import.meta.env.BASE_URL}skins/skill-singularity-idle.png` },
+    { id: 'override', label: 'Cipher', preview: `${import.meta.env.BASE_URL}skins/skill-override-idle.png` },
+    { id: 'architect', label: 'Artifex', preview: `${import.meta.env.BASE_URL}skins/skill-architect-idle.png` },
+    { id: 'apex', label: 'Vesper', preview: `${import.meta.env.BASE_URL}skins/skill-apex-idle.png` },
+    { id: 'counter', label: 'Aegis', preview: `${import.meta.env.BASE_URL}skins/skill-counter-idle.png` },
+    { id: 'phase', label: 'Nyx', preview: `${import.meta.env.BASE_URL}skins/skill-phase-idle.png` },
+    { id: 'phoenix', label: 'Ember', preview: `${import.meta.env.BASE_URL}skins/skill-phoenix-idle.png` },
+    { id: 'rift', label: 'Meridian', preview: `${import.meta.env.BASE_URL}skins/skill-rift-idle.png` },
+    { id: 'vector', label: 'Quiver', preview: `${import.meta.env.BASE_URL}skins/skill-vector-idle.png` },
+    { id: 'gridshift', label: 'Tessera', preview: `${import.meta.env.BASE_URL}skins/skill-gridshift-idle.png` },
+    { id: 'resonance', label: 'Chord', preview: `${import.meta.env.BASE_URL}skins/skill-resonance-idle.png` },
+    { id: 'exchange', label: 'Proxy', preview: `${import.meta.env.BASE_URL}skins/skill-exchange-idle.png` },
+    { id: 'causality', label: 'Axiom', preview: `${import.meta.env.BASE_URL}skins/skill-causality-idle.png` },
+    { id: 'arsenal', label: 'Forge', preview: `${import.meta.env.BASE_URL}skins/skill-arsenal-idle.png` },
+    { id: 'assimilation', label: 'Meld', preview: `${import.meta.env.BASE_URL}skins/skill-assimilation-idle.png` },
+    { id: 'null', label: 'Quietus', preview: `${import.meta.env.BASE_URL}skins/skill-null-idle.png` },
+    { id: 'polarity', label: 'Dipole', preview: `${import.meta.env.BASE_URL}skins/skill-polarity-idle.png` },
+    { id: 'colossus', label: 'Bastion', preview: `${import.meta.env.BASE_URL}skins/skill-colossus-idle.png` },
+    { id: 'predator', label: 'Talon', preview: `${import.meta.env.BASE_URL}skins/skill-predator-idle.png` },
+    { id: 'orbital', label: 'Zenith', preview: `${import.meta.env.BASE_URL}skins/skill-orbital-idle.png` },
+    { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}skins/skill-hijack-idle.png` },
+    { id: 'sovereign', label: 'Regent', preview: `${import.meta.env.BASE_URL}skins/skill-sovereign-idle.png` },
+  ];
 
   // Rocket skin frames (static pre-transparified PNGs):
   //   0 = idle  |  1 = shoot pose  |  2 = post-shoot A  |  3 = post-shoot B
@@ -3041,6 +3079,41 @@ export default function Game() {
       gemMoveStartRef.current = -1;
     };
   }, [playerSkin]);
+
+  useEffect(() => {
+    let cancelled = false;
+    npcFrameRef.current?.close();
+    npcFrameRef.current = null;
+    if (npcSkin === 'default' || npcSkin === 'assembly') return;
+    const base = import.meta.env.BASE_URL;
+    const source = npcSkin === 'rocket'
+      ? `${base}skins/rocket_idle.png`
+      : npcSkin === 'dots'
+      ? `${base}skins/dots_frame_0.png`
+      : npcSkin === 'gem'
+      ? `${base}skins/gem_frame_0.png`
+      : `${base}skins/skill-${npcSkin}-idle.png`;
+    const img = new Image();
+    img.onload = async () => {
+      const raw = await createImageBitmap(img);
+      const frame = RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)
+        ? await sanitizeRivalSkinFrame(raw)
+        : raw;
+      if (frame !== raw) raw.close();
+      if (cancelled) {
+        frame.close();
+        return;
+      }
+      npcFrameRef.current = frame;
+    };
+    img.onerror = () => console.error(`[${npcSkin} NPC skin] frame load error`);
+    img.src = source;
+    return () => {
+      cancelled = true;
+      npcFrameRef.current?.close();
+      npcFrameRef.current = null;
+    };
+  }, [npcSkin]);
 
   // ── Blockchain reward state ───────────────────────────────────────────────
   const rewardAccRef = useRef<RewardAccumulator>(new RewardAccumulator());
@@ -6185,6 +6258,21 @@ export default function Game() {
           const ids = ['menuPlayBtn', 'menuVsBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
           document.getElementById(ids[menuSelectionRef.current])?.click();
         }
+      } else if (menuScreenRef.current === 'vs-select') {
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.vs-skin-btn'));
+        if (buttons.length > 0) {
+          if (Math.abs(gp.moveX) > 0.15 && menuNavCooldownRef.current <= 0) {
+            const direction = gp.moveX > 0 ? 1 : -1;
+            vsSelectionRef.current = (vsSelectionRef.current + direction + buttons.length) % buttons.length;
+            buttons.forEach((button, index) => {
+              button.classList.toggle('gamepad-selected', index === vsSelectionRef.current);
+            });
+            scrollMenuTargetIntoView(buttons[vsSelectionRef.current]);
+            menuNavCooldownRef.current = 0.18;
+          }
+          if (gp.fire && !gp.prevFire) buttons[vsSelectionRef.current]?.click();
+        }
+        if (gp.cardB && !gp.prevCardB) document.getElementById('menuBackBtn')?.click();
       } else if (menuScreenRef.current === 'bestiary') {
         const axis = Math.abs(gp.moveY) > 0.15 ? gp.moveY : gp.moveX;
         if (Math.abs(axis) > 0.15 && menuNavCooldownRef.current <= 0) {
@@ -6306,7 +6394,15 @@ export default function Game() {
         || playerSkinRef.current === 'gem'
         || playerSkinRef.current === 'assembly'
         || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId);
-      if (ctx) draw(ctx, canvas.offsetWidth, canvas.offsetHeight, stateRef.current, skinHasOverlay);
+      const npcHasOverlay = stateRef.current.gameMode === 'vs' && npcSkinRef.current !== 'default';
+      if (ctx) draw(
+        ctx,
+        canvas.offsetWidth,
+        canvas.offsetHeight,
+        stateRef.current,
+        skinHasOverlay,
+        npcHasOverlay,
+      );
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
       if (skinHasOverlay) {
@@ -6469,6 +6565,37 @@ export default function Game() {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }
             }
+          }
+        }
+      }
+
+      if (npcHasOverlay) {
+        const wrap = npcSpriteWrapRef.current;
+        const npcCanvas = npcSpriteCanvasRef.current;
+        if (wrap && npcCanvas) {
+          const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          const npc = stateRef.current.npc;
+          const px = m.x + (3 + npc.col + 0.5) * m.cell;
+          const py = m.y + (npc.row + 0.5) * m.cell;
+          const sz = Math.round(m.cell * 1.08);
+          wrap.style.left = `${px}px`;
+          wrap.style.top = `${py}px`;
+          wrap.style.width = `${sz}px`;
+          wrap.style.height = `${sz}px`;
+          if (npcCanvas.width !== sz || npcCanvas.height !== sz) {
+            npcCanvas.width = sz;
+            npcCanvas.height = sz;
+          }
+          const npcCtx = npcCanvas.getContext('2d');
+          npcCtx?.clearRect(0, 0, sz, sz);
+          const frame = npcFrameRef.current;
+          if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
+            npcCtx.imageSmoothingEnabled = false;
+            npcCtx.save();
+            npcCtx.translate(sz, 0);
+            npcCtx.scale(-1, 1);
+            npcCtx.drawImage(frame, 0, 0, sz, sz);
+            npcCtx.restore();
           }
         }
       }
@@ -6952,6 +7079,34 @@ export default function Game() {
         </div>
       )}
 
+      {phase === 'playing' && hud.gameMode === 'vs' && npcSkin !== 'default' && (
+        <div
+          ref={npcSpriteWrapRef}
+          className="rivalPlayerSprite"
+          style={{
+            position: 'absolute',
+            pointerEvents: 'none',
+            transform: 'translate(-50%,-50%)',
+          }}
+        >
+          <canvas
+            ref={npcSpriteCanvasRef}
+            style={{
+              display: npcSkin === 'assembly' ? 'none' : 'block',
+              imageRendering: 'pixelated',
+            }}
+          />
+          {npcSkin === 'assembly' && (
+            <AvatarAssembly
+              components={avatarComponents}
+              equipped={equippedAvatarComponents}
+              className="avatarAssemblyGameplay"
+              animation="idle"
+            />
+          )}
+        </div>
+      )}
+
       {phase === 'playing' && skillPlayerFxActive && (
           <div
             key={`player-${skillFxRun}`}
@@ -7309,7 +7464,12 @@ export default function Game() {
               <button
                 id="menuVsBtn"
                 className={menuSelection === 1 ? 'gamepad-selected' : ''}
-                onClick={(ev) => { ev.stopPropagation(); ensureAudio(); startGame('vs'); }}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  menuScreenRef.current = 'vs-select';
+                  vsSelectionRef.current = 0;
+                  setMenuScreen('vs-select');
+                }}
               >
                 ⚔ VS NPC
               </button>
@@ -7356,6 +7516,55 @@ export default function Game() {
                 <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — once per hand, then locked until the next deal</span></div>
               </div>
             </div>
+          ) : menuScreen === 'vs-select' ? (
+            <div id="menuCard" className="customization-card">
+              <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>Select Opponent</div>
+              <div id="customSubtitle">Choose one player skin to fight</div>
+              <div id="skinPickerRow">
+                {skinOptions.map((skin, index) => (
+                  <button
+                    key={skin.id}
+                    className={`skin-btn vs-skin-btn ${index === 0 ? 'gamepad-selected' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      npcSkinRef.current = skin.id;
+                      setNpcSkin(skin.id);
+                      ensureAudio();
+                      startGame('vs');
+                    }}
+                  >
+                    {skin.id === 'assembly'
+                      ? <AvatarAssembly
+                          components={avatarComponents}
+                          equipped={equippedAvatarComponents}
+                          className="avatarAssemblySkinIcon"
+                        />
+                      : skin.preview
+                      ? <SkinPreviewCanvas src={skin.preview} />
+                      : <span className="skin-default-icon">🤖</span>}
+                    <span className="skin-label">{skin.label}</span>
+                    {(skin.id in RIVAL_SKILL_LABELS) && (
+                      <small className="skin-skill-label">
+                        {RIVAL_SKILL_LABELS[skin.id as RivalSkillId]}
+                      </small>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button
+                id="menuBackBtn"
+                className="bestiaryBackBtn"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  menuScreenRef.current = 'main';
+                  menuSelectionRef.current = 1;
+                  setMenuSelection(1);
+                  setMenuScreen('main');
+                }}
+              >
+                ← Back
+              </button>
+            </div>
           ) : menuScreen === 'customization' ? (
             <div id="menuCard" className="customization-card">
               <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
@@ -7363,36 +7572,7 @@ export default function Game() {
               {/* Skin selector */}
               <div id="customSubtitle">Player skin</div>
               <div id="skinPickerRow">
-                {([
-                  { id: 'default', label: 'Default', preview: null },
-                  { id: 'rocket',  label: 'Rocket',  preview: `${import.meta.env.BASE_URL}skins/rocket.gif` },
-                  { id: 'dots',    label: 'Dots',    preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
-                  { id: 'gem',     label: 'Elo',  preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
-                  { id: 'assembly', label: 'Assembly', preview: null },
-                  { id: 'chrono', label: 'Chrona', preview: `${import.meta.env.BASE_URL}skins/skill-chrono-idle.png` },
-                  { id: 'singularity', label: 'Gravitas', preview: `${import.meta.env.BASE_URL}skins/skill-singularity-idle.png` },
-                  { id: 'override', label: 'Cipher', preview: `${import.meta.env.BASE_URL}skins/skill-override-idle.png` },
-                  { id: 'architect', label: 'Artifex', preview: `${import.meta.env.BASE_URL}skins/skill-architect-idle.png` },
-                  { id: 'apex', label: 'Vesper', preview: `${import.meta.env.BASE_URL}skins/skill-apex-idle.png` },
-                  { id: 'counter', label: 'Aegis', preview: `${import.meta.env.BASE_URL}skins/skill-counter-idle.png` },
-                  { id: 'phase', label: 'Nyx', preview: `${import.meta.env.BASE_URL}skins/skill-phase-idle.png` },
-                  { id: 'phoenix', label: 'Ember', preview: `${import.meta.env.BASE_URL}skins/skill-phoenix-idle.png` },
-                  { id: 'rift', label: 'Meridian', preview: `${import.meta.env.BASE_URL}skins/skill-rift-idle.png` },
-                  { id: 'vector', label: 'Quiver', preview: `${import.meta.env.BASE_URL}skins/skill-vector-idle.png` },
-                  { id: 'gridshift', label: 'Tessera', preview: `${import.meta.env.BASE_URL}skins/skill-gridshift-idle.png` },
-                  { id: 'resonance', label: 'Chord', preview: `${import.meta.env.BASE_URL}skins/skill-resonance-idle.png` },
-                  { id: 'exchange', label: 'Proxy', preview: `${import.meta.env.BASE_URL}skins/skill-exchange-idle.png` },
-                  { id: 'causality', label: 'Axiom', preview: `${import.meta.env.BASE_URL}skins/skill-causality-idle.png` },
-                  { id: 'arsenal', label: 'Forge', preview: `${import.meta.env.BASE_URL}skins/skill-arsenal-idle.png` },
-                  { id: 'assimilation', label: 'Meld', preview: `${import.meta.env.BASE_URL}skins/skill-assimilation-idle.png` },
-                  { id: 'null', label: 'Quietus', preview: `${import.meta.env.BASE_URL}skins/skill-null-idle.png` },
-                  { id: 'polarity', label: 'Dipole', preview: `${import.meta.env.BASE_URL}skins/skill-polarity-idle.png` },
-                  { id: 'colossus', label: 'Bastion', preview: `${import.meta.env.BASE_URL}skins/skill-colossus-idle.png` },
-                  { id: 'predator', label: 'Talon', preview: `${import.meta.env.BASE_URL}skins/skill-predator-idle.png` },
-                  { id: 'orbital', label: 'Zenith', preview: `${import.meta.env.BASE_URL}skins/skill-orbital-idle.png` },
-                  { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}skins/skill-hijack-idle.png` },
-                  { id: 'sovereign', label: 'Regent', preview: `${import.meta.env.BASE_URL}skins/skill-sovereign-idle.png` },
-                ] as { id: PlayerSkin; label: string; preview: string | null }[]).map((skin) => (
+                {skinOptions.map((skin) => (
                   <button
                     key={skin.id}
                     className={`skin-btn ${playerSkin === skin.id ? 'selected' : ''}`}
