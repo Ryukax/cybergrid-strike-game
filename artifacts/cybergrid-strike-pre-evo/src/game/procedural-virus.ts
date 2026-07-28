@@ -20,6 +20,8 @@ type ComponentSource =
 type VisualSource = EnemyBaseElement | ComponentSource;
 type SourceRole = FusionRole | 'core';
 const sourceCache = new Map<string, HTMLImageElement>();
+interface OpaqueBounds { x: number; y: number; width: number; height: number }
+const opaqueBoundsCache = new WeakMap<HTMLImageElement, OpaqueBounds>();
 const BASES: EnemyBaseElement[] = [
   'robot', 'insect', 'beast', 'plant', 'crystal', 'golem', 'drone',
   'cephalopod', 'skeleton', 'avian', 'serpent', 'vehicle', 'fungus',
@@ -329,23 +331,6 @@ const CLASS_LOCOMOTION: Record<EnemyGenome['enemyClass'], EnemyBaseElement[]> = 
   scavenger: ['vehicle', 'mole', 'crab', 'fox', 'nanite', 'serpent'],
 };
 
-const BODY_PROFILES: Record<BodyType, Array<[number, number]>> = {
-  biped: [[0.82, 1.12], [0.92, 1.06], [0.76, 1.16]],
-  quadruped: [[1.18, 0.84], [1.28, 0.78], [1.08, 0.92]],
-  arthropod: [[1.24, 0.8], [1.1, 0.9], [1.32, 0.74]],
-  flier: [[1.3, 0.82], [1.16, 0.94], [1.38, 0.76]],
-  hover: [[1.08, 0.9], [0.94, 1], [1.2, 0.82]],
-  serpentine: [[1.22, 0.78], [1.32, 0.72], [1.08, 0.9]],
-  tentacled: [[1.04, 1], [0.9, 1.12], [1.16, 0.94]],
-  rooted: [[0.92, 1.12], [1.08, 1.02], [0.84, 1.18]],
-  colony: [[1.18, 0.9], [1.3, 0.82], [1.04, 1]],
-  aquatic: [[1.32, 0.76], [1.2, 0.84], [1.38, 0.7]],
-  burrower: [[1.26, 0.78], [1.14, 0.86], [1.34, 0.72]],
-  vehicle: [[1.3, 0.76], [1.18, 0.84], [1.36, 0.7]],
-  fortress: [[1.08, 1.06], [1.2, 0.96], [0.98, 1.14]],
-  spectral: [[0.88, 1.14], [1.02, 1.04], [0.8, 1.2]],
-};
-
 const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
   crab: 0.92, owl: 0.9, fox: 0.94, snail: 0.9,
@@ -457,6 +442,35 @@ function ready(image: HTMLImageElement): boolean {
   return image.complete && image.naturalWidth > 0;
 }
 
+function opaqueBounds(image: HTMLImageElement): OpaqueBounds {
+  const cached = opaqueBoundsCache.get(image);
+  if (cached) return cached;
+  const probe = document.createElement('canvas');
+  probe.width = image.naturalWidth;
+  probe.height = image.naturalHeight;
+  const probeContext = probe.getContext('2d', { willReadFrequently: true })!;
+  probeContext.drawImage(image, 0, 0);
+  const pixels = probeContext.getImageData(0, 0, probe.width, probe.height).data;
+  let minX = probe.width;
+  let minY = probe.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < probe.height; y++) {
+    for (let x = 0; x < probe.width; x++) {
+      if (pixels[(y * probe.width + x) * 4 + 3] < 8) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  const bounds = maxX >= minX && maxY >= minY
+    ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+    : { x: 0, y: 0, width: image.naturalWidth, height: image.naturalHeight };
+  opaqueBoundsCache.set(image, bounds);
+  return bounds;
+}
+
 function drawOriented(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
@@ -481,29 +495,6 @@ function drawOriented(
   ctx.restore();
 }
 
-function drawFitted(
-  ctx: CanvasRenderingContext2D,
-  image: HTMLImageElement,
-  base: VisualSource,
-  seed: number,
-  genome: EnemyGenome,
-): void {
-  const bodyType = BODY_TYPE[genome.baseElement];
-  const variantPool = BODY_PROFILES[bodyType];
-  const [baseWidthProfile, baseHeightProfile] = variantPool[Math.floor(gene(seed, 30) * variantPool.length)];
-  // Independent, bounded anatomy genes multiply each authored scaffold into
-  // broad/compact, lean/tall and juvenile/heavy expressions without distortion.
-  const widthProfile = baseWidthProfile * (0.9 + gene(seed, 31) * 0.2);
-  const heightProfile = baseHeightProfile * (0.91 + gene(seed, 32) * 0.18);
-  const width = 40 * widthProfile;
-  const height = 43 * heightProfile;
-  const x = (SPRITE_SIZE - width) / 2 + (gene(seed, 33) - 0.5) * 1.5;
-  const y = SPRITE_SIZE - height - 1;
-  ctx.filter = genomeFilter(genome, seed);
-  drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight, x, y, width, height);
-  ctx.filter = 'none';
-}
-
 function drawAnchorSilhouette(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
@@ -515,7 +506,8 @@ function drawAnchorSilhouette(
   // the visual grammar, then replace bounded sockets on that figure.
   const availableWidth = 44;
   const availableHeight = 44;
-  const sourceAspect = image.naturalWidth / Math.max(1, image.naturalHeight);
+  const bounds = opaqueBounds(image);
+  const sourceAspect = bounds.width / Math.max(1, bounds.height);
   const fitWidth = sourceAspect >= 1
     ? availableWidth
     : Math.min(availableWidth, availableHeight * sourceAspect);
@@ -533,7 +525,7 @@ function drawAnchorSilhouette(
     ctx,
     image,
     base,
-    0, 0, image.naturalWidth, image.naturalHeight,
+    bounds.x, bounds.y, bounds.width, bounds.height,
     x, y, width, height,
   );
   ctx.filter = 'none';
@@ -682,83 +674,46 @@ function graft(
   ctx.clip();
   ctx.globalAlpha = alpha;
   ctx.filter = genomeFilter(genome, seed);
+  const bounds = opaqueBounds(image);
+  const drawDonor = (dx: number, dy: number, dw: number, dh: number) =>
+    drawOriented(
+      ctx, image, base,
+      bounds.x, bounds.y, bounds.width, bounds.height,
+      dx, dy, dw, dh,
+    );
   if (region === 'head') {
-    // Heads contribute functional subregions rather than recognizable whole
-    // animal, fungus or machine heads.
     if (kind === 'crown') {
-      drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.32, 7, 1, 34, 13);
+      drawDonor(7, 1, 34, 20);
     } else if (kind === 'maw') {
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.18, image.naturalHeight * 0.28,
-        image.naturalWidth * 0.64, image.naturalHeight * 0.28,
-        9, 10, 30, 13,
-      );
+      drawDonor(9, 7, 30, 18);
     } else if (kind === 'optic') {
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.28, image.naturalHeight * 0.08,
-        image.naturalWidth * 0.44, image.naturalHeight * 0.42,
-        12, 3, 24, 20,
-      );
+      drawDonor(12, 3, 24, 20);
     } else if (kind === 'sensor') {
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.36, 0,
-        image.naturalWidth * 0.28, image.naturalHeight * 0.55,
-        15, 0, 18, 24,
-      );
+      drawDonor(15, 0, 18, 24);
     } else {
-      drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
+      drawDonor(3, 0, 42, 25);
     }
   } else if (region === 'locomotion') {
-    // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
-    const cropY = image.naturalHeight * 0.44;
     if (kind === 'fins') {
-      // A serpentine or aquatic donor contributes only its tail/keel, never
-      // an intact snake or fish body.
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.42, cropY,
-        image.naturalWidth * 0.58, image.naturalHeight - cropY,
-        5, 28, 40, 17,
-      );
+      drawDonor(5, 28, 40, 17);
     } else if (kind === 'treads') {
-      // Wide low wheel/tread carriage.
-      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 0, 27, 48, 19);
+      drawDonor(0, 27, 48, 19);
     } else if (kind === 'wings' || kind === 'hover') {
-      // Compact aerial/hover propulsion with clearance under the core.
-      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 4, 23, 40, 21);
+      drawDonor(4, 23, 40, 21);
     } else if (kind === 'tendrils' || kind === 'roots') {
-      // Deep tentacle/root cluster.
-      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 3, 18, 42, 30);
+      drawDonor(3, 18, 42, 30);
     } else {
-      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
+      drawDonor(1, 21, 46, 27);
     }
   } else {
     if (kind === 'armor') {
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.18, image.naturalHeight * 0.16,
-        image.naturalWidth * 0.64, image.naturalHeight * 0.62,
-        4, 8, 40, 33,
-      );
+      drawDonor(4, 8, 40, 33);
     } else if (kind === 'weapon' || kind === 'emitter') {
-      drawOriented(
-        ctx, image, base,
-        image.naturalWidth * 0.48, image.naturalHeight * 0.12,
-        image.naturalWidth * 0.5, image.naturalHeight * 0.72,
-        24, 8, 23, 34,
-      );
+      drawDonor(24, 8, 23, 34);
     } else if (kind === 'growth') {
-      drawOriented(
-        ctx, image, base,
-        0, 0,
-        image.naturalWidth * 0.55, image.naturalHeight * 0.72,
-        1, 7, 25, 35,
-      );
+      drawDonor(1, 7, 25, 35);
     } else {
-      drawFitted(ctx, image, base, seed, genome);
+      drawDonor(3, 4, 42, 40);
     }
   }
   ctx.filter = 'none';
