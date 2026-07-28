@@ -2011,6 +2011,29 @@ canvas#canvas {
 /* Landscape touch layout: keep movement and pause together at center-right.
    Portrait retains the centered-bottom controls above. */
 @media (orientation: landscape) {
+  /* Menus can exceed the short landscape viewport, especially on iOS.
+     Keep the overlay itself as the scroll container and avoid auto margins
+     centering oversized cards above the reachable scroll origin. */
+  #mainMenu {
+    height: 100dvh;
+    min-height: 0;
+    justify-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
+  }
+
+  #mainMenu > #menuCard {
+    margin: 0 auto;
+    flex: 0 0 auto;
+  }
+
   #dpad {
     left: auto;
     right: max(18px, env(safe-area-inset-right));
