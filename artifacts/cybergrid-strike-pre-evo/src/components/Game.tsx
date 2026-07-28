@@ -1,4 +1,4 @@
-import { useRef, useEffect, useLayoutEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useCallback, type MutableRefObject } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -2416,6 +2416,8 @@ type RivalSkillId =
 interface RivalSkillView {
   active: boolean;
   id: RivalSkillId | null;
+  actionTick: number;
+  lastAction: 'activate' | 'primary' | 'alternate' | 'defend' | null;
   mode: number;
   charges: number;
   placements: number[];
@@ -2427,6 +2429,8 @@ interface RivalSkillView {
 const emptyRivalSkillView = (): RivalSkillView => ({
   active: false,
   id: null,
+  actionTick: 0,
+  lastAction: null,
   mode: 0,
   charges: 0,
   placements: [],
@@ -2502,6 +2506,408 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   hijack: ['ORDER', 'COMMAND', 'BREAK'],
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
+
+const SIGNATURE_SKILL_COLORS: Record<RivalSkillId, [string, string]> = {
+  chrono: ['#93c5fd', '#e9d5ff'], singularity: ['#a78bfa', '#111827'],
+  override: ['#c084fc', '#22d3ee'], architect: ['#60a5fa', '#f8fafc'],
+  apex: ['#84cc16', '#f0abfc'], counter: ['#f0abfc', '#f8fafc'],
+  phase: ['#818cf8', '#e9d5ff'], phoenix: ['#fb923c', '#fde047'],
+  rift: ['#22d3ee', '#8b5cf6'], vector: ['#5eead4', '#f8fafc'],
+  gridshift: ['#38bdf8', '#a7f3d0'], resonance: ['#f0abfc', '#67e8f9'],
+  exchange: ['#4ade80', '#f472b6'], causality: ['#c4b5fd', '#f8fafc'],
+  arsenal: ['#f59e0b', '#f8fafc'], assimilation: ['#34d399', '#fb923c'],
+  null: ['#6366f1', '#030712'], polarity: ['#38bdf8', '#fb7185'],
+  colossus: ['#fbbf24', '#94a3b8'], predator: ['#fb7185', '#f8fafc'],
+  orbital: ['#fde047', '#60a5fa'], hijack: ['#c084fc', '#2dd4bf'],
+  sovereign: ['#f43f5e', '#fde047'],
+};
+
+function SignatureSkillFx({
+  id,
+  stateRef,
+  actionTick,
+  lastAction,
+}: {
+  id: RivalSkillId;
+  stateRef: MutableRefObject<GameState>;
+  actionTick: number;
+  lastAction: RivalSkillView['lastAction'];
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
+
+  useEffect(() => {
+    executionRef.current = { tick: actionTick, action: lastAction, startedAt: performance.now() };
+  }, [actionTick, lastAction]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const startedAt = performance.now();
+    let frame = 0;
+
+    const render = (now: number) => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const state = stateRef.current;
+      const board = getBoardMetrics(width, height);
+      const center = (col: number, row: number) => ({
+        x: board.x + (col + 0.5) * board.cell,
+        y: board.y + (row + 0.5) * board.cell,
+      });
+      const player = center(state.player.col, state.player.row);
+      const enemies = state.enemies.map((enemy) => center(enemy.colPos, enemy.row));
+      const [primary, accent] = SIGNATURE_SKILL_COLORS[id];
+      const t = (now - startedAt) / 1000;
+      const pulse = (Math.sin(t * 6) + 1) * 0.5;
+      const intro = Math.min(1, (now - startedAt) / 420);
+      const execution = executionRef.current;
+      const executionAge = (now - execution.startedAt) / 1000;
+      const executionProgress = Math.min(1, executionAge / 0.72);
+      const executing = execution.action !== null && executionAge < 0.72;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const ring = (x: number, y: number, radius: number, color = primary, alpha = 0.72) => {
+        ctx.globalAlpha = alpha * intro;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.5, board.cell * 0.035);
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      };
+      const line = (a: { x: number; y: number }, b: { x: number; y: number }, color = primary, alpha = 0.6) => {
+        ctx.globalAlpha = alpha * intro;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1.5, board.cell * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      };
+      const node = (x: number, y: number, color = accent, radius = board.cell * 0.07) => {
+        ctx.globalAlpha = 0.85 * intro;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      };
+      const arrow = (a: { x: number; y: number }, b: { x: number; y: number }, color = primary) => {
+        line(a, b, color, 0.65);
+        const angle = Math.atan2(b.y - a.y, b.x - a.x);
+        ctx.globalAlpha = 0.75 * intro;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(b.x - board.cell * 0.12 * Math.cos(angle - 0.55), b.y - board.cell * 0.12 * Math.sin(angle - 0.55));
+        ctx.lineTo(b.x - board.cell * 0.12 * Math.cos(angle + 0.55), b.y - board.cell * 0.12 * Math.sin(angle + 0.55));
+        ctx.closePath();
+        ctx.fill();
+      };
+      const reticle = (p: { x: number; y: number }, color = primary) => {
+        const r = board.cell * (0.22 + pulse * 0.04);
+        ring(p.x, p.y, r, color, 0.8);
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2;
+          line(
+            { x: p.x + Math.cos(a) * r * 0.72, y: p.y + Math.sin(a) * r * 0.72 },
+            { x: p.x + Math.cos(a) * r * 1.35, y: p.y + Math.sin(a) * r * 1.35 },
+            color,
+            0.8,
+          );
+        }
+      };
+
+      // A command first reads as a physical performance by the character, then
+      // blooms into the persistent battlefield diagram below. Primary commands
+      // project outward, alternate commands reconfigure, and defensive commands
+      // visibly brace and close around the user.
+      if (executing) {
+        const easeOut = 1 - Math.pow(1 - executionProgress, 3);
+        const fade = Math.sin(executionProgress * Math.PI);
+        const target = enemies[0] ?? center(4, state.player.row);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, fade) * 0.92;
+        ctx.shadowBlur = board.cell * 0.18;
+        ctx.shadowColor = execution.action === 'defend' ? accent : primary;
+
+        if (execution.action === 'activate') {
+          const rise = board.cell * (0.42 - easeOut * 0.42);
+          // Energy gathers at the feet, climbs through the body, and opens as
+          // the discipline's colored sigil before its board effect appears.
+          for (let echo = 0; echo < 4; echo++) {
+            const y = player.y + rise + echo * board.cell * 0.08;
+            ring(player.x, y, board.cell * (0.09 + echo * 0.045 + easeOut * 0.04), echo % 2 ? accent : primary, 0.68 - echo * 0.09);
+          }
+          ctx.strokeStyle = primary;
+          ctx.lineWidth = board.cell * 0.045;
+          ctx.beginPath();
+          for (let point = 0; point <= 8; point++) {
+            const angle = point / 8 * Math.PI * 2 - Math.PI / 2;
+            const radius = board.cell * (point % 2 ? 0.25 : 0.37) * easeOut;
+            const x = player.x + Math.cos(angle) * radius;
+            const y = player.y + Math.sin(angle) * radius;
+            if (point === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        } else if (execution.action === 'primary') {
+          const dx = target.x - player.x;
+          const dy = target.y - player.y;
+          const length = Math.max(1, Math.hypot(dx, dy));
+          const ux = dx / length;
+          const uy = dy / length;
+          // Three coherent afterimages show the character committing its weight
+          // toward the technique rather than leaving a detached ambient flash.
+          for (let echo = 0; echo < 3; echo++) {
+            const travel = board.cell * easeOut * (0.16 + echo * 0.11);
+            ring(
+              player.x + ux * travel,
+              player.y + uy * travel,
+              board.cell * (0.17 - echo * 0.025),
+              echo === 2 ? accent : primary,
+              0.55 - echo * 0.1,
+            );
+          }
+          const reach = {
+            x: player.x + dx * Math.min(1, easeOut * 1.18),
+            y: player.y + dy * Math.min(1, easeOut * 1.18),
+          };
+          if (id === 'singularity' || id === 'null' || id === 'polarity') {
+            for (let wave = 0; wave < 3; wave++) {
+              ring(player.x, player.y, board.cell * (0.2 + easeOut * (0.22 + wave * 0.16)), wave % 2 ? accent : primary, 0.6 - wave * 0.12);
+            }
+          } else if (id === 'phase' || id === 'predator' || id === 'colossus' || id === 'arsenal') {
+            ctx.lineWidth = board.cell * 0.1;
+            line(player, reach, primary, 0.84);
+            line(
+              { x: reach.x - uy * board.cell * 0.16, y: reach.y + ux * board.cell * 0.16 },
+              { x: reach.x + uy * board.cell * 0.16, y: reach.y - ux * board.cell * 0.16 },
+              accent,
+              0.8,
+            );
+          } else {
+            arrow(player, reach, primary);
+            ring(reach.x, reach.y, board.cell * (0.08 + easeOut * 0.18), accent, 0.75);
+          }
+        } else if (execution.action === 'alternate') {
+          for (let arc = 0; arc < 3; arc++) {
+            ctx.strokeStyle = arc % 2 ? accent : primary;
+            ctx.lineWidth = board.cell * (0.025 + arc * 0.012);
+            ctx.beginPath();
+            ctx.arc(
+              player.x,
+              player.y,
+              board.cell * (0.22 + arc * 0.1),
+              -Math.PI * 0.8 + easeOut * Math.PI * 1.6,
+              Math.PI * 0.8 + easeOut * Math.PI * 1.6,
+            );
+            ctx.stroke();
+          }
+          if (id === 'rift') {
+            ring(player.x - board.cell * 0.42, player.y, board.cell * 0.18, primary, 0.8);
+            ring(player.x + board.cell * 0.42, player.y, board.cell * 0.18, accent, 0.8);
+            arrow(
+              { x: player.x - board.cell * 0.25, y: player.y },
+              { x: player.x + board.cell * 0.25, y: player.y },
+              '#f8fafc',
+            );
+          } else if (id === 'gridshift' || id === 'architect' || id === 'resonance') {
+            arrow(
+              { x: board.x + board.cell * 0.25, y: player.y },
+              { x: board.x + board.boardW - board.cell * 0.25, y: player.y },
+              accent,
+            );
+          }
+        } else {
+          const close = 1 - easeOut;
+          ctx.fillStyle = primary;
+          ctx.globalAlpha = 0.09 + fade * 0.18;
+          ctx.beginPath();
+          ctx.arc(player.x, player.y, board.cell * (0.48 - close * 0.2), Math.PI, 0);
+          ctx.lineTo(player.x + board.cell * 0.3, player.y + board.cell * 0.3);
+          ctx.lineTo(player.x - board.cell * 0.3, player.y + board.cell * 0.3);
+          ctx.closePath();
+          ctx.fill();
+          for (let brace = 0; brace < 3; brace++) {
+            ring(player.x, player.y, board.cell * (0.18 + brace * 0.1 - close * 0.06), brace === 1 ? accent : primary, 0.72 - brace * 0.12);
+          }
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = Math.max(0, fade) * 0.95;
+        ctx.fillStyle = '#f8fafc';
+        ctx.font = `800 ${Math.max(10, board.cell * 0.13)}px system-ui`;
+        ctx.textAlign = 'center';
+        const commandIndex = execution.action === 'primary' ? 0 : execution.action === 'alternate' ? 1 : 2;
+        ctx.fillText(
+          execution.action === 'activate' ? RIVAL_SKILL_LABELS[id] : RIVAL_SKILL_COMMANDS[id][commandIndex],
+          player.x,
+          player.y - board.cell * (0.5 + easeOut * 0.13),
+        );
+        ctx.restore();
+      }
+
+      if (id === 'chrono' || id === 'causality') {
+        ring(player.x, player.y, board.cell * (0.35 + pulse * 0.06));
+        ctx.globalAlpha = 0.75 * intro;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(player.x + Math.cos(t * 2.4) * board.cell * 0.24, player.y + Math.sin(t * 2.4) * board.cell * 0.24);
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(player.x + Math.cos(-t * 0.8) * board.cell * 0.17, player.y + Math.sin(-t * 0.8) * board.cell * 0.17);
+        ctx.stroke();
+        enemies.forEach((enemy) => ring(enemy.x, enemy.y, board.cell * 0.16, primary, 0.32));
+      } else if (id === 'singularity') {
+        const core = { x: board.x + board.boardW * 0.5, y: board.y + board.boardH * 0.5 };
+        for (let i = 0; i < 3; i++) ring(core.x, core.y, board.cell * (0.14 + i * 0.13 + pulse * 0.035), i === 1 ? accent : primary, 0.5);
+        enemies.forEach((enemy) => arrow(enemy, core, primary));
+      } else if (id === 'rift') {
+        const a = center(0, state.player.row);
+        const b = center(5, 2 - state.player.row);
+        ring(a.x, a.y, board.cell * (0.22 + pulse * 0.05), primary, 0.85);
+        ring(b.x, b.y, board.cell * (0.22 + (1 - pulse) * 0.05), accent, 0.85);
+        line(a, b, '#e9d5ff', 0.3);
+      } else if (id === 'architect' || id === 'gridshift') {
+        for (let row = 0; row < 3; row++) {
+          const offset = id === 'gridshift' ? Math.sin(t * 3 + row) * board.cell * 0.08 : 0;
+          ctx.globalAlpha = (row === Math.floor(t) % 3 ? 0.72 : 0.26) * intro;
+          ctx.strokeStyle = row % 2 ? accent : primary;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(board.x + offset + 3, board.y + row * board.cell + 3, board.boardW - 6, board.cell - 6);
+          if (id === 'gridshift') arrow(
+            { x: board.x + board.cell * 0.3, y: board.y + (row + 0.5) * board.cell },
+            { x: board.x + board.cell * 0.65, y: board.y + (row + 0.5) * board.cell },
+            row % 2 ? accent : primary,
+          );
+        }
+      } else if (id === 'resonance') {
+        const points = [center(0, 0), center(2, 1), center(1, 2)];
+        points.forEach((point, index) => {
+          line(point, points[(index + 1) % points.length], index === 1 ? accent : primary, 0.72);
+          node(point.x, point.y, index === 1 ? accent : primary, board.cell * (0.08 + pulse * 0.025));
+        });
+      } else if (id === 'override' || id === 'hijack') {
+        enemies.forEach((enemy, index) => {
+          const mid = { x: (player.x + enemy.x) / 2, y: (player.y + enemy.y) / 2 + Math.sin(t * 5 + index) * 5 };
+          line(player, mid, primary, 0.6);
+          line(mid, enemy, accent, 0.6);
+          node(enemy.x, enemy.y, index % 2 ? primary : accent, board.cell * 0.045);
+        });
+      } else if (id === 'exchange' || id === 'assimilation') {
+        enemies.slice(0, 4).forEach((enemy, index) => arrow(
+          index % 2 && id === 'exchange' ? player : enemy,
+          index % 2 && id === 'exchange' ? enemy : player,
+          index % 2 ? accent : primary,
+        ));
+        ring(player.x, player.y, board.cell * (0.2 + pulse * 0.08), accent, 0.72);
+      } else if (id === 'vector' || id === 'polarity') {
+        enemies.forEach((enemy, index) => {
+          if (id === 'vector') arrow(enemy, { x: enemy.x - board.cell * 0.42, y: enemy.y }, index % 2 ? accent : primary);
+          else {
+            ring(enemy.x, enemy.y, board.cell * 0.18, index % 2 ? accent : primary, 0.6);
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = index % 2 ? accent : primary;
+            ctx.font = `700 ${Math.max(12, board.cell * 0.22)}px system-ui`;
+            ctx.textAlign = 'center';
+            ctx.fillText(index % 2 ? '−' : '+', enemy.x, enemy.y + board.cell * 0.07);
+          }
+        });
+      } else if (id === 'counter') {
+        ctx.globalAlpha = 0.7 * intro;
+        ctx.strokeStyle = primary;
+        ctx.lineWidth = board.cell * 0.055;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, board.cell * 0.34, -Math.PI * 0.72, Math.PI * 0.72);
+        ctx.stroke();
+        enemies.forEach((enemy) => line(enemy, player, accent, 0.24));
+      } else if (id === 'phase' || id === 'predator') {
+        ctx.setLineDash([board.cell * 0.08, board.cell * 0.07]);
+        enemies.slice(0, 4).forEach((enemy, index) => {
+          reticle(enemy, index === 0 ? accent : primary);
+          line(index === 0 ? player : enemies[index - 1], enemy, primary, 0.42);
+        });
+        ctx.setLineDash([]);
+      } else if (id === 'phoenix' || id === 'sovereign') {
+        for (let i = 0; i < 7; i++) {
+          const angle = (i / 7) * Math.PI * 2 + t * 0.35;
+          const inner = board.cell * 0.2;
+          const outer = board.cell * (0.38 + pulse * 0.08);
+          line(
+            { x: player.x + Math.cos(angle) * inner, y: player.y + Math.sin(angle) * inner },
+            { x: player.x + Math.cos(angle) * outer, y: player.y + Math.sin(angle) * outer },
+            i % 2 ? accent : primary,
+            0.72,
+          );
+        }
+        ring(player.x, player.y, board.cell * 0.23, primary, 0.65);
+      } else if (id === 'null') {
+        ctx.globalAlpha = 0.22 * intro;
+        ctx.fillStyle = primary;
+        ctx.fillRect(board.x, board.y, board.boardW, board.boardH);
+        enemies.forEach((enemy) => {
+          ring(enemy.x, enemy.y, board.cell * 0.17, '#818cf8', 0.5);
+          line({ x: enemy.x - board.cell * 0.11, y: enemy.y - board.cell * 0.11 }, { x: enemy.x + board.cell * 0.11, y: enemy.y + board.cell * 0.11 }, '#f8fafc', 0.55);
+        });
+      } else if (id === 'orbital') {
+        enemies.slice(0, 4).forEach((enemy, index) => {
+          reticle(enemy, index % 2 ? accent : primary);
+          const top = { x: enemy.x, y: board.y - board.cell * (0.25 + pulse * 0.15) };
+          line(top, enemy, index % 2 ? accent : primary, 0.45);
+        });
+      } else if (id === 'colossus') {
+        const w = board.cell * 0.78;
+        const h = board.cell * 1.45;
+        ctx.globalAlpha = 0.55 * intro;
+        ctx.strokeStyle = primary;
+        ctx.lineWidth = board.cell * 0.045;
+        ctx.strokeRect(player.x - w / 2, player.y - h / 2, w, h);
+        ring(player.x, player.y - h * 0.28, board.cell * 0.2, accent, 0.65);
+        line({ x: player.x - w / 2, y: player.y }, { x: player.x - w * 0.82, y: player.y + h * 0.2 }, accent, 0.7);
+        line({ x: player.x + w / 2, y: player.y }, { x: player.x + w * 0.82, y: player.y + h * 0.2 }, accent, 0.7);
+      } else {
+        // Apex and the two Arsenal disciplines visibly build a changing combat form.
+        const sides = id === 'apex' ? 6 : 8;
+        ctx.globalAlpha = 0.7 * intro;
+        ctx.strokeStyle = primary;
+        ctx.lineWidth = board.cell * 0.045;
+        ctx.beginPath();
+        for (let i = 0; i <= sides; i++) {
+          const angle = (i / sides) * Math.PI * 2 + t * 0.55;
+          const radius = board.cell * (0.28 + (i % 2) * 0.08 + pulse * 0.025);
+          const x = player.x + Math.cos(angle) * radius;
+          const y = player.y + Math.sin(angle) * radius;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        for (let i = 0; i < 4; i++) {
+          const angle = t * (i % 2 ? -1.4 : 1.4) + i * Math.PI / 2;
+          node(player.x + Math.cos(angle) * board.cell * 0.36, player.y + Math.sin(angle) * board.cell * 0.36, i % 2 ? accent : primary);
+        }
+      }
+      ctx.restore();
+      frame = requestAnimationFrame(render);
+    };
+    frame = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(frame);
+  }, [id, stateRef]);
+
+  return <canvas ref={canvasRef} className="signatureSkillFx" aria-hidden="true" />;
+}
 
 const emptyCloneView = (): CloneView => ({
   visible: false,
@@ -4770,7 +5176,11 @@ export default function Game() {
     const active = rivalSkillRef.current;
     if (!active.active || !active.id) return;
     const s = stateRef.current;
-    let next = { ...active };
+    let next = {
+      ...active,
+      actionTick: active.actionTick + 1,
+      lastAction: action,
+    };
     if (active.id === 'chrono') {
       if (action === 'primary') {
         if (next.placements.length < 5) next.placements = [...next.placements, s.player.row];
@@ -5287,6 +5697,8 @@ export default function Game() {
     const next: RivalSkillView = {
       active: true,
       id,
+      actionTick: 0,
+      lastAction: 'activate',
       mode: initialMode,
       charges: 0,
       placements: [],
@@ -7280,6 +7692,15 @@ export default function Game() {
             );
           })}
         </>
+      )}
+
+      {phase === 'playing' && rivalSkillView.active && rivalSkillView.id && (
+        <SignatureSkillFx
+          id={rivalSkillView.id}
+          stateRef={stateRef}
+          actionTick={rivalSkillView.actionTick}
+          lastAction={rivalSkillView.lastAction}
+        />
       )}
 
       {phase === 'playing' && rivalSkillView.active && rivalSkillView.id && (
