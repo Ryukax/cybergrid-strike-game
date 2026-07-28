@@ -29,7 +29,7 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
-import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability } from '../game/types';
+import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability, Bullet } from '../game/types';
 import {
   ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME,
   ENEMY_ABILITY_FIRST_CAST_MIN, ENEMY_ABILITY_FIRST_CAST_RANGE, ENEMY_ABILITY_WINDUP,
@@ -2954,33 +2954,9 @@ export default function Game() {
     }
   }, []);
 
-  const fireBullet = useCallback((rowOverride?: number, opts?: {
-    power?: number;
-    big?: boolean;
-    pierce?: boolean;
-    originCol?: number;
-  }) => {
-    const s = stateRef.current;
-    const row = rowOverride !== undefined ? rowOverride : s.player.row;
-    let power = opts?.power ?? 1;
-    let big = opts?.big ?? false;
-    let pierce = opts?.pierce ?? false;
-    s.shotsFired++;
-    const phaseLevel = s.runUpgrades.phaseRounds ?? 0;
-    const phaseInterval = Math.max(3, 6 - phaseLevel);
-    if (phaseLevel > 0 && s.shotsFired % phaseInterval === 0) pierce = true;
-    const denseLevel = s.runUpgrades.denseCharge ?? 0;
-    if (denseLevel > 0 && s.shotsFired % 4 === 0) power += denseLevel;
-    if (s.voltageTimer > 0) { big = true; pierce = true; }
-    if (s.doubleTimer > 0) power *= 2;
-    if (!pierce && s.pierceShots > 0) {
-      pierce = true;
-      s.pierceShots = Math.max(0, s.pierceShots - 1);
-    }
-    if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
-    const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+  type AttackStyle = NonNullable<Bullet['attackStyle']>;
+  const resolveAttackStyle = useCallback((): AttackStyle => {
     const skin = playerSkinRef.current;
-    type AttackStyle = NonNullable<(typeof s.bullets)[number]['attackStyle']>;
     const skinAttackLanguage: Record<PlayerSkin, AttackStyle> = {
       default: 'physical',
       rocket: 'physical',
@@ -3011,31 +2987,57 @@ export default function Game() {
       hijack: 'swarm',
       sovereign: 'energy',
     };
-    let attackStyle: AttackStyle = skinAttackLanguage[skin];
-    if (skin === 'assembly') {
-      try {
-        const equipped = JSON.parse(localStorage.getItem(EQUIPPED_COMPONENTS_KEY) ?? '{}') as EquippedAvatarComponents;
-        const weapon = avatarComponentsRef.current.find((part) =>
-          part.slot === 'weapon' && part.id === equipped.weapon);
-        const weaponLanguage = `${weapon?.name ?? ''} ${weapon?.id ?? ''}`.toLowerCase();
-        attackStyle = /blade|sword|scythe|claw|talon|gauntlet|axe/.test(weaponLanguage)
-          ? 'melee'
-          : /swarm|hive|drone|colony/.test(weaponLanguage) ? 'swarm'
-            : /chrono|clock|causal|time/.test(weaponLanguage) ? 'temporal'
-              : /gravity|mass|singularity/.test(weaponLanguage) ? 'gravity'
-                : /rift|portal|gate/.test(weaponLanguage) ? 'portal'
-                  : /null|silence|suppress/.test(weaponLanguage) ? 'suppression'
-                    : /polar|magnet/.test(weaponLanguage) ? 'polarity'
-                      : /resonan|harmonic|chime/.test(weaponLanguage) ? 'resonance'
-                        : /orbital|beacon|designator/.test(weaponLanguage) ? 'orbital'
-                          : /reflect|mirror|counter/.test(weaponLanguage) ? 'reflective'
-                            : /arc|beam|caster|phase|pulse|prism|energy|void|radiant/.test(weaponLanguage)
-            ? 'energy'
-            : 'physical';
-      } catch {
-        attackStyle = 'physical';
-      }
+    if (skin !== 'assembly') return skinAttackLanguage[skin];
+    try {
+      const equipped = JSON.parse(localStorage.getItem(EQUIPPED_COMPONENTS_KEY) ?? '{}') as EquippedAvatarComponents;
+      const weapon = avatarComponentsRef.current.find((part) =>
+        part.slot === 'weapon' && part.id === equipped.weapon);
+      const weaponLanguage = `${weapon?.name ?? ''} ${weapon?.id ?? ''}`.toLowerCase();
+      return /blade|sword|scythe|claw|talon|gauntlet|axe/.test(weaponLanguage)
+        ? 'melee'
+        : /swarm|hive|drone|colony/.test(weaponLanguage) ? 'swarm'
+          : /chrono|clock|causal|time/.test(weaponLanguage) ? 'temporal'
+            : /gravity|mass|singularity/.test(weaponLanguage) ? 'gravity'
+              : /rift|portal|gate/.test(weaponLanguage) ? 'portal'
+                : /null|silence|suppress/.test(weaponLanguage) ? 'suppression'
+                  : /polar|magnet/.test(weaponLanguage) ? 'polarity'
+                    : /resonan|harmonic|chime/.test(weaponLanguage) ? 'resonance'
+                      : /orbital|beacon|designator/.test(weaponLanguage) ? 'orbital'
+                        : /reflect|mirror|counter/.test(weaponLanguage) ? 'reflective'
+                          : /arc|beam|caster|phase|pulse|prism|energy|void|radiant/.test(weaponLanguage)
+                            ? 'energy'
+                            : 'physical';
+    } catch {
+      return 'physical';
     }
+  }, []);
+
+  const fireBullet = useCallback((rowOverride?: number, opts?: {
+    power?: number;
+    big?: boolean;
+    pierce?: boolean;
+    originCol?: number;
+  }) => {
+    const s = stateRef.current;
+    const row = rowOverride !== undefined ? rowOverride : s.player.row;
+    let power = opts?.power ?? 1;
+    let big = opts?.big ?? false;
+    let pierce = opts?.pierce ?? false;
+    s.shotsFired++;
+    const phaseLevel = s.runUpgrades.phaseRounds ?? 0;
+    const phaseInterval = Math.max(3, 6 - phaseLevel);
+    if (phaseLevel > 0 && s.shotsFired % phaseInterval === 0) pierce = true;
+    const denseLevel = s.runUpgrades.denseCharge ?? 0;
+    if (denseLevel > 0 && s.shotsFired % 4 === 0) power += denseLevel;
+    if (s.voltageTimer > 0) { big = true; pierce = true; }
+    if (s.doubleTimer > 0) power *= 2;
+    if (!pierce && s.pierceShots > 0) {
+      pierce = true;
+      s.pierceShots = Math.max(0, s.pierceShots - 1);
+    }
+    if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
+    const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+    const attackStyle = resolveAttackStyle();
     s.bullets.push({
       colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
       row,
@@ -3065,7 +3067,7 @@ export default function Game() {
       setAssemblyAttackPulse((pulse) => pulse + 1);
     }
     if (playerOriginShot && RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)) rivalShootFlash();
-  }, [rocketShootFlash, gemShootFlash, rivalShootFlash]);
+  }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
@@ -3385,7 +3387,15 @@ export default function Game() {
       showMessage(`EMP disabled ${hit} cyber entit${hit === 1 ? 'y' : 'ies'}!`, 1500);
 
     } else if (type === 'snipe') {
-      s.bullets.push({ colPos: s.player.col + 0.55, row: s.player.row, speed: 16, power: 5, big: true, pierce: true });
+      s.bullets.push({
+        colPos: s.player.col + 0.55,
+        row: s.player.row,
+        speed: 16,
+        power: 5,
+        big: true,
+        pierce: true,
+        attackStyle: resolveAttackStyle(),
+      });
       playShot();
       showMessage('Sniper — power-5 mega-shot fired!', 1200);
 
@@ -3556,7 +3566,15 @@ export default function Game() {
         fireBullet(s.player.row, { power: 3, pierce: true });
         eloAttackDirectionRef.current = original;
       } else {
-        s.bullets.push({ colPos: s.player.col - 0.55, row: s.player.row, speed: -8.5, power: 3, big: false, pierce: true });
+        s.bullets.push({
+          colPos: s.player.col - 0.55,
+          row: s.player.row,
+          speed: -8.5,
+          power: 3,
+          big: false,
+          pierce: true,
+          attackStyle: resolveAttackStyle(),
+        });
       }
       showMessage('Rearguard fired in both directions!', 1200);
     } else if (type === 'arcweb') {
@@ -3731,7 +3749,7 @@ export default function Game() {
     s.usedInHand = [...s.usedInHand, type];
 
     updateHud();
-  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle]);
+  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -5745,7 +5763,15 @@ export default function Game() {
             if (s.score % 500 === 0) s.wave++;
             if (s.drainTimer > 0) { s.hp++; }
             if (s.overloadTimer > 0) {
-              s.bullets.push({ colPos: s.player.col + 0.55, row: e.row, speed: 8.5, power: 1, big: false, pierce: false });
+              s.bullets.push({
+                colPos: s.player.col + 0.55,
+                row: e.row,
+                speed: 8.5,
+                power: 1,
+                big: false,
+                pierce: false,
+                attackStyle: resolveAttackStyle(),
+              });
             }
             // VS mode: killing a red enemy sends a green attack at the NPC
             if (s.gameMode === 'vs') {
@@ -5877,7 +5903,7 @@ export default function Game() {
         }
       }
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
