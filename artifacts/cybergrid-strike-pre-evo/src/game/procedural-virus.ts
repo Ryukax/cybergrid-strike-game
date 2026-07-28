@@ -504,6 +504,7 @@ function graft(
   genome: EnemyGenome,
   region: MatrixRegion,
   alpha: number,
+  kind?: GenericComponentKind,
 ): void {
   if (!ready(image)) return;
   ctx.save();
@@ -512,28 +513,83 @@ function graft(
   ctx.globalAlpha = alpha;
   ctx.filter = genomeFilter(genome, seed);
   if (region === 'head') {
-    // Normalize every donor's head/sensor mass into a shared upper socket.
-    drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
+    // Heads contribute functional subregions rather than recognizable whole
+    // animal, fungus or machine heads.
+    if (kind === 'crown') {
+      drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.32, 7, 1, 34, 13);
+    } else if (kind === 'maw') {
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.18, image.naturalHeight * 0.28,
+        image.naturalWidth * 0.64, image.naturalHeight * 0.28,
+        9, 10, 30, 13,
+      );
+    } else if (kind === 'optic') {
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.28, image.naturalHeight * 0.08,
+        image.naturalWidth * 0.44, image.naturalHeight * 0.42,
+        12, 3, 24, 20,
+      );
+    } else if (kind === 'sensor') {
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.36, 0,
+        image.naturalWidth * 0.28, image.naturalHeight * 0.55,
+        15, 0, 18, 24,
+      );
+    } else {
+      drawOriented(ctx, image, base, 0, 0, image.naturalWidth, image.naturalHeight * 0.58, 3, 0, 42, 25);
+    }
   } else if (region === 'locomotion') {
     // Feet, roots, wheels, tails and tentacles occupy a stable lower socket.
     const cropY = image.naturalHeight * 0.44;
-    if (base === 'vehicle' || base === 'turret') {
+    if (kind === 'fins') {
+      // A serpentine or aquatic donor contributes only its tail/keel, never
+      // an intact snake or fish body.
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.42, cropY,
+        image.naturalWidth * 0.58, image.naturalHeight - cropY,
+        5, 28, 40, 17,
+      );
+    } else if (kind === 'treads') {
       // Wide low wheel/tread carriage.
       drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 0, 27, 48, 19);
-    } else if (base === 'drone' || base === 'avian' || base === 'data-wraith') {
+    } else if (kind === 'wings' || kind === 'hover') {
       // Compact aerial/hover propulsion with clearance under the core.
       drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 4, 23, 40, 21);
-    } else if (base === 'serpent' || base === 'snail' || base === 'fish') {
-      // Long tail, keel or muscular foot.
-      drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 0, 25, 48, 21);
-    } else if (base === 'cephalopod' || base === 'plant' || base === 'fungus' || base === 'jelly') {
+    } else if (kind === 'tendrils' || kind === 'roots') {
       // Deep tentacle/root cluster.
       drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 3, 18, 42, 30);
     } else {
       drawOriented(ctx, image, base, 0, cropY, image.naturalWidth, image.naturalHeight - cropY, 1, 21, 46, 27);
     }
   } else {
-    drawFitted(ctx, image, base, seed, genome);
+    if (kind === 'armor') {
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.18, image.naturalHeight * 0.16,
+        image.naturalWidth * 0.64, image.naturalHeight * 0.62,
+        4, 8, 40, 33,
+      );
+    } else if (kind === 'weapon' || kind === 'emitter') {
+      drawOriented(
+        ctx, image, base,
+        image.naturalWidth * 0.48, image.naturalHeight * 0.12,
+        image.naturalWidth * 0.5, image.naturalHeight * 0.72,
+        24, 8, 23, 34,
+      );
+    } else if (kind === 'growth') {
+      drawOriented(
+        ctx, image, base,
+        0, 0,
+        image.naturalWidth * 0.55, image.naturalHeight * 0.72,
+        1, 7, 25, 35,
+      );
+    } else {
+      drawFitted(ctx, image, base, seed, genome);
+    }
   }
   ctx.filter = 'none';
   ctx.restore();
@@ -751,6 +807,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     genome,
     'head',
     0.98,
+    headComponent ? genericComponentKind(headComponent) : undefined,
   );
   graft(
     ctx,
@@ -760,6 +817,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     genome,
     'locomotion',
     0.97,
+    locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
   );
   if (flankComponent && flankImage) {
     graft(
@@ -770,6 +828,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       genome,
       'flank',
       genome.fusionLevel > 0 ? 0.68 : 0.86,
+      genericComponentKind(flankComponent),
     );
   }
   if (genome.fusionLevel > 0 && fusionOutcome && fusionBase !== genome.baseElement) {
