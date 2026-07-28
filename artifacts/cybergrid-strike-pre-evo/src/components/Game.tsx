@@ -8,21 +8,39 @@ import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 function SkinPreviewCanvas({ src }: { src: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
+    let cancelled = false;
     const img = new Image();
-    img.onload = () => {
+    img.onload = async () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      ctx.drawImage(img, 0, 0, 48, 48);
+      let frame: CanvasImageSource = img;
+      let disposable: ImageBitmap | undefined;
+      if (src.includes('/skins/skill-') || src.includes('skins/skill-')) {
+        const bitmap = await createImageBitmap(img);
+        disposable = await sanitizeRivalSkinFrame(bitmap);
+        frame = disposable;
+      }
+      if (cancelled) {
+        disposable?.close();
+        return;
+      }
+      ctx.clearRect(0, 0, 48, 48);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(frame, 0, 0, 48, 48);
       const id = ctx.getImageData(0, 0, 48, 48);
       const d  = id.data;
       for (let i = 0; i < d.length; i += 4) {
         if (d[i] > 210 && d[i + 1] > 210 && d[i + 2] > 210) d[i + 3] = 0;
       }
       ctx.putImageData(id, 0, 0);
+      disposable?.close();
     };
     img.src = src;
+    return () => {
+      cancelled = true;
+    };
   }, [src]);
   return (
     <canvas ref={canvasRef} width={48} height={48}
