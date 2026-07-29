@@ -232,6 +232,10 @@ canvas#canvas {
   transform-box: fill-box;
   transform-origin: center;
 }
+.matrixCells .cell path {
+  transform-box: fill-box;
+  transform-origin: center;
+}
 .constructBlockPosition {
   transform-box: view-box;
   transform-origin: 0 0;
@@ -243,6 +247,42 @@ canvas#canvas {
 .matrixCells .blockTop { fill: #67e8f9; }
 .matrixCells .blockLeft { fill: #0e7490; }
 .matrixCells .blockRight { fill: #2563eb; }
+.matrixCells .reconstructing .blockTop {
+  animation: assembleTop .78s cubic-bezier(.16, 1, .3, 1) both;
+}
+.matrixCells .reconstructing .blockLeft {
+  animation: assembleLeft .78s cubic-bezier(.16, 1, .3, 1) both;
+}
+.matrixCells .reconstructing .blockRight {
+  animation: assembleRight .78s cubic-bezier(.16, 1, .3, 1) both;
+}
+.matrixCells .deconstructing .blockTop {
+  animation: dismantleTop .78s cubic-bezier(.7, 0, .84, 0) both;
+}
+.matrixCells .deconstructing .blockLeft {
+  animation: dismantleLeft .78s cubic-bezier(.7, 0, .84, 0) both;
+}
+.matrixCells .deconstructing .blockRight {
+  animation: dismantleRight .78s cubic-bezier(.7, 0, .84, 0) both;
+}
+@keyframes assembleTop {
+  from { opacity: 0; transform: translate(0, -22px) scale(.4); }
+}
+@keyframes assembleLeft {
+  from { opacity: 0; transform: translate(-20px, 13px) scale(.4); }
+}
+@keyframes assembleRight {
+  from { opacity: 0; transform: translate(20px, 13px) scale(.4); }
+}
+@keyframes dismantleTop {
+  to { opacity: 0; transform: translate(0, -24px) rotate(12deg) scale(.3); }
+}
+@keyframes dismantleLeft {
+  to { opacity: 0; transform: translate(-23px, 15px) rotate(-12deg) scale(.3); }
+}
+@keyframes dismantleRight {
+  to { opacity: 0; transform: translate(23px, 15px) rotate(12deg) scale(.3); }
+}
 .matrixCells .adding {
   animation: cellConstruct .9s cubic-bezier(.16, 1, .3, 1) both;
 }

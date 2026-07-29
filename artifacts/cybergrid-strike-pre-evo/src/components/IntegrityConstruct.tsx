@@ -52,8 +52,50 @@ export function IntegrityConstruct({
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
-  const completion = activePlayers === null ? localCompletion : Math.max(0, Math.min(1, coreUnits / 1_000));
+  const networkCompletion = Math.max(0, Math.min(1, coreUnits / 1_000));
+  // Live match integrity moves the artifact immediately; the authoritative
+  // network core anchors half of the persistent material total.
+  const completion = activePlayers === null
+    ? localCompletion
+    : networkCompletion * .5 + localCompletion * .5;
   const activeCells = Math.max(3, Math.round(CELLS.length * completion));
+  const [transforming, setTransforming] = useState<{
+    mode: 'reconstructing' | 'deconstructing';
+    cells: Set<string>;
+  } | null>(null);
+  const previousMetricsRef = useRef({
+    integrityWork,
+    node: integrity.node,
+    activeCells,
+  });
+  useEffect(() => {
+    const previous = previousMetricsRef.current;
+    const workGain = Math.max(0, integrityWork - previous.integrityWork);
+    const nodeChange = integrity.node - previous.node;
+    let mode: 'reconstructing' | 'deconstructing' | null = null;
+    if (nodeChange < -.04) mode = 'deconstructing';
+    else if (workGain > 0 || nodeChange > .04) mode = 'reconstructing';
+    if (mode) {
+      const magnitude = Math.min(6, Math.max(
+        1,
+        Math.ceil(Math.abs(nodeChange) * .65 + Math.sqrt(workGain) / 4),
+      ));
+      const start = mode === 'deconstructing'
+        ? Math.max(0, Math.min(activeCells, previous.activeCells) - magnitude)
+        : Math.max(0, activeCells - magnitude);
+      const end = mode === 'deconstructing'
+        ? Math.max(activeCells, previous.activeCells)
+        : activeCells;
+      setTransforming({
+        mode,
+        cells: new Set(CELLS.slice(start, end).map((cell) => String(cell.id))),
+      });
+      const timer = window.setTimeout(() => setTransforming(null), 820);
+      previousMetricsRef.current = { integrityWork, node: integrity.node, activeCells };
+      return () => window.clearTimeout(timer);
+    }
+    previousMetricsRef.current = { integrityWork, node: integrity.node, activeCells };
+  }, [activeCells, integrity.node, integrityWork]);
   useEffect(() => {
     const previousCount = previousCellCountRef.current;
     previousCellCountRef.current = activeCells;
@@ -77,10 +119,10 @@ export function IntegrityConstruct({
     + researchCoherence
     + Math.max(-12, Math.min(12, coreDelta))
   ) / 100));
-  const restorationFlow = coreDelta > 0
+  const restorationFlow = coreDelta > 0 || transforming?.mode === 'reconstructing'
     ? Math.min(6, Math.max(1, Math.ceil(coreDelta / 3) + Math.floor(helperTotal / 2)))
     : 0;
-  const corruptionFlow = coreDelta < 0
+  const corruptionFlow = coreDelta < 0 || transforming?.mode === 'deconstructing'
     ? Math.min(6, Math.max(1, Math.ceil(Math.abs(coreDelta) / 3)))
     : 0;
   const constructStyle = {
@@ -170,7 +212,9 @@ export function IntegrityConstruct({
                 }}
               >
                 <g
-                  className={`cell ${active ? 'active' : 'exiting'} ${transition}`}
+                  className={`cell ${active ? 'active' : 'exiting'} ${transition} ${
+                    transforming?.cells.has(cellId) ? transforming.mode : ''
+                  }`}
                   style={{ animationDelay: `${((index + workPulse) % 7) * 0.035}s` }}
                 >
                   <path className="blockTop" d="M0 -9 L12 -3 L0 3 L-12 -3 Z" />
