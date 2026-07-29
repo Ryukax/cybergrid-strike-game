@@ -8555,7 +8555,7 @@ export default function Game() {
         )}
       </div>
 
-      {phase === 'playing' && integrityConstructVisible && (
+      {phase === 'playing' && (
         <div id="ecosystemHud">
           <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
           <span className="integrityMetric global">
@@ -8581,7 +8581,7 @@ export default function Game() {
         </div>
       )}
 
-      {phase === 'playing' && (
+      {phase === 'playing' && integrityConstructVisible && (
         <IntegrityConstruct
           integrityWork={hud.integrityWork}
           integrity={hud.systemIntegrity}
