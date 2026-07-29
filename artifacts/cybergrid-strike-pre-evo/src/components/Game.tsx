@@ -130,6 +130,7 @@ const CYBER_BASES = new Set([
 ]);
 const BESTIARY_KEY = 'cgs_bestiary_v1';
 const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
+const INTEGRITY_CONSTRUCT_VISIBLE_KEY = 'cgs_integrity_construct_visible_v1';
 const LEARNED_ABILITIES_KEY = 'cgs_learned_abilities_v1';
 const PLAYSTYLE_SIGNALS_KEY = 'cgs_playstyle_signals_v1';
 const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
@@ -3557,6 +3558,9 @@ export default function Game() {
   const pauseOptionsRef = useRef(false);
   const [virtualDpadEnabled, setVirtualDpadEnabled] = useState(
     () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
+  );
+  const [integrityConstructVisible, setIntegrityConstructVisible] = useState(
+    () => localStorage.getItem(INTEGRITY_CONSTRUCT_VISIBLE_KEY) !== 'off',
   );
   const [skillFxRun, setSkillFxRun] = useState(0);
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
@@ -8140,6 +8144,14 @@ export default function Game() {
     });
   };
 
+  const toggleIntegrityConstruct = () => {
+    setIntegrityConstructVisible((visible) => {
+      const next = !visible;
+      localStorage.setItem(INTEGRITY_CONSTRUCT_VISIBLE_KEY, next ? 'on' : 'off');
+      return next;
+    });
+  };
+
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const equippedAssemblyParts = AVATAR_SLOTS
     .map((slot) => avatarComponents.find((component) => component.id === equippedAvatarComponents[slot]))
@@ -8234,6 +8246,21 @@ export default function Game() {
           <small>Show the on-screen movement control</small>
         </span>
         <b>{virtualDpadEnabled ? 'ON' : 'OFF'}</b>
+      </button>
+      <button
+        id={pausedView ? 'pauseIntegrityToggleBtn' : 'menuIntegrityToggleBtn'}
+        className="optionToggleBtn"
+        aria-pressed={integrityConstructVisible}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleIntegrityConstruct();
+        }}
+      >
+        <span>
+          <strong>SYSTEM INTEGRITY WINDOW</strong>
+          <small>Show the live synchronization construct during play</small>
+        </span>
+        <b>{integrityConstructVisible ? 'ON' : 'OFF'}</b>
       </button>
       <button
         id="menuBackBtn"
@@ -8528,7 +8555,7 @@ export default function Game() {
         )}
       </div>
 
-      {phase === 'playing' && (
+      {phase === 'playing' && integrityConstructVisible && (
         <div id="ecosystemHud">
           <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
           <span className="integrityMetric global">
