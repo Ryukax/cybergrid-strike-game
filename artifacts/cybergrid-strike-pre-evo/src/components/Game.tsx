@@ -3979,7 +3979,7 @@ export default function Game() {
       return;
     }
     const sequence = new Image();
-    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=3`;
+    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=4`;
     rivalAttackSequenceRef.current = sequence;
     return () => {
       if (rivalAttackSequenceRef.current === sequence) {
