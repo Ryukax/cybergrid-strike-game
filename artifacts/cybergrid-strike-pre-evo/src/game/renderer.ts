@@ -834,11 +834,10 @@ function drawSkinProjectileEffect(
     + travelPhase
     + skinPhase
   ) % (Math.PI * 2);
-  // Keep one coherent illustrated source throughout the shot. All animation
-  // below is continuous; swapping authored cells made the art read as a flipbook.
-  const frame = 0;
-  const sourceWidth = sheet.naturalWidth / 4;
-  const sourceHeight = sheet.naturalHeight;
+  const tweenFrames = getAdvancedProjectileTweenFrames(skin, sheet);
+  if (!tweenFrames) return false;
+  const normalizedCycle = ((cycle / (Math.PI * 2)) + 1) % 1;
+  const tweenFrame = Math.floor(normalizedCycle * tweenFrames.length) % tweenFrames.length;
   const baseSize = radius * (skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3);
   const pulse = 1 + Math.sin(cycle) * (config.motif === 2 ? 0.2 : 0.09);
   const stretch = config.motif === 0 ? 1.08 + Math.sin(cycle * 2) * 0.18 : 1;
@@ -854,14 +853,13 @@ function drawSkinProjectileEffect(
         : Math.sin(cycle) * 0.08;
   const size = baseSize * pulse;
   const drawFrame = (drawX: number, alpha: number, scale = 1, frameOffset = 0) => {
-    const drawFrameIndex = (frame + frameOffset + 4) % 4;
+    const frameStep = tweenFrames.length / 4;
+    const drawFrameIndex = (
+      tweenFrame + frameOffset * frameStep + tweenFrames.length
+    ) % tweenFrames.length;
     ctx.globalAlpha = alpha;
     ctx.drawImage(
-      sheet,
-      drawFrameIndex * sourceWidth,
-      0,
-      sourceWidth,
-      sourceHeight,
+      tweenFrames[drawFrameIndex],
       drawX - size * 0.5 * scale,
       -size * 0.5 * scale,
       size * scale,
@@ -902,8 +900,8 @@ function drawSkinProjectileEffect(
     drawFrame(0, 0.3, 0.78, 1);
   }
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
-  // The generated artwork itself remains stable while its motion is expressed
-  // through continuous rotation, deformation, translation, pulse and exposure.
+  // Tween frames are composited offscreen first, so the primary illustrated
+  // projectile reaches the battlefield once under normal alpha compositing.
   ctx.globalCompositeOperation = 'source-over';
   drawFrame(0, 1);
   ctx.restore();
@@ -911,6 +909,63 @@ function drawSkinProjectileEffect(
 }
 
 const advancedProjectileSheets = new Map<string, HTMLImageElement>();
+const advancedProjectileTweenFrames = new Map<string, HTMLCanvasElement[]>();
+
+function getAdvancedProjectileTweenFrames(
+  skin: string,
+  sheet: HTMLImageElement,
+): HTMLCanvasElement[] | null {
+  const cached = advancedProjectileTweenFrames.get(skin);
+  if (cached) return cached;
+  if (!sheet.complete || sheet.naturalWidth <= 0 || typeof document === 'undefined') return null;
+
+  const sourceWidth = sheet.naturalWidth / 4;
+  const sourceHeight = sheet.naturalHeight;
+  const stepsPerTransition = 8;
+  const frames: HTMLCanvasElement[] = [];
+  for (let sourceFrame = 0; sourceFrame < 4; sourceFrame++) {
+    const nextFrame = (sourceFrame + 1) % 4;
+    for (let step = 0; step < stepsPerTransition; step++) {
+      const blendRaw = step / stepsPerTransition;
+      const blend = blendRaw * blendRaw * (3 - 2 * blendRaw);
+      const canvas = document.createElement('canvas');
+      canvas.width = sourceWidth;
+      canvas.height = sourceHeight;
+      const frameCtx = canvas.getContext('2d');
+      if (!frameCtx) return null;
+      frameCtx.clearRect(0, 0, sourceWidth, sourceHeight);
+      frameCtx.globalCompositeOperation = 'lighter';
+      frameCtx.globalAlpha = 1 - blend;
+      frameCtx.drawImage(
+        sheet,
+        sourceFrame * sourceWidth,
+        0,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+      );
+      frameCtx.globalAlpha = blend;
+      frameCtx.drawImage(
+        sheet,
+        nextFrame * sourceWidth,
+        0,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        sourceWidth,
+        sourceHeight,
+      );
+      frames.push(canvas);
+    }
+  }
+  advancedProjectileTweenFrames.set(skin, frames);
+  return frames;
+}
+
 function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
   const cached = advancedProjectileSheets.get(skin);
   if (cached) return cached;
