@@ -3519,7 +3519,6 @@ export default function Game() {
   const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
-  const rivalAttackFxSheetRef = useRef<HTMLImageElement | null>(null);
   const rivalAttackSequenceRef = useRef<HTMLImageElement | null>(null);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
     north: null,
@@ -3972,15 +3971,6 @@ export default function Game() {
   useEffect(() => () => {
     if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
     if (skillTapTimerRef.current) clearTimeout(skillTapTimerRef.current);
-  }, []);
-
-  useEffect(() => {
-    const sheet = new Image();
-    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
-    rivalAttackFxSheetRef.current = sheet;
-    return () => {
-      rivalAttackFxSheetRef.current = null;
-    };
   }, []);
 
   useEffect(() => {
@@ -7818,39 +7808,6 @@ export default function Game() {
                   sctx.restore();
                 }
 
-                // Advanced skins use the authored raster weapon sequence,
-                // replacing the former circles, claw arcs and circuit lines.
-                const sheet = rivalAttackFxSheetRef.current;
-                if (attackWeight > 0.08 && sheet?.complete && sheet.naturalWidth > 0) {
-                  const effectProgress = Math.max(0, Math.min(1, (rivalAttackProgress - 0.16) / 0.58));
-                  const effectPosition = effectProgress * 3;
-                  const effectFrame = Math.min(2, Math.floor(effectPosition));
-                  const effectBlendRaw = effectPosition - effectFrame;
-                  const effectBlend = smoothstep(effectBlendRaw);
-                  const sourceWidth = sheet.naturalWidth / 4;
-                  const sourceHeight = sheet.naturalHeight / 4;
-                  sctx.save();
-                  sctx.globalCompositeOperation = 'screen';
-                  sctx.imageSmoothingEnabled = false;
-                  const effectAlpha = Math.sin(effectProgress * Math.PI) * 0.94;
-                  const drawEffectFrame = (frameIndex: number, alpha: number) => {
-                    sctx.globalAlpha = effectAlpha * alpha;
-                    sctx.drawImage(
-                      sheet,
-                      frameIndex * sourceWidth,
-                      0,
-                      sourceWidth,
-                      sourceHeight,
-                      sz * 0.45,
-                      sz * 0.13,
-                      sz * 0.72,
-                      sz * 0.72,
-                    );
-                  };
-                  drawEffectFrame(effectFrame, 1 - effectBlend);
-                  drawEffectFrame(effectFrame + 1, effectBlend);
-                  sctx.restore();
-                }
               } else {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
               }
