@@ -2542,6 +2542,33 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
 
+const VS_SKILL_COOLDOWN = 14;
+const VS_NPC_ABILITY_INTERVAL = 12;
+const VS_NPC_SKILL_INTERVAL = 20;
+const VS_NPC_MAX_SHIELDS = 2;
+const VS_ABILITY_DAMAGE: Record<string, number> = {
+  bomb: 2, nuke: 6, purge: 3, megabomb: 8, emp: 2, chain: 4, cluster: 4,
+  arcweb: 4, seeker: 4, shattershot: 4, marksman: 3, returnfire: 3,
+  thermalshock: 3, circuitarc: 3, acidetch: 2, radiantmark: 3,
+  voidaperture: 4, kineticram: 3, clonebreak: 3, hybridtax: 3,
+};
+const VS_ABILITY_DISRUPT = new Set([
+  'time', 'scramble', 'warpback', 'backdash', 'freeze', 'blizzard', 'gravity',
+  'rowshuffle', 'pulse', 'magnet', 'signaljam', 'stasisgate', 'oilslick',
+  'rootsnare', 'sonicnet', 'anchorfield', 'trafficjam', 'mutationlock',
+  'quarantine',
+]);
+const VS_NPC_DEFENSIVE_SKILLS = new Set<RivalSkillId>([
+  'counter', 'null', 'colossus', 'sovereign',
+]);
+const VS_NPC_CONTROL_SKILLS = new Set<RivalSkillId>([
+  'chrono', 'singularity', 'rift', 'vector', 'gridshift', 'resonance',
+  'exchange', 'causality', 'polarity',
+]);
+const VS_NPC_ASSAULT_SKILLS = new Set<RivalSkillId>([
+  'apex', 'phase', 'phoenix', 'arsenal', 'predator', 'orbital',
+]);
+
 interface RivalSkillGuide {
   summary: string;
   commands: [string, string, string];
@@ -3481,6 +3508,10 @@ export default function Game() {
   });
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
+  const rivalSkillCooldownRef = useRef(0);
+  const npcAbilityTimerRef = useRef(7);
+  const npcSkillTimerRef = useRef(11);
+  const npcInterceptCountRef = useRef(0);
 
   // Input state (refs — no re-render needed)
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
@@ -5191,6 +5222,30 @@ export default function Game() {
       showMessage(`Catalyst empowered ${marked} fusions for greater rewards!`, 1200);
     }
 
+    // In VS, ecosystem-targeted abilities also need a bounded duel expression.
+    // Direct projectile cards keep their normal collision damage; control cards
+    // delay the NPC instead of inflicting arbitrary bonus damage.
+    if (s.gameMode === 'vs') {
+      const duelDamage = VS_ABILITY_DAMAGE[type] ?? (generated ? 2 : 0);
+      if (duelDamage > 0) {
+        if (s.npc.shieldCharges > 0) {
+          s.npc.shieldCharges--;
+        } else {
+          s.npc.hp = Math.max(0, s.npc.hp - duelDamage);
+          s.score += duelDamage * 100;
+        }
+        if (s.npc.hp <= 0) {
+          updateHud();
+          endGame(true);
+          return;
+        }
+      }
+      if (VS_ABILITY_DISRUPT.has(type)) {
+        s.npc.fireCooldown += 1.15;
+        s.npc.moveCooldown += 0.7;
+      }
+    }
+
     playAbility(type);
     s.abilityCooldowns[type] = ability.cooldown;
 
@@ -5198,7 +5253,7 @@ export default function Game() {
     s.usedInHand = [...s.usedInHand, type];
 
     updateHud();
-  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle]);
+  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle, endGame]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -5827,12 +5882,24 @@ export default function Game() {
     }
     if (active.id === 'chrono') s.slowTimer = 0;
     if (active.id === 'phase') s.ghostTimer = 0;
+    if (s.gameMode === 'vs') {
+      rivalSkillCooldownRef.current = VS_SKILL_COOLDOWN;
+      // Every completed signature contributes a small verified duel impact.
+      // The skill's bullets/actions remain its primary value.
+      if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
+      else s.npc.hp = Math.max(0, s.npc.hp - 2);
+      if (s.npc.hp <= 0) {
+        updateHud();
+        endGame(true);
+        return;
+      }
+    }
     const cleared = emptyRivalSkillView();
     rivalSkillRef.current = cleared;
     setRivalSkillView(cleared);
     showMessage(`${RIVAL_SKILL_LABELS[active.id]} complete.`, 900);
     updateHud();
-  }, [fireBullet, showMessage, updateHud]);
+  }, [fireBullet, showMessage, updateHud, endGame]);
 
   const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
     const active = rivalSkillRef.current;
@@ -6369,6 +6436,10 @@ export default function Game() {
       return;
     }
     const s = stateRef.current;
+    if (s.gameMode === 'vs' && rivalSkillCooldownRef.current > 0) {
+      showMessage(`Skill synchronizing · ${Math.ceil(rivalSkillCooldownRef.current)}s`, 900);
+      return;
+    }
     if ((id === 'override' || id === 'phase' || id === 'exchange'
       || id === 'assimilation' || id === 'predator') && s.enemies.length === 0) {
       showMessage(id === 'override' ? 'Neural Override needs an eligible host.'
@@ -7356,6 +7427,57 @@ export default function Game() {
     if (s.gameMode === 'vs') {
       const npc = s.npc;
       const npcCol = 3 + npc.col;
+      rivalSkillCooldownRef.current = Math.max(0, rivalSkillCooldownRef.current - dt);
+      npcAbilityTimerRef.current -= dt;
+      npcSkillTimerRef.current -= dt;
+
+      const launchNpcShot = (row: number, power = 1, big = false) => {
+        s.npcBullets.push({
+          colPos: npcCol - 0.55,
+          row,
+          speed: big ? -5.7 : -6.4,
+          power,
+          big,
+          pierce: false,
+          attackStyle: resolveAttackStyle(npcSkinRef.current),
+          effectSkin: npcSkinRef.current,
+        });
+      };
+
+      if (npcAbilityTimerRef.current <= 0) {
+        const incomingShots = s.bullets.filter((bullet) =>
+          bullet.colPos < 20 && bullet.colPos > 2.4).length;
+        if (npc.hp + 8 < s.hp && npc.hp < NPC_HP) {
+          npc.hp = Math.min(NPC_HP, npc.hp + 4);
+          showMessage('NPC ability · REPAIR +4', 850);
+        } else if (npc.shieldCharges < VS_NPC_MAX_SHIELDS && incomingShots >= 2) {
+          npc.shieldCharges++;
+          showMessage('NPC ability · AEGIS +1', 850);
+        } else {
+          launchNpcShot(npc.row);
+          launchNpcShot((npc.row + 1) % 3);
+          showMessage('NPC ability · TWIN VOLLEY', 850);
+        }
+        npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
+        updateHud();
+      }
+
+      const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
+      if (npcRivalSkill && npcSkillTimerRef.current <= 0) {
+        if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
+          npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+        } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
+          s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.9);
+          s.cardTimer = Math.max(0, s.cardTimer - 1.5);
+        } else if (VS_NPC_ASSAULT_SKILLS.has(npcRivalSkill)) {
+          launchNpcShot(npc.row, 2, true);
+        } else {
+          npc.hp = Math.min(NPC_HP, npc.hp + 2);
+        }
+        showMessage(`NPC Skill · ${RIVAL_SKILL_LABELS[npcRivalSkill]}`, 1100);
+        npcSkillTimerRef.current = VS_NPC_SKILL_INTERVAL;
+        updateHud();
+      }
 
       // Move toward the most-advanced (rightmost) incoming green attack
       npc.moveCooldown -= dt;
@@ -7372,17 +7494,9 @@ export default function Game() {
       // Fire a left-moving bullet only when a green attack is in the NPC's row
       npc.fireCooldown -= dt;
       if (npc.fireCooldown <= 0) {
-        s.npcBullets.push({
-          colPos: npcCol - 0.55,
-          row: npc.row,
-          speed: -6.4,
-          power: 1,
-          big: false,
-          pierce: false,
-          attackStyle: resolveAttackStyle(npcSkinRef.current),
-          effectSkin: npcSkinRef.current,
-        });
-        npc.fireCooldown = NPC_FIRE_INTERVAL;
+        launchNpcShot(npc.row);
+        const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
+        npc.fireCooldown = NPC_FIRE_INTERVAL * (1 + hpLead);
       }
 
       // Move NPC bullets left; remove when they exit the active zone
@@ -7423,9 +7537,14 @@ export default function Game() {
                 '#4ade80',
               );
               e.colPos = -9;
-              // NPC heals on every intercept — no cap, can exceed base HP
-              npc.hp++;
-              showMessage('NPC intercepted an attack and healed!', 900);
+              npcInterceptCountRef.current++;
+              // Three verified intercepts produce one capped repair. This
+              // preserves defensive value without permanent overheal dominance.
+              if (npcInterceptCountRef.current >= 3 && npc.hp < NPC_HP) {
+                npcInterceptCountRef.current = 0;
+                npc.hp = Math.min(NPC_HP, npc.hp + 1);
+                showMessage('NPC intercept chain · +1 repair', 750);
+              }
               updateHud();
             }
             break;
@@ -7979,6 +8098,10 @@ export default function Game() {
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
+    rivalSkillCooldownRef.current = 0;
+    npcAbilityTimerRef.current = 7;
+    npcSkillTimerRef.current = 11;
+    npcInterceptCountRef.current = 0;
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
