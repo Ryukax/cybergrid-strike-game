@@ -7720,23 +7720,10 @@ export default function Game() {
                   // Keep Artifex's idle body visible beneath the authored
                   // construction performance. Deployed cannons have their own
                   // board coordinates and no longer travel with the player.
-                  const attackPhase = Math.max(0, Math.min(1, rivalAttackProgress));
-                  const windup = Math.min(1, attackPhase / 0.24);
-                  const drive = attackPhase <= 0.24
-                    ? -0.035 * windup
-                    : attackPhase <= 0.62
-                      ? -0.035 + ((attackPhase - 0.24) / 0.38) * 0.15
-                      : 0.115 * (1 - (attackPhase - 0.62) / 0.38);
-                  const lift = -Math.sin(attackPhase * Math.PI) * 0.035;
-                  const brace = 1 + Math.sin(attackPhase * Math.PI) * 0.035;
-                  sctx.save();
-                  sctx.translate(sz * (0.5 + drive), sz * (0.5 + lift));
-                  sctx.rotate(-Math.sin(attackPhase * Math.PI) * 0.045);
-                  sctx.scale(brace, 1 / brace);
-                  sctx.drawImage(bitmap, -sz / 2, -sz / 2, sz, sz);
+                  sctx.drawImage(bitmap, 0, 0, sz, sz);
                   sctx.globalAlpha = 0.94;
-                  sctx.drawImage(rivalAttackBitmap, -sz / 2, -sz / 2, sz, sz);
-                  sctx.restore();
+                  sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                  sctx.globalAlpha = 1;
                 } else {
                   sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
                 }
