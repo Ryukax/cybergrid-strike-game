@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 interface IntegrityConstructProps {
   integrityWork: number;
@@ -20,6 +20,13 @@ const CELLS = Array.from({ length: 48 }, (_, index) => ({
 const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
 const HELPER_ROLES = ['restoration', 'defense', 'discovery', 'assist'];
 
+function metricHash(value: number) {
+  let hash = value | 0;
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  return (hash ^ (hash >>> 16)) >>> 0;
+}
+
 export function IntegrityConstruct({
   integrityWork,
   integrity,
@@ -31,6 +38,13 @@ export function IntegrityConstruct({
   coreUnits,
   coreDelta,
 }: IntegrityConstructProps) {
+  const [motionStep, setMotionStep] = useState(0);
+  const previousActiveRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const timer = window.setInterval(() => setMotionStep((step) => step + 1), 1100);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
@@ -44,10 +58,34 @@ export function IntegrityConstruct({
     '--work-speed': `${Math.max(2.4, 6.2 - Math.min(3.2, Math.log10(integrityWork + 1)))}s`,
   } as CSSProperties;
 
-  const activated = useMemo(
-    () => new Set(CELLS.slice(0, activeCells).map((cell) => `${cell.x}:${cell.y}`)),
-    [activeCells],
+  const topologySeed = Math.round(
+    integrityWork * 17
+    + integrity.node * 31
+    + integrity.sector * 23
+    + integrity.global * 13
+    + discoveries * 43
+    + mutations * 59
+    + fusions * 71
+    + coreUnits * 7
+    + coreDelta * 97,
   );
+  const activated = useMemo(() => {
+    // The number of blocks represents system health; their topology represents
+    // the current battle. A small moving frontier makes ongoing work physical
+    // without inventing changes to the underlying metric totals.
+    const frontier = Math.min(5, Math.max(1, Math.ceil((Math.abs(coreDelta) + helperTotal) / 3)));
+    const ordered = CELLS
+      .map((cell, index) => ({
+        cell,
+        rank: metricHash(topologySeed + index * 7919 + Math.floor(motionStep / frontier) * 104729),
+      }))
+      .sort((a, b) => a.rank - b.rank);
+    return new Set(ordered.slice(0, activeCells).map(({ cell }) => `${cell.x}:${cell.y}`));
+  }, [activeCells, coreDelta, helperTotal, motionStep, topologySeed]);
+  const previousActive = previousActiveRef.current;
+  useEffect(() => {
+    previousActiveRef.current = activated;
+  }, [activated]);
 
   return (
     <aside
@@ -101,11 +139,14 @@ export function IntegrityConstruct({
 
         <g className="matrixCells" transform="translate(93 39) skewY(-7)">
           {CELLS.map((cell, index) => {
-            const active = activated.has(`${cell.x}:${cell.y}`);
+            const cellId = `${cell.x}:${cell.y}`;
+            const active = activated.has(cellId);
+            const wasActive = previousActive.has(cellId);
+            const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
             return (
               <rect
                 key={index}
-                className={active ? 'cell active' : 'cell pending'}
+                className={`${active ? 'cell active' : 'cell pending'} ${transition}`}
                 x={cell.x * 15}
                 y={(5 - cell.y) * 20}
                 width="12"
