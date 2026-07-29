@@ -843,11 +843,12 @@ function drawSkinProjectileEffect(
         ? -cycle * 0.45
         : Math.sin(cycle) * 0.08;
   const size = baseSize * pulse;
-  const drawFrame = (drawX: number, alpha: number, scale = 1) => {
+  const drawFrame = (drawX: number, alpha: number, scale = 1, frameOffset = 0) => {
+    const drawFrameIndex = (frame + frameOffset + 4) % 4;
     ctx.globalAlpha = alpha;
     ctx.drawImage(
       sheet,
-      frame * sourceWidth,
+      drawFrameIndex * sourceWidth,
       0,
       sourceWidth,
       sourceHeight,
@@ -873,40 +874,25 @@ function drawSkinProjectileEffect(
     drawFrame(-radius * 2.7, 0.16, 0.68);
     drawFrame(-radius * 1.45, 0.32, 0.82);
   } else if (config.motif === 3) {
-    drawFrame(-radius * 0.7, 0.24, 0.9);
+    drawFrame(-radius * 0.7, 0.24, 0.9, -1);
+  } else if (config.motif === 1) {
+    // A counter-rotating exposure of the generated art creates the temporal
+    // sweep without drawing generic clock hands or rings over it.
+    ctx.save();
+    ctx.rotate(-cycle * 1.8);
+    drawFrame(0, 0.28, 1.16, -1);
+    ctx.restore();
+  } else if (config.motif === 2) {
+    // The artwork itself contracts inward and blooms back out.
+    drawFrame(0, 0.24 + Math.abs(Math.sin(cycle)) * 0.14, 0.55, -1);
+    drawFrame(0, 0.18, 1.28, 1);
+  } else if (config.motif === 4) {
+    // Successive generated construction states lock together as image echoes.
+    drawFrame(0, 0.22, 1.22, -1);
+    drawFrame(0, 0.3, 0.78, 1);
   }
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
   drawFrame(0, 1);
-
-  ctx.shadowBlur = 0;
-  ctx.lineWidth = Math.max(1.25, radius * 0.2);
-  if (config.motif === 1) {
-    // Temporal skins: unmistakable counter-rotating clock sweep.
-    ctx.rotate(-cycle * 2);
-    ctx.strokeStyle = config.accent;
-    ctx.globalAlpha = 0.86;
-    ctx.beginPath();
-    ctx.arc(0, 0, size * 0.42, -0.2, Math.PI * 1.38);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(size * 0.3, 0);
-    ctx.moveTo(0, 0);
-    ctx.lineTo(0, -size * 0.22);
-    ctx.stroke();
-  } else if (config.motif === 2) {
-    // Gravity/rift skins visibly collapse and reform around the core.
-    ctx.strokeStyle = config.accent;
-    ctx.globalAlpha = 0.35 + (Math.sin(cycle) + 1) * 0.22;
-    ctx.beginPath();
-    ctx.arc(0, 0, size * (0.34 + (1 - pulse) * 0.7), 0, Math.PI * 2);
-    ctx.stroke();
-  } else if (config.motif === 4) {
-    // Construct skins lock through discrete geometric states.
-    ctx.strokeStyle = config.accent;
-    ctx.globalAlpha = 0.72;
-    ctx.strokeRect(-size * 0.34, -size * 0.34, size * 0.68, size * 0.68);
-  }
   ctx.restore();
   return true;
 }
