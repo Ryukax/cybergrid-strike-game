@@ -826,7 +826,10 @@ function drawSkinProjectileEffect(
   const now = performance.now();
   const skinPhase = [...skin].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.017;
   const cycle = (now * (0.0065 + config.motif * 0.00035) + skinPhase) % (Math.PI * 2);
-  const frame = Math.floor(((cycle / (Math.PI * 2)) * 4)) % 4;
+  const framePosition = (cycle / (Math.PI * 2)) * 4;
+  const frame = Math.floor(framePosition) % 4;
+  const frameBlendRaw = framePosition - Math.floor(framePosition);
+  const frameBlend = frameBlendRaw * frameBlendRaw * (3 - 2 * frameBlendRaw);
   const sourceWidth = sheet.naturalWidth / 4;
   const sourceHeight = sheet.naturalHeight;
   const baseSize = radius * (skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3);
@@ -892,7 +895,10 @@ function drawSkinProjectileEffect(
     drawFrame(0, 0.3, 0.78, 1);
   }
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
-  drawFrame(0, 1);
+  // Blend every generated pose into the next instead of snapping between
+  // frames. This produces four authored poses plus four readable in-betweens.
+  drawFrame(0, 1 - frameBlend);
+  drawFrame(0, frameBlend, 1, 1);
   ctx.restore();
   return true;
 }
