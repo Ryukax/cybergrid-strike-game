@@ -4049,7 +4049,26 @@ export default function Game() {
             rawAttack = attackCrop;
           }
           let pair: { idle: ImageBitmap; attack: ImageBitmap };
-          if (playerSkin === 'chrono') {
+          if (playerSkin === 'architect') {
+            // Artifex's authored attack is a deliberately wide, two-part
+            // composition: the builder on the left and the manifested grid on
+            // the right. The generic island matcher can mistake the construct
+            // for a detached effect and reframe the attack outside the sprite
+            // canvas. Preserve the complete authored frame instead.
+            const architectCanvas = document.createElement('canvas');
+            architectCanvas.width = 160;
+            architectCanvas.height = 160;
+            const architectCtx = architectCanvas.getContext('2d')!;
+            architectCtx.imageSmoothingEnabled = false;
+            architectCtx.clearRect(0, 0, 160, 160);
+            architectCtx.drawImage(rawAttack, 0, 27, 160, 107);
+            const [idle, attack] = await Promise.all([
+              sanitizeRivalSkinFrame(rawIdle),
+              createImageBitmap(architectCanvas),
+            ]);
+            rawAttack.close();
+            pair = { idle, attack };
+          } else if (playerSkin === 'chrono') {
             // Chrono's attack is intentionally much wider than his body. The
             // generic island sanitizer interprets the clock-blade as peripheral
             // effect art and clips its outer arc. Normalize the complete authored
