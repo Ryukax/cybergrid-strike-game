@@ -51,8 +51,6 @@ const CELLS = (() => {
   }));
 })();
 
-const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
-
 export function IntegrityConstruct({
   integrityWork,
   integrity,
@@ -83,11 +81,10 @@ export function IntegrityConstruct({
       CELLS.slice(activeCells, previousCount).map((cell) => String(cell.id)),
     );
     setRetiringCells(retiring);
-    const timer = window.setTimeout(() => setRetiringCells(new Set()), 900);
+    const timer = window.setTimeout(() => setRetiringCells(new Set()), 1900);
     return () => window.clearTimeout(timer);
   }, [activeCells]);
   const helperTotal = activePlayers ?? 0;
-  const visibleHelpers = Math.min(24, helperTotal);
   const workPulse = integrityWork % 12;
   const integritySpread = Math.max(integrity.global, integrity.sector, integrity.node)
     - Math.min(integrity.global, integrity.sector, integrity.node);
@@ -140,28 +137,7 @@ export function IntegrityConstruct({
             <stop offset="0" stopColor="#fb7185" />
             <stop offset="1" stopColor="#581c87" />
           </linearGradient>
-          <filter id="constructGlow">
-            <feGaussianBlur stdDeviation="2.6" result="blur" />
-            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-          <path id="helperTrackA" d="M16 176 C62 174 80 144 122 132 S178 112 210 76 S252 40 286 46" />
-          <path id="helperTrackB" d="M8 80 C48 82 68 108 104 100 S158 60 194 72 S246 126 290 112" />
-          <path id="helperTrackC" d="M42 204 C56 160 92 156 126 164 S194 196 228 156 S260 126 296 138" />
-          <path id="helperTrackD" d="M36 30 C70 48 82 68 114 66 S172 32 206 44 S250 72 284 22" />
         </defs>
-
-        <g className="constructOrbits">
-          <ellipse cx="154" cy="110" rx="116" ry="62" />
-          <ellipse cx="154" cy="110" rx="78" ry="96" transform="rotate(58 154 110)" />
-        </g>
-
-        <g className="coreGeometryTarget">
-          <path d="M151 67 L205 96 L151 126 L97 96 Z" />
-          <path d="M97 96 L151 126 L151 166 L97 136 Z" />
-          <path d="M151 126 L205 96 L205 136 L151 166 Z" />
-          <path d="M124 82 L178 111 M178 82 L124 111 M124 111 L178 140" />
-          <text x="151" y="61" textAnchor="middle">SYNCHRONIZATION TARGET</text>
-        </g>
 
         <g className="matrixCells">
           {CELLS.map((cell, index) => {
@@ -194,28 +170,6 @@ export function IntegrityConstruct({
                   <path className="blockLeft" d="M-4 -1 L0 1 L0 5 L-4 3 Z" />
                   <path className="blockRight" d="M0 1 L4 -1 L4 3 L0 5 Z" />
                 </g>
-              </g>
-            );
-          })}
-        </g>
-
-        <g className="dataPackets" filter="url(#constructGlow)">
-          <circle r="3"><animateMotion dur="2.8s" repeatCount="indefinite"><mpath href="#helperTrackA" /></animateMotion></circle>
-          <rect width="6" height="6" rx="1"><animateMotion dur="3.7s" begin="-1.4s" repeatCount="indefinite"><mpath href="#helperTrackB" /></animateMotion></rect>
-          <circle r="2.5"><animateMotion dur="3.2s" begin="-2.2s" repeatCount="indefinite"><mpath href="#helperTrackC" /></animateMotion></circle>
-        </g>
-
-        <g className="synchronizationSignals">
-          {Array.from({ length: visibleHelpers }, (_, index) => {
-            const path = HELPER_PATHS[index % HELPER_PATHS.length];
-            const delay = `${-(index * 0.63 + 0.4)}s`;
-            return (
-              <g key={index} className="syncSignal">
-                <animateMotion dur="var(--work-speed)" begin={delay} repeatCount="indefinite">
-                  <mpath href={`#${path}`} />
-                </animateMotion>
-                <circle r="2.5" />
-                <circle className="syncSignalRing" r="5" />
               </g>
             );
           })}
