@@ -7716,17 +7716,7 @@ export default function Game() {
                 // Never cross-fade the idle and attack bodies. Their different
                 // silhouettes were being seen simultaneously as motion blur.
                 const committed = rivalAttackProgress >= 0.16 && rivalAttackProgress <= 0.9;
-                if (committed && playerSkinRef.current === 'architect') {
-                  // Keep Artifex's idle body visible beneath the authored
-                  // construction performance. Deployed cannons have their own
-                  // board coordinates and no longer travel with the player.
-                  sctx.drawImage(bitmap, 0, 0, sz, sz);
-                  sctx.globalAlpha = 0.94;
-                  sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
-                  sctx.globalAlpha = 1;
-                } else {
-                  sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
-                }
+                sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
 
                 // Advanced skins use the authored raster weapon sequence,
                 // replacing the former circles, claw arcs and circuit lines.
