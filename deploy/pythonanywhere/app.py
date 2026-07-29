@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, request
-from flask_cors import CORS
 
 PRESENCE_TTL_SECONDS = 30
 CORE_MIN = 0
@@ -19,19 +18,22 @@ DATA_DIR = Path(os.environ.get("CYBERGRID_DATA_DIR", Path(__file__).parent))
 DATABASE_PATH = DATA_DIR / "cybergrid_presence.sqlite3"
 
 app = Flask(__name__)
-CORS(
-    app,
-    resources={
-        r"/api/ecosystem/*": {
-            "origins": [
-                "https://ryukax.github.io",
-                "http://127.0.0.1:*",
-                "http://localhost:*",
-            ],
-            "methods": ["GET", "POST", "DELETE", "OPTIONS"],
-        }
-    },
-)
+ALLOWED_ORIGINS = {
+    "https://ryukax.github.io",
+    "http://127.0.0.1:4179",
+    "http://localhost:4179",
+}
+
+
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+    return response
 
 
 @contextmanager

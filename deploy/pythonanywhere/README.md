@@ -7,8 +7,10 @@ PythonAnywhere setup:
 
 1. Clone the repository into `/home/<username>/cybergrid-strike-game`.
 2. Create a virtual environment and install `deploy/pythonanywhere/requirements.txt`.
-3. Configure the web app's WSGI file to import `application` from
-   `deploy/pythonanywhere/wsgi.py`.
+3. For a dedicated web app, configure its WSGI file to import `application`
+   from `deploy/pythonanywhere/wsgi.py`. To preserve the existing equity
+   dashboard on `LordAlphaSupremeI.pythonanywhere.com`, use the contents of
+   `combined_wsgi.py`; it routes only `/api/*` requests to CyberGrid.
 4. Reload the web app.
 5. Set the GitHub Actions repository variable `ECOSYSTEM_API_URL` to
    `https://<username>.pythonanywhere.com/api`.
