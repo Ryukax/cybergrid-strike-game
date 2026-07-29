@@ -42,45 +42,32 @@ export function IntegrityConstruct({
   coreDelta,
 }: IntegrityConstructProps) {
   const previousActiveRef = useRef<Set<string>>(new Set());
+  const previousCellCountRef = useRef(0);
+  const [retiringCells, setRetiringCells] = useState<Set<string>>(new Set());
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
   const completion = activePlayers === null ? localCompletion : Math.max(0, Math.min(1, coreUnits / 1_000));
   const activeCells = Math.max(3, Math.round(CELLS.length * completion));
+  useEffect(() => {
+    const previousCount = previousCellCountRef.current;
+    previousCellCountRef.current = activeCells;
+    if (previousCount <= activeCells) return;
+    const retiring = new Set(
+      CELLS.slice(activeCells, previousCount).map((cell) => String(cell.id)),
+    );
+    setRetiringCells(retiring);
+    const timer = window.setTimeout(() => setRetiringCells(new Set()), 900);
+    return () => window.clearTimeout(timer);
+  }, [activeCells]);
   const helperTotal = activePlayers ?? 0;
   const visibleHelpers = Math.min(24, helperTotal);
   const workPulse = integrityWork % 12;
-  const [slotAssignments, setSlotAssignments] = useState(() => CELLS.map((cell) => cell.id));
-  const [relocating, setRelocating] = useState<number[]>([]);
-  const relocationStepRef = useRef(0);
-  useEffect(() => {
-    const activity = Math.max(1, helperTotal + Math.ceil(Math.abs(coreDelta) / 4));
-    const cadence = Math.max(720, 1900 - activity * 65 - (pressure === 'critical' ? 260 : 0));
-    const timer = window.setInterval(() => {
-      if (activeCells < 4) return;
-      const step = relocationStepRef.current++;
-      const metricKey = Math.round(
-        integrityWork + integrity.node * 11 + integrity.sector * 7
-        + integrity.global * 5 + discoveries * 17 + mutations * 23 + fusions * 29,
-      );
-      // Relocate one neighboring structural pair at a time. Assignments persist,
-      // so this is physical reconfiguration rather than a decorative wobble.
-      const first = Math.abs(metricKey + step * 5) % activeCells;
-      const second = (first + 1 + (metricKey % Math.min(5, activeCells - 1))) % activeCells;
-      if (first === second) return;
-      setRelocating([first, second]);
-      setSlotAssignments((current) => {
-        const next = [...current];
-        [next[first], next[second]] = [next[second], next[first]];
-        return next;
-      });
-      window.setTimeout(() => setRelocating([]), Math.min(680, cadence - 80));
-    }, cadence);
-    return () => window.clearInterval(timer);
-  }, [
-    activeCells, coreDelta, discoveries, fusions, helperTotal,
-    integrity.global, integrity.node, integrity.sector, integrityWork, mutations, pressure,
-  ]);
+  const restorationFlow = Math.min(5, Math.max(1, helperTotal + (coreDelta > 0 ? Math.ceil(coreDelta / 4) : 0)));
+  const corruptionFlow = Math.min(5, Math.max(
+    pressure === 'critical' ? 2 : 1,
+    coreDelta < 0 ? Math.ceil(Math.abs(coreDelta) / 3) : Math.ceil((100 - integrity.node) / 34),
+  ));
   const constructStyle = {
     '--integrity': completion,
     '--work-speed': `${Math.max(2.4, 6.2 - Math.min(3.2, Math.log10(integrityWork + 1)))}s`,
@@ -130,6 +117,8 @@ export function IntegrityConstruct({
           <path id="helperTrackB" d="M8 80 C48 82 68 108 104 100 S158 60 194 72 S246 126 290 112" />
           <path id="helperTrackC" d="M42 204 C56 160 92 156 126 164 S194 196 228 156 S260 126 296 138" />
           <path id="helperTrackD" d="M36 30 C70 48 82 68 114 66 S172 32 206 44 S250 72 284 22" />
+          <path id="restorationFeed" d="M8 142 C48 146 79 137 111 121 S137 111 151 111" />
+          <path id="corruptionFeed" d="M151 111 C183 103 204 91 232 74 S269 62 296 67" />
         </defs>
 
         <g className="constructOrbits">
@@ -141,16 +130,15 @@ export function IntegrityConstruct({
           {CELLS.map((cell, index) => {
             const cellId = String(cell.id);
             const active = activated.has(cellId);
-            const wasActive = previousActive.has(cellId);
+            const wasActive = previousActive.has(cellId) || retiringCells.has(cellId);
             if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
-            const slot = CELLS[slotAssignments[index] ?? index];
             return (
               <g
                 key={index}
-                className={`constructBlockPosition ${relocating.includes(index) ? 'relocating' : ''}`}
+                className="constructBlockPosition"
                 style={{
-                  transform: `translate(${slot.x}px, ${slot.y}px) rotate(${slot.rotation}deg) scale(${slot.scale})`,
+                  transform: `translate(${cell.x}px, ${cell.y}px) rotate(${cell.rotation}deg) scale(${cell.scale})`,
                 }}
               >
                 <g
@@ -164,6 +152,37 @@ export function IntegrityConstruct({
               </g>
             );
           })}
+        </g>
+
+        <g className="materialFlows" filter="url(#constructGlow)">
+          {Array.from({ length: restorationFlow }, (_, index) => (
+            <g key={`restore-${index}`} className="materialTransit restore">
+              <animateMotion
+                dur={`${Math.max(1.25, 3.1 - restorationFlow * .24)}s`}
+                begin={`${index * -.47}s`}
+                repeatCount="indefinite"
+                rotate="auto"
+              >
+                <mpath href="#restorationFeed" />
+              </animateMotion>
+              <path d="M0 -5 L7 -1 L0 3 L-7 -1 Z M-7 -1 L0 3 L0 9 L-7 5 Z M0 3 L7 -1 L7 5 L0 9 Z" />
+            </g>
+          ))}
+          {Array.from({ length: corruptionFlow }, (_, index) => (
+            <g key={`corrupt-${index}`} className="materialTransit corrupt">
+              <animateMotion
+                dur={`${Math.max(1.1, 3.5 - corruptionFlow * .3)}s`}
+                begin={`${index * -.61}s`}
+                repeatCount="indefinite"
+                rotate="auto"
+              >
+                <mpath href="#corruptionFeed" />
+              </animateMotion>
+              <path d="M0 -5 L7 -1 L0 3 L-7 -1 Z M-7 -1 L0 3 L0 9 L-7 5 Z M0 3 L7 -1 L7 5 L0 9 Z" />
+            </g>
+          ))}
+          <text className="flowLabel restoreLabel" x="9" y="158">RESTORATION</text>
+          <text className="flowLabel corruptLabel" x="244" y="57">CORRUPTION</text>
         </g>
 
         <g className="dataPackets" filter="url(#constructGlow)">

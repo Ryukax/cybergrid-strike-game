@@ -224,16 +224,6 @@ canvas#canvas {
   transform-origin: 0 0;
   transition: transform .68s cubic-bezier(.22, .8, .24, 1);
 }
-.constructBlockPosition.relocating {
-  filter: drop-shadow(0 0 7px #fef08a);
-}
-.constructBlockPosition.relocating .cell {
-  animation: blockLift .68s ease-in-out;
-}
-@keyframes blockLift {
-  0%, 100% { transform: translateY(0); }
-  45% { transform: translateY(-13px) scale(1.08); }
-}
 .matrixCells .active {
   opacity: calc(.4 + var(--integrity) * .55);
 }
@@ -263,6 +253,15 @@ canvas#canvas {
 }
 .dataPackets { fill: #fef08a; }
 .dataPackets rect { fill: #67e8f9; }
+.materialTransit.restore { fill: #22d3ee; stroke: #cffafe; stroke-width: .7; }
+.materialTransit.corrupt { fill: #e11d48; stroke: #fda4af; stroke-width: .7; }
+.flowLabel {
+  font-size: 5px;
+  font-weight: 900;
+  letter-spacing: .16em;
+}
+.restoreLabel { fill: #67e8f9; }
+.corruptLabel { fill: #fb7185; }
 .helper { fill: #e0f2fe; stroke: #67e8f9; stroke-width: 1.5; filter: drop-shadow(0 0 3px #22d3ee); }
 .helper path { fill: none; stroke-linecap: round; }
 .helper.defense { stroke: #a7f3d0; }
