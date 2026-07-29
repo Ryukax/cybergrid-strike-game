@@ -213,40 +213,32 @@ canvas#canvas {
 }
 .constructOrbits ellipse + ellipse { animation-duration: 22s; animation-direction: reverse; }
 @keyframes constructOrbit { to { transform: rotate(360deg); } }
-.constructScaffold path {
-  fill: rgba(8, 47, 73, .13);
-  stroke: rgba(125, 211, 252, .24);
-  stroke-width: .7;
-}
 .matrixCells .cell {
-  stroke-width: .7;
+  stroke: rgba(207, 250, 254, .72);
+  stroke-width: .65;
   transform-box: fill-box;
   transform-origin: center;
 }
 .matrixCells .active {
-  fill: url(#constructCell);
-  stroke: #cffafe;
   opacity: calc(.4 + var(--integrity) * .55);
-  animation: cellRelay 2.2s ease-in-out infinite alternate;
 }
+.matrixCells .blockTop { fill: #67e8f9; }
+.matrixCells .blockLeft { fill: #0e7490; }
+.matrixCells .blockRight { fill: #2563eb; }
 .matrixCells .adding {
   animation: cellConstruct .9s cubic-bezier(.16, 1, .3, 1) both;
 }
 .matrixCells .exiting {
-  fill: url(#constructCorrupt);
   stroke: #fb7185;
 }
+.matrixCells .exiting .blockTop { fill: #fb7185; }
+.matrixCells .exiting .blockLeft { fill: #881337; }
+.matrixCells .exiting .blockRight { fill: #581c87; }
 .matrixCells .subtracting {
   animation: cellSubtract .9s cubic-bezier(.7, 0, .84, 0) both;
 }
-.matrixCells .pending {
-  fill: url(#constructCorrupt);
-  stroke: rgba(251, 113, 133, .55);
-  opacity: .13;
-  animation: pendingGlitch 3.4s steps(2) infinite;
-}
 @keyframes cellConstruct {
-  from { opacity: 0; transform: translate(28px, -24px) rotate(18deg) scale(.25); }
+  from { opacity: 0; transform: translate(34px, -28px) rotate(18deg) scale(.25); }
   55% { opacity: 1; filter: drop-shadow(0 0 9px #fef08a); }
   to { transform: translate(0) rotate(0) scale(1); }
 }
@@ -254,11 +246,6 @@ canvas#canvas {
   from { opacity: .95; transform: translate(0) scale(1); }
   to { opacity: .08; transform: translate(-22px, 28px) rotate(-15deg) scale(.2); filter: drop-shadow(0 0 7px #fb7185); }
 }
-@keyframes cellRelay {
-  50% { opacity: .48; transform: translateY(-2px) scale(.92); }
-  100% { filter: drop-shadow(0 0 4px #22d3ee); transform: translateY(0) scale(1); }
-}
-@keyframes pendingGlitch { 48% { transform: translate(0); } 50% { transform: translate(2px, -1px); } 54% { transform: translate(0); } }
 .dataPackets { fill: #fef08a; }
 .dataPackets rect { fill: #67e8f9; }
 .helper { fill: #e0f2fe; stroke: #67e8f9; stroke-width: 1.5; filter: drop-shadow(0 0 3px #22d3ee); }
@@ -288,7 +275,6 @@ canvas#canvas {
 @keyframes telemetryPulse { 50% { transform: scaleX(.35); opacity: .4; } }
 .integrityConstruct.critical { animation: constructBreach .7s steps(2) infinite; }
 @keyframes constructBreach { 50% { border-color: rgba(251, 113, 133, .7); filter: hue-rotate(-12deg); } }
-.integrityConstruct.recovery .matrixCells .active { animation-duration: .85s; }
 .integrityConstruct.core-growing {
   box-shadow: 0 0 44px rgba(34, 211, 238, .42), inset 0 0 22px rgba(2, 6, 23, .72);
 }

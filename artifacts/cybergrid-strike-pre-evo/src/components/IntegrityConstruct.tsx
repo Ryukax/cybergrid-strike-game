@@ -12,20 +12,23 @@ interface IntegrityConstructProps {
   coreDelta: number;
 }
 
-const CELLS = Array.from({ length: 48 }, (_, index) => ({
-  x: index % 8,
-  y: Math.floor(index / 8),
-}));
+const CELLS = Array.from({ length: 48 }, (_, index) => {
+  const layer = Math.floor(index / 8);
+  const spoke = index % 8;
+  const angle = spoke * Math.PI / 4 + layer * 0.39;
+  const radiusX = 9 + layer * 18;
+  const radiusY = 5 + layer * 11;
+  return {
+    id: index,
+    x: 151 + Math.cos(angle) * radiusX,
+    y: 111 + Math.sin(angle) * radiusY + layer * 1.8,
+    scale: 0.62 + layer * 0.07,
+    rotation: (spoke % 2 ? -4 : 4) + layer * 1.5,
+  };
+});
 
 const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
 const HELPER_ROLES = ['restoration', 'defense', 'discovery', 'assist'];
-
-function metricHash(value: number) {
-  let hash = value | 0;
-  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
-  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
-  return (hash ^ (hash >>> 16)) >>> 0;
-}
 
 export function IntegrityConstruct({
   integrityWork,
@@ -52,24 +55,11 @@ export function IntegrityConstruct({
     '--work-speed': `${Math.max(2.4, 6.2 - Math.min(3.2, Math.log10(integrityWork + 1)))}s`,
   } as CSSProperties;
 
-  const topologySeed = Math.round(
-    integrityWork * 17
-    + discoveries * 43
-    + mutations * 59
-    + fusions * 71
-    + Math.floor(integrityWork / 500) * 89,
-  );
   const activated = useMemo(() => {
-    // Quantity follows live integrity; research milestones alter the structure's
-    // growth path. Nothing moves unless real telemetry changes.
-    const ordered = CELLS
-      .map((cell, index) => ({
-        cell,
-        rank: metricHash(topologySeed + index * 7919),
-      }))
-      .sort((a, b) => a.rank - b.rank);
-    return new Set(ordered.slice(0, activeCells).map(({ cell }) => `${cell.x}:${cell.y}`));
-  }, [activeCells, topologySeed]);
+    // The core grows outward in stable architectural rings. Existing material
+    // never shuffles; telemetry can only add new blocks or remove edge blocks.
+    return new Set(CELLS.slice(0, activeCells).map((cell) => String(cell.id)));
+  }, [activeCells]);
   const previousActive = previousActiveRef.current;
   useEffect(() => {
     previousActiveRef.current = activated;
@@ -116,24 +106,27 @@ export function IntegrityConstruct({
           <ellipse cx="154" cy="110" rx="78" ry="96" transform="rotate(58 154 110)" />
         </g>
 
-        <g className="matrixCells" transform="translate(93 39) skewY(-7)">
+        <g className="matrixCells">
           {CELLS.map((cell, index) => {
-            const cellId = `${cell.x}:${cell.y}`;
+            const cellId = String(cell.id);
             const active = activated.has(cellId);
             const wasActive = previousActive.has(cellId);
             if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
             return (
-              <rect
+              <g
                 key={index}
-                className={`${active ? 'cell active' : 'cell exiting'} ${transition}`}
-                x={cell.x * 15}
-                y={(5 - cell.y) * 20}
-                width="12"
-                height="16"
-                rx="1.5"
-                style={{ animationDelay: `${((index + workPulse) % 11) * -0.17}s` }}
-              />
+                transform={`translate(${cell.x} ${cell.y}) rotate(${cell.rotation}) scale(${cell.scale})`}
+              >
+                <g
+                  className={`cell ${active ? 'active' : 'exiting'} ${transition}`}
+                  style={{ animationDelay: `${((index + workPulse) % 7) * 0.035}s` }}
+                >
+                  <path className="blockTop" d="M0 -9 L12 -3 L0 3 L-12 -3 Z" />
+                  <path className="blockLeft" d="M-12 -3 L0 3 L0 14 L-12 8 Z" />
+                  <path className="blockRight" d="M0 3 L12 -3 L12 8 L0 14 Z" />
+                </g>
+              </g>
             );
           })}
         </g>
@@ -162,8 +155,8 @@ export function IntegrityConstruct({
         </g>
 
         <g className="foundation">
-          <path d="M54 178 L150 198 L255 170 L157 151 Z" />
-          <path d="M54 178 L54 185 L150 207 L150 198 Z M150 198 L255 170 L255 177 L150 207 Z" />
+          <path d="M126 166 L151 181 L179 165 L153 151 Z" />
+          <path d="M126 166 L126 172 L151 187 L151 181 Z M151 181 L179 165 L179 171 L151 187 Z" />
         </g>
       </svg>
 
@@ -172,7 +165,7 @@ export function IntegrityConstruct({
         <span className={activePlayers === null ? 'presenceOffline' : ''}>
           <i className="telemetryFlow assist" />HELPERS <b>{activePlayers ?? 'OFFLINE'}</b>
         </span>
-        <span><i className="telemetryFlow research" />RESEARCH <b>{discoveries + mutations}</b></span>
+        <span><i className="telemetryFlow research" />RESEARCH <b>{discoveries + mutations + fusions}</b></span>
       </div>
       {coreDelta !== 0 && <div className="coreDelta">{coreDelta > 0 ? '+' : ''}{coreDelta} CELLS</div>}
     </aside>
