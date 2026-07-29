@@ -1,5 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, type MutableRefObject } from 'react';
 import { ChainPanel } from './ChainPanel';
+import { IntegrityConstruct } from './IntegrityConstruct';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
 // Static one-time render of a GIF's first frame with white-background removed.
@@ -8357,6 +8358,17 @@ export default function Game() {
               : hud.pressureState === 'recovery' ? 'RECOVERY' : 'STEADY'}
           </span>
         </div>
+      )}
+
+      {phase === 'playing' && (
+        <IntegrityConstruct
+          integrityWork={hud.integrityWork}
+          integrity={hud.systemIntegrity}
+          discoveries={hud.ecosystem.species}
+          mutations={hud.ecosystem.mutations}
+          fusions={hud.ecosystem.fusions}
+          pressure={hud.pressureState}
+        />
       )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
