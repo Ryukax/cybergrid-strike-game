@@ -852,7 +852,7 @@ function getAdvancedProjectileSheet(): HTMLImageElement | null {
   if (advancedProjectileSheet) return advancedProjectileSheet;
   if (typeof Image === 'undefined') return null;
   advancedProjectileSheet = new Image();
-  advancedProjectileSheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png`;
+  advancedProjectileSheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
   return advancedProjectileSheet;
 }
 

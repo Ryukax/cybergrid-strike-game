@@ -2816,9 +2816,9 @@ function SignatureSkillFx({
     const sequenceA = new Image();
     const sequenceB = new Image();
     const sequenceC = new Image();
-    sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png`;
-    sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png`;
-    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png`;
+    sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png?alpha=v2`;
+    sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png?alpha=v2`;
+    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
     sequenceRefs.current = { a: sequenceA, b: sequenceB, c: sequenceC };
     return () => {
       sequenceRefs.current = { a: null, b: null, c: null };
@@ -3917,7 +3917,7 @@ export default function Game() {
 
   useEffect(() => {
     const sheet = new Image();
-    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png`;
+    sheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
     rivalAttackFxSheetRef.current = sheet;
     return () => {
       rivalAttackFxSheetRef.current = null;
@@ -3941,14 +3941,14 @@ export default function Game() {
 
     // Load rocket attack frames into gifAttackFramesRef
     if (playerSkin === 'rocket') {
-      Promise.all(Array.from({ length: 13 }, (_, i) => loadBmp(`${base}skins/rocket_attack_frame_${i}.png`)))
+      Promise.all(Array.from({ length: 13 }, (_, i) => loadBmp(`${base}skins/rocket_attack_frame_${i}.png?alpha=v2`)))
         .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
         .catch(err => console.error('[rocket attack] frame load error:', err));
     }
 
     // Also load gem attack + move frames whenever gem is selected
     if (playerSkin === 'gem') {
-      Promise.all([0,1,2].map(i => loadBmp(`${base}skins/gem_attack_frame_${i}.png`)))
+      Promise.all([0,1,2].map(i => loadBmp(`${base}skins/gem_attack_frame_${i}.png?alpha=v2`)))
         .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
         .catch(err => console.error('[gem attack] frame load error:', err));
       Promise.all(Array.from({ length: 18 }, (_, i) => loadBmp(`${base}skins/gem_move_frame_${i}.png`)))
@@ -3972,8 +3972,8 @@ export default function Game() {
         const base = import.meta.env.BASE_URL;
         if (rivalSkin) {
           let [rawIdle, rawAttack] = await Promise.all([
-            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png`),
-            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png`),
+            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png?alpha=v2`),
+            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png?alpha=v2`),
           ]);
           if (playerSkin === 'hijack') {
             const idleCrop = await createImageBitmap(
@@ -8161,7 +8161,7 @@ export default function Game() {
                     {[0, 1, 2].map((frame) => (
                       <img
                         key={frame}
-                        src={`${import.meta.env.BASE_URL}skins/gem_attack_frame_${frame}.png`}
+                        src={`${import.meta.env.BASE_URL}skins/gem_attack_frame_${frame}.png?alpha=v2`}
                         alt=""
                       />
                     ))}
