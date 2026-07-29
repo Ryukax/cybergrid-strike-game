@@ -143,13 +143,15 @@ function buildCompositionPlan(
   };
 }
 
-function contrastingConceptSources(
+function coherentConceptSources(
   base: EnemyBaseElement,
-  seed: number,
 ): Set<VisualSource> {
-  if (ANIMAL_SOURCES.has(base)) return OBJECT_SOURCES;
-  if (OBJECT_SOURCES.has(base)) return ANIMAL_SOURCES;
-  return gene(seed, 427) > 0.5 ? ANIMAL_SOURCES : OBJECT_SOURCES;
+  if (ANIMAL_SOURCES.has(base)) return ANIMAL_SOURCES;
+  if (OBJECT_SOURCES.has(base)) return OBJECT_SOURCES;
+  // Flora, mineral, fluid, colony, and spectral forms have distinctive socket
+  // geometry. Keep their normal anatomy anchored to the genome's base family;
+  // explicit fusion outcomes below remain the only cross-family graft path.
+  return new Set<VisualSource>([base]);
 }
 
 function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
@@ -826,7 +828,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
   // color and refine the sockets, allowing broad combinations without asking
   // a complete authored family painting to serve as the final creature.
   const compositionPlan = buildCompositionPlan(genome, seed, bodyType);
-  const conceptSources = contrastingConceptSources(genome.baseElement, seed);
+  const conceptSources = coherentConceptSources(genome.baseElement);
   const headComponent = selectGenericComponent(
     genome,
     seed + 160,
