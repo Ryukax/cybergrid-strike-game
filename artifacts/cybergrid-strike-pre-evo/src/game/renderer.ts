@@ -818,11 +818,11 @@ function drawSkinProjectileEffect(
   radius: number,
   direction: number,
   skin?: string,
-) {
+): boolean {
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
-  if (!config) return;
+  if (!config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
-  if (!sheet?.complete || sheet.naturalWidth <= 0) return;
+  if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
   const frame = Math.floor((performance.now() + Math.abs(x) * 2.5) / 78) % 4;
   const sourceWidth = sheet.naturalWidth / 4;
   const sourceHeight = sheet.naturalHeight;
@@ -845,6 +845,7 @@ function drawSkinProjectileEffect(
     size,
   );
   ctx.restore();
+  return true;
 }
 
 const advancedProjectileSheets = new Map<string, HTMLImageElement>();
@@ -1045,8 +1046,10 @@ export function draw(
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
     const direction = Math.sign(b.speed) || 1;
     const attackStyle = b.attackStyle ?? 'physical';
-    ctx.save();
-    if (attackStyle === 'melee') {
+    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, b.effectSkin);
+    if (!skinProjectileDrawn) {
+      ctx.save();
+      if (attackStyle === 'melee') {
       // The collision carrier still crosses the lane, but reads as its user
       // advancing through a sword combination rather than as a detached orb.
       const stride = (performance.now() * 0.014 + b.colPos * 1.7) % (Math.PI * 2);
@@ -1067,7 +1070,7 @@ export function draw(
       ctx.fillRect(-radius * 1.65, -radius * 0.22, radius * 2.35, radius * 0.44);
       ctx.fillStyle = '#93c5fd';
       ctx.fillRect(-radius * 1.2, -radius * 0.65, radius * 0.28, radius * 1.3);
-    } else if (attackStyle === 'swarm') {
+      } else if (attackStyle === 'swarm') {
       ctx.translate(bx, by);
       ctx.scale(direction, 1);
       for (let i = 0; i < 5; i++) {
@@ -1082,7 +1085,7 @@ export function draw(
         ctx.closePath();
         ctx.fill();
       }
-    } else if (attackStyle === 'temporal') {
+      } else if (attackStyle === 'temporal') {
       const phase = performance.now() * 0.006;
       ctx.strokeStyle = b.pierce ? '#e9d5ff' : '#93c5fd';
       ctx.lineWidth = Math.max(1.4, radius * 0.24);
@@ -1102,11 +1105,11 @@ export function draw(
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(bx - radius * 0.15, by - radius * 1.05, radius * 0.3, radius * 1.05);
       ctx.fillRect(bx, by - radius * 0.15, direction * radius * 0.75, radius * 0.3);
-    } else if (
+      } else if (
       attackStyle === 'gravity' || attackStyle === 'portal'
       || attackStyle === 'vector' || attackStyle === 'grid'
       || attackStyle === 'resonance' || attackStyle === 'polarity'
-    ) {
+      ) {
       const spatialColors = {
         gravity: ['#111827', '#a78bfa'],
         portal: ['#312e81', '#22d3ee'],
@@ -1139,10 +1142,10 @@ export function draw(
       ctx.beginPath();
       ctx.arc(0, 0, radius * 2.05, 0.3, Math.PI * 1.35);
       ctx.stroke();
-    } else if (
+      } else if (
       attackStyle === 'adaptive' || attackStyle === 'reflective'
       || attackStyle === 'suppression' || attackStyle === 'orbital'
-    ) {
+      ) {
       const effectColor = attackStyle === 'suppression' ? '#a5b4fc'
         : attackStyle === 'orbital' ? '#fbbf24'
           : attackStyle === 'reflective' ? '#f0abfc' : '#4ade80';
@@ -1169,7 +1172,7 @@ export function draw(
         ctx.lineTo(0, radius * 2.2);
         ctx.stroke();
       }
-    } else if (attackStyle === 'energy') {
+      } else if (attackStyle === 'energy') {
       const pulse = 0.88 + Math.sin(performance.now() * 0.018 + b.colPos) * 0.16;
       const energyRadius = radius * pulse;
       const glow = ctx.createRadialGradient(bx, by, 0, bx, by, energyRadius * 2.8);
@@ -1185,7 +1188,7 @@ export function draw(
       ctx.beginPath();
       ctx.arc(bx, by, energyRadius * 1.35, 0, Math.PI * 2);
       ctx.stroke();
-    } else {
+      } else {
       // A compact physical projectile with a metal nose, casing and tracer.
       ctx.translate(bx, by);
       ctx.scale(direction, 1);
@@ -1200,9 +1203,9 @@ export function draw(
       ctx.lineTo(radius * 0.85, radius * 0.46);
       ctx.closePath();
       ctx.fill();
+      }
+      ctx.restore();
     }
-    ctx.restore();
-    drawSkinProjectileEffect(ctx, bx, by, radius, direction, b.effectSkin);
   }
 
   // NPC bullets (VS mode — cyan, moving left, trail on right side)
@@ -1211,15 +1214,17 @@ export function draw(
       const bx = m.x + b.colPos * m.cell;
       const by = m.y + (b.row + 0.5) * m.cell;
       const radius = m.cell * 0.08;
-      ctx.fillStyle = '#67e8f9';
-      ctx.beginPath();
-      ctx.arc(bx, by, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(103,232,249,0.22)';
-      ctx.beginPath();
-      ctx.arc(bx + m.cell * 0.09, by, radius * 1.5, 0, Math.PI * 2); // trail on right
-      ctx.fill();
-      drawSkinProjectileEffect(ctx, bx, by, radius, -1, b.effectSkin);
+      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, b.effectSkin);
+      if (!skinProjectileDrawn) {
+        ctx.fillStyle = '#67e8f9';
+        ctx.beginPath();
+        ctx.arc(bx, by, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(103,232,249,0.22)';
+        ctx.beginPath();
+        ctx.arc(bx + m.cell * 0.09, by, radius * 1.5, 0, Math.PI * 2); // trail on right
+        ctx.fill();
+      }
     }
   }
 
