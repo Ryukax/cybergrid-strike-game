@@ -825,7 +825,15 @@ function drawSkinProjectileEffect(
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
   const now = performance.now();
   const skinPhase = [...skin].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.017;
-  const cycle = (now * (0.0065 + config.motif * 0.00035) + skinPhase) % (Math.PI * 2);
+  // A projectile crosses the board in less than the old one-second animation
+  // cycle. Combine a faster clock with distance travelled so even short-lived
+  // shots visibly traverse every authored pose before impact.
+  const travelPhase = (x / Math.max(radius, 1)) * 0.085 * direction;
+  const cycle = (
+    now * (0.016 + config.motif * 0.00045)
+    + travelPhase
+    + skinPhase
+  ) % (Math.PI * 2);
   const framePosition = (cycle / (Math.PI * 2)) * 4;
   const frame = Math.floor(framePosition) % 4;
   const frameBlendRaw = framePosition - Math.floor(framePosition);
@@ -897,6 +905,7 @@ function drawSkinProjectileEffect(
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
   // Blend every generated pose into the next instead of snapping between
   // frames. This produces four authored poses plus four readable in-betweens.
+  ctx.globalCompositeOperation = 'source-over';
   drawFrame(0, 1 - frameBlend);
   drawFrame(0, frameBlend, 1, 1);
   ctx.restore();
