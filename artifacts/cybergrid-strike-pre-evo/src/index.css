@@ -270,6 +270,34 @@ canvas#canvas {
 .integrityConstruct.critical { animation: constructBreach .7s steps(2) infinite; }
 @keyframes constructBreach { 50% { border-color: rgba(251, 113, 133, .7); filter: hue-rotate(-12deg); } }
 .integrityConstruct.recovery .matrixCells .active { animation-duration: .85s; }
+.integrityConstruct.core-growing {
+  box-shadow: 0 0 44px rgba(34, 211, 238, .42), inset 0 0 22px rgba(2, 6, 23, .72);
+}
+.integrityConstruct.core-eroding {
+  box-shadow: 0 0 38px rgba(251, 113, 133, .38), inset 0 0 22px rgba(88, 28, 135, .32);
+}
+.presenceOffline { color: #64748b; }
+.presenceOffline .telemetryFlow { background: #475569; animation: none; box-shadow: none; }
+.coreDelta {
+  position: absolute;
+  right: 8px;
+  bottom: 22px;
+  padding: 3px 5px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: rgba(2, 6, 23, .88);
+  color: #67e8f9;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  animation: coreDeltaRise 1.6s ease-out both;
+}
+.core-eroding .coreDelta { color: #fb7185; }
+@keyframes coreDeltaRise {
+  from { opacity: 0; transform: translateY(8px) scale(.8); }
+  25% { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-8px) scale(.95); }
+}
 
 @media (max-width: 760px) {
   .integrityConstruct {

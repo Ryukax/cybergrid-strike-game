@@ -62,6 +62,7 @@ jobs:
           PORT: '3000'
           BASE_PATH: '/cybergrid-strike-game/branch/'
           NODE_ENV: 'production'
+          VITE_ECOSYSTEM_API: ${{ vars.ECOSYSTEM_API_URL }}
       - name: Assemble Pages site
         shell: bash
         run: |

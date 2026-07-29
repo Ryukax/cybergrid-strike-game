@@ -45,10 +45,36 @@ interface PlayerRecord {
 
 const encounters = new Map<string, Encounter>();
 const players = new Map<string, PlayerRecord>();
+const PRESENCE_TTL_MS = 30_000;
+const CORE_MIN = 0;
+const CORE_MAX = 1_000;
+interface PresenceRecord {
+  lastSeen: number;
+  integrityWork: number;
+  nodeIntegrity: number;
+}
+const presence = new Map<string, PresenceRecord>();
+let coreUnits = 540;
 let integrity: IntegrityState = {
   global: 62,
   sectors: {},
   nodes: {},
+};
+
+const cleanPresence = (now = Date.now()) => {
+  for (const [sessionId, record] of presence) {
+    if (now - record.lastSeen > PRESENCE_TTL_MS) presence.delete(sessionId);
+  }
+};
+
+const presenceSnapshot = (coreDelta = 0) => {
+  cleanPresence();
+  return {
+    activePlayers: presence.size,
+    coreUnits,
+    coreDelta,
+    sampledAt: new Date().toISOString(),
+  };
 };
 
 const playerRecord = (playerId: string): PlayerRecord => {
@@ -66,6 +92,52 @@ const publicGenome = (genome: Genome) => ({
 
 router.get("/ecosystem/integrity", (_req, res) => {
   res.json({ integrity });
+});
+
+router.get("/ecosystem/presence", (_req, res) => {
+  res.json(presenceSnapshot());
+});
+
+router.post("/ecosystem/presence/heartbeat", (req, res) => {
+  const { sessionId, metrics } = req.body as {
+    sessionId?: string;
+    metrics?: { integrityWork?: number; nodeIntegrity?: number; wave?: number };
+  };
+  if (!sessionId || sessionId.length > 128 || !metrics) {
+    res.status(400).json({ error: "A valid sessionId and metrics sample are required" });
+    return;
+  }
+  const integrityWork = Number(metrics.integrityWork);
+  const nodeIntegrity = Number(metrics.nodeIntegrity);
+  const wave = Number(metrics.wave);
+  if (
+    !Number.isFinite(integrityWork) || integrityWork < 0
+    || !Number.isFinite(nodeIntegrity) || nodeIntegrity < 0 || nodeIntegrity > 100
+    || !Number.isFinite(wave) || wave < 1
+  ) {
+    res.status(400).json({ error: "Presence metrics are outside the accepted envelope" });
+    return;
+  }
+
+  const now = Date.now();
+  cleanPresence(now);
+  const previous = presence.get(sessionId);
+  let coreDelta = 0;
+  if (previous) {
+    // A heartbeat can only move the shared artifact by a small bounded amount.
+    // Positive verified work adds cells; lost node integrity removes them.
+    const workGain = Math.max(0, Math.min(250, integrityWork - previous.integrityWork));
+    const integrityChange = Math.max(-10, Math.min(10, nodeIntegrity - previous.nodeIntegrity));
+    coreDelta = Math.max(-16, Math.min(16, Math.floor(workGain / 25) + Math.round(integrityChange * 1.5)));
+    coreUnits = Math.max(CORE_MIN, Math.min(CORE_MAX, coreUnits + coreDelta));
+  }
+  presence.set(sessionId, { lastSeen: now, integrityWork, nodeIntegrity });
+  res.json(presenceSnapshot(coreDelta));
+});
+
+router.delete("/ecosystem/presence/:sessionId", (req, res) => {
+  presence.delete(req.params.sessionId);
+  res.json(presenceSnapshot());
 });
 
 router.get("/ecosystem/player/:playerId", (req, res) => {

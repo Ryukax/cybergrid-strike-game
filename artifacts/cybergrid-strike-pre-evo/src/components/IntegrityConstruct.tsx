@@ -7,6 +7,9 @@ interface IntegrityConstructProps {
   mutations: number;
   fusions: number;
   pressure: 'steady' | 'critical' | 'recovery';
+  activePlayers: number | null;
+  coreUnits: number;
+  coreDelta: number;
 }
 
 const CELLS = Array.from({ length: 48 }, (_, index) => ({
@@ -14,12 +17,8 @@ const CELLS = Array.from({ length: 48 }, (_, index) => ({
   y: Math.floor(index / 8),
 }));
 
-const HELPERS = [
-  { path: 'helperTrackA', delay: '-0.4s', role: 'restoration' },
-  { path: 'helperTrackB', delay: '-1.8s', role: 'defense' },
-  { path: 'helperTrackC', delay: '-3.1s', role: 'discovery' },
-  { path: 'helperTrackD', delay: '-4.6s', role: 'assist' },
-];
+const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
+const HELPER_ROLES = ['restoration', 'defense', 'discovery', 'assist'];
 
 export function IntegrityConstruct({
   integrityWork,
@@ -28,12 +27,17 @@ export function IntegrityConstruct({
   mutations,
   fusions,
   pressure,
+  activePlayers,
+  coreUnits,
+  coreDelta,
 }: IntegrityConstructProps) {
-  const completion = Math.max(0, Math.min(1, (
+  const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
+  const completion = activePlayers === null ? localCompletion : Math.max(0, Math.min(1, coreUnits / 1_000));
   const activeCells = Math.max(3, Math.round(CELLS.length * completion));
-  const activeHelpers = Math.min(HELPERS.length, Math.max(1, 1 + Math.floor((discoveries + mutations + fusions) / 4)));
+  const helperTotal = activePlayers ?? 0;
+  const visibleHelpers = Math.min(24, helperTotal);
   const workPulse = integrityWork % 12;
   const constructStyle = {
     '--integrity': completion,
@@ -48,7 +52,7 @@ export function IntegrityConstruct({
   return (
     <aside
       id="integrityConstruct"
-      className={`integrityConstruct ${pressure}`}
+      className={`integrityConstruct ${pressure} ${coreDelta > 0 ? 'core-growing' : coreDelta < 0 ? 'core-eroding' : ''}`}
       style={constructStyle}
       aria-label={`Living System Integrity construct, ${Math.round(completion * 100)} percent assembled`}
     >
@@ -120,16 +124,20 @@ export function IntegrityConstruct({
         </g>
 
         <g className="helpers">
-          {HELPERS.slice(0, activeHelpers).map((helper) => (
-            <g key={helper.path} className={`helper ${helper.role}`} style={{ animationDelay: helper.delay }}>
-              <animateMotion dur="var(--work-speed)" begin={helper.delay} repeatCount="indefinite" rotate="auto">
-                <mpath href={`#${helper.path}`} />
+          {Array.from({ length: visibleHelpers }, (_, index) => {
+            const path = HELPER_PATHS[index % HELPER_PATHS.length];
+            const role = HELPER_ROLES[index % HELPER_ROLES.length];
+            const delay = `${-(index * 0.63 + 0.4)}s`;
+            return (
+            <g key={index} className={`helper ${role}`} style={{ animationDelay: delay, opacity: Math.max(.35, 1 - Math.floor(index / 4) * .08) }}>
+              <animateMotion dur="var(--work-speed)" begin={delay} repeatCount="indefinite" rotate="auto">
+                <mpath href={`#${path}`} />
               </animateMotion>
               <circle cx="0" cy="-5" r="3.2" />
               <path d="M0 -1 L0 7 M-5 2 L5 2 M0 7 L-4 12 M0 7 L5 11" />
               <rect className="helperBlock" x="6" y="-1" width="8" height="8" rx="1" />
             </g>
-          ))}
+          )})}
         </g>
 
         <g className="foundation">
@@ -140,9 +148,12 @@ export function IntegrityConstruct({
 
       <div className="constructTelemetry">
         <span><i className="telemetryFlow repair" />WORK <b>{integrityWork}</b></span>
-        <span><i className="telemetryFlow assist" />HELPERS <b>{activeHelpers}</b></span>
+        <span className={activePlayers === null ? 'presenceOffline' : ''}>
+          <i className="telemetryFlow assist" />HELPERS <b>{activePlayers ?? 'OFFLINE'}</b>
+        </span>
         <span><i className="telemetryFlow research" />RESEARCH <b>{discoveries + mutations}</b></span>
       </div>
+      {coreDelta !== 0 && <div className="coreDelta">{coreDelta > 0 ? '+' : ''}{coreDelta} CELLS</div>}
     </aside>
   );
 }

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, type MutableRefObject } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
+import { heartbeatPresence, leavePresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
 // Static one-time render of a GIF's first frame with white-background removed.
@@ -4263,6 +4264,36 @@ export default function Game() {
     runUpgrades: {},
     ecosystem: { species: 0, mutations: 0, generation: 0, fusions: 0 },
   });
+  const [presence, setPresence] = useState<PresenceSnapshot | null>(null);
+
+  useEffect(() => {
+    if (phase !== 'playing') {
+      setPresence(null);
+      void leavePresence();
+      return;
+    }
+    let cancelled = false;
+    const heartbeat = async () => {
+      const state = stateRef.current;
+      try {
+        const snapshot = await heartbeatPresence({
+          integrityWork: state.integrityWork,
+          nodeIntegrity: state.systemIntegrity.node,
+          wave: state.wave,
+        });
+        if (!cancelled) setPresence(snapshot);
+      } catch {
+        if (!cancelled) setPresence(null);
+      }
+    };
+    void heartbeat();
+    const timer = window.setInterval(heartbeat, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      void leavePresence();
+    };
+  }, [phase]);
 
   const updateHud = useCallback(() => {
     const s = stateRef.current;
@@ -8368,6 +8399,9 @@ export default function Game() {
           mutations={hud.ecosystem.mutations}
           fusions={hud.ecosystem.fusions}
           pressure={hud.pressureState}
+          activePlayers={presence?.activePlayers ?? null}
+          coreUnits={presence?.coreUnits ?? 540}
+          coreDelta={presence?.coreDelta ?? 0}
         />
       )}
 
