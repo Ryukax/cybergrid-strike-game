@@ -3553,7 +3553,9 @@ export default function Game() {
   const cloneSouthRef = useRef<HTMLDivElement>(null);
   const rivalAttackSequenceRef = useRef<HTMLImageElement | null>(null);
   const rivalSkillSequenceRef = useRef<HTMLImageElement | null>(null);
+  const rivalSkillCommandSequencesRef = useRef<HTMLImageElement[]>([]);
   const rivalSkillAnimationStartedRef = useRef(-1);
+  const rivalSkillAnimationCommandRef = useRef(-1);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
     north: null,
     south: null,
@@ -4011,6 +4013,7 @@ export default function Game() {
     if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
       rivalAttackSequenceRef.current = null;
       rivalSkillSequenceRef.current = null;
+      rivalSkillCommandSequencesRef.current = [];
       return;
     }
     const attackSequence = new Image();
@@ -4019,12 +4022,21 @@ export default function Game() {
     const skillSequence = new Image();
     skillSequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-sequences/${playerSkin}.png?v=1`;
     rivalSkillSequenceRef.current = skillSequence;
+    const commandSequences = [0, 1, 2].map((command) => {
+      const sequence = new Image();
+      sequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-command-sequences/${playerSkin}-${command}.png?v=1`;
+      return sequence;
+    });
+    rivalSkillCommandSequencesRef.current = commandSequences;
     return () => {
       if (rivalAttackSequenceRef.current === attackSequence) {
         rivalAttackSequenceRef.current = null;
       }
       if (rivalSkillSequenceRef.current === skillSequence) {
         rivalSkillSequenceRef.current = null;
+      }
+      if (rivalSkillCommandSequencesRef.current === commandSequences) {
+        rivalSkillCommandSequencesRef.current = [];
       }
     };
   }, [playerSkin]);
@@ -5914,6 +5926,9 @@ export default function Game() {
   const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
     const active = rivalSkillRef.current;
     if (!active.active || !active.id) return;
+    rivalSkillAnimationCommandRef.current = action === 'primary' ? 0
+      : action === 'alternate' ? 1 : 2;
+    rivalSkillAnimationStartedRef.current = performance.now();
     const s = stateRef.current;
     let next = {
       ...active,
@@ -6407,7 +6422,6 @@ export default function Game() {
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
-    rivalSkillAnimationStartedRef.current = performance.now();
     updateHud();
   }, [finishRivalSkill, fireBullet, showMessage, updateHud]);
 
@@ -6488,6 +6502,8 @@ export default function Game() {
     };
     rivalSkillRef.current = next;
     setRivalSkillView(next);
+    rivalSkillAnimationCommandRef.current = -1;
+    rivalSkillAnimationStartedRef.current = performance.now();
     if (id === 'chrono') s.slowTimer = Math.max(s.slowTimer, 9);
     if (id === 'phase') s.ghostTimer = Math.max(s.ghostTimer, 9);
     const suffix = id === 'apex'
@@ -7873,7 +7889,10 @@ export default function Game() {
               sctx.clearRect(0, 0, sz, sz);
               const mirror = playerSkinRef.current === 'gem' && gemMoveMirrorRef.current;
               if (rivalSkillAnimating) {
-                const sequence = rivalSkillSequenceRef.current;
+                const command = rivalSkillAnimationCommandRef.current;
+                const sequence = command >= 0
+                  ? rivalSkillCommandSequencesRef.current[command]
+                  : rivalSkillSequenceRef.current;
                 if (sequence?.complete && sequence.naturalWidth > 0) {
                   const progress = Math.max(0, Math.min(
                     1,
