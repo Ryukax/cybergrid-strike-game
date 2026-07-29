@@ -3488,6 +3488,7 @@ export default function Game() {
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rotateTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Message system
   const msgFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6666,12 +6667,28 @@ export default function Game() {
     fireHeldRef.current = gp.fire;
     if (!cloneControlActive && gp.rotate && !gp.prevRotate) {
       if (gp.l1) {
+        if (rotateTapTimerRef.current) {
+          clearTimeout(rotateTapTimerRef.current);
+          rotateTapTimerRef.current = null;
+        }
+        s.autoBuster = !s.autoBuster;
+        playAutoToggle();
+        updateHud();
+        showMessage(`Auto Fire: ${s.autoBuster ? 'ON' : 'OFF'}`, 900);
+      } else if (rotateTapTimerRef.current) {
+        // A second View / ellipsis press consumes the pending single tap so
+        // double-tapping toggles Auto without also rotating the card hand.
+        clearTimeout(rotateTapTimerRef.current);
+        rotateTapTimerRef.current = null;
         s.autoBuster = !s.autoBuster;
         playAutoToggle();
         updateHud();
         showMessage(`Auto Fire: ${s.autoBuster ? 'ON' : 'OFF'}`, 900);
       } else {
-        rotateHand();
+        rotateTapTimerRef.current = setTimeout(() => {
+          rotateTapTimerRef.current = null;
+          if (stateRef.current.running) rotateHand();
+        }, 320);
       }
     }
 
@@ -7968,6 +7985,10 @@ export default function Game() {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      if (rotateTapTimerRef.current) {
+        clearTimeout(rotateTapTimerRef.current);
+        rotateTapTimerRef.current = null;
+      }
       cleanups.forEach((c) => c());
     };
   }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
