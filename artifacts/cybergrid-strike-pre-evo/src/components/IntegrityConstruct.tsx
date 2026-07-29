@@ -116,14 +116,16 @@ export function IntegrityConstruct({
       id="integrityConstruct"
       className={`integrityConstruct ${pressure} ${coreDelta > 0 ? 'core-growing' : coreDelta < 0 ? 'core-eroding' : ''}`}
       style={constructStyle}
-      aria-label={`Living System Integrity construct, ${Math.round(completion * 100)} percent assembled`}
+      aria-label={`Living System Integrity construct, ${Math.round(chemistry * 100)} percent synchronized`}
     >
       <div className="constructHeading">
         <span>
           <b>INTEGRITY CONSTRUCT</b>
           <small>LIVE MATCH SCAFFOLD</small>
         </span>
-        <strong>{Math.round(completion * 100)}%</strong>
+        <strong title={`${activeCells} of 1000 material units`}>
+          {Math.round(chemistry * 100)}% SYNC
+        </strong>
       </div>
 
       <svg className="constructStage" viewBox="0 0 300 210" role="img" aria-hidden="true">

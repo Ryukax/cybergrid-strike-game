@@ -963,6 +963,38 @@ export function draw(
   }
 
   // Player body — skipped when a DOM sprite overlay is active
+  // Artifex cannons retain their deployment coordinates independently.
+  for (const cannon of state.architectCannons) {
+    const cannonX = m.x + (cannon.col + 0.5) * m.cell;
+    const cannonY = m.y + (cannon.row + 0.5) * m.cell;
+    const firing = cannon.fireCooldown > 0.58;
+    ctx.save();
+    ctx.translate(cannonX, cannonY + m.cell * 0.2);
+    ctx.fillStyle = 'rgba(15,23,42,0.94)';
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = Math.max(1.5, m.cell * 0.025);
+    ctx.beginPath();
+    (ctx as Ctx2D).roundRect(-m.cell * 0.19, -m.cell * 0.12, m.cell * 0.31, m.cell * 0.24, m.cell * 0.04);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#93c5fd';
+    ctx.beginPath();
+    (ctx as Ctx2D).roundRect(-m.cell * 0.02, -m.cell * 0.07, m.cell * (firing ? 0.34 : 0.29), m.cell * 0.11, m.cell * 0.025);
+    ctx.fill();
+    ctx.fillStyle = firing ? '#f8fafc' : '#22d3ee';
+    ctx.beginPath();
+    ctx.arc(m.cell * (firing ? 0.34 : 0.29), -m.cell * 0.015, m.cell * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(96,165,250,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-m.cell * 0.13, m.cell * 0.12);
+    ctx.lineTo(-m.cell * 0.2, m.cell * 0.23);
+    ctx.moveTo(m.cell * 0.05, m.cell * 0.12);
+    ctx.lineTo(m.cell * 0.12, m.cell * 0.23);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   if (!hasOverlay) {
     ctx.globalAlpha = state.ghostTimer > 0 ? 0.4 : 1.0;
     ctx.fillStyle = '#60a5fa';

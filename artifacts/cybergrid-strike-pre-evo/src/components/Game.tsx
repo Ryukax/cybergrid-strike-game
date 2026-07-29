@@ -2358,6 +2358,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     rotateUsedThisHand: false,
     usedInHand: [],
     player: { col: 1, row: 1, fireCooldown: 0 },
+    architectCannons: [],
     bullets: [],
     enemies: [],
     particles: [],
@@ -5660,10 +5661,10 @@ export default function Game() {
           s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
         }
       } else if (active.id === 'architect') {
-        const cannons = active.placements.filter((node) => node < 3).length;
         const relays = active.placements.filter((node) => node >= 3 && node < 6).length;
         const barriers = active.placements.filter((node) => node >= 6).length;
-        if (cannons > 0) s.turretTimer = Math.max(s.turretTimer, 4 + cannons * 2);
+        // Cannon nodes are already live, anchored entities; do not convert them
+        // into the generic player-following turret effect on execution.
         if (relays > 0) s.ghostTimer = Math.max(s.ghostTimer, 1 + relays);
         s.shieldCharges += barriers;
         if (active.placements.length === 0) s.shieldCharges++;
@@ -5894,6 +5895,12 @@ export default function Game() {
         else {
           next.placements = [...next.placements, s.player.row];
           next.charges = next.placements.length;
+          s.architectCannons.push({
+            col: s.player.col,
+            row: s.player.row,
+            timer: 6,
+            fireCooldown: 0,
+          });
           showMessage('Cannon node placed.', 700);
         }
       } else if (action === 'alternate') {
@@ -6815,6 +6822,20 @@ export default function Game() {
         e.colPos = Math.min(5.8, e.colPos + pull * dt);
       }
     }
+    for (const cannon of s.architectCannons) {
+      cannon.timer = Math.max(0, cannon.timer - dt);
+      cannon.fireCooldown -= dt;
+      if (cannon.fireCooldown <= 0) {
+        fireBullet(cannon.row, {
+          originCol: cannon.col,
+          power: 2,
+          big: true,
+          pierce: true,
+        });
+        cannon.fireCooldown = 0.72;
+      }
+    }
+    s.architectCannons = s.architectCannons.filter((cannon) => cannon.timer > 0);
     if (s.regenTimer > 0) {
       s.regenTimer = Math.max(0, s.regenTimer - dt);
       s.regenTick  = Math.max(0, s.regenTick  - dt);
@@ -7695,7 +7716,17 @@ export default function Game() {
                 // Never cross-fade the idle and attack bodies. Their different
                 // silhouettes were being seen simultaneously as motion blur.
                 const committed = rivalAttackProgress >= 0.16 && rivalAttackProgress <= 0.9;
-                sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
+                if (committed && playerSkinRef.current === 'architect') {
+                  // Keep Artifex's idle body visible beneath the authored
+                  // construction performance. Deployed cannons have their own
+                  // board coordinates and no longer travel with the player.
+                  sctx.drawImage(bitmap, 0, 0, sz, sz);
+                  sctx.globalAlpha = 0.94;
+                  sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                  sctx.globalAlpha = 1;
+                } else {
+                  sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
+                }
 
                 // Advanced skins use the authored raster weapon sequence,
                 // replacing the former circles, claw arcs and circuit lines.

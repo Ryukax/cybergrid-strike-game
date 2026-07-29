@@ -182,6 +182,12 @@ export interface GameState {
   usedInHand: string[];   // ability IDs used in the current hand
   // Entities
   player: Player;
+  architectCannons: Array<{
+    col: number;
+    row: number;
+    timer: number;
+    fireCooldown: number;
+  }>;
   bullets: Bullet[];
   enemies: Enemy[];
   particles: Particle[];
