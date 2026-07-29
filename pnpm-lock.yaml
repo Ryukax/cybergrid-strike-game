@@ -171,6 +171,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/ecosystem':
+        specifier: workspace:*
+        version: link:../../lib/ecosystem
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -1222,6 +1225,15 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+
+  lib/ecosystem:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.4
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.0
 
   scripts:
     devDependencies:
