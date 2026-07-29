@@ -821,12 +821,12 @@ function drawSkinProjectileEffect(
 ) {
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
   if (!config) return;
-  const sheet = getAdvancedProjectileSheet();
+  const sheet = getAdvancedProjectileSheet(skin);
   if (!sheet?.complete || sheet.naturalWidth <= 0) return;
-  const frame = Math.floor(performance.now() / 90) % 4;
+  const frame = Math.floor((performance.now() + Math.abs(x) * 2.5) / 78) % 4;
   const sourceWidth = sheet.naturalWidth / 4;
-  const sourceHeight = sheet.naturalHeight / 4;
-  const size = radius * 7.2;
+  const sourceHeight = sheet.naturalHeight;
+  const size = radius * (skin === 'orbital' || skin === 'colossus' ? 6.8 : 5.8);
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(direction, 1);
@@ -847,13 +847,15 @@ function drawSkinProjectileEffect(
   ctx.restore();
 }
 
-let advancedProjectileSheet: HTMLImageElement | null = null;
-function getAdvancedProjectileSheet(): HTMLImageElement | null {
-  if (advancedProjectileSheet) return advancedProjectileSheet;
+const advancedProjectileSheets = new Map<string, HTMLImageElement>();
+function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
+  const cached = advancedProjectileSheets.get(skin);
+  if (cached) return cached;
   if (typeof Image === 'undefined') return null;
-  advancedProjectileSheet = new Image();
-  advancedProjectileSheet.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
-  return advancedProjectileSheet;
+  const sheet = new Image();
+  sheet.src = `${import.meta.env.BASE_URL}effects/advanced-projectiles/${skin}.png?v=1`;
+  advancedProjectileSheets.set(skin, sheet);
+  return sheet;
 }
 
 
