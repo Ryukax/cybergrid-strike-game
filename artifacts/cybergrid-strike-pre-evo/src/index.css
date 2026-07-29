@@ -247,22 +247,28 @@ canvas#canvas {
 .matrixCells .blockTop { fill: #67e8f9; }
 .matrixCells .blockLeft { fill: #0e7490; }
 .matrixCells .blockRight { fill: #2563eb; }
-.matrixCells .reconstructing .blockTop {
+.matrixCells .reconstructing .blockTop,
+.matrixCells .microVoxel.adding .blockTop {
   animation: assembleTop .78s cubic-bezier(.16, 1, .3, 1) both;
 }
-.matrixCells .reconstructing .blockLeft {
+.matrixCells .reconstructing .blockLeft,
+.matrixCells .microVoxel.adding .blockLeft {
   animation: assembleLeft .78s cubic-bezier(.16, 1, .3, 1) both;
 }
-.matrixCells .reconstructing .blockRight {
+.matrixCells .reconstructing .blockRight,
+.matrixCells .microVoxel.adding .blockRight {
   animation: assembleRight .78s cubic-bezier(.16, 1, .3, 1) both;
 }
-.matrixCells .deconstructing .blockTop {
+.matrixCells .deconstructing .blockTop,
+.matrixCells .microVoxel.subtracting .blockTop {
   animation: dismantleTop .78s cubic-bezier(.7, 0, .84, 0) both;
 }
-.matrixCells .deconstructing .blockLeft {
+.matrixCells .deconstructing .blockLeft,
+.matrixCells .microVoxel.subtracting .blockLeft {
   animation: dismantleLeft .78s cubic-bezier(.7, 0, .84, 0) both;
 }
-.matrixCells .deconstructing .blockRight {
+.matrixCells .deconstructing .blockRight,
+.matrixCells .microVoxel.subtracting .blockRight {
   animation: dismantleRight .78s cubic-bezier(.7, 0, .84, 0) both;
 }
 @keyframes assembleTop {
@@ -285,6 +291,10 @@ canvas#canvas {
 }
 .matrixCells .adding {
   animation: cellConstruct .9s cubic-bezier(.16, 1, .3, 1) both;
+}
+.matrixCells .microVoxel.adding,
+.matrixCells .microVoxel.subtracting {
+  animation-name: none;
 }
 .matrixCells .exiting {
   stroke: #fb7185;

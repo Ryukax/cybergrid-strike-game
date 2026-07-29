@@ -12,25 +12,26 @@ interface IntegrityConstructProps {
   coreDelta: number;
 }
 
-const CELLS = Array.from({ length: 48 }, (_, index) => {
-  const layer = Math.floor(index / 8);
-  const spoke = index % 8;
-  const angle = spoke * Math.PI / 4 + layer * 0.39;
-  const radiusX = 9 + layer * 18;
-  const radiusY = 5 + layer * 11;
-  const gx = index % 4;
-  const gy = Math.floor(index / 4) % 4;
-  const gz = Math.floor(index / 16);
-  return {
-    id: index,
-    x: 151 + Math.cos(angle) * radiusX,
-    y: 111 + Math.sin(angle) * radiusY + layer * 1.8,
-    coreX: 151 + (gx - gz) * 13 - 7,
-    coreY: 132 + (gx + gz) * 5.5 - gy * 11,
-    scale: 0.62 + layer * 0.07,
-    rotation: (spoke % 2 ? -4 : 4) + layer * 1.5,
-  };
-});
+const CELLS = Array.from({ length: 1_000 }, (_, index) => {
+  const gx = index % 10;
+  const gy = Math.floor(index / 10) % 10;
+  const gz = Math.floor(index / 100);
+  return { gx, gy, gz };
+})
+  .sort((a, b) => {
+    const distance = (cell: { gx: number; gy: number; gz: number }) =>
+      Math.max(Math.abs(cell.gx - 4.5), Math.abs(cell.gy - 4.5), Math.abs(cell.gz - 4.5));
+    return distance(a) - distance(b)
+      || a.gy - b.gy
+      || a.gz - b.gz
+      || a.gx - b.gx;
+  })
+  .map((cell, id) => ({
+    ...cell,
+    id,
+    coreX: 150 + (cell.gx - cell.gz) * 4.3,
+    coreY: 137 + (cell.gx + cell.gz) * 2.1 - cell.gy * 4.15,
+  }));
 
 const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
 const HELPER_ROLES = ['restoration', 'defense', 'discovery', 'assist'];
@@ -52,50 +53,11 @@ export function IntegrityConstruct({
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
-  const networkCompletion = Math.max(0, Math.min(1, coreUnits / 1_000));
-  // Live match integrity moves the artifact immediately; the authoritative
-  // network core anchors half of the persistent material total.
-  const completion = activePlayers === null
-    ? localCompletion
-    : networkCompletion * .5 + localCompletion * .5;
-  const activeCells = Math.max(3, Math.round(CELLS.length * completion));
-  const [transforming, setTransforming] = useState<{
-    mode: 'reconstructing' | 'deconstructing';
-    cells: Set<string>;
-  } | null>(null);
-  const previousMetricsRef = useRef({
-    integrityWork,
-    node: integrity.node,
-    activeCells,
-  });
-  useEffect(() => {
-    const previous = previousMetricsRef.current;
-    const workGain = Math.max(0, integrityWork - previous.integrityWork);
-    const nodeChange = integrity.node - previous.node;
-    let mode: 'reconstructing' | 'deconstructing' | null = null;
-    if (nodeChange < -.04) mode = 'deconstructing';
-    else if (workGain > 0 || nodeChange > .04) mode = 'reconstructing';
-    if (mode) {
-      const magnitude = Math.min(6, Math.max(
-        1,
-        Math.ceil(Math.abs(nodeChange) * .65 + Math.sqrt(workGain) / 4),
-      ));
-      const start = mode === 'deconstructing'
-        ? Math.max(0, Math.min(activeCells, previous.activeCells) - magnitude)
-        : Math.max(0, activeCells - magnitude);
-      const end = mode === 'deconstructing'
-        ? Math.max(activeCells, previous.activeCells)
-        : activeCells;
-      setTransforming({
-        mode,
-        cells: new Set(CELLS.slice(start, end).map((cell) => String(cell.id))),
-      });
-      const timer = window.setTimeout(() => setTransforming(null), 820);
-      previousMetricsRef.current = { integrityWork, node: integrity.node, activeCells };
-      return () => window.clearTimeout(timer);
-    }
-    previousMetricsRef.current = { integrityWork, node: integrity.node, activeCells };
-  }, [activeCells, integrity.node, integrityWork]);
+  const activeCells = Math.max(0, Math.min(
+    CELLS.length,
+    activePlayers === null ? Math.round(localCompletion * 1_000) : Math.round(coreUnits),
+  ));
+  const completion = activeCells / CELLS.length;
   useEffect(() => {
     const previousCount = previousCellCountRef.current;
     previousCellCountRef.current = activeCells;
@@ -119,12 +81,6 @@ export function IntegrityConstruct({
     + researchCoherence
     + Math.max(-12, Math.min(12, coreDelta))
   ) / 100));
-  const restorationFlow = coreDelta > 0 || transforming?.mode === 'reconstructing'
-    ? Math.min(6, Math.max(1, Math.ceil(coreDelta / 3) + Math.floor(helperTotal / 2)))
-    : 0;
-  const corruptionFlow = coreDelta < 0 || transforming?.mode === 'deconstructing'
-    ? Math.min(6, Math.max(1, Math.ceil(Math.abs(coreDelta) / 3)))
-    : 0;
   const constructStyle = {
     '--integrity': completion,
     '--chemistry': chemistry,
@@ -175,8 +131,6 @@ export function IntegrityConstruct({
           <path id="helperTrackB" d="M8 80 C48 82 68 108 104 100 S158 60 194 72 S246 126 290 112" />
           <path id="helperTrackC" d="M42 204 C56 160 92 156 126 164 S194 196 228 156 S260 126 296 138" />
           <path id="helperTrackD" d="M36 30 C70 48 82 68 114 66 S172 32 206 44 S250 72 284 22" />
-          <path id="restorationFeed" d="M8 142 C48 146 79 137 111 121 S137 111 151 111" />
-          <path id="corruptionFeed" d="M151 111 C183 103 204 91 232 74 S269 62 296 67" />
         </defs>
 
         <g className="constructOrbits">
@@ -199,62 +153,28 @@ export function IntegrityConstruct({
             const wasActive = previousActive.has(cellId) || retiringCells.has(cellId);
             if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
-            const positionX = cell.x + (cell.coreX - cell.x) * chemistry;
-            const positionY = cell.y + (cell.coreY - cell.y) * chemistry;
-            const rotation = cell.rotation * (1 - chemistry);
-            const scale = cell.scale + (0.86 - cell.scale) * chemistry;
+            const disorder = 1 - chemistry;
+            const positionX = cell.coreX + Math.sin(cell.id * 12.9898) * 34 * disorder;
+            const positionY = cell.coreY + Math.cos(cell.id * 7.233) * 25 * disorder;
             return (
               <g
                 key={index}
                 className="constructBlockPosition"
                 style={{
-                  transform: `translate(${positionX}px, ${positionY}px) rotate(${rotation}deg) scale(${scale})`,
+                  transform: `translate(${positionX}px, ${positionY}px)`,
                 }}
               >
                 <g
-                  className={`cell ${active ? 'active' : 'exiting'} ${transition} ${
-                    transforming?.cells.has(cellId) ? transforming.mode : ''
-                  }`}
-                  style={{ animationDelay: `${((index + workPulse) % 7) * 0.035}s` }}
+                  className={`cell microVoxel ${active ? 'active' : 'exiting'} ${transition}`}
+                  style={{ animationDelay: `${((index + workPulse) % Math.max(1, Math.abs(coreDelta))) * 0.028}s` }}
                 >
-                  <path className="blockTop" d="M0 -9 L12 -3 L0 3 L-12 -3 Z" />
-                  <path className="blockLeft" d="M-12 -3 L0 3 L0 14 L-12 8 Z" />
-                  <path className="blockRight" d="M0 3 L12 -3 L12 8 L0 14 Z" />
+                  <path className="blockTop" d="M0 -3 L4 -1 L0 1 L-4 -1 Z" />
+                  <path className="blockLeft" d="M-4 -1 L0 1 L0 5 L-4 3 Z" />
+                  <path className="blockRight" d="M0 1 L4 -1 L4 3 L0 5 Z" />
                 </g>
               </g>
             );
           })}
-        </g>
-
-        <g className="materialFlows" filter="url(#constructGlow)">
-          {Array.from({ length: restorationFlow }, (_, index) => (
-            <g key={`restore-${index}`} className="materialTransit restore">
-              <animateMotion
-                dur={`${Math.max(1.25, 3.1 - restorationFlow * .24)}s`}
-                begin={`${index * -.47}s`}
-                repeatCount="indefinite"
-                rotate="auto"
-              >
-                <mpath href="#restorationFeed" />
-              </animateMotion>
-              <path d="M0 -5 L7 -1 L0 3 L-7 -1 Z M-7 -1 L0 3 L0 9 L-7 5 Z M0 3 L7 -1 L7 5 L0 9 Z" />
-            </g>
-          ))}
-          {Array.from({ length: corruptionFlow }, (_, index) => (
-            <g key={`corrupt-${index}`} className="materialTransit corrupt">
-              <animateMotion
-                dur={`${Math.max(1.1, 3.5 - corruptionFlow * .3)}s`}
-                begin={`${index * -.61}s`}
-                repeatCount="indefinite"
-                rotate="auto"
-              >
-                <mpath href="#corruptionFeed" />
-              </animateMotion>
-              <path d="M0 -5 L7 -1 L0 3 L-7 -1 Z M-7 -1 L0 3 L0 9 L-7 5 Z M0 3 L7 -1 L7 5 L0 9 Z" />
-            </g>
-          ))}
-          <text className="flowLabel restoreLabel" x="9" y="158">RESTORATION</text>
-          <text className="flowLabel corruptLabel" x="244" y="57">CORRUPTION</text>
         </g>
 
         <g className="dataPackets" filter="url(#constructGlow)">
