@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 
 interface IntegrityConstructProps {
   integrityWork: number;
@@ -38,13 +38,7 @@ export function IntegrityConstruct({
   coreUnits,
   coreDelta,
 }: IntegrityConstructProps) {
-  const [motionStep, setMotionStep] = useState(0);
   const previousActiveRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const timer = window.setInterval(() => setMotionStep((step) => step + 1), 1100);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
@@ -60,28 +54,22 @@ export function IntegrityConstruct({
 
   const topologySeed = Math.round(
     integrityWork * 17
-    + integrity.node * 31
-    + integrity.sector * 23
-    + integrity.global * 13
     + discoveries * 43
     + mutations * 59
     + fusions * 71
-    + coreUnits * 7
-    + coreDelta * 97,
+    + Math.floor(integrityWork / 500) * 89,
   );
   const activated = useMemo(() => {
-    // The number of blocks represents system health; their topology represents
-    // the current battle. A small moving frontier makes ongoing work physical
-    // without inventing changes to the underlying metric totals.
-    const frontier = Math.min(5, Math.max(1, Math.ceil((Math.abs(coreDelta) + helperTotal) / 3)));
+    // Quantity follows live integrity; research milestones alter the structure's
+    // growth path. Nothing moves unless real telemetry changes.
     const ordered = CELLS
       .map((cell, index) => ({
         cell,
-        rank: metricHash(topologySeed + index * 7919 + Math.floor(motionStep / frontier) * 104729),
+        rank: metricHash(topologySeed + index * 7919),
       }))
       .sort((a, b) => a.rank - b.rank);
     return new Set(ordered.slice(0, activeCells).map(({ cell }) => `${cell.x}:${cell.y}`));
-  }, [activeCells, coreDelta, helperTotal, motionStep, topologySeed]);
+  }, [activeCells, topologySeed]);
   const previousActive = previousActiveRef.current;
   useEffect(() => {
     previousActiveRef.current = activated;
@@ -128,25 +116,17 @@ export function IntegrityConstruct({
           <ellipse cx="154" cy="110" rx="78" ry="96" transform="rotate(58 154 110)" />
         </g>
 
-        <g className="constructScaffold">
-          {[0, 1, 2, 3].map((level) => (
-            <g key={level} transform={`translate(${79 + level * 12} ${33 + level * 9})`}>
-              <path d={`M0 ${level * 29} L142 ${level * 29} L142 ${level * 29 + 24} L0 ${level * 29 + 24} Z`} />
-              <path d={`M0 ${level * 29} L142 ${level * 29 + 24} M142 ${level * 29} L0 ${level * 29 + 24}`} />
-            </g>
-          ))}
-        </g>
-
         <g className="matrixCells" transform="translate(93 39) skewY(-7)">
           {CELLS.map((cell, index) => {
             const cellId = `${cell.x}:${cell.y}`;
             const active = activated.has(cellId);
             const wasActive = previousActive.has(cellId);
+            if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
             return (
               <rect
                 key={index}
-                className={`${active ? 'cell active' : 'cell pending'} ${transition}`}
+                className={`${active ? 'cell active' : 'cell exiting'} ${transition}`}
                 x={cell.x * 15}
                 y={(5 - cell.y) * 20}
                 width="12"

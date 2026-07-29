@@ -232,6 +232,10 @@ canvas#canvas {
 .matrixCells .adding {
   animation: cellConstruct .9s cubic-bezier(.16, 1, .3, 1) both;
 }
+.matrixCells .exiting {
+  fill: url(#constructCorrupt);
+  stroke: #fb7185;
+}
 .matrixCells .subtracting {
   animation: cellSubtract .9s cubic-bezier(.7, 0, .84, 0) both;
 }
