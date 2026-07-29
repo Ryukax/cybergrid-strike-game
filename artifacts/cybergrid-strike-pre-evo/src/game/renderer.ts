@@ -823,27 +823,90 @@ function drawSkinProjectileEffect(
   if (!config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
-  const frame = Math.floor((performance.now() + Math.abs(x) * 2.5) / 78) % 4;
+  const now = performance.now();
+  const skinPhase = [...skin].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.017;
+  const cycle = (now * (0.0065 + config.motif * 0.00035) + skinPhase) % (Math.PI * 2);
+  const frame = Math.floor(((cycle / (Math.PI * 2)) * 4)) % 4;
   const sourceWidth = sheet.naturalWidth / 4;
   const sourceHeight = sheet.naturalHeight;
-  const size = radius * (skin === 'orbital' || skin === 'colossus' ? 6.8 : 5.8);
+  const baseSize = radius * (skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3);
+  const pulse = 1 + Math.sin(cycle) * (config.motif === 2 ? 0.2 : 0.09);
+  const stretch = config.motif === 0 ? 1.08 + Math.sin(cycle * 2) * 0.18 : 1;
+  const bob = config.motif === 5 ? Math.sin(cycle * 1.5) * radius * 0.9 : 0;
+  const jitterX = config.motif === 3 ? Math.round(Math.sin(cycle * 5)) * radius * 0.32 : 0;
+  const jitterY = config.motif === 3 ? Math.round(Math.cos(cycle * 7)) * radius * 0.24 : 0;
+  const rotation = config.motif === 1
+    ? cycle
+    : config.motif === 4
+      ? Math.floor(cycle / (Math.PI / 4)) * (Math.PI / 4)
+      : config.motif === 2
+        ? -cycle * 0.45
+        : Math.sin(cycle) * 0.08;
+  const size = baseSize * pulse;
+  const drawFrame = (drawX: number, alpha: number, scale = 1) => {
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(
+      sheet,
+      frame * sourceWidth,
+      0,
+      sourceWidth,
+      sourceHeight,
+      drawX - size * 0.5 * scale,
+      -size * 0.5 * scale,
+      size * scale,
+      size * scale,
+    );
+  };
+
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x + jitterX, y + bob + jitterY);
   ctx.scale(direction, 1);
+  ctx.rotate(rotation);
   ctx.globalCompositeOperation = 'screen';
-  ctx.globalAlpha = 0.94;
+  ctx.shadowColor = config.color;
+  ctx.shadowBlur = Math.max(4, radius * 2.4);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    sheet,
-    frame * sourceWidth,
-    0,
-    sourceWidth,
-    sourceHeight,
-    -size * 0.46,
-    -size * 0.5,
-    size,
-    size,
-  );
+
+  // Every generated sheet gets readable motion at gameplay scale. Motifs use
+  // different physical languages instead of relying on subtle sprite changes.
+  if (config.motif === 0 || config.motif === 5) {
+    drawFrame(-radius * 2.7, 0.16, 0.68);
+    drawFrame(-radius * 1.45, 0.32, 0.82);
+  } else if (config.motif === 3) {
+    drawFrame(-radius * 0.7, 0.24, 0.9);
+  }
+  ctx.scale(stretch, 1 / Math.sqrt(stretch));
+  drawFrame(0, 1);
+
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = Math.max(1.25, radius * 0.2);
+  if (config.motif === 1) {
+    // Temporal skins: unmistakable counter-rotating clock sweep.
+    ctx.rotate(-cycle * 2);
+    ctx.strokeStyle = config.accent;
+    ctx.globalAlpha = 0.86;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.42, -0.2, Math.PI * 1.38);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(size * 0.3, 0);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, -size * 0.22);
+    ctx.stroke();
+  } else if (config.motif === 2) {
+    // Gravity/rift skins visibly collapse and reform around the core.
+    ctx.strokeStyle = config.accent;
+    ctx.globalAlpha = 0.35 + (Math.sin(cycle) + 1) * 0.22;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * (0.34 + (1 - pulse) * 0.7), 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (config.motif === 4) {
+    // Construct skins lock through discrete geometric states.
+    ctx.strokeStyle = config.accent;
+    ctx.globalAlpha = 0.72;
+    ctx.strokeRect(-size * 0.34, -size * 0.34, size * 0.68, size * 0.68);
+  }
   ctx.restore();
   return true;
 }
