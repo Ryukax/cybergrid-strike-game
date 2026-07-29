@@ -30,7 +30,7 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'armor',     name: 'ARMOR',      desc: 'Grant 3 shield charges at once',                        cooldown: 18 },
   { id: 'surge',     name: 'SURGE',      desc: 'Fire a power-2 piercing shot down all 3 lanes',         cooldown: 9  },
   { id: 'backdash',  name: 'BACKDASH',   desc: 'Push every virus 2 full cells back toward the edge',    cooldown: 7  },
-  { id: 'megabomb',  name: 'MEGABOMB',   desc: 'Full-grid shockwave — destroy all, earn double score',  cooldown: 20 },
+  { id: 'megabomb',  name: 'MEGABOMB',   desc: 'Full-grid shockwave — neutralize all, earn double Integrity Work', cooldown: 20 },
   { id: 'cardflood', name: 'CARD FLOOD', desc: 'Instantly re-ready your ability cards for another pick', cooldown: 25 },
 
   // ── Timer-based ──────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'ghost',     name: 'GHOST MODE', desc: 'Become invincible to virus collisions for 4s',         cooldown: 16 },
   { id: 'turret',    name: 'TURRET',     desc: 'Auto-fire covers all 3 rows simultaneously for 5s',   cooldown: 14 },
   { id: 'echo',      name: 'ECHO SHOT',  desc: 'Each bullet spawns a clone on the adjacent row for 5s', cooldown: 11 },
-  { id: 'overdrive', name: 'OVERDRIVE',  desc: 'Viruses move 2.5× faster but you earn 3× score for 4s', cooldown: 12 },
+  { id: 'overdrive', name: 'OVERDRIVE',  desc: 'Viruses move 2.5× faster but generate 3× Integrity Work for 4s', cooldown: 12 },
   { id: 'pulse',     name: 'PULSE WAVE', desc: 'Repeatedly hurl light enemies; heavy and spectral forms resist', cooldown: 13 },
   { id: 'overload',  name: 'OVERLOAD',   desc: 'Each kill instantly fires a bullet in that row for 6s', cooldown: 10 },
   { id: 'magnet',    name: 'MAGNET',     desc: 'Strongly repel machines; cyber hybrids respond weakly for 6s', cooldown: 10 },
@@ -108,7 +108,7 @@ export const ABILITY_POOL: Ability[] = [
   { id: 'clonebreak', name: 'CLONE BREAK', desc: 'Damage every member of the most common species', cooldown: 13 },
   { id: 'hybridtax', name: 'HYBRID TAX', desc: 'Damage and slow enemies for every fusion level', cooldown: 12 },
   { id: 'forcedmolt', name: 'FORCED MOLT', desc: 'Strip armor and mutations but accelerate survivors', cooldown: 10 },
-  { id: 'catalyst', name: 'CATALYST', desc: 'Empower fused enemies, then mark them for triple score', cooldown: 16 },
+  { id: 'catalyst', name: 'CATALYST', desc: 'Empower fused enemies, then mark them for triple Integrity Work', cooldown: 16 },
 ];
 
 export const ABILITY_LOOKUP: Record<string, Ability> = Object.fromEntries(

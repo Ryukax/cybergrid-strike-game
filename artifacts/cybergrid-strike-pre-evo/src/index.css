@@ -40,6 +40,39 @@ body {
   user-select: none;
 }
 
+#game::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 7px,
+      rgba(248, 113, 113, 0.08) 8px,
+      transparent 9px 15px
+    ),
+    linear-gradient(90deg, transparent 0 48%, rgba(168, 85, 247, 0.07) 50%, transparent 52%);
+}
+
+#game.integrity-low::after {
+  opacity: 0.34;
+  animation: integrityNoise 1.8s steps(2, end) infinite;
+}
+
+#game.integrity-critical::after {
+  opacity: 0.62;
+  animation: integrityNoise 0.7s steps(2, end) infinite;
+}
+
+@keyframes integrityNoise {
+  0%, 100% { transform: translate(0, 0); filter: hue-rotate(0deg); }
+  35% { transform: translate(2px, -1px); filter: hue-rotate(16deg); }
+  70% { transform: translate(-2px, 1px); filter: hue-rotate(-12deg); }
+}
+
 canvas#canvas {
   position: absolute;
   inset: 0;
@@ -97,6 +130,21 @@ canvas#canvas {
 
 #ecosystemHud b { color: #fff; }
 .ecosystemTitle { color: #c084fc; font-weight: 900; }
+.integrityMetric {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.28);
+}
+.integrityMetric.global { color: #93c5fd; }
+.integrityMetric.sector { color: #67e8f9; }
+.integrityMetric.node { color: #86efac; }
+.integrity-low .integrityMetric.node { color: #fbbf24; border-color: rgba(251, 191, 36, 0.55); }
+.integrity-critical .integrityMetric.node {
+  color: #fb7185;
+  border-color: rgba(251, 113, 133, 0.72);
+  text-shadow: 0 0 8px rgba(251, 113, 133, 0.9);
+}
+.integrityWorkPanel { color: #bbf7d0; }
 .fusionActive {
   color: #f472b6;
   text-shadow: 0 0 8px #f472b6;
@@ -105,8 +153,15 @@ canvas#canvas {
 @keyframes ecosystemPulse { to { transform: scale(1.08); } }
 
 @media (max-width: 520px) {
-  #ecosystemHud { top: 60px; gap: 6px; padding: 5px 7px; }
+  #ecosystemHud {
+    top: 60px;
+    gap: 4px;
+    padding: 5px 7px;
+    max-width: 98vw;
+    overflow: hidden;
+  }
   .ecosystemTitle { display: none; }
+  #ecosystemHud > span:not(.integrityMetric):not(.pressureState) { display: none; }
 }
 
 /* Shield charges inline under HP */

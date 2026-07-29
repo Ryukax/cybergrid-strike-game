@@ -1,6 +1,11 @@
 let audioCtx: AudioContext | null = null;
 let muted = false;
 let musicInterval: ReturnType<typeof setInterval> | null = null;
+let systemIntegrity = 100;
+
+export function setSystemIntegrityAudio(value: number) {
+  systemIntegrity = Math.max(0, Math.min(100, value));
+}
 
 export function setMuted(val: boolean) {
   muted = val;
@@ -157,8 +162,19 @@ export function playAbility(type: string) {
 
 function playMusicPulse(running: boolean) {
   if (muted || !running) return;
-  tone(220, 0.18, 'triangle', 0.015);
-  setTimeout(() => { if (!muted && running) tone(330, 0.18, 'triangle', 0.012); }, 180);
+  const corruption = (100 - systemIntegrity) / 100;
+  const baseFrequency = 220 - corruption * 70;
+  tone(baseFrequency, 0.18 + corruption * 0.08, corruption > 0.55 ? 'sawtooth' : 'triangle', 0.015);
+  setTimeout(() => {
+    if (!muted && running) {
+      tone(
+        baseFrequency * (1.5 - corruption * 0.18),
+        0.18,
+        corruption > 0.72 ? 'square' : 'triangle',
+        0.012 + corruption * 0.005,
+      );
+    }
+  }, 180 + corruption * 45);
 }
 
 export function startMusic(isRunning: () => boolean) {

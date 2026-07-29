@@ -865,8 +865,11 @@ export function draw(
   hasOverlay?: boolean,
   npcHasOverlay?: boolean,
 ) {
+  const nodeIntegrity = state.systemIntegrity?.node ?? 100;
+  const corruption = Math.max(0, Math.min(1, (72 - nodeIntegrity) / 72));
+  const timeSlice = Math.floor(performance.now() / 180);
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
-  ctx.fillStyle = '#06101e';
+  ctx.fillStyle = corruption > 0.55 ? '#090713' : '#06101e';
   ctx.fillRect(0, 0, w, h);
 
   const m = getBoardMetrics(w, h);
@@ -883,7 +886,9 @@ export function draw(
   // Scanlines
   for (let i = 0; i < 28; i++) {
     const yy = (i * 47 + (performance.now() * 0.03)) % (h + 60) - 30;
-    ctx.fillStyle = 'rgba(56,189,248,0.05)';
+    ctx.fillStyle = corruption > 0.45
+      ? `rgba(244,63,94,${0.025 + corruption * 0.075})`
+      : `rgba(56,189,248,${0.035 + (1 - corruption) * 0.025})`;
     ctx.fillRect(0, yy, w, 1);
   }
 
@@ -892,6 +897,9 @@ export function draw(
     for (let c = 0; c < 6; c++) {
       const cx = m.x + c * m.cell;
       const cy = m.y + r * m.cell;
+      const fractured = corruption > 0.28 && (r * 6 + c + timeSlice) % 7 === 0;
+      const fractureX = fractured ? (c % 2 === 0 ? -1 : 1) * corruption * 5 : 0;
+      const fractureY = fractured ? (r % 2 === 0 ? 1 : -1) * corruption * 3 : 0;
       const playerSide = c < 3;
       const npcSide = !playerSide && vs;
 
@@ -908,7 +916,7 @@ export function draw(
         ctx.fillStyle = 'rgba(244,63,94,0.10)';
       }
 
-      ctx.fillRect(cx + 2, cy + 2, m.cell - 4, m.cell - 4);
+      ctx.fillRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
 
       if (playerSide) {
         ctx.strokeStyle = 'rgba(125,211,252,0.55)';
@@ -918,7 +926,7 @@ export function draw(
         ctx.strokeStyle = 'rgba(251,113,133,0.45)';
       }
       ctx.lineWidth = 2;
-      ctx.strokeRect(cx + 2, cy + 2, m.cell - 4, m.cell - 4);
+      ctx.strokeRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
     }
   }
 

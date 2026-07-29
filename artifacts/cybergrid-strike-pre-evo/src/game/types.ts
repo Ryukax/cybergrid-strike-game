@@ -115,7 +115,14 @@ export interface AbilityCooldowns {
 
 export interface GameState {
   running: boolean;
+  /** Legacy pacing counter. Player-facing progression uses integrityWork. */
   score: number;
+  integrityWork: number;
+  systemIntegrity: {
+    global: number;
+    sector: number;
+    node: number;
+  };
   wave: number;
   hp: number;
   timer: number;

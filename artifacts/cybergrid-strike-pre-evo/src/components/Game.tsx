@@ -80,7 +80,7 @@ import {
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
   ensureAudio, startMusic, stopMusic,
-  playShot, playHit, playScore, playGameOver,
+  playShot, playHit, playScore, playGameOver, setSystemIntegrityAudio,
   playMove, playAutoToggle, playCardReady, playAbility,
 } from '../game/audio';
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
@@ -2291,6 +2291,12 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
   return {
     running: true,
     score: 0,
+    integrityWork: 0,
+    systemIntegrity: {
+      global: 62,
+      sector: 58,
+      node: 54,
+    },
     wave: 1,
     hp: mode === 'vs' ? NPC_HP : 5,
     timer: 0,
@@ -2365,7 +2371,12 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
 
 interface HudData {
   hp: number;
-  score: number;
+  integrityWork: number;
+  systemIntegrity: {
+    global: number;
+    sector: number;
+    node: number;
+  };
   wave: number;
   autoBuster: boolean;
   shieldCharges: number;
@@ -2390,6 +2401,31 @@ interface HudData {
   upgradeOptions: string[];
   runUpgrades: Record<string, number>;
   ecosystem: { species: number; mutations: number; generation: number; fusions: number };
+}
+
+function clampIntegrity(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+/**
+ * Migrates legacy combat pacing into the ecosystem economy. Existing ability
+ * code may still increment score internally, but only this reconciliation
+ * creates Integrity Work and repairs the three authoritative visual scopes.
+ */
+function reconcileIntegrityWork(state: GameState): void {
+  const newlyVerified = Math.max(0, state.score - state.integrityWork);
+  if (newlyVerified <= 0) return;
+  state.integrityWork += newlyVerified;
+  const restoration = Math.sqrt(newlyVerified);
+  state.systemIntegrity.node = clampIntegrity(state.systemIntegrity.node + restoration * 0.34);
+  state.systemIntegrity.sector = clampIntegrity(state.systemIntegrity.sector + restoration * 0.13);
+  state.systemIntegrity.global = clampIntegrity(state.systemIntegrity.global + restoration * 0.045);
+}
+
+function applyIntegrityBreach(state: GameState, severity = 1): void {
+  state.systemIntegrity.node = clampIntegrity(state.systemIntegrity.node - severity * 5);
+  state.systemIntegrity.sector = clampIntegrity(state.systemIntegrity.sector - severity * 1.7);
+  state.systemIntegrity.global = clampIntegrity(state.systemIntegrity.global - severity * 0.45);
 }
 
 type CloneDirection = 'north' | 'south';
@@ -4210,7 +4246,10 @@ export default function Game() {
   const [boardBottom, setBoardBottom] = useState(0);
 
   const [hud, setHud] = useState<HudData>({
-    hp: 5, score: 0, wave: 1, autoBuster: true, shieldCharges: 0,
+    hp: 5,
+    integrityWork: 0,
+    systemIntegrity: { global: 62, sector: 58, node: 54 },
+    wave: 1, autoBuster: true, shieldCharges: 0,
     cardsReady: false, cardSelectionOpen: false, rotateUsedThisHand: false, cardTimer: 0,
     cardOptions: [], usedInHand: [], abilityCooldowns: {}, running: true,
     message: 'Tap blue panels to move. Use BUSTER button to fire manually.',
@@ -4229,7 +4268,8 @@ export default function Game() {
     setHud((prev) => ({
       ...prev,
       hp: s.hp,
-      score: s.score,
+      integrityWork: s.integrityWork,
+      systemIntegrity: { ...s.systemIntegrity },
       wave: s.wave,
       autoBuster: s.autoBuster,
       shieldCharges: s.shieldCharges,
@@ -4645,7 +4685,7 @@ export default function Game() {
         kills++;
       }
       if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
-      showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed, double score!`, 1800);
+      showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} neutralized, double Integrity Work!`, 1800);
     } else if (type === 'cardflood') {
       // Give a brand-new hand immediately — reroll until at least one card is usable
       let nextOptions = randomAbilityOptions(
@@ -4795,7 +4835,7 @@ export default function Game() {
 
     } else if (type === 'overdrive') {
       s.overdriveTimer = 4;
-      showMessage('Overdrive — 2.5× virus speed, 3× score for 4s!', 1500);
+      showMessage('Overdrive — 2.5× virus speed, 3× Integrity Work for 4s!', 1500);
 
     } else if (type === 'pulse') {
       s.pulseTimer = 7;
@@ -7004,6 +7044,7 @@ export default function Game() {
           rivalSkillRef.current = captured;
           setRivalSkillView(captured);
           e.colPos = -9;
+          s.score += 50; // verified damage prevention work
           playHit();
           showMessage(`Pressure intercepted ×${captured.charges}.`, 800);
         } else if (eloIsIntangible) {
@@ -7012,11 +7053,16 @@ export default function Game() {
         } else if (s.shieldCharges > 0) {
           s.shieldCharges--;
           e.colPos = -9;
+          s.score += 25; // verified infrastructure protection work
           showMessage('Shield absorbed a hit!', 1200);
         } else if (s.ghostTimer > 0) {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
           s.hp--;
+          applyIntegrityBreach(
+            s,
+            1 + (e.genome ? Math.min(1, e.genome.mutations.length * 0.12 + e.genome.fusionLevel * 0.18) : 0),
+          );
           const phoenix = rivalSkillRef.current;
           if (phoenix.active && phoenix.id === 'phoenix') {
             const heated = { ...phoenix, charges: Math.min(6, phoenix.charges + 1) };
@@ -7276,6 +7322,8 @@ export default function Game() {
     // menus, pause, and game-over actions.
     if (phaseRef.current === 'playing' && !pausedRef.current && stateRef.current.running) {
       update(dt);
+      reconcileIntegrityWork(stateRef.current);
+      setSystemIntegrityAudio(stateRef.current.systemIntegrity.node);
     } else if (phaseRef.current === 'menu') {
       handleGamepad();
       const gp = gamepadRef.current;
@@ -8016,8 +8064,12 @@ export default function Game() {
     </div>
   );
 
+  const integrityClass = hud.systemIntegrity.node < 25
+    ? 'integrity-critical'
+    : hud.systemIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
+
   return (
-    <div id="game" className={phase === 'menu' ? 'menu-open' : undefined}>
+    <div id="game" className={`${phase === 'menu' ? 'menu-open ' : ''}${integrityClass}`}>
       <canvas
         ref={canvasRef}
         id="canvas"
@@ -8268,7 +8320,7 @@ export default function Game() {
             </span>
           )}
         </div>
-        <div className="panel">Score {hud.score}</div>
+        <div className="panel integrityWorkPanel">Integrity Work {hud.integrityWork}</div>
         {hud.gameMode === 'vs' ? (
           <div className="panel" id="npcHpPanel" data-overheal={hud.npcHp > NPC_HP ? 'true' : 'false'}>
             NPC {hud.npcHp} HP{hud.npcHp > NPC_HP ? ' ▲' : ''}
@@ -8283,7 +8335,16 @@ export default function Game() {
 
       {phase === 'playing' && (
         <div id="ecosystemHud">
-          <span className="ecosystemTitle">EVOLVING ECOSYSTEM</span>
+          <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
+          <span className="integrityMetric global">
+            GLOBAL <b>{Math.round(hud.systemIntegrity.global)}%</b>
+          </span>
+          <span className="integrityMetric sector">
+            SECTOR <b>{Math.round(hud.systemIntegrity.sector)}%</b>
+          </span>
+          <span className="integrityMetric node">
+            NODE <b>{Math.round(hud.systemIntegrity.node)}%</b>
+          </span>
           <span>DISCOVERED <b>{hud.ecosystem.species}</b></span>
           <span>TRAITS <b>{hud.ecosystem.mutations}</b></span>
           <span>MAX GEN <b>{hud.ecosystem.generation}</b></span>
@@ -8442,7 +8503,7 @@ export default function Game() {
           {menuScreen === 'main' ? (
             <div id="menuCard">
               <div id="menuTitle">CYBERGRID<br />STRIKE</div>
-              <div id="menuTagline">Defend the grid. Eliminate the viruses.</div>
+              <div id="menuTagline">Restore the grid. Research emergent digital life.</div>
               <div id="preEvoLabel">⬡ PRE-EVOLUTION EDITION ⬡</div>
               <button
                 id="menuPlayBtn"
@@ -8981,9 +9042,9 @@ export default function Game() {
           <div id="gameOverCard" className={hud.playerWon ? 'victory' : ''}>
             <div id="gameOverTitle">{hud.playerWon ? 'SYSTEM OVERRIDE' : 'CONNECTION LOST'}</div>
             {hud.playerWon
-              ? <div id="gameOverScore">NPC neutralised — Score: {hud.score}</div>
+              ? <div id="gameOverScore">NPC neutralised — Integrity Work: {hud.integrityWork}</div>
               : <>
-                  <div id="gameOverScore">Score: {hud.score}</div>
+                  <div id="gameOverScore">Integrity Work: {hud.integrityWork}</div>
                   {hud.gameMode === 'classic' && <div id="gameOverWave">Wave: {hud.wave}</div>}
                 </>
             }
@@ -8991,7 +9052,7 @@ export default function Game() {
               kills={gameKills}
               totalCGRD={sessionCGRD}
               gameOver={true}
-              finalScore={hud.score}
+              finalScore={hud.integrityWork}
               finalWave={hud.wave}
             />
             <button
