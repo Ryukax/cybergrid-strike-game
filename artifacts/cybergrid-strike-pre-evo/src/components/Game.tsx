@@ -2546,6 +2546,7 @@ const VS_SKILL_COOLDOWN = 14;
 const VS_NPC_ABILITY_INTERVAL = 12;
 const VS_NPC_SKILL_INTERVAL = 20;
 const VS_NPC_MAX_SHIELDS = 2;
+const RIVAL_SKILL_ANIMATION_DURATION = 1120;
 const VS_ABILITY_DAMAGE: Record<string, number> = {
   bomb: 2, nuke: 6, purge: 3, megabomb: 8, emp: 2, chain: 4, cluster: 4,
   arcweb: 4, seeker: 4, shattershot: 4, marksman: 3, returnfire: 3,
@@ -3551,6 +3552,8 @@ export default function Game() {
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
   const rivalAttackSequenceRef = useRef<HTMLImageElement | null>(null);
+  const rivalSkillSequenceRef = useRef<HTMLImageElement | null>(null);
+  const rivalSkillAnimationStartedRef = useRef(-1);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
     north: null,
     south: null,
@@ -4007,14 +4010,21 @@ export default function Game() {
   useEffect(() => {
     if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
       rivalAttackSequenceRef.current = null;
+      rivalSkillSequenceRef.current = null;
       return;
     }
-    const sequence = new Image();
-    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=5`;
-    rivalAttackSequenceRef.current = sequence;
+    const attackSequence = new Image();
+    attackSequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=5`;
+    rivalAttackSequenceRef.current = attackSequence;
+    const skillSequence = new Image();
+    skillSequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-sequences/${playerSkin}.png?v=1`;
+    rivalSkillSequenceRef.current = skillSequence;
     return () => {
-      if (rivalAttackSequenceRef.current === sequence) {
+      if (rivalAttackSequenceRef.current === attackSequence) {
         rivalAttackSequenceRef.current = null;
+      }
+      if (rivalSkillSequenceRef.current === skillSequence) {
+        rivalSkillSequenceRef.current = null;
       }
     };
   }, [playerSkin]);
@@ -6397,6 +6407,7 @@ export default function Game() {
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
+    rivalSkillAnimationStartedRef.current = performance.now();
     updateHud();
   }, [finishRivalSkill, fireBullet, showMessage, updateHud]);
 
@@ -7820,6 +7831,11 @@ export default function Game() {
             let bitmap: ImageBitmap;
             let rivalAttackBitmap: ImageBitmap | undefined;
             let rivalAttackProgress = 0;
+            const skillElapsed = performance.now() - rivalSkillAnimationStartedRef.current;
+            const rivalSkillAnimating = rivalSkin
+              && rivalSkillAnimationStartedRef.current >= 0
+              && skillElapsed >= 0
+              && skillElapsed < RIVAL_SKILL_ANIMATION_DURATION;
             if (playerSkinRef.current === 'rocket' && rocketFrameRef.current >= 0) {
               // Rocket attack — cycle through gifAttackFramesRef
               const aFrames = gifAttackFramesRef.current;
@@ -7856,7 +7872,36 @@ export default function Game() {
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
               const mirror = playerSkinRef.current === 'gem' && gemMoveMirrorRef.current;
-              if (mirror) {
+              if (rivalSkillAnimating) {
+                const sequence = rivalSkillSequenceRef.current;
+                if (sequence?.complete && sequence.naturalWidth > 0) {
+                  const progress = Math.max(0, Math.min(
+                    1,
+                    skillElapsed / RIVAL_SKILL_ANIMATION_DURATION,
+                  ));
+                  const framePosition = progress * 7;
+                  const frameIndex = Math.min(6, Math.floor(framePosition));
+                  const blendRaw = framePosition - frameIndex;
+                  const frameBlend = blendRaw * blendRaw * (3 - 2 * blendRaw);
+                  const sourceSize = sequence.naturalHeight;
+                  sctx.save();
+                  sctx.globalAlpha = 1 - frameBlend;
+                  sctx.drawImage(
+                    sequence,
+                    frameIndex * sourceSize, 0, sourceSize, sourceSize,
+                    0, 0, sz, sz,
+                  );
+                  sctx.globalAlpha = frameBlend;
+                  sctx.drawImage(
+                    sequence,
+                    (frameIndex + 1) * sourceSize, 0, sourceSize, sourceSize,
+                    0, 0, sz, sz,
+                  );
+                  sctx.restore();
+                } else {
+                  sctx.drawImage(bitmap, 0, 0, sz, sz);
+                }
+              } else if (mirror) {
                 sctx.save();
                 sctx.translate(sz, 0);
                 sctx.scale(-1, 1);
