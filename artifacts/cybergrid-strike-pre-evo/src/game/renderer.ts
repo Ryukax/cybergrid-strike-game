@@ -834,22 +834,21 @@ function drawSkinProjectileEffect(
     + travelPhase
     + skinPhase
   ) % (Math.PI * 2);
-  const framePosition = (cycle / (Math.PI * 2)) * 4;
-  const frame = Math.floor(framePosition) % 4;
-  const frameBlendRaw = framePosition - Math.floor(framePosition);
-  const frameBlend = frameBlendRaw * frameBlendRaw * (3 - 2 * frameBlendRaw);
+  // Keep one coherent illustrated source throughout the shot. All animation
+  // below is continuous; swapping authored cells made the art read as a flipbook.
+  const frame = 0;
   const sourceWidth = sheet.naturalWidth / 4;
   const sourceHeight = sheet.naturalHeight;
   const baseSize = radius * (skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3);
   const pulse = 1 + Math.sin(cycle) * (config.motif === 2 ? 0.2 : 0.09);
   const stretch = config.motif === 0 ? 1.08 + Math.sin(cycle * 2) * 0.18 : 1;
   const bob = config.motif === 5 ? Math.sin(cycle * 1.5) * radius * 0.9 : 0;
-  const jitterX = config.motif === 3 ? Math.round(Math.sin(cycle * 5)) * radius * 0.32 : 0;
-  const jitterY = config.motif === 3 ? Math.round(Math.cos(cycle * 7)) * radius * 0.24 : 0;
+  const jitterX = config.motif === 3 ? Math.sin(cycle * 5) * radius * 0.32 : 0;
+  const jitterY = config.motif === 3 ? Math.cos(cycle * 7) * radius * 0.24 : 0;
   const rotation = config.motif === 1
     ? cycle
     : config.motif === 4
-      ? Math.floor(cycle / (Math.PI / 4)) * (Math.PI / 4)
+      ? cycle * 0.65
       : config.motif === 2
         ? -cycle * 0.45
         : Math.sin(cycle) * 0.08;
@@ -903,11 +902,10 @@ function drawSkinProjectileEffect(
     drawFrame(0, 0.3, 0.78, 1);
   }
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
-  // Blend every generated pose into the next instead of snapping between
-  // frames. This produces four authored poses plus four readable in-betweens.
+  // The generated artwork itself remains stable while its motion is expressed
+  // through continuous rotation, deformation, translation, pulse and exposure.
   ctx.globalCompositeOperation = 'source-over';
-  drawFrame(0, 1 - frameBlend);
-  drawFrame(0, frameBlend, 1, 1);
+  drawFrame(0, 1);
   ctx.restore();
   return true;
 }
