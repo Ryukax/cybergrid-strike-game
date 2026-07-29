@@ -16,7 +16,9 @@ const OUTPUT_HEIGHT = 160;
 const spriteCache = new Map<string, HTMLCanvasElement>();
 type ComponentSource =
   | 'gremlin' | 'jelly' | 'beetle' | 'automaton'
-  | 'capsid' | 'phage' | 'parasite' | 'spore';
+  | 'capsid' | 'phage' | 'parasite' | 'spore'
+  | 'wildforge' | 'reef-jester' | 'clockwork-mantis'
+  | 'elemental-forge' | 'toon-trickster' | 'utility-rover';
 type VisualSource = EnemyBaseElement | ComponentSource;
 type SourceRole = FusionRole | 'core';
 const sourceCache = new Map<string, HTMLImageElement>();
@@ -34,10 +36,12 @@ const CHARACTER_BASES = new Set<EnemyBaseElement>([
 const ANIMAL_SOURCES = new Set<VisualSource>([
   'insect', 'beast', 'avian', 'serpent', 'cephalopod', 'crab', 'owl',
   'fox', 'snail', 'fish', 'mole', 'gremlin', 'beetle', 'parasite',
+  'wildforge', 'reef-jester', 'toon-trickster',
 ]);
 const OBJECT_SOURCES = new Set<VisualSource>([
   'robot', 'drone', 'vehicle', 'cyborg', 'mech', 'turret',
   'automaton', 'capsid', 'phage',
+  'clockwork-mantis', 'utility-rover',
 ]);
 // All enemies advance from right to left. These source paintings were authored
 // facing right, so normalize them before they enter any composition socket.
@@ -156,11 +160,12 @@ function coherentConceptSources(
 
 function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
   const domain = ELEMENT_DOMAIN[component.source as EnemyBaseElement]
-    ?? (['automaton', 'capsid', 'phage'].includes(component.source) ? 'machine'
+    ?? (['automaton', 'capsid', 'phage', 'clockwork-mantis', 'utility-rover'].includes(component.source) ? 'machine'
       : component.source === 'beetle' ? 'chitin'
-      : component.source === 'jelly' ? 'fluid'
+      : component.source === 'jelly' || component.source === 'reef-jester' ? 'fluid'
       : component.source === 'spore' ? 'flora'
-      : component.source === 'parasite' || component.source === 'gremlin' ? 'fauna'
+      : component.source === 'elemental-forge' ? 'mineral'
+      : ['parasite', 'gremlin', 'wildforge', 'toon-trickster'].includes(component.source) ? 'fauna'
       : 'cyber');
   if (component.role === 'head') {
     if (domain === 'machine' || domain === 'cyber') return 'optic';
@@ -169,9 +174,9 @@ function genericComponentKind(component: ComponentDefinition): GenericComponentK
     return 'maw';
   }
   if (component.role === 'locomotion') {
-    if (['vehicle', 'turret', 'mech', 'automaton'].includes(component.source)) return 'treads';
+    if (['vehicle', 'turret', 'mech', 'automaton', 'utility-rover'].includes(component.source)) return 'treads';
     if (['avian', 'owl', 'drone'].includes(component.source)) return 'wings';
-    if (['fish', 'serpent', 'snail'].includes(component.source)) return 'fins';
+    if (['fish', 'serpent', 'snail', 'reef-jester'].includes(component.source)) return 'fins';
     if (['cephalopod', 'jelly', 'parasite'].includes(component.source)) return 'tendrils';
     if (['plant', 'fungus', 'spore'].includes(component.source)) return 'roots';
     if (domain === 'spectral' || domain === 'cyber') return 'hover';
@@ -187,6 +192,25 @@ function genericComponentKind(component: ComponentDefinition): GenericComponentK
 // Former full characters are retained only as cropped anatomical vocabulary.
 // A definition is eligible only where that part has a practical body socket.
 const COMPONENT_LIBRARY: ComponentDefinition[] = [
+  // Evolution-ready source art is anatomical vocabulary, never a final enemy.
+  { source: 'wildforge', role: 'head', domains: ['fauna', 'chitin', 'mineral'] },
+  { source: 'wildforge', role: 'locomotion', domains: ['fauna', 'chitin', 'mineral'] },
+  { source: 'wildforge', role: 'flank', domains: ['fauna', 'chitin', 'mineral'] },
+  { source: 'reef-jester', role: 'head', domains: ['fluid', 'fauna'] },
+  { source: 'reef-jester', role: 'locomotion', domains: ['fluid', 'fauna', 'cyber'] },
+  { source: 'reef-jester', role: 'flank', domains: ['fluid', 'chitin'] },
+  { source: 'clockwork-mantis', role: 'head', domains: ['machine', 'chitin', 'cyber'] },
+  { source: 'clockwork-mantis', role: 'locomotion', domains: ['machine', 'chitin'] },
+  { source: 'clockwork-mantis', role: 'flank', domains: ['machine', 'chitin', 'mineral'] },
+  { source: 'elemental-forge', role: 'head', domains: ['mineral', 'fluid', 'machine'] },
+  { source: 'elemental-forge', role: 'locomotion', domains: ['mineral', 'fluid', 'machine'] },
+  { source: 'elemental-forge', role: 'flank', domains: ['mineral', 'fluid', 'flora'] },
+  { source: 'toon-trickster', role: 'head', domains: ['fauna', 'flora', 'fluid'] },
+  { source: 'toon-trickster', role: 'locomotion', domains: ['fauna', 'flora'] },
+  { source: 'toon-trickster', role: 'flank', domains: ['fauna', 'fluid', 'machine'] },
+  { source: 'utility-rover', role: 'head', domains: ['machine', 'cyber'] },
+  { source: 'utility-rover', role: 'locomotion', domains: ['machine', 'cyber', 'mineral'] },
+  { source: 'utility-rover', role: 'flank', domains: ['machine', 'cyber', 'mineral'] },
   { source: 'gremlin', role: 'head', domains: ['fauna', 'chitin'] },
   { source: 'gremlin', role: 'locomotion', domains: ['fauna', 'flora'] },
   { source: 'jelly', role: 'head', domains: ['fluid', 'spectral', 'cyber'] },

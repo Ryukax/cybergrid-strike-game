@@ -676,6 +676,10 @@ const RUN_UPGRADES: RunUpgrade[] = [
   { id: 'barrierArray', name: 'BARRIER ARRAY', desc: 'Gain 2 shield charges immediately.', maxLevel: 3 },
   { id: 'shockVent', name: 'SHOCK VENT', desc: 'Entering critical pressure pushes every enemy backward.', maxLevel: 2 },
   { id: 'hybridHunter', name: 'HYBRID HUNTER', desc: 'Shots deal +1 damage to fused enemies per level.', maxLevel: 2 },
+  { id: 'vitalCache', name: 'VITAL CACHE', desc: 'Restore 4 integrity hull points immediately.', maxLevel: 3 },
+  { id: 'shieldFoundry', name: 'SHIELD FOUNDRY', desc: 'Forge 4 shield charges immediately.', maxLevel: 3 },
+  { id: 'phaseReserve', name: 'PHASE RESERVE', desc: 'Load 10 guaranteed piercing shots.', maxLevel: 3 },
+  { id: 'overclockSeed', name: 'OVERCLOCK SEED', desc: 'Gain 8 seconds of accelerated fire control.', maxLevel: 3 },
 ];
 const UPGRADE_PROMPT_TIME = 10;
 const UPGRADE_RETRY_WAVES = 2;
@@ -5194,6 +5198,17 @@ export default function Game() {
     s.runUpgrades[id] = nextLevel;
     if (id === 'repairWeave') s.hp += 2;
     if (id === 'barrierArray') s.shieldCharges += 2;
+    if (id === 'vitalCache') s.hp += 4;
+    if (id === 'shieldFoundry') s.shieldCharges += 4;
+    if (id === 'phaseReserve') s.pierceShots += 10;
+    if (id === 'overclockSeed') s.overclockTimer = Math.max(s.overclockTimer, 8);
+    if (id === 'shockVent') {
+      const knockback = 1.25 + (nextLevel - 1) * 0.65;
+      for (const enemy of s.enemies.filter((candidate) => candidate.colPos >= -1)) {
+        enemy.colPos = Math.min(6.35, enemy.colPos + knockback);
+        enemy.flash = 0.3;
+      }
+    }
     s.upgradePromptOpen = false;
     s.upgradePromptTimer = 0;
     s.upgradeRetryWave = 0;
@@ -6916,10 +6931,10 @@ export default function Game() {
       showMessage('Pressure cleared — reinforcement pause!', 1400);
     }
     if (!s.directorCritical && directorCritical && (s.runUpgrades.shockVent ?? 0) > 0) {
-      const knockback = 0.55 + (s.runUpgrades.shockVent - 1) * 0.3;
+      const knockback = 1.25 + (s.runUpgrades.shockVent - 1) * 0.65;
       for (const enemy of directorLiving) {
-        enemy.colPos = Math.min(5.8, enemy.colPos + knockback);
-        enemy.flash = 0.12;
+        enemy.colPos = Math.min(6.35, enemy.colPos + knockback);
+        enemy.flash = 0.3;
       }
       showMessage('Shock Vent expelled the pressure front!', 1200);
     }
