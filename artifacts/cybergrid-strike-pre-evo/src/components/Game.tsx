@@ -2547,7 +2547,7 @@ const RIVAL_SKILL_GUIDE: Record<RivalSkillId, RivalSkillGuide> = {
     commands: [
       'QUEUE — stores an attack in the current lane; queued attacks fire together when time resumes.',
       'STEP — cycles instantly through cells you visited during Chrono Break.',
-      'REWIND — returns to the activation cell and restores the HP recorded at activation.',
+      'REWIND — hold to reverse every grid event for up to three seconds; release to resume from that moment.',
     ],
   },
   singularity: {
@@ -3464,6 +3464,15 @@ const emptyCloneView = (): CloneView => ({
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<GameState>(makeInitialState());
+  const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
+  const chronoLastCaptureRef = useRef(0);
+  const chronoRewindRef = useRef({
+    held: false,
+    startedAt: 0,
+    sourceAt: 0,
+    cursorAt: 0,
+    input: 'pointer' as 'pointer' | 'keyboard' | 'gamepad',
+  });
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
@@ -5805,10 +5814,8 @@ export default function Game() {
           showMessage(`Time Step ${index + 1}/${next.chronoPositions.length}.`, 700);
         }
       } else {
-        s.player.col = active.origin.col;
-        s.player.row = active.origin.row;
-        s.hp = Math.max(s.hp, active.origin.hp);
-        showMessage('Timeline rewound.', 750);
+        // Chrono's guard action is continuous; held-state handlers below drive it.
+        return;
       }
     } else if (active.id === 'singularity') {
       if (action === 'primary') {
@@ -6273,6 +6280,35 @@ export default function Game() {
     updateHud();
   }, [finishRivalSkill, fireBullet, showMessage, updateHud]);
 
+  const startChronoRewind = useCallback((input: 'pointer' | 'keyboard' | 'gamepad' = 'pointer') => {
+    const active = rivalSkillRef.current;
+    if (!active.active || active.id !== 'chrono' || chronoRewindRef.current.held) return;
+    const latest = chronoHistoryRef.current.at(-1);
+    if (!latest) return;
+    chronoRewindRef.current = {
+      held: true,
+      startedAt: performance.now(),
+      sourceAt: latest.at,
+      cursorAt: latest.at,
+      input,
+    };
+    showMessage('REWINDING GRID… hold up to 3 seconds', 900);
+  }, [showMessage]);
+
+  const stopChronoRewind = useCallback(() => {
+    const rewind = chronoRewindRef.current;
+    if (!rewind.held) return;
+    rewind.held = false;
+    const now = performance.now();
+    chronoHistoryRef.current = chronoHistoryRef.current
+      .filter((snapshot) => snapshot.at <= rewind.cursorAt)
+      .map((snapshot) => ({ ...snapshot, at: now - (rewind.cursorAt - snapshot.at) }));
+    chronoLastCaptureRef.current = now;
+    lastTimeRef.current = now;
+    showMessage('Timeline resumed.', 650);
+    updateHud();
+  }, [showMessage, updateHud]);
+
   const activateRivalSkill = useCallback((id: RivalSkillId) => {
     const current = rivalSkillRef.current;
     if (current.active) {
@@ -6623,7 +6659,10 @@ export default function Game() {
     if (rivalInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
       else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
-      else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
+      else if (rivalSkillRef.current.id === 'chrono') {
+        if (gp.cardB) startChronoRewind('gamepad');
+        else stopChronoRewind();
+      } else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
     }
     const cloneInputActive = cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
@@ -7360,7 +7399,7 @@ export default function Game() {
       }
       s.npcBullets = s.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.colPos < 7);
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -7370,8 +7409,37 @@ export default function Game() {
     // Advance gameplay when active; otherwise keep polling controllers for
     // menus, pause, and game-over actions.
     if (phaseRef.current === 'playing' && !pausedRef.current && stateRef.current.running) {
-      update(dt);
-      reconcileIntegrityWork(stateRef.current);
+      const rewind = chronoRewindRef.current;
+      if (rewind.held) {
+        handleGamepad();
+        if (rewind.input === 'gamepad' && !gamepadRef.current.cardB) stopChronoRewind();
+        if (rewind.held) {
+          const elapsed = Math.min(3000, ts - rewind.startedAt);
+          const targetAt = rewind.sourceAt - elapsed;
+          const history = chronoHistoryRef.current;
+          let snapshot = history[0];
+          for (let index = history.length - 1; index >= 0; index--) {
+            if (history[index].at <= targetAt) {
+              snapshot = history[index];
+              break;
+            }
+          }
+          if (snapshot) {
+            stateRef.current = structuredClone(snapshot.state);
+            rewind.cursorAt = snapshot.at;
+            updateHud();
+          }
+        }
+      } else {
+        if (ts - chronoLastCaptureRef.current >= 50) {
+          chronoHistoryRef.current.push({ at: ts, state: structuredClone(stateRef.current) });
+          chronoHistoryRef.current = chronoHistoryRef.current
+            .filter((snapshot) => ts - snapshot.at <= 3100);
+          chronoLastCaptureRef.current = ts;
+        }
+        update(dt);
+        reconcileIntegrityWork(stateRef.current);
+      }
       setSystemIntegrityAudio(stateRef.current.systemIntegrity.node);
     } else if (phaseRef.current === 'menu') {
       handleGamepad();
@@ -7726,7 +7794,7 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [update, handleGamepad, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
+  }, [update, updateHud, handleGamepad, stopChronoRewind, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
@@ -7762,6 +7830,9 @@ export default function Game() {
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
+    chronoHistoryRef.current = [];
+    chronoLastCaptureRef.current = 0;
+    chronoRewindRef.current.held = false;
     eloAttackDirectionRef.current = 1;
     gemMoveMirrorRef.current = true;
     lastTimeRef.current = 0;
@@ -7818,6 +7889,9 @@ export default function Game() {
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
+    chronoHistoryRef.current = [];
+    chronoLastCaptureRef.current = 0;
+    chronoRewindRef.current.held = false;
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
@@ -7935,7 +8009,8 @@ export default function Game() {
       } else if (rivalSkillRef.current.active && (ev.key === 'x' || ev.key === 'X')) {
         resolveRivalSkillAction('alternate');
       } else if (rivalSkillRef.current.active && (ev.key === 'c' || ev.key === 'C')) {
-        resolveRivalSkillAction('defend');
+        if (rivalSkillRef.current.id === 'chrono') startChronoRewind('keyboard');
+        else resolveRivalSkillAction('defend');
       } else if (cloneSessionRef.current.inputActive && (ev.key === 'z' || ev.key === 'Z')) {
         resolveCloneAction('attack');
       } else if (cloneSessionRef.current.inputActive && (ev.key === 'x' || ev.key === 'X')) {
@@ -7954,6 +8029,7 @@ export default function Game() {
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = false;
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = false;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = false;
+      else if (ev.key === 'c' || ev.key === 'C') stopChronoRewind();
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -7992,7 +8068,7 @@ export default function Game() {
       cleanups.forEach((c) => c());
     };
   }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
-    resolveCloneAction, resolveRivalSkillAction, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
+    resolveCloneAction, resolveRivalSkillAction, startChronoRewind, stopChronoRewind, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -8313,7 +8389,18 @@ export default function Game() {
           </button>
           <button className="cloneActionBtn defend" onPointerDown={(event) => {
             event.stopPropagation();
-            resolveRivalSkillAction('defend');
+            if (rivalSkillView.id === 'chrono') {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              startChronoRewind('pointer');
+            } else {
+              resolveRivalSkillAction('defend');
+            }
+          }} onPointerUp={() => {
+            if (rivalSkillView.id === 'chrono') stopChronoRewind();
+          }} onPointerCancel={() => {
+            if (rivalSkillView.id === 'chrono') stopChronoRewind();
+          }} onLostPointerCapture={() => {
+            if (rivalSkillView.id === 'chrono') stopChronoRewind();
           }}>
             <b>B</b>
             {RIVAL_SKILL_COMMANDS[rivalSkillView.id][2]}
