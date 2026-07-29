@@ -325,15 +325,16 @@ canvas#canvas {
 }
 .restoreLabel { fill: #67e8f9; }
 .corruptLabel { fill: #fb7185; }
-.helper { fill: #e0f2fe; stroke: #67e8f9; stroke-width: 1.5; filter: drop-shadow(0 0 3px #22d3ee); }
-.helper path { fill: none; stroke-linecap: round; }
-.helper.defense { stroke: #a7f3d0; }
-.helper.discovery { stroke: #c4b5fd; }
-.helper.assist { stroke: #fde68a; }
-.helperBlock { fill: #67e8f9; stroke: #ecfeff; animation: helperLoad .8s ease-in-out infinite alternate; }
-@keyframes helperLoad { to { transform: translateX(3px); filter: drop-shadow(0 0 4px #67e8f9); } }
-.foundation path:first-child { fill: rgba(14, 116, 144, .18); stroke: rgba(103, 232, 249, .58); }
-.foundation path:last-child { fill: rgba(8, 47, 73, .62); stroke: rgba(103, 232, 249, .28); }
+.syncSignal {
+  fill: #e0f2fe;
+  filter: drop-shadow(0 0 4px #22d3ee);
+}
+.syncSignalRing {
+  fill: none;
+  stroke: #67e8f9;
+  stroke-width: .7;
+  opacity: .55;
+}
 .constructTelemetry {
   display: flex;
   justify-content: space-between;

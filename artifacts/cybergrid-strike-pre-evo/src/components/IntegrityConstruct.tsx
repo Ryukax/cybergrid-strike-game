@@ -12,29 +12,46 @@ interface IntegrityConstructProps {
   coreDelta: number;
 }
 
-const CELLS = Array.from({ length: 1_000 }, (_, index) => {
+const CELLS = (() => {
+  const spatial = Array.from({ length: 1_000 }, (_, index) => {
   const gx = index % 10;
   const gy = Math.floor(index / 10) % 10;
   const gz = Math.floor(index / 100);
   return { gx, gy, gz };
-})
-  .sort((a, b) => {
+  }).sort((a, b) => {
     const distance = (cell: { gx: number; gy: number; gz: number }) =>
       Math.max(Math.abs(cell.gx - 4.5), Math.abs(cell.gy - 4.5), Math.abs(cell.gz - 4.5));
     return distance(a) - distance(b)
       || a.gy - b.gy
       || a.gz - b.gz
       || a.gx - b.gx;
-  })
-  .map((cell, id) => ({
+  });
+  const byCoordinate = new Map(
+    spatial.map((cell) => [`${cell.gx}:${cell.gy}:${cell.gz}`, cell]),
+  );
+  const ordered: typeof spatial = [];
+  const used = new Set<string>();
+  for (const cell of spatial) {
+    const key = `${cell.gx}:${cell.gy}:${cell.gz}`;
+    if (used.has(key)) continue;
+    const mirrorKey = `${9 - cell.gx}:${9 - cell.gy}:${9 - cell.gz}`;
+    ordered.push(cell);
+    used.add(key);
+    const mirror = byCoordinate.get(mirrorKey);
+    if (mirror && !used.has(mirrorKey)) {
+      ordered.push(mirror);
+      used.add(mirrorKey);
+    }
+  }
+  return ordered.map((cell, id) => ({
     ...cell,
     id,
     coreX: 150 + (cell.gx - cell.gz) * 4.3,
     coreY: 137 + (cell.gx + cell.gz) * 2.1 - cell.gy * 4.15,
   }));
+})();
 
 const HELPER_PATHS = ['helperTrackA', 'helperTrackB', 'helperTrackC', 'helperTrackD'];
-const HELPER_ROLES = ['restoration', 'defense', 'discovery', 'assist'];
 
 export function IntegrityConstruct({
   integrityWork,
@@ -166,7 +183,12 @@ export function IntegrityConstruct({
               >
                 <g
                   className={`cell microVoxel ${active ? 'active' : 'exiting'} ${transition}`}
-                  style={{ animationDelay: `${((index + workPulse) % Math.max(1, Math.abs(coreDelta))) * 0.028}s` }}
+                  style={{
+                    animationDelay: `${
+                      ((Math.floor(index / 2) + workPulse)
+                        % Math.max(1, Math.ceil(Math.abs(coreDelta) / 2))) * 0.056
+                    }s`,
+                  }}
                 >
                   <path className="blockTop" d="M0 -3 L4 -1 L0 1 L-4 -1 Z" />
                   <path className="blockLeft" d="M-4 -1 L0 1 L0 5 L-4 3 Z" />
@@ -183,26 +205,20 @@ export function IntegrityConstruct({
           <circle r="2.5"><animateMotion dur="3.2s" begin="-2.2s" repeatCount="indefinite"><mpath href="#helperTrackC" /></animateMotion></circle>
         </g>
 
-        <g className="helpers">
+        <g className="synchronizationSignals">
           {Array.from({ length: visibleHelpers }, (_, index) => {
             const path = HELPER_PATHS[index % HELPER_PATHS.length];
-            const role = HELPER_ROLES[index % HELPER_ROLES.length];
             const delay = `${-(index * 0.63 + 0.4)}s`;
             return (
-            <g key={index} className={`helper ${role}`} style={{ animationDelay: delay, opacity: Math.max(.35, 1 - Math.floor(index / 4) * .08) }}>
-              <animateMotion dur="var(--work-speed)" begin={delay} repeatCount="indefinite" rotate="auto">
-                <mpath href={`#${path}`} />
-              </animateMotion>
-              <circle cx="0" cy="-5" r="3.2" />
-              <path d="M0 -1 L0 7 M-5 2 L5 2 M0 7 L-4 12 M0 7 L5 11" />
-              <rect className="helperBlock" x="6" y="-1" width="8" height="8" rx="1" />
-            </g>
-          )})}
-        </g>
-
-        <g className="foundation">
-          <path d="M126 166 L151 181 L179 165 L153 151 Z" />
-          <path d="M126 166 L126 172 L151 187 L151 181 Z M151 181 L179 165 L179 171 L151 187 Z" />
+              <g key={index} className="syncSignal">
+                <animateMotion dur="var(--work-speed)" begin={delay} repeatCount="indefinite">
+                  <mpath href={`#${path}`} />
+                </animateMotion>
+                <circle r="2.5" />
+                <circle className="syncSignalRing" r="5" />
+              </g>
+            );
+          })}
         </g>
       </svg>
 
