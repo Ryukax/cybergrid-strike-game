@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 interface IntegrityConstructProps {
   integrityWork: number;
@@ -50,6 +50,37 @@ export function IntegrityConstruct({
   const helperTotal = activePlayers ?? 0;
   const visibleHelpers = Math.min(24, helperTotal);
   const workPulse = integrityWork % 12;
+  const [slotAssignments, setSlotAssignments] = useState(() => CELLS.map((cell) => cell.id));
+  const [relocating, setRelocating] = useState<number[]>([]);
+  const relocationStepRef = useRef(0);
+  useEffect(() => {
+    const activity = Math.max(1, helperTotal + Math.ceil(Math.abs(coreDelta) / 4));
+    const cadence = Math.max(720, 1900 - activity * 65 - (pressure === 'critical' ? 260 : 0));
+    const timer = window.setInterval(() => {
+      if (activeCells < 4) return;
+      const step = relocationStepRef.current++;
+      const metricKey = Math.round(
+        integrityWork + integrity.node * 11 + integrity.sector * 7
+        + integrity.global * 5 + discoveries * 17 + mutations * 23 + fusions * 29,
+      );
+      // Relocate one neighboring structural pair at a time. Assignments persist,
+      // so this is physical reconfiguration rather than a decorative wobble.
+      const first = Math.abs(metricKey + step * 5) % activeCells;
+      const second = (first + 1 + (metricKey % Math.min(5, activeCells - 1))) % activeCells;
+      if (first === second) return;
+      setRelocating([first, second]);
+      setSlotAssignments((current) => {
+        const next = [...current];
+        [next[first], next[second]] = [next[second], next[first]];
+        return next;
+      });
+      window.setTimeout(() => setRelocating([]), Math.min(680, cadence - 80));
+    }, cadence);
+    return () => window.clearInterval(timer);
+  }, [
+    activeCells, coreDelta, discoveries, fusions, helperTotal,
+    integrity.global, integrity.node, integrity.sector, integrityWork, mutations, pressure,
+  ]);
   const constructStyle = {
     '--integrity': completion,
     '--work-speed': `${Math.max(2.4, 6.2 - Math.min(3.2, Math.log10(integrityWork + 1)))}s`,
@@ -113,10 +144,14 @@ export function IntegrityConstruct({
             const wasActive = previousActive.has(cellId);
             if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
+            const slot = CELLS[slotAssignments[index] ?? index];
             return (
               <g
                 key={index}
-                transform={`translate(${cell.x} ${cell.y}) rotate(${cell.rotation}) scale(${cell.scale})`}
+                className={`constructBlockPosition ${relocating.includes(index) ? 'relocating' : ''}`}
+                style={{
+                  transform: `translate(${slot.x}px, ${slot.y}px) rotate(${slot.rotation}deg) scale(${slot.scale})`,
+                }}
               >
                 <g
                   className={`cell ${active ? 'active' : 'exiting'} ${transition}`}

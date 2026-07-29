@@ -219,6 +219,21 @@ canvas#canvas {
   transform-box: fill-box;
   transform-origin: center;
 }
+.constructBlockPosition {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  transition: transform .68s cubic-bezier(.22, .8, .24, 1);
+}
+.constructBlockPosition.relocating {
+  filter: drop-shadow(0 0 7px #fef08a);
+}
+.constructBlockPosition.relocating .cell {
+  animation: blockLift .68s ease-in-out;
+}
+@keyframes blockLift {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(-13px) scale(1.08); }
+}
 .matrixCells .active {
   opacity: calc(.4 + var(--integrity) * .55);
 }
