@@ -7737,34 +7737,75 @@ export default function Game() {
                 sctx.drawImage(bitmap, 0, 0, sz, sz);
                 sctx.restore();
               } else if (rivalAttackBitmap) {
-                // Never cross-fade the idle and attack bodies. Their different
-                // silhouettes were being seen simultaneously as motion blur.
-                const committed = rivalAttackProgress >= 0.16 && rivalAttackProgress <= 0.9;
-                sctx.drawImage(committed ? rivalAttackBitmap : bitmap, 0, 0, sz, sz);
+                const smoothstep = (value: number) => {
+                  const clamped = Math.max(0, Math.min(1, value));
+                  return clamped * clamped * (3 - 2 * clamped);
+                };
+                const strikeIn = smoothstep((rivalAttackProgress - 0.06) / 0.24);
+                const recover = smoothstep((rivalAttackProgress - 0.74) / 0.26);
+                const attackWeight = strikeIn * (1 - recover);
+                const anticipation = Math.sin(
+                  Math.min(1, rivalAttackProgress / 0.2) * Math.PI,
+                );
+                const recoil = Math.sin(
+                  Math.max(0, Math.min(1, (rivalAttackProgress - 0.32) / 0.5)) * Math.PI,
+                );
+
+                // Choreograph the two authored drawings as a continuous action:
+                // idle braces, attack drives forward, then both settle together.
+                sctx.save();
+                sctx.globalAlpha = Math.max(0, 1 - attackWeight);
+                sctx.translate(-sz * 0.035 * anticipation, sz * 0.018 * anticipation);
+                sctx.translate(sz * 0.5, sz * 0.5);
+                sctx.scale(1 - anticipation * 0.045, 1 + anticipation * 0.035);
+                sctx.translate(-sz * 0.5, -sz * 0.5);
+                sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.restore();
+
+                sctx.save();
+                sctx.globalAlpha = attackWeight;
+                sctx.translate(
+                  -sz * 0.075 * (1 - strikeIn) - sz * 0.025 * recoil,
+                  sz * 0.014 * recoil,
+                );
+                sctx.translate(sz * 0.5, sz * 0.5);
+                const attackScale = 0.92 + strikeIn * 0.08 - recoil * 0.018;
+                sctx.scale(attackScale, attackScale);
+                sctx.translate(-sz * 0.5, -sz * 0.5);
+                sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                sctx.restore();
 
                 // Advanced skins use the authored raster weapon sequence,
                 // replacing the former circles, claw arcs and circuit lines.
                 const sheet = rivalAttackFxSheetRef.current;
-                if (committed && sheet?.complete && sheet.naturalWidth > 0) {
-                  const effectProgress = Math.max(0, Math.min(1, (rivalAttackProgress - 0.2) / 0.62));
-                  const effectFrame = Math.min(3, Math.floor(effectProgress * 4));
+                if (attackWeight > 0.08 && sheet?.complete && sheet.naturalWidth > 0) {
+                  const effectProgress = Math.max(0, Math.min(1, (rivalAttackProgress - 0.16) / 0.58));
+                  const effectPosition = effectProgress * 3;
+                  const effectFrame = Math.min(2, Math.floor(effectPosition));
+                  const effectBlendRaw = effectPosition - effectFrame;
+                  const effectBlend = smoothstep(effectBlendRaw);
                   const sourceWidth = sheet.naturalWidth / 4;
                   const sourceHeight = sheet.naturalHeight / 4;
                   sctx.save();
                   sctx.globalCompositeOperation = 'screen';
-                  sctx.globalAlpha = Math.sin(effectProgress * Math.PI) * 0.94;
                   sctx.imageSmoothingEnabled = false;
-                  sctx.drawImage(
-                    sheet,
-                    effectFrame * sourceWidth,
-                    0,
-                    sourceWidth,
-                    sourceHeight,
-                    sz * 0.45,
-                    sz * 0.13,
-                    sz * 0.72,
-                    sz * 0.72,
-                  );
+                  const effectAlpha = Math.sin(effectProgress * Math.PI) * 0.94;
+                  const drawEffectFrame = (frameIndex: number, alpha: number) => {
+                    sctx.globalAlpha = effectAlpha * alpha;
+                    sctx.drawImage(
+                      sheet,
+                      frameIndex * sourceWidth,
+                      0,
+                      sourceWidth,
+                      sourceHeight,
+                      sz * 0.45,
+                      sz * 0.13,
+                      sz * 0.72,
+                      sz * 0.72,
+                    );
+                  };
+                  drawEffectFrame(effectFrame, 1 - effectBlend);
+                  drawEffectFrame(effectFrame + 1, effectBlend);
                   sctx.restore();
                 }
               } else {
