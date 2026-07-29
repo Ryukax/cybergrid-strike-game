@@ -3519,6 +3519,7 @@ export default function Game() {
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
   const rivalAttackFxSheetRef = useRef<HTMLImageElement | null>(null);
+  const rivalAttackSequenceRef = useRef<HTMLImageElement | null>(null);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
     north: null,
     south: null,
@@ -3980,6 +3981,21 @@ export default function Game() {
       rivalAttackFxSheetRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
+      rivalAttackSequenceRef.current = null;
+      return;
+    }
+    const sequence = new Image();
+    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=1`;
+    rivalAttackSequenceRef.current = sequence;
+    return () => {
+      if (rivalAttackSequenceRef.current === sequence) {
+        rivalAttackSequenceRef.current = null;
+      }
+    };
+  }, [playerSkin]);
 
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
@@ -7751,29 +7767,55 @@ export default function Game() {
                   Math.max(0, Math.min(1, (rivalAttackProgress - 0.32) / 0.5)) * Math.PI,
                 );
 
-                // Choreograph the two authored drawings as a continuous action:
-                // idle braces, attack drives forward, then both settle together.
-                sctx.save();
-                sctx.globalAlpha = Math.max(0, 1 - attackWeight);
-                sctx.translate(-sz * 0.035 * anticipation, sz * 0.018 * anticipation);
-                sctx.translate(sz * 0.5, sz * 0.5);
-                sctx.scale(1 - anticipation * 0.045, 1 + anticipation * 0.035);
-                sctx.translate(-sz * 0.5, -sz * 0.5);
-                sctx.drawImage(bitmap, 0, 0, sz, sz);
-                sctx.restore();
+                const sequence = rivalAttackSequenceRef.current;
+                if (sequence?.complete && sequence.naturalWidth > 0) {
+                  const framePosition = rivalAttackProgress * 7;
+                  const frameIndex = Math.min(6, Math.floor(framePosition));
+                  const frameBlend = smoothstep(framePosition - frameIndex);
+                  const sourceSize = sequence.naturalHeight;
+                  const drawSequenceFrame = (index: number, alpha: number) => {
+                    sctx.globalAlpha = alpha;
+                    sctx.drawImage(
+                      sequence,
+                      index * sourceSize,
+                      0,
+                      sourceSize,
+                      sourceSize,
+                      0,
+                      0,
+                      sz,
+                      sz,
+                    );
+                  };
+                  sctx.save();
+                  drawSequenceFrame(frameIndex, 1 - frameBlend);
+                  drawSequenceFrame(frameIndex + 1, frameBlend);
+                  sctx.restore();
+                } else {
+                  // Loading fallback only. The normal path above uses eight
+                  // genuinely different authored character poses.
+                  sctx.save();
+                  sctx.globalAlpha = Math.max(0, 1 - attackWeight);
+                  sctx.translate(-sz * 0.035 * anticipation, sz * 0.018 * anticipation);
+                  sctx.translate(sz * 0.5, sz * 0.5);
+                  sctx.scale(1 - anticipation * 0.045, 1 + anticipation * 0.035);
+                  sctx.translate(-sz * 0.5, -sz * 0.5);
+                  sctx.drawImage(bitmap, 0, 0, sz, sz);
+                  sctx.restore();
 
-                sctx.save();
-                sctx.globalAlpha = attackWeight;
-                sctx.translate(
-                  -sz * 0.075 * (1 - strikeIn) - sz * 0.025 * recoil,
-                  sz * 0.014 * recoil,
-                );
-                sctx.translate(sz * 0.5, sz * 0.5);
-                const attackScale = 0.92 + strikeIn * 0.08 - recoil * 0.018;
-                sctx.scale(attackScale, attackScale);
-                sctx.translate(-sz * 0.5, -sz * 0.5);
-                sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
-                sctx.restore();
+                  sctx.save();
+                  sctx.globalAlpha = attackWeight;
+                  sctx.translate(
+                    -sz * 0.075 * (1 - strikeIn) - sz * 0.025 * recoil,
+                    sz * 0.014 * recoil,
+                  );
+                  sctx.translate(sz * 0.5, sz * 0.5);
+                  const attackScale = 0.92 + strikeIn * 0.08 - recoil * 0.018;
+                  sctx.scale(attackScale, attackScale);
+                  sctx.translate(-sz * 0.5, -sz * 0.5);
+                  sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                  sctx.restore();
+                }
 
                 // Advanced skins use the authored raster weapon sequence,
                 // replacing the former circles, claw arcs and circuit lines.
