@@ -213,6 +213,19 @@ canvas#canvas {
 }
 .constructOrbits ellipse + ellipse { animation-duration: 22s; animation-direction: reverse; }
 @keyframes constructOrbit { to { transform: rotate(360deg); } }
+.coreGeometryTarget {
+  fill: none;
+  stroke: rgba(196, 181, 253, calc(.48 - var(--chemistry) * .28));
+  stroke-width: .65;
+  stroke-dasharray: 3 4;
+}
+.coreGeometryTarget text {
+  fill: #c4b5fd;
+  stroke: none;
+  font-size: 5px;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
 .matrixCells .cell {
   stroke: rgba(207, 250, 254, .72);
   stroke-width: .65;

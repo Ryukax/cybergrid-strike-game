@@ -18,10 +18,15 @@ const CELLS = Array.from({ length: 48 }, (_, index) => {
   const angle = spoke * Math.PI / 4 + layer * 0.39;
   const radiusX = 9 + layer * 18;
   const radiusY = 5 + layer * 11;
+  const gx = index % 4;
+  const gy = Math.floor(index / 4) % 4;
+  const gz = Math.floor(index / 16);
   return {
     id: index,
     x: 151 + Math.cos(angle) * radiusX,
     y: 111 + Math.sin(angle) * radiusY + layer * 1.8,
+    coreX: 151 + (gx - gz) * 13 - 7,
+    coreY: 132 + (gx + gz) * 5.5 - gy * 11,
     scale: 0.62 + layer * 0.07,
     rotation: (spoke % 2 ? -4 : 4) + layer * 1.5,
   };
@@ -63,13 +68,24 @@ export function IntegrityConstruct({
   const helperTotal = activePlayers ?? 0;
   const visibleHelpers = Math.min(24, helperTotal);
   const workPulse = integrityWork % 12;
-  const restorationFlow = Math.min(5, Math.max(1, helperTotal + (coreDelta > 0 ? Math.ceil(coreDelta / 4) : 0)));
-  const corruptionFlow = Math.min(5, Math.max(
-    pressure === 'critical' ? 2 : 1,
-    coreDelta < 0 ? Math.ceil(Math.abs(coreDelta) / 3) : Math.ceil((100 - integrity.node) / 34),
-  ));
+  const integritySpread = Math.max(integrity.global, integrity.sector, integrity.node)
+    - Math.min(integrity.global, integrity.sector, integrity.node);
+  const researchCoherence = Math.min(5, Math.log2(discoveries + mutations + fusions + 1));
+  const chemistry = Math.max(0, Math.min(1, (
+    100 - integritySpread * 1.35
+    + Math.min(12, Math.max(0, helperTotal - 1) * 3)
+    + researchCoherence
+    + Math.max(-12, Math.min(12, coreDelta))
+  ) / 100));
+  const restorationFlow = coreDelta > 0
+    ? Math.min(6, Math.max(1, Math.ceil(coreDelta / 3) + Math.floor(helperTotal / 2)))
+    : 0;
+  const corruptionFlow = coreDelta < 0
+    ? Math.min(6, Math.max(1, Math.ceil(Math.abs(coreDelta) / 3)))
+    : 0;
   const constructStyle = {
     '--integrity': completion,
+    '--chemistry': chemistry,
     '--work-speed': `${Math.max(2.4, 6.2 - Math.min(3.2, Math.log10(integrityWork + 1)))}s`,
   } as CSSProperties;
 
@@ -126,6 +142,14 @@ export function IntegrityConstruct({
           <ellipse cx="154" cy="110" rx="78" ry="96" transform="rotate(58 154 110)" />
         </g>
 
+        <g className="coreGeometryTarget">
+          <path d="M151 67 L205 96 L151 126 L97 96 Z" />
+          <path d="M97 96 L151 126 L151 166 L97 136 Z" />
+          <path d="M151 126 L205 96 L205 136 L151 166 Z" />
+          <path d="M124 82 L178 111 M178 82 L124 111 M124 111 L178 140" />
+          <text x="151" y="61" textAnchor="middle">SYNCHRONIZATION TARGET</text>
+        </g>
+
         <g className="matrixCells">
           {CELLS.map((cell, index) => {
             const cellId = String(cell.id);
@@ -133,12 +157,16 @@ export function IntegrityConstruct({
             const wasActive = previousActive.has(cellId) || retiringCells.has(cellId);
             if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
+            const positionX = cell.x + (cell.coreX - cell.x) * chemistry;
+            const positionY = cell.y + (cell.coreY - cell.y) * chemistry;
+            const rotation = cell.rotation * (1 - chemistry);
+            const scale = cell.scale + (0.86 - cell.scale) * chemistry;
             return (
               <g
                 key={index}
                 className="constructBlockPosition"
                 style={{
-                  transform: `translate(${cell.x}px, ${cell.y}px) rotate(${cell.rotation}deg) scale(${cell.scale})`,
+                  transform: `translate(${positionX}px, ${positionY}px) rotate(${rotation}deg) scale(${scale})`,
                 }}
               >
                 <g
@@ -219,7 +247,7 @@ export function IntegrityConstruct({
         <span className={activePlayers === null ? 'presenceOffline' : ''}>
           <i className="telemetryFlow assist" />HELPERS <b>{activePlayers ?? 'OFFLINE'}</b>
         </span>
-        <span><i className="telemetryFlow research" />RESEARCH <b>{discoveries + mutations + fusions}</b></span>
+        <span><i className="telemetryFlow research" />CHEMISTRY <b>{Math.round(chemistry * 100)}%</b></span>
       </div>
       {coreDelta !== 0 && <div className="coreDelta">{coreDelta > 0 ? '+' : ''}{coreDelta} CELLS</div>}
     </aside>
