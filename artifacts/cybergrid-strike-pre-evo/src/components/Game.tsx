@@ -3512,6 +3512,7 @@ export default function Game() {
   // Direct DOM refs for smooth per-frame bar + label updates (no React setState)
   const cardBarFillRef = useRef<HTMLDivElement>(null);
   const cardLabelRef = useRef<HTMLDivElement>(null);
+  const messageRef = useRef<HTMLDivElement>(null);
   const skillNorthFxRef = useRef<HTMLDivElement>(null);
   const skillSouthFxRef = useRef<HTMLDivElement>(null);
   const skillPlayerFxRef = useRef<HTMLDivElement>(null);
@@ -7911,10 +7912,52 @@ export default function Game() {
       if (playerSkillFx) {
         const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
         const py = metrics.y + (stateRef.current.player.row + 0.5) * metrics.cell;
-        playerSkillFx.style.left = `${px}px`;
+        // The source GIF's visible pixels are centered four pixels left of its
+        // 256px frame. Compensate at grid scale and use a square avatar-sized box.
+        playerSkillFx.style.left = `${px + metrics.cell * (4 / 256)}px`;
         playerSkillFx.style.top = `${py}px`;
-        playerSkillFx.style.width = `${Math.round(metrics.cell * 0.78)}px`;
-        playerSkillFx.style.height = `${Math.round(metrics.cell * 0.9)}px`;
+        const playerFxSize = Math.round(metrics.cell * 1.08);
+        playerSkillFx.style.width = `${playerFxSize}px`;
+        playerSkillFx.style.height = `${playerFxSize}px`;
+      }
+
+      const message = messageRef.current;
+      if (message) {
+        let messageX: number | null = null;
+        let messageY: number | null = null;
+        if (playerSkillFx) {
+          messageX = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
+          messageY = metrics.y + (stateRef.current.player.row + 0.5) * metrics.cell
+            - metrics.cell * 0.68;
+        } else {
+          const activeCloneCells = (['north', 'south'] as const)
+            .map((direction) => ({
+              row: cloneSessionRef.current.rows[direction],
+              col: cloneSessionRef.current.cols[direction],
+              wrap: direction === 'north' ? skillNorthFxRef.current : skillSouthFxRef.current,
+            }))
+            .filter((cell) => cell.wrap && cell.row !== null && cell.col !== null);
+          if (activeCloneCells.length > 0) {
+            messageX = activeCloneCells.reduce(
+              (sum, cell) => sum + metrics.x + ((cell.col ?? 0) + 0.5) * metrics.cell,
+              0,
+            ) / activeCloneCells.length;
+            messageY = Math.min(...activeCloneCells.map(
+              (cell) => metrics.y + ((cell.row ?? 0) + 0.5) * metrics.cell,
+            )) - metrics.cell * 0.72;
+          }
+        }
+        if (messageX !== null && messageY !== null) {
+          message.style.left = `${messageX}px`;
+          message.style.top = `${messageY}px`;
+          message.style.bottom = 'auto';
+          message.style.transform = 'translate(-50%, -100%)';
+        } else {
+          message.style.left = '50%';
+          message.style.top = 'auto';
+          message.style.bottom = '50px';
+          message.style.transform = 'translateX(-50%)';
+        }
       }
 
       const positionClone = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
@@ -9388,7 +9431,7 @@ export default function Game() {
 
       {/* Status message */}
       {hud.message && (
-        <div id="message">{hud.message}</div>
+        <div id="message" ref={messageRef}>{hud.message}</div>
       )}
     </div>
   );
