@@ -4028,9 +4028,10 @@ export default function Game() {
       try {
         const base = import.meta.env.BASE_URL;
         if (rivalSkin) {
+          const alphaVersion = playerSkin === 'architect' ? 'v3' : 'v2';
           let [rawIdle, rawAttack] = await Promise.all([
-            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png?alpha=v2`),
-            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png?alpha=v2`),
+            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png?alpha=${alphaVersion}`),
+            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png?alpha=${alphaVersion}`),
           ]);
           if (playerSkin === 'hijack') {
             const idleCrop = await createImageBitmap(
