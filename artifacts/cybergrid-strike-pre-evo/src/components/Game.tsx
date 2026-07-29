@@ -3979,7 +3979,7 @@ export default function Game() {
       return;
     }
     const sequence = new Image();
-    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=4`;
+    sequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=5`;
     rivalAttackSequenceRef.current = sequence;
     return () => {
       if (rivalAttackSequenceRef.current === sequence) {
@@ -7760,8 +7760,14 @@ export default function Game() {
 
                 const sequence = rivalAttackSequenceRef.current;
                 if (sequence?.complete && sequence.naturalWidth > 0) {
-                  const framePosition = rivalAttackProgress * 7;
-                  const frameIndex = Math.min(6, Math.floor(framePosition));
+                  // Chrona's seventh authored cell reads as an involuntary body
+                  // reaction rather than controlled recovery. Skip it and blend
+                  // the temporal-resolution pose directly into ready stance.
+                  const frameOrder = playerSkinRef.current === 'chrono'
+                    ? [0, 1, 2, 3, 4, 5, 7]
+                    : [0, 1, 2, 3, 4, 5, 6, 7];
+                  const framePosition = rivalAttackProgress * (frameOrder.length - 1);
+                  const frameIndex = Math.min(frameOrder.length - 2, Math.floor(framePosition));
                   const frameBlend = smoothstep(framePosition - frameIndex);
                   const sourceSize = sequence.naturalHeight;
                   const drawSequenceFrame = (index: number, alpha: number) => {
@@ -7779,8 +7785,8 @@ export default function Game() {
                     );
                   };
                   sctx.save();
-                  drawSequenceFrame(frameIndex, 1 - frameBlend);
-                  drawSequenceFrame(frameIndex + 1, frameBlend);
+                  drawSequenceFrame(frameOrder[frameIndex], 1 - frameBlend);
+                  drawSequenceFrame(frameOrder[frameIndex + 1], frameBlend);
                   sctx.restore();
                 } else {
                   // Loading fallback only. The normal path above uses eight
