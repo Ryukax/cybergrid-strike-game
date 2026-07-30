@@ -4396,6 +4396,8 @@ export default function Game() {
       try {
         const snapshot = await heartbeatPresence({
           integrityWork: state.integrityWork,
+          globalIntegrity: state.systemIntegrity.global,
+          sectorIntegrity: state.systemIntegrity.sector,
           nodeIntegrity: state.systemIntegrity.node,
           wave: state.wave,
         });
@@ -8611,9 +8613,10 @@ export default function Game() {
     </div>
   );
 
-  const integrityClass = hud.systemIntegrity.node < 25
+  const displayedIntegrity = presence?.systemIntegrity ?? hud.systemIntegrity;
+  const integrityClass = displayedIntegrity.node < 25
     ? 'integrity-critical'
-    : hud.systemIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
+    : displayedIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
 
   return (
     <div id="game" className={`${phase === 'menu' ? 'menu-open ' : ''}${integrityClass}`}>
@@ -8901,9 +8904,9 @@ export default function Game() {
           <HudLayoutItem label="GLOBAL / SECTOR / NODE" rect={hudLayout.integrity} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('integrity', rect)}>
             <div id="ecosystemHud">
               <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
-              <span className="integrityMetric global">GLOBAL <b>{Math.round(hud.systemIntegrity.global)}%</b></span>
-              <span className="integrityMetric sector">SECTOR <b>{Math.round(hud.systemIntegrity.sector)}%</b></span>
-              <span className="integrityMetric node">NODE <b>{Math.round(hud.systemIntegrity.node)}%</b></span>
+              <span className="integrityMetric global">GLOBAL <b>{Math.round(displayedIntegrity.global)}%</b></span>
+              <span className="integrityMetric sector">SECTOR <b>{Math.round(displayedIntegrity.sector)}%</b></span>
+              <span className="integrityMetric node">NODE <b>{Math.round(displayedIntegrity.node)}%</b></span>
             </div>
           </HudLayoutItem>
         </>
@@ -8913,7 +8916,7 @@ export default function Game() {
         <HudLayoutItem label="INTEGRITY CONSTRUCT" rect={hudLayout.construct} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('construct', rect)}>
           <IntegrityConstruct
             integrityWork={hud.integrityWork}
-            integrity={hud.systemIntegrity}
+            integrity={displayedIntegrity}
             discoveries={hud.ecosystem.species}
             mutations={hud.ecosystem.mutations}
             fusions={hud.ecosystem.fusions}
@@ -8924,6 +8927,7 @@ export default function Game() {
             serverTimeMs={presence?.serverTimeMs ?? null}
             receivedAtMs={presence?.receivedAtMs ?? null}
             timeline={presence?.timeline ?? []}
+            authoritativeSynchronization={presence?.synchronization ?? null}
           />
         </HudLayoutItem>
       )}

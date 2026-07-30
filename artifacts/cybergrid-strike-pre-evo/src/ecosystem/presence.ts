@@ -6,6 +6,8 @@ export interface PresenceSnapshot {
   serverTimeMs: number;
   timeline: ConstructTimelineEvent[];
   receivedAtMs: number;
+  systemIntegrity: { global: number; sector: number; node: number };
+  synchronization: number;
 }
 
 export interface ConstructTimelineEvent {
@@ -19,6 +21,8 @@ export interface ConstructTimelineEvent {
 
 interface MatchMetricSample {
   integrityWork: number;
+  globalIntegrity: number;
+  sectorIntegrity: number;
   nodeIntegrity: number;
   wave: number;
 }

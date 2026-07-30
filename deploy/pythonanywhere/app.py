@@ -96,6 +96,21 @@ def snapshot(connection: sqlite3.Connection, core_delta: int = 0) -> dict:
     core_units = connection.execute(
         "SELECT core_units FROM construct WHERE id = 1"
     ).fetchone()["core_units"]
+    integrity_row = connection.execute(
+        "SELECT AVG(node_integrity) AS node_integrity FROM presence"
+    ).fetchone()
+    node_integrity = round(integrity_row["node_integrity"] or 54, 2)
+    system_integrity = {
+        "global": round(core_units / 10, 2),
+        "sector": round((core_units / 10 + node_integrity) / 2, 2),
+        "node": node_integrity,
+    }
+    values = list(system_integrity.values())
+    spread = max(values) - min(values)
+    synchronization = max(
+        0,
+        min(100, round(100 - spread * 1.35 + min(12, max(0, active_players - 1) * 3))),
+    )
     events = connection.execute(
         """
         SELECT sequence, starts_at_ms, duration_ms, from_units, to_units, delta
@@ -109,6 +124,8 @@ def snapshot(connection: sqlite3.Connection, core_delta: int = 0) -> dict:
         "activePlayers": active_players,
         "coreUnits": core_units,
         "coreDelta": core_delta,
+        "systemIntegrity": system_integrity,
+        "synchronization": synchronization,
         "serverTimeMs": round(now * 1000),
         "timeline": [
             {
@@ -146,12 +163,20 @@ def heartbeat():
 
     try:
         integrity_work = int(metrics["integrityWork"])
+        global_integrity = float(metrics["globalIntegrity"])
+        sector_integrity = float(metrics["sectorIntegrity"])
         node_integrity = float(metrics["nodeIntegrity"])
         wave = int(metrics["wave"])
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "Valid match metrics are required"}), 400
 
-    if integrity_work < 0 or not 0 <= node_integrity <= 100 or wave < 1:
+    if (
+        integrity_work < 0
+        or not 0 <= global_integrity <= 100
+        or not 0 <= sector_integrity <= 100
+        or not 0 <= node_integrity <= 100
+        or wave < 1
+    ):
         return jsonify({"error": "Presence metrics are outside the accepted envelope"}), 400
 
     now = time.time()

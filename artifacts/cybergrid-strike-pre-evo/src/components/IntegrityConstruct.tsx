@@ -14,6 +14,7 @@ interface IntegrityConstructProps {
   serverTimeMs: number | null;
   receivedAtMs: number | null;
   timeline: ConstructTimelineEvent[];
+  authoritativeSynchronization: number | null;
 }
 
 const CELLS = (() => {
@@ -68,6 +69,7 @@ export function IntegrityConstruct({
   serverTimeMs,
   receivedAtMs,
   timeline,
+  authoritativeSynchronization,
 }: IntegrityConstructProps) {
   const previousActiveRef = useRef<Set<string>>(new Set());
   const previousCellCountRef = useRef(0);
@@ -105,6 +107,8 @@ export function IntegrityConstruct({
       ? Math.round(currentEvent.fromUnits + (currentEvent.toUnits - currentEvent.fromUnits) * eventProgress)
       : nextEvent ? currentEvent.toUnits : targetCells
     : nextEvent?.fromUnits ?? targetCells;
+  const timelineDelta = currentEvent && eventProgress < 1 ? currentEvent.delta : 0;
+  const visualDelta = timelineDelta || coreDelta;
   const completion = activeCells / CELLS.length;
   useEffect(() => {
     const previousCount = previousCellCountRef.current;
@@ -122,12 +126,15 @@ export function IntegrityConstruct({
   const integritySpread = Math.max(integrity.global, integrity.sector, integrity.node)
     - Math.min(integrity.global, integrity.sector, integrity.node);
   const researchCoherence = Math.min(5, Math.log2(discoveries + mutations + fusions + 1));
-  const chemistry = Math.max(0, Math.min(1, (
+  const localChemistry = Math.max(0, Math.min(1, (
     100 - integritySpread * 1.35
     + Math.min(12, Math.max(0, helperTotal - 1) * 3)
     + researchCoherence
     + Math.max(-12, Math.min(12, coreDelta))
   ) / 100));
+  const chemistry = authoritativeSynchronization === null
+    ? localChemistry
+    : Math.max(0, Math.min(1, authoritativeSynchronization / 100));
   const constructStyle = {
     '--integrity': completion,
     '--chemistry': chemistry,
@@ -147,7 +154,7 @@ export function IntegrityConstruct({
   return (
     <aside
       id="integrityConstruct"
-      className={`integrityConstruct ${pressure} ${coreDelta > 0 ? 'core-growing' : coreDelta < 0 ? 'core-eroding' : ''}`}
+      className={`integrityConstruct ${pressure} ${visualDelta > 0 ? 'core-growing' : visualDelta < 0 ? 'core-eroding' : ''}`}
       style={constructStyle}
       aria-label={`Living System Integrity construct, ${Math.round(chemistry * 100)} percent synchronized`}
     >
@@ -197,7 +204,7 @@ export function IntegrityConstruct({
                   style={{
                     animationDelay: `${
                       ((Math.floor(index / 2) + workPulse)
-                        % Math.max(1, Math.ceil(Math.abs(coreDelta) / 2))) * 0.056
+                        % Math.max(1, Math.ceil(Math.abs(visualDelta) / 2))) * 0.056
                     }s`,
                   }}
                 >
@@ -218,7 +225,7 @@ export function IntegrityConstruct({
         </span>
         <span><i className="telemetryFlow research" />CHEMISTRY <b>{Math.round(chemistry * 100)}%</b></span>
       </div>
-      {coreDelta !== 0 && <div className="coreDelta">{coreDelta > 0 ? '+' : ''}{coreDelta} CELLS</div>}
+      {visualDelta !== 0 && <div className="coreDelta">{visualDelta > 0 ? '+' : ''}{visualDelta} CELLS</div>}
     </aside>
   );
 }
