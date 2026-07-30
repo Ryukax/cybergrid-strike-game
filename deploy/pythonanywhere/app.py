@@ -13,6 +13,8 @@ PRESENCE_TTL_SECONDS = 30
 CORE_MIN = 0
 CORE_MAX = 1_000
 INITIAL_CORE_UNITS = 540
+TIMELINE_DURATION_MS = 1_800
+TIMELINE_HISTORY = 48
 
 DATA_DIR = Path(os.environ.get("CYBERGRID_DATA_DIR", Path(__file__).parent))
 DATABASE_PATH = DATA_DIR / "cybergrid_presence.sqlite3"
@@ -20,6 +22,7 @@ DATABASE_PATH = DATA_DIR / "cybergrid_presence.sqlite3"
 app = Flask(__name__)
 ALLOWED_ORIGINS = {
     "https://ryukax.github.io",
+    "https://cybergrid-strike-branch.pages.dev",
     "http://127.0.0.1:4179",
     "http://localhost:4179",
 }
@@ -64,6 +67,14 @@ def initialize_database() -> None:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 core_units INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS construct_events (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                starts_at_ms INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                from_units INTEGER NOT NULL,
+                to_units INTEGER NOT NULL,
+                delta INTEGER NOT NULL
+            );
             INSERT OR IGNORE INTO construct (id, core_units) VALUES (1, 540);
             """
         )
@@ -85,10 +96,31 @@ def snapshot(connection: sqlite3.Connection, core_delta: int = 0) -> dict:
     core_units = connection.execute(
         "SELECT core_units FROM construct WHERE id = 1"
     ).fetchone()["core_units"]
+    events = connection.execute(
+        """
+        SELECT sequence, starts_at_ms, duration_ms, from_units, to_units, delta
+        FROM construct_events
+        ORDER BY sequence DESC
+        LIMIT ?
+        """,
+        (TIMELINE_HISTORY,),
+    ).fetchall()
     return {
         "activePlayers": active_players,
         "coreUnits": core_units,
         "coreDelta": core_delta,
+        "serverTimeMs": round(now * 1000),
+        "timeline": [
+            {
+                "sequence": event["sequence"],
+                "startsAtMs": event["starts_at_ms"],
+                "durationMs": event["duration_ms"],
+                "fromUnits": event["from_units"],
+                "toUnits": event["to_units"],
+                "delta": event["delta"],
+            }
+            for event in reversed(events)
+        ],
         "sampledAt": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -146,10 +178,36 @@ def heartbeat():
                 "SELECT core_units FROM construct WHERE id = 1"
             ).fetchone()["core_units"]
             next_units = max(CORE_MIN, min(CORE_MAX, current + core_delta))
+            core_delta = next_units - current
             connection.execute(
                 "UPDATE construct SET core_units = ? WHERE id = 1",
                 (next_units,),
             )
+            if core_delta:
+                latest = connection.execute(
+                    """
+                    SELECT starts_at_ms + duration_ms AS ends_at_ms
+                    FROM construct_events
+                    ORDER BY sequence DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                now_ms = round(now * 1000)
+                starts_at_ms = max(now_ms, latest["ends_at_ms"] if latest else now_ms)
+                connection.execute(
+                    """
+                    INSERT INTO construct_events
+                        (starts_at_ms, duration_ms, from_units, to_units, delta)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        starts_at_ms,
+                        TIMELINE_DURATION_MS,
+                        current,
+                        next_units,
+                        core_delta,
+                    ),
+                )
 
         connection.execute(
             """

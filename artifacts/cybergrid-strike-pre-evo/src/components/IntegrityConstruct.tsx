@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import type { ConstructTimelineEvent } from '../ecosystem/presence';
 
 interface IntegrityConstructProps {
   integrityWork: number;
@@ -10,6 +11,9 @@ interface IntegrityConstructProps {
   activePlayers: number | null;
   coreUnits: number;
   coreDelta: number;
+  serverTimeMs: number | null;
+  receivedAtMs: number | null;
+  timeline: ConstructTimelineEvent[];
 }
 
 const CELLS = (() => {
@@ -61,6 +65,9 @@ export function IntegrityConstruct({
   activePlayers,
   coreUnits,
   coreDelta,
+  serverTimeMs,
+  receivedAtMs,
+  timeline,
 }: IntegrityConstructProps) {
   const previousActiveRef = useRef<Set<string>>(new Set());
   const previousCellCountRef = useRef(0);
@@ -68,10 +75,36 @@ export function IntegrityConstruct({
   const localCompletion = Math.max(0, Math.min(1, (
     integrity.node * 0.52 + integrity.sector * 0.3 + integrity.global * 0.18
   ) / 100));
-  const activeCells = Math.max(0, Math.min(
+  const targetCells = Math.max(0, Math.min(
     CELLS.length,
     activePlayers === null ? Math.round(localCompletion * 1_000) : Math.round(coreUnits),
   ));
+  const [timelineNow, setTimelineNow] = useState(() => Date.now());
+  const clockOffset = serverTimeMs === null || receivedAtMs === null
+    ? 0
+    : serverTimeMs - receivedAtMs;
+  useEffect(() => {
+    if (!timeline.length) return;
+    const finalEvent = timeline[timeline.length - 1];
+    const tick = () => {
+      setTimelineNow(Date.now());
+    };
+    tick();
+    if (Date.now() + clockOffset >= finalEvent.startsAtMs + finalEvent.durationMs) return;
+    const timer = window.setInterval(tick, 40);
+    return () => window.clearInterval(timer);
+  }, [timeline, clockOffset]);
+  const authoritativeNow = timelineNow + clockOffset;
+  const currentEvent = [...timeline].reverse().find((event) => authoritativeNow >= event.startsAtMs);
+  const nextEvent = timeline.find((event) => authoritativeNow < event.startsAtMs);
+  const eventProgress = currentEvent
+    ? Math.max(0, Math.min(1, (authoritativeNow - currentEvent.startsAtMs) / currentEvent.durationMs))
+    : 1;
+  const activeCells = currentEvent
+    ? eventProgress < 1
+      ? Math.round(currentEvent.fromUnits + (currentEvent.toUnits - currentEvent.fromUnits) * eventProgress)
+      : nextEvent ? currentEvent.toUnits : targetCells
+    : nextEvent?.fromUnits ?? targetCells;
   const completion = activeCells / CELLS.length;
   useEffect(() => {
     const previousCount = previousCellCountRef.current;

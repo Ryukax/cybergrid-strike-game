@@ -3,6 +3,18 @@ export interface PresenceSnapshot {
   coreUnits: number;
   coreDelta: number;
   sampledAt: string;
+  serverTimeMs: number;
+  timeline: ConstructTimelineEvent[];
+  receivedAtMs: number;
+}
+
+export interface ConstructTimelineEvent {
+  sequence: number;
+  startsAtMs: number;
+  durationMs: number;
+  fromUnits: number;
+  toUnits: number;
+  delta: number;
 }
 
 interface MatchMetricSample {
@@ -35,7 +47,17 @@ export async function heartbeatPresence(metrics: MatchMetricSample): Promise<Pre
     body: JSON.stringify({ sessionId: sessionId(), metrics }),
   });
   if (!response.ok) throw new Error(`Presence heartbeat failed: HTTP ${response.status}`);
-  return response.json() as Promise<PresenceSnapshot>;
+  const snapshot = await response.json() as Omit<PresenceSnapshot, 'receivedAtMs'>;
+  return { ...snapshot, receivedAtMs: Date.now() };
+}
+
+export async function readPresence(): Promise<PresenceSnapshot | null> {
+  const base = presenceApiBase();
+  if (!base) return null;
+  const response = await fetch(`${base}/ecosystem/presence`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Presence read failed: HTTP ${response.status}`);
+  const snapshot = await response.json() as Omit<PresenceSnapshot, 'receivedAtMs'>;
+  return { ...snapshot, receivedAtMs: Date.now() };
 }
 
 export async function leavePresence(): Promise<void> {

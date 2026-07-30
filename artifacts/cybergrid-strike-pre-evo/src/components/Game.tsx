@@ -2,7 +2,7 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, type Mutable
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
 import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
-import { heartbeatPresence, leavePresence, type PresenceSnapshot } from '../ecosystem/presence';
+import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
 // Static one-time render of a GIF's first frame with white-background removed.
@@ -4388,6 +4388,9 @@ export default function Game() {
       return;
     }
     let cancelled = false;
+    const receive = (snapshot: PresenceSnapshot | null) => {
+      if (!cancelled && snapshot) setPresence(snapshot);
+    };
     const heartbeat = async () => {
       const state = stateRef.current;
       try {
@@ -4396,16 +4399,25 @@ export default function Game() {
           nodeIntegrity: state.systemIntegrity.node,
           wave: state.wave,
         });
-        if (!cancelled) setPresence(snapshot);
+        receive(snapshot);
       } catch {
         if (!cancelled) setPresence(null);
       }
     };
+    const poll = async () => {
+      try {
+        receive(await readPresence());
+      } catch {
+        // Retain the last authoritative snapshot during a transient read failure.
+      }
+    };
     void heartbeat();
+    const pollTimer = window.setInterval(poll, 1_000);
     const timer = window.setInterval(heartbeat, 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.clearInterval(pollTimer);
       void leavePresence();
     };
   }, [phase]);
@@ -8909,6 +8921,9 @@ export default function Game() {
             activePlayers={presence?.activePlayers ?? null}
             coreUnits={presence?.coreUnits ?? 540}
             coreDelta={presence?.coreDelta ?? 0}
+            serverTimeMs={presence?.serverTimeMs ?? null}
+            receivedAtMs={presence?.receivedAtMs ?? null}
+            timeline={presence?.timeline ?? []}
           />
         </HudLayoutItem>
       )}
