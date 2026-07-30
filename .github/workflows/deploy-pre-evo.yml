@@ -1,4 +1,4 @@
-name: Deploy CyberGrid Strike with Branch Preview
+name: Deploy CyberGrid Strike
 
 on:
   push:
@@ -25,11 +25,6 @@ jobs:
         with:
           ref: main
           path: main-source
-      - name: Checkout branch preview
-        uses: actions/checkout@v4
-        with:
-          ref: agent/cybergrid-strike-branch
-          path: branch-source
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -39,9 +34,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
-          cache-dependency-path: |
-            main-source/pnpm-lock.yaml
-            branch-source/pnpm-lock.yaml
+          cache-dependency-path: main-source/pnpm-lock.yaml
       - name: Install main dependencies
         working-directory: main-source
         run: pnpm install --frozen-lockfile
@@ -52,23 +45,11 @@ jobs:
           PORT: '3000'
           BASE_PATH: '/cybergrid-strike-game/'
           NODE_ENV: 'production'
-      - name: Install branch dependencies
-        working-directory: branch-source
-        run: pnpm install --frozen-lockfile
-      - name: Build branch preview
-        working-directory: branch-source
-        run: pnpm --filter @workspace/cybergrid-strike-pre-evo run build
-        env:
-          PORT: '3000'
-          BASE_PATH: '/cybergrid-strike-game/branch/'
-          NODE_ENV: 'production'
-          VITE_ECOSYSTEM_API: ${{ vars.ECOSYSTEM_API_URL }}
       - name: Assemble Pages site
         shell: bash
         run: |
-          mkdir -p pages-site/branch
+          mkdir -p pages-site
           cp -R main-source/artifacts/cybergrid-strike-pre-evo/dist/public/. pages-site/
-          cp -R branch-source/artifacts/cybergrid-strike-pre-evo/dist/public/. pages-site/branch/
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
