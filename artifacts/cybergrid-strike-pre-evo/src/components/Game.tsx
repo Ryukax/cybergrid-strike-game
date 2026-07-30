@@ -9131,7 +9131,22 @@ export default function Game() {
             </div>
           ) : menuScreen === 'customization' ? (
             <div id="menuCard" className="customization-card">
-              <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
+              <div className="customizationHeader">
+                <button
+                  id="menuBackBtn"
+                  className="customizationBackBtn"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    menuScreenRef.current = 'main';
+                    menuSelectionRef.current = 0;
+                    setMenuSelection(0);
+                    setMenuScreen('main');
+                  }}
+                >
+                  ← Back
+                </button>
+                <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>⚙ Customization</div>
+              </div>
 
               {/* Skin selector */}
               <div id="customSubtitle">Player skin</div>
@@ -9397,18 +9412,6 @@ export default function Game() {
                     );
                   })}
               </div>
-              <button
-                id="menuBackBtn"
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  menuScreenRef.current = 'main';
-                  menuSelectionRef.current = 0;
-                  setMenuSelection(0);
-                  setMenuScreen('main');
-                }}
-              >
-                ← Back
-              </button>
             </div>
           ) : menuScreen === 'bestiary' ? (
             bestiaryPanel(() => {
