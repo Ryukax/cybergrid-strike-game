@@ -1,6 +1,7 @@
 import { useRef, useEffect, useLayoutEffect, useState, useCallback, type MutableRefObject } from 'react';
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
+import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
 import { heartbeatPresence, leavePresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -3599,6 +3600,21 @@ export default function Game() {
   const [integrityConstructVisible, setIntegrityConstructVisible] = useState(
     () => localStorage.getItem(INTEGRITY_CONSTRUCT_VISIBLE_KEY) !== 'off',
   );
+  const defaultHudLayout: Record<string, HudLayoutRect> = {
+    wave: { x: 0.82, y: 0.018, width: 150, height: 44 },
+    work: { x: 0.41, y: 0.018, width: 210, height: 44 },
+    integrity: { x: 0.25, y: 0.075, width: 560, height: 42 },
+    construct: { x: 0.72, y: 0.13, width: 310, height: 285 },
+  };
+  const [hudLayout, setHudLayout] = useState<Record<string, HudLayoutRect>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('cybergrid-hud-layout-v1') ?? '{}');
+      return { ...defaultHudLayout, ...saved };
+    } catch {
+      return defaultHudLayout;
+    }
+  });
+  const [hudLayoutEditing, setHudLayoutEditing] = useState(false);
   const [skillFxRun, setSkillFxRun] = useState(0);
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
@@ -8429,6 +8445,19 @@ export default function Game() {
     });
   };
 
+  const updateHudLayout = (key: string, rect: HudLayoutRect) => {
+    setHudLayout((layout) => {
+      const next = { ...layout, [key]: rect };
+      localStorage.setItem('cybergrid-hud-layout-v1', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const resetHudLayout = () => {
+    localStorage.removeItem('cybergrid-hud-layout-v1');
+    setHudLayout(defaultHudLayout);
+  };
+
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const equippedAssemblyParts = AVATAR_SLOTS
     .map((slot) => avatarComponents.find((component) => component.id === equippedAvatarComponents[slot]))
@@ -8539,6 +8568,24 @@ export default function Game() {
         </span>
         <b>{integrityConstructVisible ? 'ON' : 'OFF'}</b>
       </button>
+      {pausedView && (
+        <button
+          id="pauseHudLayoutBtn"
+          className="optionToggleBtn"
+          onClick={(event) => {
+            event.stopPropagation();
+            pauseOptionsRef.current = false;
+            setPauseOptions(false);
+            setHudLayoutEditing(true);
+          }}
+        >
+          <span>
+            <strong>HUD LAYOUT</strong>
+            <small>Move and resize live battle information</small>
+          </span>
+          <b>EDIT</b>
+        </button>
+      )}
       <button
         id="menuBackBtn"
         className="bestiaryBackBtn"
@@ -8819,7 +8866,6 @@ export default function Game() {
             </span>
           )}
         </div>
-        <div className="panel integrityWorkPanel">Integrity Work {hud.integrityWork}</div>
         {hud.gameMode === 'vs' ? (
           <div className="panel" id="npcHpPanel" data-overheal={hud.npcHp > NPC_HP ? 'true' : 'false'}>
             NPC {hud.npcHp} HP{hud.npcHp > NPC_HP ? ' ▲' : ''}
@@ -8827,49 +8873,53 @@ export default function Game() {
               <span id="npcShieldDisplay">{'🛡'.repeat(Math.min(hud.npcShieldCharges, 9))}</span>
             )}
           </div>
-        ) : (
-          <div className="panel">Wave {hud.wave}</div>
-        )}
+        ) : null}
       </div>
 
       {phase === 'playing' && (
-        <div id="ecosystemHud">
-          <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
-          <span className="integrityMetric global">
-            GLOBAL <b>{Math.round(hud.systemIntegrity.global)}%</b>
-          </span>
-          <span className="integrityMetric sector">
-            SECTOR <b>{Math.round(hud.systemIntegrity.sector)}%</b>
-          </span>
-          <span className="integrityMetric node">
-            NODE <b>{Math.round(hud.systemIntegrity.node)}%</b>
-          </span>
-          <span>DISCOVERED <b>{hud.ecosystem.species}</b></span>
-          <span>TRAITS <b>{hud.ecosystem.mutations}</b></span>
-          <span>MAX GEN <b>{hud.ecosystem.generation}</b></span>
-          <span className={hud.ecosystem.fusions > 0 ? 'fusionActive' : ''}>
-            FUSIONS <b>{hud.ecosystem.fusions}</b>
-          </span>
-          <span className={`pressureState ${hud.pressureState}`}>
-            {hud.pressureState === 'critical'
-              ? 'PRESSURE'
-              : hud.pressureState === 'recovery' ? 'RECOVERY' : 'STEADY'}
-          </span>
-        </div>
+        <>
+          {hud.gameMode !== 'vs' && (
+            <HudLayoutItem label="WAVE" rect={hudLayout.wave} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('wave', rect)}>
+              <div className="panel hudMovablePanel">Wave {hud.wave}</div>
+            </HudLayoutItem>
+          )}
+          <HudLayoutItem label="INTEGRITY WORK" rect={hudLayout.work} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('work', rect)}>
+            <div className="panel integrityWorkPanel hudMovablePanel">Integrity Work {hud.integrityWork}</div>
+          </HudLayoutItem>
+          <HudLayoutItem label="GLOBAL / SECTOR / NODE" rect={hudLayout.integrity} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('integrity', rect)}>
+            <div id="ecosystemHud">
+              <span className="ecosystemTitle">SYSTEM INTEGRITY</span>
+              <span className="integrityMetric global">GLOBAL <b>{Math.round(hud.systemIntegrity.global)}%</b></span>
+              <span className="integrityMetric sector">SECTOR <b>{Math.round(hud.systemIntegrity.sector)}%</b></span>
+              <span className="integrityMetric node">NODE <b>{Math.round(hud.systemIntegrity.node)}%</b></span>
+            </div>
+          </HudLayoutItem>
+        </>
       )}
 
       {phase === 'playing' && integrityConstructVisible && (
-        <IntegrityConstruct
-          integrityWork={hud.integrityWork}
-          integrity={hud.systemIntegrity}
-          discoveries={hud.ecosystem.species}
-          mutations={hud.ecosystem.mutations}
-          fusions={hud.ecosystem.fusions}
-          pressure={hud.pressureState}
-          activePlayers={presence?.activePlayers ?? null}
-          coreUnits={presence?.coreUnits ?? 540}
-          coreDelta={presence?.coreDelta ?? 0}
-        />
+        <HudLayoutItem label="INTEGRITY CONSTRUCT" rect={hudLayout.construct} editing={hudLayoutEditing} onChange={(rect) => updateHudLayout('construct', rect)}>
+          <IntegrityConstruct
+            integrityWork={hud.integrityWork}
+            integrity={hud.systemIntegrity}
+            discoveries={hud.ecosystem.species}
+            mutations={hud.ecosystem.mutations}
+            fusions={hud.ecosystem.fusions}
+            pressure={hud.pressureState}
+            activePlayers={presence?.activePlayers ?? null}
+            coreUnits={presence?.coreUnits ?? 540}
+            coreDelta={presence?.coreDelta ?? 0}
+          />
+        </HudLayoutItem>
+      )}
+
+      {hudLayoutEditing && (
+        <div id="hudLayoutToolbar">
+          <strong>HUD LAYOUT</strong>
+          <span>Drag panels · pull the corner to resize</span>
+          <button onClick={resetHudLayout}>RESET</button>
+          <button className="primary" onClick={() => setHudLayoutEditing(false)}>DONE</button>
+        </div>
       )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
@@ -9488,7 +9538,7 @@ export default function Game() {
       )}
 
       {/* Pause overlay */}
-      {paused && phase === 'playing' && !pauseBestiary && !pauseOptions && (
+      {paused && phase === 'playing' && !pauseBestiary && !pauseOptions && !hudLayoutEditing && (
         <div id="pauseOverlay">
           <div id="pauseCard">
             <div id="pauseTitle">PAUSED</div>
