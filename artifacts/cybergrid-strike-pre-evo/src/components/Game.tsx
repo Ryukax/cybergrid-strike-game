@@ -3543,6 +3543,7 @@ export default function Game() {
     connected: false,
   });
   const activeGamepadIndexRef = useRef<number | null>(null);
+  const connectedGamepadRef = useRef<Gamepad | null>(null);
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6756,21 +6757,36 @@ export default function Game() {
   }, [cycleActiveControl, finishRivalSkill, playSkillAnimation]);
 
   const handleGamepad = useCallback(() => {
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gamepadNavigator = navigator as Navigator & {
+      webkitGetGamepads?: () => (Gamepad | null)[];
+    };
+    let pads: readonly (Gamepad | null)[] = [];
+    try {
+      pads = navigator.getGamepads?.()
+        ?? gamepadNavigator.webkitGetGamepads?.()
+        ?? [];
+    } catch {
+      // WebKit may temporarily reject polling while a restored PWA tab is
+      // becoming active. The connection-event object remains usable below.
+    }
     let gp: Gamepad | null = null;
     const activeIndex = activeGamepadIndexRef.current;
     if (activeIndex !== null) {
       const activePad = pads[activeIndex];
-      if (activePad && activePad.connected !== false) gp = activePad;
+      if (activePad) gp = activePad;
     }
     for (let i = 0; i < pads.length; i++) {
       const pad = pads[i];
-      if (!gp && pad && pad.connected !== false) {
+      if (!gp && pad) {
         gp = pad;
         activeGamepadIndexRef.current = pad.index;
         break;
       }
     }
+    // iOS Safari can dispatch gamepadconnected one or more frames before the
+    // same pad appears in getGamepads(). Its event Gamepad is live, so retain
+    // it instead of treating those frames as a disconnect.
+    if (!gp && connectedGamepadRef.current) gp = connectedGamepadRef.current;
     const g = gamepadRef.current;
     if (!gp) {
       activeGamepadIndexRef.current = null;
@@ -6813,6 +6829,7 @@ export default function Game() {
     g.moveX = moveX;
     g.moveY = moveY;
     g.connected = true;
+    connectedGamepadRef.current = gp;
   }, []);
 
   const update = useCallback((dt: number) => {
@@ -8432,19 +8449,22 @@ export default function Game() {
     };
     const onGamepadConnected = (ev: GamepadEvent) => {
       activeGamepadIndexRef.current = ev.gamepad.index;
+      connectedGamepadRef.current = ev.gamepad;
       resetGamepadState();
-      handleGamepad();
+      // Do not sample here: the button that woke Safari must remain a rising
+      // edge for the next animation frame (usually A to start the match).
     };
     const onGamepadDisconnected = (ev: GamepadEvent) => {
       if (activeGamepadIndexRef.current === ev.gamepad.index) {
         activeGamepadIndexRef.current = null;
+        connectedGamepadRef.current = null;
         resetGamepadState();
       }
     };
     const onVisibilityChange = () => {
       if (!document.hidden) {
         activeGamepadIndexRef.current = null;
-        resetGamepadState();
+        // Preserve the event-backed pad while WebKit rebuilds its array.
         handleGamepad();
       }
     };
