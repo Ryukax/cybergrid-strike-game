@@ -3539,6 +3539,7 @@ export default function Game() {
     r2: false, prevR2: false,         // button 7 / R2 → cycle active control
     connected: false,
   });
+  const activeGamepadIndexRef = useRef<number | null>(null);
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6745,11 +6746,22 @@ export default function Game() {
   const handleGamepad = useCallback(() => {
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     let gp: Gamepad | null = null;
+    const activeIndex = activeGamepadIndexRef.current;
+    if (activeIndex !== null) {
+      const activePad = pads[activeIndex];
+      if (activePad && activePad.connected !== false) gp = activePad;
+    }
     for (let i = 0; i < pads.length; i++) {
-      if (pads[i]?.connected) { gp = pads[i]; break; }
+      const pad = pads[i];
+      if (!gp && pad && pad.connected !== false) {
+        gp = pad;
+        activeGamepadIndexRef.current = pad.index;
+        break;
+      }
     }
     const g = gamepadRef.current;
     if (!gp) {
+      activeGamepadIndexRef.current = null;
       if (g.connected) {
         g.connected = false;
         g.moveX = 0; g.moveY = 0; g.prevMoveX = 0;
@@ -8379,6 +8391,47 @@ export default function Game() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
+    // Safari can withhold a controller from getGamepads() until the first
+    // button press. Remember the event index so polling acquires it immediately,
+    // and clear stale held-button edges when a controller reconnects.
+    const resetGamepadState = () => {
+      const g = gamepadRef.current;
+      g.moveX = 0; g.moveY = 0; g.prevMoveX = 0;
+      g.fire = false; g.prevFire = false;
+      g.cardX = false; g.prevCardX = false;
+      g.cardY = false; g.prevCardY = false;
+      g.cardB = false; g.prevCardB = false;
+      g.rotate = false; g.prevRotate = false;
+      g.start = false; g.prevStart = false;
+      g.l1 = false; g.prevL1 = false;
+      g.skill = false; g.prevSkill = false;
+      g.r1 = false; g.prevR1 = false;
+      g.r2 = false; g.prevR2 = false;
+      g.connected = false;
+      fireHeldRef.current = false;
+    };
+    const onGamepadConnected = (ev: GamepadEvent) => {
+      activeGamepadIndexRef.current = ev.gamepad.index;
+      resetGamepadState();
+      handleGamepad();
+    };
+    const onGamepadDisconnected = (ev: GamepadEvent) => {
+      if (activeGamepadIndexRef.current === ev.gamepad.index) {
+        activeGamepadIndexRef.current = null;
+        resetGamepadState();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        activeGamepadIndexRef.current = null;
+        resetGamepadState();
+        handleGamepad();
+      }
+    };
+    window.addEventListener('gamepadconnected', onGamepadConnected);
+    window.addEventListener('gamepaddisconnected', onGamepadDisconnected);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     // Keyboard
     const onKeyDown = (ev: KeyboardEvent) => {
       ensureAudio();
@@ -8476,6 +8529,9 @@ export default function Game() {
       cancelAnimationFrame(animRef.current);
       stopMusic();
       window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('gamepadconnected', onGamepadConnected);
+      window.removeEventListener('gamepaddisconnected', onGamepadDisconnected);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       if (rotateTapTimerRef.current) {
