@@ -3506,7 +3506,8 @@ export default function Game() {
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
   const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stopChronoRewindRef = useRef<() => void>(() => {});
+  const chronoRewindExhaustedRef = useRef(false);
+  const stopChronoRewindRef = useRef<(exhausted?: boolean) => void>(() => {});
   const chronoRewindRef = useRef({
     held: false,
     startedAt: 0,
@@ -6473,7 +6474,12 @@ export default function Game() {
 
   const startChronoRewind = useCallback((input: 'pointer' | 'keyboard' | 'gamepad' = 'pointer') => {
     const active = rivalSkillRef.current;
-    if (!active.active || active.id !== 'chrono' || chronoRewindRef.current.held) return;
+    if (
+      !active.active
+      || active.id !== 'chrono'
+      || chronoRewindRef.current.held
+      || chronoRewindExhaustedRef.current
+    ) return;
     const now = performance.now();
     const immediate = { at: now, state: structuredClone(stateRef.current) };
     chronoHistoryRef.current.push(immediate);
@@ -6488,14 +6494,15 @@ export default function Game() {
     };
     if (chronoRewindTimerRef.current) clearTimeout(chronoRewindTimerRef.current);
     chronoRewindTimerRef.current = window.setTimeout(
-      () => stopChronoRewindRef.current(),
+      () => stopChronoRewindRef.current(true),
       3000,
     );
     showMessage('REWINDING GRID… hold up to 3 seconds', 900);
   }, [showMessage]);
 
-  const stopChronoRewind = useCallback(() => {
+  const stopChronoRewind = useCallback((exhausted = false) => {
     const rewind = chronoRewindRef.current;
+    chronoRewindExhaustedRef.current = exhausted;
     if (!rewind.held) return;
     rewind.held = false;
     if (chronoRewindTimerRef.current) {
@@ -7704,7 +7711,7 @@ export default function Game() {
             rewind.cursorAt = targetAt;
             updateHud();
           }
-          if (elapsed >= 3000) stopChronoRewind();
+          if (elapsed >= 3000) stopChronoRewind(true);
         }
       } else {
         if (ts - chronoLastCaptureRef.current >= 33) {
@@ -8233,6 +8240,7 @@ export default function Game() {
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
+    chronoRewindExhaustedRef.current = false;
     if (chronoRewindTimerRef.current) {
       clearTimeout(chronoRewindTimerRef.current);
       chronoRewindTimerRef.current = null;
@@ -8296,6 +8304,7 @@ export default function Game() {
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
+    chronoRewindExhaustedRef.current = false;
     if (chronoRewindTimerRef.current) {
       clearTimeout(chronoRewindTimerRef.current);
       chronoRewindTimerRef.current = null;
