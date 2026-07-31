@@ -817,13 +817,13 @@ function drawSkinProjectileEffect(
   y: number,
   radius: number,
   direction: number,
+  now: number,
   skin?: string,
 ): boolean {
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
   if (!config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
-  const now = performance.now();
   const skinPhase = [...skin].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.017;
   // A projectile crosses the board in less than the old one-second animation
   // cycle. Combine a faster clock with distance travelled so even short-lived
@@ -984,10 +984,11 @@ export function draw(
   state: GameState,
   hasOverlay?: boolean,
   npcHasOverlay?: boolean,
+  renderNow = performance.now(),
 ) {
   const nodeIntegrity = state.systemIntegrity?.node ?? 100;
   const corruption = Math.max(0, Math.min(1, (72 - nodeIntegrity) / 72));
-  const timeSlice = Math.floor(performance.now() / 180);
+  const timeSlice = Math.floor(renderNow / 180);
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
   ctx.fillStyle = corruption > 0.55 ? '#090713' : '#06101e';
   ctx.fillRect(0, 0, w, h);
@@ -1005,7 +1006,7 @@ export function draw(
 
   // Scanlines
   for (let i = 0; i < 28; i++) {
-    const yy = (i * 47 + (performance.now() * 0.03)) % (h + 60) - 30;
+    const yy = (i * 47 + (renderNow * 0.03)) % (h + 60) - 30;
     ctx.fillStyle = corruption > 0.45
       ? `rgba(244,63,94,${0.025 + corruption * 0.075})`
       : `rgba(56,189,248,${0.035 + (1 - corruption) * 0.025})`;
@@ -1064,7 +1065,7 @@ export function draw(
 
   if (state.ghostTimer > 0) {
     // Pulsing cyan ghost aura
-    const pulse = 0.45 + 0.2 * Math.sin(performance.now() * 0.008);
+    const pulse = 0.45 + 0.2 * Math.sin(renderNow * 0.008);
     ctx.strokeStyle = `rgba(125,211,252,${pulse})`;
     ctx.lineWidth = 2.5;
     ctx.setLineDash([6, 4]);
@@ -1163,13 +1164,13 @@ export function draw(
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
     const direction = Math.sign(b.speed) || 1;
     const attackStyle = b.attackStyle ?? 'physical';
-    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, b.effectSkin);
+    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b.effectSkin);
     if (!skinProjectileDrawn) {
       ctx.save();
       if (attackStyle === 'melee') {
       // The collision carrier still crosses the lane, but reads as its user
       // advancing through a sword combination rather than as a detached orb.
-      const stride = (performance.now() * 0.014 + b.colPos * 1.7) % (Math.PI * 2);
+      const stride = (renderNow * 0.014 + b.colPos * 1.7) % (Math.PI * 2);
       ctx.translate(bx, by);
       ctx.scale(direction, 1);
       ctx.strokeStyle = b.pierce ? '#e9d5ff' : '#f8fafc';
@@ -1191,7 +1192,7 @@ export function draw(
       ctx.translate(bx, by);
       ctx.scale(direction, 1);
       for (let i = 0; i < 5; i++) {
-        const phase = performance.now() * 0.012 + i * 1.7 + b.colPos;
+        const phase = renderNow * 0.012 + i * 1.7 + b.colPos;
         const x = (i - 2) * radius * 0.72;
         const y = Math.sin(phase) * radius * 1.25;
         ctx.fillStyle = i % 2 ? '#67e8f9' : '#c084fc';
@@ -1203,7 +1204,7 @@ export function draw(
         ctx.fill();
       }
       } else if (attackStyle === 'temporal') {
-      const phase = performance.now() * 0.006;
+      const phase = renderNow * 0.006;
       ctx.strokeStyle = b.pierce ? '#e9d5ff' : '#93c5fd';
       ctx.lineWidth = Math.max(1.4, radius * 0.24);
       for (let i = 0; i < 3; i++) {
@@ -1236,7 +1237,7 @@ export function draw(
         polarity: ['#be123c', '#38bdf8'],
       } as const;
       const [core, edge] = spatialColors[attackStyle];
-      const spin = performance.now() * 0.008 * direction;
+      const spin = renderNow * 0.008 * direction;
       ctx.translate(bx, by);
       ctx.rotate(spin);
       ctx.fillStyle = core;
@@ -1290,7 +1291,7 @@ export function draw(
         ctx.stroke();
       }
       } else if (attackStyle === 'energy') {
-      const pulse = 0.88 + Math.sin(performance.now() * 0.018 + b.colPos) * 0.16;
+      const pulse = 0.88 + Math.sin(renderNow * 0.018 + b.colPos) * 0.16;
       const energyRadius = radius * pulse;
       const glow = ctx.createRadialGradient(bx, by, 0, bx, by, energyRadius * 2.8);
       glow.addColorStop(0, '#ffffff');
@@ -1331,7 +1332,7 @@ export function draw(
       const bx = m.x + b.colPos * m.cell;
       const by = m.y + (b.row + 0.5) * m.cell;
       const radius = m.cell * 0.08;
-      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, b.effectSkin);
+      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b.effectSkin);
       if (!skinProjectileDrawn) {
         ctx.fillStyle = '#67e8f9';
         ctx.beginPath();
@@ -1346,7 +1347,7 @@ export function draw(
   }
 
   // Red enemies (classic + VS)
-  const now = performance.now();
+  const now = renderNow;
 
   // Formation links make coordinated squads legible without obscuring morphology.
   const formations = new Map<number, typeof state.enemies>();

@@ -6458,13 +6458,16 @@ export default function Game() {
   const startChronoRewind = useCallback((input: 'pointer' | 'keyboard' | 'gamepad' = 'pointer') => {
     const active = rivalSkillRef.current;
     if (!active.active || active.id !== 'chrono' || chronoRewindRef.current.held) return;
-    const latest = chronoHistoryRef.current.at(-1);
-    if (!latest) return;
+    const now = performance.now();
+    const immediate = { at: now, state: structuredClone(stateRef.current) };
+    chronoHistoryRef.current.push(immediate);
+    chronoHistoryRef.current = chronoHistoryRef.current
+      .filter((snapshot) => now - snapshot.at <= 3100);
     chronoRewindRef.current = {
       held: true,
-      startedAt: performance.now(),
-      sourceAt: latest.at,
-      cursorAt: latest.at,
+      startedAt: now,
+      sourceAt: now,
+      cursorAt: now,
       input,
     };
     showMessage('REWINDING GRID… hold up to 3 seconds', 900);
@@ -7669,12 +7672,12 @@ export default function Game() {
           }
           if (snapshot) {
             stateRef.current = structuredClone(snapshot.state);
-            rewind.cursorAt = snapshot.at;
+            rewind.cursorAt = targetAt;
             updateHud();
           }
         }
       } else {
-        if (ts - chronoLastCaptureRef.current >= 50) {
+        if (ts - chronoLastCaptureRef.current >= 33) {
           chronoHistoryRef.current.push({ at: ts, state: structuredClone(stateRef.current) });
           chronoHistoryRef.current = chronoHistoryRef.current
             .filter((snapshot) => ts - snapshot.at <= 3100);
@@ -7845,6 +7848,7 @@ export default function Game() {
         stateRef.current,
         skinHasOverlay,
         npcHasOverlay,
+        chronoRewindRef.current.held ? chronoRewindRef.current.cursorAt : ts,
       );
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
