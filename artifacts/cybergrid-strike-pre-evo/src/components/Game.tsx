@@ -3500,6 +3500,8 @@ export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const pipStreamRef = useRef<MediaStream | null>(null);
+  const pipWindowRef = useRef<Window | null>(null);
+  const pipMirrorFrameRef = useRef(0);
   const stateRef = useRef<GameState>(makeInitialState());
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
@@ -3620,6 +3622,7 @@ export default function Game() {
   });
   const [hudLayoutEditing, setHudLayoutEditing] = useState(false);
   const [pictureInPictureActive, setPictureInPictureActive] = useState(false);
+  const [pictureInPictureStatus, setPictureInPictureStatus] = useState('');
   const [skillFxRun, setSkillFxRun] = useState(0);
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
@@ -8506,6 +8509,10 @@ export default function Game() {
   const closePictureInPictureStream = useCallback(() => {
     pipStreamRef.current?.getTracks().forEach((track) => track.stop());
     pipStreamRef.current = null;
+    if (pipMirrorFrameRef.current) cancelAnimationFrame(pipMirrorFrameRef.current);
+    pipMirrorFrameRef.current = 0;
+    if (pipWindowRef.current && !pipWindowRef.current.closed) pipWindowRef.current.close();
+    pipWindowRef.current = null;
     const video = pipVideoRef.current;
     if (video) video.srcObject = null;
     setPictureInPictureActive(false);
@@ -8535,38 +8542,75 @@ export default function Game() {
   const openPictureInPicture = useCallback(async () => {
     const canvas = canvasRef.current;
     const video = pipVideoRef.current;
-    if (!canvas || !video || typeof canvas.captureStream !== 'function') {
-      showMessage('Picture-in-Picture is not supported on this device.', 1400);
+    if (!canvas || !video) {
+      setPictureInPictureStatus('Game video is not ready.');
       return;
     }
+    setPictureInPictureStatus('OPENING…');
     try {
       closePictureInPictureStream();
-      const stream = canvas.captureStream(30);
-      pipStreamRef.current = stream;
-      video.srcObject = stream;
-      video.muted = true;
-      video.playsInline = true;
-      await video.play();
       const safariVideo = video as HTMLVideoElement & {
         webkitSupportsPresentationMode?: (mode: string) => boolean;
         webkitSetPresentationMode?: (mode: string) => void;
       };
-      if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
-        await video.requestPictureInPicture();
-      } else if (
-        safariVideo.webkitSupportsPresentationMode?.('picture-in-picture')
-        && safariVideo.webkitSetPresentationMode
-      ) {
-        safariVideo.webkitSetPresentationMode('picture-in-picture');
+      if (typeof canvas.captureStream === 'function') {
+        const stream = canvas.captureStream(30);
+        pipStreamRef.current = stream;
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        video.disablePictureInPicture = false;
+        await video.play();
+        if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
+          await video.requestPictureInPicture();
+        } else if (
+          safariVideo.webkitSupportsPresentationMode?.('picture-in-picture')
+          && safariVideo.webkitSetPresentationMode
+        ) {
+          safariVideo.webkitSetPresentationMode('picture-in-picture');
+        } else {
+          throw new Error('Media PiP unavailable');
+        }
       } else {
-        throw new Error('PiP unavailable');
+        throw new Error('Canvas capture unavailable');
       }
+      setPictureInPictureActive(true);
+      setPictureInPictureStatus('LIVE');
       if (pausedRef.current) togglePause();
     } catch {
       closePictureInPictureStream();
-      showMessage('This browser does not allow live game Picture-in-Picture.', 1600);
+      try {
+        const documentPiP = (window as Window & {
+          documentPictureInPicture?: {
+            requestWindow: (options: { width: number; height: number }) => Promise<Window>;
+          };
+        }).documentPictureInPicture;
+        if (!documentPiP) throw new Error('Document PiP unavailable');
+        const pipWindow = await documentPiP.requestWindow({ width: 480, height: 270 });
+        pipWindowRef.current = pipWindow;
+        pipWindow.document.body.style.cssText = 'margin:0;background:#020617;overflow:hidden';
+        const mirror = pipWindow.document.createElement('canvas');
+        mirror.width = canvas.width;
+        mirror.height = canvas.height;
+        mirror.style.cssText = 'width:100%;height:100%;object-fit:contain';
+        pipWindow.document.body.appendChild(mirror);
+        const mirrorContext = mirror.getContext('2d');
+        const renderMirror = () => {
+          if (pipWindow.closed || !mirrorContext) return;
+          mirrorContext.drawImage(canvas, 0, 0, mirror.width, mirror.height);
+          pipMirrorFrameRef.current = requestAnimationFrame(renderMirror);
+        };
+        renderMirror();
+        pipWindow.addEventListener('pagehide', closePictureInPictureStream, { once: true });
+        setPictureInPictureActive(true);
+        setPictureInPictureStatus('LIVE');
+        if (pausedRef.current) togglePause();
+      } catch {
+        closePictureInPictureStream();
+        setPictureInPictureStatus('NOT SUPPORTED BY THIS DEVICE');
+      }
     }
-  }, [closePictureInPictureStream, showMessage, togglePause]);
+  }, [closePictureInPictureStream, togglePause]);
 
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const equippedAssemblyParts = AVATAR_SLOTS
@@ -8690,9 +8734,9 @@ export default function Game() {
         >
           <span>
             <strong>PICTURE-IN-PICTURE</strong>
-            <small>Keep the live battlefield floating outside the app</small>
+            <small>{pictureInPictureStatus || 'Keep the live battlefield floating outside the app'}</small>
           </span>
-          <b>{pictureInPictureActive ? 'LIVE' : 'OPEN'}</b>
+          <b>{pictureInPictureActive ? 'LIVE' : pictureInPictureStatus === 'OPENING…' ? '…' : 'OPEN'}</b>
         </button>
       )}
       {pausedView && (
