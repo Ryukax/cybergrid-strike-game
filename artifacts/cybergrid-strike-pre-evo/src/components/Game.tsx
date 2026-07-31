@@ -3623,6 +3623,14 @@ export default function Game() {
   const [hudLayoutEditing, setHudLayoutEditing] = useState(false);
   const [pictureInPictureActive, setPictureInPictureActive] = useState(false);
   const [pictureInPictureStatus, setPictureInPictureStatus] = useState('');
+  const isIosHomeScreen = (() => {
+    if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+    const iosDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    return iosDevice && standalone;
+  })();
   const [skillFxRun, setSkillFxRun] = useState(0);
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
@@ -8540,6 +8548,10 @@ export default function Game() {
   }, [closePictureInPictureStream]);
 
   const openPictureInPicture = useCallback(async () => {
+    if (isIosHomeScreen) {
+      setPictureInPictureStatus('iOS HOME SCREEN REQUIRES A NATIVE APP');
+      return;
+    }
     const canvas = canvasRef.current;
     const video = pipVideoRef.current;
     if (!canvas || !video) {
@@ -8610,7 +8622,7 @@ export default function Game() {
         setPictureInPictureStatus('NOT SUPPORTED BY THIS DEVICE');
       }
     }
-  }, [closePictureInPictureStream, togglePause]);
+  }, [closePictureInPictureStream, isIosHomeScreen, togglePause]);
 
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const equippedAssemblyParts = AVATAR_SLOTS
@@ -8727,6 +8739,7 @@ export default function Game() {
           id="pausePictureInPictureBtn"
           className="optionToggleBtn"
           aria-pressed={pictureInPictureActive}
+          disabled={isIosHomeScreen}
           onClick={(event) => {
             event.stopPropagation();
             void openPictureInPicture();
@@ -8734,9 +8747,17 @@ export default function Game() {
         >
           <span>
             <strong>PICTURE-IN-PICTURE</strong>
-            <small>{pictureInPictureStatus || 'Keep the live battlefield floating outside the app'}</small>
+            <small>
+              {isIosHomeScreen
+                ? 'Apple blocks web PiP in Home Screen apps'
+                : pictureInPictureStatus || 'Keep the live battlefield floating outside the app'}
+            </small>
           </span>
-          <b>{pictureInPictureActive ? 'LIVE' : pictureInPictureStatus === 'OPENING…' ? '…' : 'OPEN'}</b>
+          <b>
+            {isIosHomeScreen
+              ? 'NATIVE APP REQUIRED'
+              : pictureInPictureActive ? 'LIVE' : pictureInPictureStatus === 'OPENING…' ? '…' : 'OPEN'}
+          </b>
         </button>
       )}
       {pausedView && (

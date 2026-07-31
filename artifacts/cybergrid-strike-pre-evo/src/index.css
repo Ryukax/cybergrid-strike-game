@@ -2198,6 +2198,16 @@ canvas#canvas {
   font-size: 14px;
   text-align: right;
 }
+.optionToggleBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  border-color: rgba(251, 191, 36, 0.38);
+}
+.optionToggleBtn:disabled b {
+  max-width: 112px;
+  color: #fbbf24;
+  font-size: 10px;
+}
 
 /* Persistent Bestiary */
 #bestiaryCard {
