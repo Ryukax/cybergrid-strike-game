@@ -6929,12 +6929,16 @@ export default function Game() {
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
     if (gp.skill && !gp.prevSkill) queueSkillTap();
-    if (gp.r2 && !gp.prevR2) queueR2ControlCycle();
     const rivalInputActive = rivalSkillRef.current.active;
+    const chronoBreakActive = rivalInputActive && rivalSkillRef.current.id === 'chrono';
+    // R2 normally cycles active control. During Chrono Break it becomes a
+    // second Step input while Y remains unchanged as the documented command.
+    if (gp.r2 && !gp.prevR2 && !chronoBreakActive) queueR2ControlCycle();
     if (rivalInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
       else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
-      else if (rivalSkillRef.current.id === 'chrono') {
+      else if (chronoBreakActive && gp.r2 && !gp.prevR2) resolveRivalSkillAction('alternate');
+      else if (chronoBreakActive) {
         if (gp.cardB) startChronoRewind('gamepad');
         else stopChronoRewind();
       } else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
