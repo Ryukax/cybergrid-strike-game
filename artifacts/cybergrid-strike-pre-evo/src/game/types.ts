@@ -69,6 +69,8 @@ export interface Enemy {
   flash: number;
   /** Integer 1–255; determines virus morphology via Virus Morphology Encoding Standard v1 */
   value: number;
+  /** Stable specimen identity; survives structured clones and timeline rewind. */
+  visualSeed?: number;
   /** Shared by enemies spawned as one coordinated attack formation. */
   formationId?: number;
   genome?: EnemyGenome;

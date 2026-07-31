@@ -7195,6 +7195,9 @@ export default function Game() {
         hp,
         flash: 0,
         value,
+        visualSeed: value * 131
+          + s.enemyFormationId * 104729
+          + genome.generation * 8191,
         formationId: s.enemyFormationId,
         genome,
         maxHp: hp,
@@ -7675,6 +7678,7 @@ export default function Game() {
             rewind.cursorAt = targetAt;
             updateHud();
           }
+          if (elapsed >= 3000) stopChronoRewind();
         }
       } else {
         if (ts - chronoLastCaptureRef.current >= 33) {
