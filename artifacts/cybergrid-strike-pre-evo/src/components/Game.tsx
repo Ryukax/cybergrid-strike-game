@@ -3498,6 +3498,8 @@ const emptyCloneView = (): CloneView => ({
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pipVideoRef = useRef<HTMLVideoElement>(null);
+  const pipStreamRef = useRef<MediaStream | null>(null);
   const stateRef = useRef<GameState>(makeInitialState());
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
@@ -3617,6 +3619,7 @@ export default function Game() {
     }
   });
   const [hudLayoutEditing, setHudLayoutEditing] = useState(false);
+  const [pictureInPictureActive, setPictureInPictureActive] = useState(false);
   const [skillFxRun, setSkillFxRun] = useState(0);
   const [skillPlayerFxActive, setSkillPlayerFxActive] = useState(false);
   const [skillFxActive, setSkillFxActive] = useState(false);
@@ -8500,6 +8503,71 @@ export default function Game() {
     setHudLayout(defaultHudLayout);
   };
 
+  const closePictureInPictureStream = useCallback(() => {
+    pipStreamRef.current?.getTracks().forEach((track) => track.stop());
+    pipStreamRef.current = null;
+    const video = pipVideoRef.current;
+    if (video) video.srcObject = null;
+    setPictureInPictureActive(false);
+  }, []);
+
+  useEffect(() => {
+    const video = pipVideoRef.current;
+    if (!video) return;
+    const onEnter = () => setPictureInPictureActive(true);
+    const onLeave = () => closePictureInPictureStream();
+    const onSafariMode = () => {
+      const safariVideo = video as HTMLVideoElement & { webkitPresentationMode?: string };
+      if (safariVideo.webkitPresentationMode === 'picture-in-picture') onEnter();
+      else if (pipStreamRef.current) onLeave();
+    };
+    video.addEventListener('enterpictureinpicture', onEnter);
+    video.addEventListener('leavepictureinpicture', onLeave);
+    video.addEventListener('webkitpresentationmodechanged', onSafariMode);
+    return () => {
+      video.removeEventListener('enterpictureinpicture', onEnter);
+      video.removeEventListener('leavepictureinpicture', onLeave);
+      video.removeEventListener('webkitpresentationmodechanged', onSafariMode);
+      pipStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, [closePictureInPictureStream]);
+
+  const openPictureInPicture = useCallback(async () => {
+    const canvas = canvasRef.current;
+    const video = pipVideoRef.current;
+    if (!canvas || !video || typeof canvas.captureStream !== 'function') {
+      showMessage('Picture-in-Picture is not supported on this device.', 1400);
+      return;
+    }
+    try {
+      closePictureInPictureStream();
+      const stream = canvas.captureStream(30);
+      pipStreamRef.current = stream;
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      await video.play();
+      const safariVideo = video as HTMLVideoElement & {
+        webkitSupportsPresentationMode?: (mode: string) => boolean;
+        webkitSetPresentationMode?: (mode: string) => void;
+      };
+      if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
+        await video.requestPictureInPicture();
+      } else if (
+        safariVideo.webkitSupportsPresentationMode?.('picture-in-picture')
+        && safariVideo.webkitSetPresentationMode
+      ) {
+        safariVideo.webkitSetPresentationMode('picture-in-picture');
+      } else {
+        throw new Error('PiP unavailable');
+      }
+      if (pausedRef.current) togglePause();
+    } catch {
+      closePictureInPictureStream();
+      showMessage('This browser does not allow live game Picture-in-Picture.', 1600);
+    }
+  }, [closePictureInPictureStream, showMessage, togglePause]);
+
   const cardProgress = Math.max(0, Math.min(1, hud.cardTimer / CARD_CHARGE_TIME));
   const equippedAssemblyParts = AVATAR_SLOTS
     .map((slot) => avatarComponents.find((component) => component.id === equippedAvatarComponents[slot]))
@@ -8612,6 +8680,23 @@ export default function Game() {
       </button>
       {pausedView && (
         <button
+          id="pausePictureInPictureBtn"
+          className="optionToggleBtn"
+          aria-pressed={pictureInPictureActive}
+          onClick={(event) => {
+            event.stopPropagation();
+            void openPictureInPicture();
+          }}
+        >
+          <span>
+            <strong>PICTURE-IN-PICTURE</strong>
+            <small>Keep the live battlefield floating outside the app</small>
+          </span>
+          <b>{pictureInPictureActive ? 'LIVE' : 'OPEN'}</b>
+        </button>
+      )}
+      {pausedView && (
+        <button
           id="pauseHudLayoutBtn"
           className="optionToggleBtn"
           onClick={(event) => {
@@ -8652,6 +8737,13 @@ export default function Game() {
         ref={canvasRef}
         id="canvas"
         onPointerDown={handleCanvasPointer}
+      />
+      <video
+        ref={pipVideoRef}
+        id="pictureInPictureFeed"
+        muted
+        playsInline
+        aria-hidden="true"
       />
 
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are

@@ -81,6 +81,16 @@ canvas#canvas {
   display: block;
 }
 
+#pictureInPictureFeed {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  left: -10000px;
+  top: -10000px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* HUD */
 .hud {
   position: absolute;

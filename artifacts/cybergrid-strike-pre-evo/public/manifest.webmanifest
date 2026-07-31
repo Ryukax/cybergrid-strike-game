@@ -1,0 +1,19 @@
+{
+  "name": "CyberGrid Strike",
+  "short_name": "CyberGrid",
+  "description": "Maintain a living computational ecosystem through verified System Integrity work.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#020617",
+  "theme_color": "#06101e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
