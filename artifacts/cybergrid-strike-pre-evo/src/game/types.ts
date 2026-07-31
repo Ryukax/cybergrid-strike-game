@@ -201,6 +201,8 @@ export interface GameState {
   currentCardOptions: string[];
   // VS mode
   gameMode: GameMode;
+  /** Seed advanced by the versioned competitive simulation for replay parity. */
+  competitiveSeed: number;
   npc: NpcAgent;
   npcBullets: Bullet[];
   npcEnemies: Enemy[];     // green enemies moving right, sent by player kills

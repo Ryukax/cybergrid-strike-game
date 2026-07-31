@@ -78,8 +78,16 @@ import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability, Bullet } 
 import {
   ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME,
   ENEMY_ABILITY_FIRST_CAST_MIN, ENEMY_ABILITY_FIRST_CAST_RANGE, ENEMY_ABILITY_WINDUP,
-  NPC_HP, NPC_FIRE_INTERVAL, NPC_MOVE_INTERVAL,
+  NPC_HP,
 } from '../game/constants';
+import {
+  COMPETITIVE_RULESET,
+  boundedRecovery,
+  clampCompetitiveResources,
+  competitiveAbilityDamage,
+  competitiveProjectileDamage,
+  competitiveRandom,
+} from '../game/competitive-balance';
 import { draw, getBoardMetrics } from '../game/renderer';
 import {
   ensureAudio, startMusic, stopMusic,
@@ -2306,7 +2314,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
       node: 54,
     },
     wave: 1,
-    hp: mode === 'vs' ? NPC_HP : 5,
+    hp: mode === 'vs' ? COMPETITIVE_RULESET.maxHp : 5,
     timer: 0,
     enemySpawnTimer: 0.4,
     directorRecoveryTimer: 0,
@@ -2371,6 +2379,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     currentCardOptions: randomAbilityOptions(undefined, enabledIds),
     // VS mode
     gameMode: mode,
+    competitiveSeed: 0x43534731,
     npc: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0, hp: NPC_HP, shieldCharges: 0 },
     npcBullets: [],
     npcEnemies: [],
@@ -2543,17 +2552,11 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
 };
 
-const VS_SKILL_COOLDOWN = 14;
-const VS_NPC_ABILITY_INTERVAL = 12;
-const VS_NPC_SKILL_INTERVAL = 20;
-const VS_NPC_MAX_SHIELDS = 2;
+const VS_SKILL_COOLDOWN = COMPETITIVE_RULESET.signatureSkillCooldown;
+const VS_NPC_ABILITY_INTERVAL = COMPETITIVE_RULESET.npcAbilityInterval;
+const VS_NPC_SKILL_INTERVAL = COMPETITIVE_RULESET.npcSkillInterval;
+const VS_NPC_MAX_SHIELDS = COMPETITIVE_RULESET.maxShields;
 const RIVAL_SKILL_ANIMATION_DURATION = 1120;
-const VS_ABILITY_DAMAGE: Record<string, number> = {
-  bomb: 2, nuke: 6, purge: 3, megabomb: 8, emp: 2, chain: 4, cluster: 4,
-  arcweb: 4, seeker: 4, shattershot: 4, marksman: 3, returnfire: 3,
-  thermalshock: 3, circuitarc: 3, acidetch: 2, radiantmark: 3,
-  voidaperture: 4, kineticram: 3, clonebreak: 3, hybridtax: 3,
-};
 const VS_ABILITY_DISRUPT = new Set([
   'time', 'scramble', 'warpback', 'backdash', 'freeze', 'blizzard', 'gravity',
   'rowshuffle', 'pulse', 'magnet', 'signaljam', 'stasisgate', 'oilslick',
@@ -4657,7 +4660,10 @@ export default function Game() {
         for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
       }
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
-      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25) / rapidScale;
+      const baseManualInterval = s.gameMode === 'vs'
+        ? COMPETITIVE_RULESET.playerManualFireInterval
+        : 0.25;
+      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : baseManualInterval) / rapidScale;
     }
   }, [fireBullet, registerPlaystyle]);
 
@@ -5296,7 +5302,7 @@ export default function Game() {
     // Direct projectile cards keep their normal collision damage; control cards
     // delay the NPC instead of inflicting arbitrary bonus damage.
     if (s.gameMode === 'vs') {
-      const duelDamage = VS_ABILITY_DAMAGE[type] ?? (generated ? 2 : 0);
+      const duelDamage = competitiveAbilityDamage(ability, !!generated);
       if (duelDamage > 0) {
         if (s.npc.shieldCharges > 0) {
           s.npc.shieldCharges--;
@@ -5311,9 +5317,12 @@ export default function Game() {
         }
       }
       if (VS_ABILITY_DISRUPT.has(type)) {
-        s.npc.fireCooldown += 1.15;
-        s.npc.moveCooldown += 0.7;
+        s.npc.fireCooldown += COMPETITIVE_RULESET.maxFireDisruption;
+        s.npc.moveCooldown += COMPETITIVE_RULESET.maxMoveDisruption;
       }
+      const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
+      s.hp = normalized.hp;
+      s.shieldCharges = normalized.shields;
     }
 
     playAbility(type);
@@ -5957,7 +5966,10 @@ export default function Game() {
       // Every completed signature contributes a small verified duel impact.
       // The skill's bullets/actions remain its primary value.
       if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
-      else s.npc.hp = Math.max(0, s.npc.hp - 2);
+      else s.npc.hp = Math.max(0, s.npc.hp - COMPETITIVE_RULESET.maxSignatureDamage);
+      const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
+      s.hp = normalized.hp;
+      s.shieldCharges = normalized.shields;
       if (s.npc.hp <= 0) {
         updateHud();
         endGame(true);
@@ -6809,13 +6821,13 @@ export default function Game() {
 
     handleGamepad();
 
-    if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
+    if (s.gameMode !== 'vs' && !s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeRetryWave > 0 && s.wave >= s.upgradeRetryWave) {
       s.upgradePromptOpen = true;
       s.upgradePromptTimer = UPGRADE_PROMPT_TIME;
       s.upgradeRetryWave = 0;
       updateHud();
-    } else if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
+    } else if (s.gameMode !== 'vs' && !s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeOptions.length === 0 && s.wave >= s.nextUpgradeWave) {
       s.upgradeOptions = chooseUpgradeOptions(s.runUpgrades);
       s.nextUpgradeWave = Math.max(
@@ -7047,7 +7059,7 @@ export default function Game() {
       s.regenTimer = Math.max(0, s.regenTimer - dt);
       s.regenTick  = Math.max(0, s.regenTick  - dt);
       if (s.regenTick <= 0) {
-        s.hp++;
+        s.hp = s.gameMode === 'vs' ? boundedRecovery(s.hp, 1) : s.hp + 1;
         s.regenTick = 3;
         updateHud();
       }
@@ -7132,7 +7144,10 @@ export default function Game() {
     s.player.fireCooldown -= dt;
     if (s.autoBuster && s.player.fireCooldown <= 0) {
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
-      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34) / rapidScale;
+      const baseAutoInterval = s.gameMode === 'vs'
+        ? COMPETITIVE_RULESET.playerAutoFireInterval
+        : 0.34;
+      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : baseAutoInterval) / rapidScale;
       fireBullet();
       if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
       if (s.turretTimer > 0) {
@@ -7535,6 +7550,11 @@ export default function Game() {
     if (s.gameMode === 'vs') {
       const npc = s.npc;
       const npcCol = 3 + npc.col;
+      const nextNpcRandom = () => {
+        const next = competitiveRandom(s.competitiveSeed);
+        s.competitiveSeed = next.seed;
+        return next.value;
+      };
       rivalSkillCooldownRef.current = Math.max(0, rivalSkillCooldownRef.current - dt);
       npcAbilityTimerRef.current -= dt;
       npcSkillTimerRef.current -= dt;
@@ -7556,7 +7576,7 @@ export default function Game() {
         const incomingShots = s.bullets.filter((bullet) =>
           bullet.colPos < 20 && bullet.colPos > 2.4).length;
         if (npc.hp + 8 < s.hp && npc.hp < NPC_HP) {
-          npc.hp = Math.min(NPC_HP, npc.hp + 4);
+          npc.hp = boundedRecovery(npc.hp, 4);
           showMessage('NPC ability · REPAIR +4', 850);
         } else if (npc.shieldCharges < VS_NPC_MAX_SHIELDS && incomingShots >= 2) {
           npc.shieldCharges++;
@@ -7566,7 +7586,7 @@ export default function Game() {
           launchNpcShot((npc.row + 1) % 3);
           showMessage('NPC ability · TWIN VOLLEY', 850);
         }
-        npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
+        npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + nextNpcRandom() * 2;
         updateHud();
       }
 
@@ -7580,7 +7600,7 @@ export default function Game() {
         } else if (VS_NPC_ASSAULT_SKILLS.has(npcRivalSkill)) {
           launchNpcShot(npc.row, 2, true);
         } else {
-          npc.hp = Math.min(NPC_HP, npc.hp + 2);
+          npc.hp = boundedRecovery(npc.hp, 2);
         }
         showMessage(`NPC Skill · ${RIVAL_SKILL_LABELS[npcRivalSkill]}`, 1100);
         npcSkillTimerRef.current = VS_NPC_SKILL_INTERVAL;
@@ -7590,12 +7610,12 @@ export default function Game() {
       // Move toward the most-advanced (rightmost) incoming green attack
       npc.moveCooldown -= dt;
       if (npc.moveCooldown <= 0) {
-        npc.moveCooldown = NPC_MOVE_INTERVAL;
-        if (Math.random() < 0.68) {
+        npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
+        if (nextNpcRandom() < 0.68) {
           if (npc.row < s.player.row) npc.row++;
           else if (npc.row > s.player.row) npc.row--;
-        } else if (Math.random() < 0.2) {
-          npc.row = Math.max(0, Math.min(2, npc.row + (Math.random() < 0.5 ? 1 : -1)));
+        } else if (nextNpcRandom() < 0.2) {
+          npc.row = Math.max(0, Math.min(2, npc.row + (nextNpcRandom() < 0.5 ? 1 : -1)));
         }
       }
 
@@ -7604,7 +7624,7 @@ export default function Game() {
       if (npc.fireCooldown <= 0) {
         launchNpcShot(npc.row);
         const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
-        npc.fireCooldown = NPC_FIRE_INTERVAL * (1 + hpLead);
+        npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
       }
 
       // Move NPC bullets left; remove when they exit the active zone
@@ -7669,7 +7689,7 @@ export default function Game() {
           if (npc.shieldCharges > 0) {
             npc.shieldCharges--;
           } else {
-            npc.hp -= bullet.power ?? 1;
+            npc.hp -= competitiveProjectileDamage(bullet.power);
             s.score += 100;
             if (npc.hp <= 0) { updateHud(); endGame(true); return; }
           }
@@ -7684,7 +7704,7 @@ export default function Game() {
           if (s.shieldCharges > 0) {
             s.shieldCharges--;
           } else if (s.ghostTimer <= 0) {
-            s.hp -= bullet.power ?? 1;
+            s.hp -= competitiveProjectileDamage(bullet.power);
             if (s.hp <= 0) { updateHud(); endGame(false); return; }
           }
           playHit();
@@ -9134,6 +9154,7 @@ export default function Game() {
         {hud.gameMode === 'vs' ? (
           <div className="panel" id="npcHpPanel" data-overheal={hud.npcHp > NPC_HP ? 'true' : 'false'}>
             NPC {hud.npcHp} HP{hud.npcHp > NPC_HP ? ' ▲' : ''}
+            <span className="versusRulesetBadge">VERSUS 1.0</span>
             {hud.npcShieldCharges > 0 && (
               <span id="npcShieldDisplay">{'🛡'.repeat(Math.min(hud.npcShieldCharges, 9))}</span>
             )}

@@ -2569,6 +2569,17 @@ canvas#canvas {
   transition: color 0.3s, text-shadow 0.3s, border-color 0.3s;
 }
 
+.versusRulesetBadge {
+  margin-left: 0.45rem;
+  padding: 0.12rem 0.34rem;
+  border: 1px solid rgba(103, 232, 249, 0.46);
+  border-radius: 999px;
+  color: #a5f3fc;
+  font-size: 0.56em;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+}
+
 /* Over-heal — NPC HP exceeded base; glow amber to signal danger */
 #npcHpPanel[data-overheal="true"] {
   color: #fbbf24;
