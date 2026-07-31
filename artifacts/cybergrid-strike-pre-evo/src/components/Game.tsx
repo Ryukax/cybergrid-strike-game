@@ -3544,6 +3544,7 @@ export default function Game() {
   });
   const activeGamepadIndexRef = useRef<number | null>(null);
   const connectedGamepadRef = useRef<Gamepad | null>(null);
+  const pendingGamepadWakeRef = useRef<Set<number>>(new Set());
   const controllerCooldownRef = useRef(0);
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6806,11 +6807,25 @@ export default function Game() {
       }
       return;
     }
-    const buttonPressed = (idx: number) => { const b = gp!.buttons[idx]; return !!(b && (b.pressed || b.value > 0.2)); };
+    const buttonPressed = (idx: number) => {
+      const queued = pendingGamepadWakeRef.current.has(idx);
+      const b = gp!.buttons[idx];
+      return queued || !!(b && (b.pressed || b.value > 0.2));
+    };
     const deadzone = 0.18;
     let moveX = gp.axes[0] ?? 0, moveY = gp.axes[1] ?? 0;
     if (buttonPressed(14)) moveX = -1; else if (buttonPressed(15)) moveX = 1;
     if (buttonPressed(12)) moveY = -1; else if (buttonPressed(13)) moveY = 1;
+    // Several MFi/WebKit controllers expose the D-pad as a hat axis rather
+    // than standard buttons. Translate that axis when button input is absent.
+    const hat = gp.axes[9];
+    if (moveX === 0 && moveY === 0 && Number.isFinite(hat) && Math.abs(hat) <= 1.1) {
+      const direction = Math.round(((hat + 1) * 7) / 2) & 7;
+      if (direction === 0 || direction === 1 || direction === 7) moveY = -1;
+      if (direction === 3 || direction === 4 || direction === 5) moveY = 1;
+      if (direction === 1 || direction === 2 || direction === 3) moveX = 1;
+      if (direction === 5 || direction === 6 || direction === 7) moveX = -1;
+    }
     if (Math.abs(moveX) < deadzone) moveX = 0;
     if (Math.abs(moveY) < deadzone) moveY = 0;
     g.prevMoveX = g.moveX;
@@ -6830,6 +6845,7 @@ export default function Game() {
     g.moveY = moveY;
     g.connected = true;
     connectedGamepadRef.current = gp;
+    pendingGamepadWakeRef.current.clear();
   }, []);
 
   const update = useCallback((dt: number) => {
@@ -8451,6 +8467,9 @@ export default function Game() {
       activeGamepadIndexRef.current = ev.gamepad.index;
       connectedGamepadRef.current = ev.gamepad;
       resetGamepadState();
+      ev.gamepad.buttons.forEach((button, index) => {
+        if (button.pressed || button.value > 0.2) pendingGamepadWakeRef.current.add(index);
+      });
       // Do not sample here: the button that woke Safari must remain a rising
       // edge for the next animation frame (usually A to start the match).
     };
@@ -8458,6 +8477,7 @@ export default function Game() {
       if (activeGamepadIndexRef.current === ev.gamepad.index) {
         activeGamepadIndexRef.current = null;
         connectedGamepadRef.current = null;
+        pendingGamepadWakeRef.current.clear();
         resetGamepadState();
       }
     };
@@ -8471,6 +8491,8 @@ export default function Game() {
     window.addEventListener('gamepadconnected', onGamepadConnected);
     window.addEventListener('gamepaddisconnected', onGamepadDisconnected);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // A page gesture unlocks Gamepad polling in some WebKit PWA sessions.
+    window.addEventListener('pointerdown', handleGamepad, { passive: true });
 
     // Keyboard
     const onKeyDown = (ev: KeyboardEvent) => {
@@ -8572,6 +8594,7 @@ export default function Game() {
       window.removeEventListener('gamepadconnected', onGamepadConnected);
       window.removeEventListener('gamepaddisconnected', onGamepadDisconnected);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pointerdown', handleGamepad);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       if (rotateTapTimerRef.current) {
