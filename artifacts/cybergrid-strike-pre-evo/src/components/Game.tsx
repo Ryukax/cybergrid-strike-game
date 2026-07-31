@@ -3501,6 +3501,8 @@ export default function Game() {
   const stateRef = useRef<GameState>(makeInitialState());
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
+  const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopChronoRewindRef = useRef<() => void>(() => {});
   const chronoRewindRef = useRef({
     held: false,
     startedAt: 0,
@@ -6470,6 +6472,11 @@ export default function Game() {
       cursorAt: now,
       input,
     };
+    if (chronoRewindTimerRef.current) clearTimeout(chronoRewindTimerRef.current);
+    chronoRewindTimerRef.current = window.setTimeout(
+      () => stopChronoRewindRef.current(),
+      3000,
+    );
     showMessage('REWINDING GRID… hold up to 3 seconds', 900);
   }, [showMessage]);
 
@@ -6477,6 +6484,10 @@ export default function Game() {
     const rewind = chronoRewindRef.current;
     if (!rewind.held) return;
     rewind.held = false;
+    if (chronoRewindTimerRef.current) {
+      clearTimeout(chronoRewindTimerRef.current);
+      chronoRewindTimerRef.current = null;
+    }
     const now = performance.now();
     chronoHistoryRef.current = chronoHistoryRef.current
       .filter((snapshot) => snapshot.at <= rewind.cursorAt)
@@ -6486,6 +6497,7 @@ export default function Game() {
     showMessage('Timeline resumed.', 650);
     updateHud();
   }, [showMessage, updateHud]);
+  stopChronoRewindRef.current = stopChronoRewind;
 
   const activateRivalSkill = useCallback((id: RivalSkillId) => {
     const current = rivalSkillRef.current;
@@ -8207,6 +8219,10 @@ export default function Game() {
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
+    if (chronoRewindTimerRef.current) {
+      clearTimeout(chronoRewindTimerRef.current);
+      chronoRewindTimerRef.current = null;
+    }
     eloAttackDirectionRef.current = 1;
     gemMoveMirrorRef.current = true;
     lastTimeRef.current = 0;
@@ -8266,6 +8282,10 @@ export default function Game() {
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
+    if (chronoRewindTimerRef.current) {
+      clearTimeout(chronoRewindTimerRef.current);
+      chronoRewindTimerRef.current = null;
+    }
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
     phaseRef.current = 'menu';
