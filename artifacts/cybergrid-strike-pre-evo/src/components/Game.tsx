@@ -3610,6 +3610,12 @@ export default function Game() {
   const [virtualDpadEnabled, setVirtualDpadEnabled] = useState(
     () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
   );
+  const [controllerStatus, setControllerStatus] = useState(() => {
+    const nav = navigator as Navigator & { webkitGetGamepads?: () => (Gamepad | null)[] };
+    return navigator.getGamepads || nav.webkitGetGamepads
+      ? 'WAITING — press any controller button'
+      : 'GAMEPAD API UNAVAILABLE IN THIS BROWSER';
+  });
   const [integrityConstructVisible, setIntegrityConstructVisible] = useState(
     () => localStorage.getItem(INTEGRITY_CONSTRUCT_VISIBLE_KEY) !== 'off',
   );
@@ -6792,6 +6798,7 @@ export default function Game() {
     if (!gp) {
       activeGamepadIndexRef.current = null;
       if (g.connected) {
+        setControllerStatus('DISCONNECTED — press any controller button');
         g.connected = false;
         g.moveX = 0; g.moveY = 0; g.prevMoveX = 0;
         g.fire = false; g.prevFire = false;
@@ -6807,6 +6814,7 @@ export default function Game() {
       }
       return;
     }
+    const newlyConnected = !g.connected;
     const buttonPressed = (idx: number) => {
       const queued = pendingGamepadWakeRef.current.has(idx);
       const b = gp!.buttons[idx];
@@ -6846,6 +6854,11 @@ export default function Game() {
     g.connected = true;
     connectedGamepadRef.current = gp;
     pendingGamepadWakeRef.current.clear();
+    if (newlyConnected) {
+      const name = gp.id?.trim() || 'Controller';
+      const mapping = gp.mapping?.trim() || 'legacy mapping';
+      setControllerStatus(`CONNECTED — ${name} · ${mapping} · ${gp.buttons.length} buttons`);
+    }
   }, []);
 
   const update = useCallback((dt: number) => {
@@ -8467,6 +8480,7 @@ export default function Game() {
       activeGamepadIndexRef.current = ev.gamepad.index;
       connectedGamepadRef.current = ev.gamepad;
       resetGamepadState();
+      setControllerStatus(`ACTIVATING — ${ev.gamepad.id || 'Controller'}`);
       ev.gamepad.buttons.forEach((button, index) => {
         if (button.pressed || button.value > 0.2) pendingGamepadWakeRef.current.add(index);
       });
@@ -8846,6 +8860,20 @@ export default function Game() {
           <small>Show the on-screen movement control</small>
         </span>
         <b>{virtualDpadEnabled ? 'ON' : 'OFF'}</b>
+      </button>
+      <button
+        className="optionToggleBtn controllerDiagnostic"
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          handleGamepad();
+        }}
+      >
+        <span>
+          <strong>CONTROLLER</strong>
+          <small>{controllerStatus}</small>
+        </span>
+        <b>{gamepadRef.current.connected ? 'READY' : 'TEST'}</b>
       </button>
       <button
         id={pausedView ? 'pauseIntegrityToggleBtn' : 'menuIntegrityToggleBtn'}
