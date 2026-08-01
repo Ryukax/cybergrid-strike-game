@@ -2475,6 +2475,7 @@ interface RivalSkillView {
   mode: number;
   charges: number;
   placements: number[];
+  chronoQueueOrigins: Array<{ col: number; row: number }>;
   chronoPositions: Array<{ col: number; row: number }>;
   chronoPositionIndex: number;
   expiresAt: number;
@@ -2488,6 +2489,7 @@ const emptyRivalSkillView = (): RivalSkillView => ({
   mode: 0,
   charges: 0,
   placements: [],
+  chronoQueueOrigins: [],
   chronoPositions: [],
   chronoPositionIndex: 0,
   expiresAt: 0,
@@ -5810,11 +5812,16 @@ export default function Game() {
     const s = stateRef.current;
     if (release) {
       if (active.id === 'chrono') {
-        const queuedRows = active.placements.length > 0
-          ? active.placements
-          : [s.player.row];
-        for (const row of queuedRows) {
-          fireBullet(row, { power: 2, big: true, pierce: true });
+        const queuedTiles = active.chronoQueueOrigins.length > 0
+          ? active.chronoQueueOrigins
+          : [{ col: s.player.col, row: s.player.row }];
+        for (const tile of queuedTiles) {
+          fireBullet(tile.row, {
+            originCol: tile.col,
+            power: 2,
+            big: true,
+            pierce: true,
+          });
         }
       } else if (active.id === 'singularity') {
         for (const enemy of s.enemies) {
@@ -6005,7 +6012,13 @@ export default function Game() {
     };
     if (active.id === 'chrono') {
       if (action === 'primary') {
-        if (next.placements.length < 5) next.placements = [...next.placements, s.player.row];
+        if (next.placements.length < 5) {
+          next.placements = [...next.placements, s.player.row];
+          next.chronoQueueOrigins = [
+            ...next.chronoQueueOrigins,
+            { col: s.player.col, row: s.player.row },
+          ];
+        }
         next.charges = next.placements.length;
         showMessage(`Attack queued ×${next.charges}.`, 700);
       } else if (action === 'alternate') {
@@ -6580,6 +6593,7 @@ export default function Game() {
       mode: initialMode,
       charges: 0,
       placements: [],
+      chronoQueueOrigins: [],
       chronoPositions: id === 'chrono'
         ? [{ col: s.player.col, row: s.player.row }]
         : [],
