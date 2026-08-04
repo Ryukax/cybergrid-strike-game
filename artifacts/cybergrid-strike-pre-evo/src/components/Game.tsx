@@ -3509,6 +3509,11 @@ export default function Game() {
   const chronoLastCaptureRef = useRef(0);
   const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chronoRewindExhaustedRef = useRef(false);
+  const chronoR2DilationRef = useRef({
+    held: false,
+    startedAt: 0,
+    exhausted: false,
+  });
   const stopChronoRewindRef = useRef<(exhausted?: boolean) => void>(() => {});
   const chronoRewindRef = useRef({
     held: false,
@@ -5966,6 +5971,7 @@ export default function Game() {
       }
     }
     if (active.id === 'chrono') s.slowTimer = 0;
+    chronoR2DilationRef.current = { held: false, startedAt: 0, exhausted: false };
     if (active.id === 'phase') s.ghostTimer = 0;
     if (s.gameMode === 'vs') {
       rivalSkillCooldownRef.current = VS_SKILL_COOLDOWN;
@@ -6869,6 +6875,39 @@ export default function Game() {
 
     handleGamepad();
 
+    // Chrona uses R2 as a dual input: a short tap resolves Step on release,
+    // while a hold dilates the complete simulation for at most three seconds.
+    // Exhaustion is latched until release so holding past the limit cannot
+    // immediately restart dilation.
+    const r2Dilation = chronoR2DilationRef.current;
+    const chronoBreakForDilation = rivalSkillRef.current.active
+      && rivalSkillRef.current.id === 'chrono';
+    const r2Input = gamepadRef.current;
+    const now = performance.now();
+    if (!chronoBreakForDilation) {
+      r2Dilation.held = false;
+      r2Dilation.startedAt = 0;
+      r2Dilation.exhausted = false;
+    } else if (!r2Input.r2) {
+      if (r2Dilation.held && now - r2Dilation.startedAt <= 260) {
+        resolveRivalSkillAction('alternate');
+      }
+      r2Dilation.held = false;
+      r2Dilation.startedAt = 0;
+      r2Dilation.exhausted = false;
+    } else if (r2Input.r2 && !r2Input.prevR2 && !r2Dilation.exhausted) {
+      r2Dilation.held = true;
+      r2Dilation.startedAt = now;
+    }
+    if (r2Dilation.held) {
+      if (now - r2Dilation.startedAt >= 3000) {
+        r2Dilation.held = false;
+        r2Dilation.exhausted = true;
+      } else {
+        dt *= 0.18;
+      }
+    }
+
     if (!s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeRetryWave > 0 && s.wave >= s.upgradeRetryWave) {
       s.upgradePromptOpen = true;
@@ -6951,7 +6990,6 @@ export default function Game() {
     if (rivalInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
       else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
-      else if (chronoBreakActive && gp.r2 && !gp.prevR2) resolveRivalSkillAction('alternate');
       else if (chronoBreakActive) {
         if (gp.cardB) startChronoRewind('gamepad');
         else stopChronoRewind();
@@ -8317,6 +8355,7 @@ export default function Game() {
     chronoLastCaptureRef.current = 0;
     chronoRewindRef.current.held = false;
     chronoRewindExhaustedRef.current = false;
+    chronoR2DilationRef.current = { held: false, startedAt: 0, exhausted: false };
     if (chronoRewindTimerRef.current) {
       clearTimeout(chronoRewindTimerRef.current);
       chronoRewindTimerRef.current = null;
