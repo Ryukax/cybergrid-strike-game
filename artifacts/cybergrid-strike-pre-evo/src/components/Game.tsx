@@ -9493,12 +9493,12 @@ export default function Game() {
               }
               if (skillButtonDoubleTapRef.current) {
                 skillButtonDoubleTapRef.current = false;
-                performSkillButtonR2Tap();
+                playSkillAnimation();
                 return;
               }
               skillButtonTapTimerRef.current = setTimeout(() => {
                 skillButtonTapTimerRef.current = null;
-                playSkillAnimation();
+                performSkillButtonR2Tap();
               }, 260);
             }}
             onPointerCancel={() => {
