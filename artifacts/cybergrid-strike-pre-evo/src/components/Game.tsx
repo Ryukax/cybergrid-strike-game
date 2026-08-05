@@ -3517,6 +3517,8 @@ export default function Game() {
     startedAt: 0,
     exhausted: false,
   });
+  const chronoSkillHoldRef = useRef(false);
+  const chronoSkillHoldPrevRef = useRef(false);
   const stopChronoRewindRef = useRef<(exhausted?: boolean) => void>(() => {});
   const chronoRewindRef = useRef({
     held: false,
@@ -6887,30 +6889,36 @@ export default function Game() {
 
     handleGamepad();
 
-    // Chrona uses R2 as a dual input: a short tap resolves Step on release,
-    // while a hold dilates the complete simulation for at most three seconds.
+    // Chrona uses R2 and the on-screen Skill control as equivalent dual inputs:
+    // a short tap resolves Step on release, while a hold dilates the complete
+    // simulation for at most three seconds.
     // Exhaustion is latched until release so holding past the limit cannot
     // immediately restart dilation.
     const r2Dilation = chronoR2DilationRef.current;
     const chronoBreakForDilation = rivalSkillRef.current.active
       && rivalSkillRef.current.id === 'chrono';
     const r2Input = gamepadRef.current;
+    const skillHold = chronoSkillHoldRef.current;
+    const dilationInputHeld = r2Input.r2 || skillHold;
+    const dilationInputPressed = (r2Input.r2 && !r2Input.prevR2)
+      || (skillHold && !chronoSkillHoldPrevRef.current);
     const now = performance.now();
     if (!chronoBreakForDilation) {
       r2Dilation.held = false;
       r2Dilation.startedAt = 0;
       r2Dilation.exhausted = false;
-    } else if (!r2Input.r2) {
+    } else if (!dilationInputHeld) {
       if (r2Dilation.held && now - r2Dilation.startedAt <= 260) {
         resolveRivalSkillAction('alternate');
       }
       r2Dilation.held = false;
       r2Dilation.startedAt = 0;
       r2Dilation.exhausted = false;
-    } else if (r2Input.r2 && !r2Input.prevR2 && !r2Dilation.exhausted) {
+    } else if (dilationInputPressed && !r2Dilation.exhausted) {
       r2Dilation.held = true;
       r2Dilation.startedAt = now;
     }
+    chronoSkillHoldPrevRef.current = skillHold;
     if (r2Dilation.held) {
       if (now - r2Dilation.startedAt >= 3000) {
         r2Dilation.held = false;
@@ -9442,8 +9450,19 @@ export default function Game() {
             className="control-btn"
             onPointerDown={(event) => {
               event.stopPropagation();
-              queueSkillTap();
+              if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'chrono') {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                chronoSkillHoldRef.current = true;
+              } else {
+                queueSkillTap();
+              }
             }}
+            onPointerUp={(event) => {
+              event.stopPropagation();
+              chronoSkillHoldRef.current = false;
+            }}
+            onPointerCancel={() => { chronoSkillHoldRef.current = false; }}
+            onLostPointerCapture={() => { chronoSkillHoldRef.current = false; }}
           >
             SKILL
             <small>V · L2</small>
