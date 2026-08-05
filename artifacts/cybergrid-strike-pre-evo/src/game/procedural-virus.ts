@@ -782,31 +782,6 @@ function shadeStructure(ctx: CanvasRenderingContext2D, seed: number, genome: Ene
   ctx.fillStyle = shadow;
   ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
 
-  const marking = Math.floor(gene(seed, 260) * 8);
-  const markHue = Math.floor(gene(seed, 261) * 360);
-  ctx.strokeStyle = `hsla(${markHue}, 88%, 72%, 0.34)`;
-  ctx.fillStyle = `hsla(${markHue}, 82%, 65%, 0.25)`;
-  ctx.lineWidth = 1.2 + gene(seed, 262);
-  if (marking === 0) {
-    for (let y = 11; y < 42; y += 8) { ctx.beginPath(); ctx.moveTo(7, y); ctx.lineTo(41, y - 5); ctx.stroke(); }
-  } else if (marking === 1) {
-    for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.arc(10 + gene(seed, 270 + i) * 28, 9 + gene(seed, 280 + i) * 31, 1.4 + gene(seed, 290 + i) * 2.2, 0, Math.PI * 2); ctx.fill(); }
-  } else if (marking === 2) {
-    ctx.beginPath(); ctx.moveTo(8, 28); ctx.lineTo(18, 19); ctx.lineTo(26, 27); ctx.lineTo(40, 14); ctx.stroke();
-  } else if (marking === 3) {
-    for (let x = 10; x < 42; x += 9) { ctx.fillRect(x, 8, 2, 34); }
-  } else if (marking === 4) {
-    ctx.beginPath(); ctx.arc(24, 23, 11, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(24, 23, 5, 0, Math.PI * 2); ctx.stroke();
-  } else if (marking === 5) {
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(7, 13 + i * 10); ctx.quadraticCurveTo(24, 5 + i * 12, 41, 13 + i * 10); ctx.stroke(); }
-  } else if (marking === 6) {
-    ctx.beginPath(); ctx.moveTo(24, 5); ctx.lineTo(24, 42); ctx.stroke();
-    ctx.fillRect(17, 16, 14, 3); ctx.fillRect(14, 29, 20, 3);
-  } else {
-    for (let i = 0; i < 4; i++) { ctx.fillRect(8 + i * 9, 10 + (i % 2) * 15, 6, 6); }
-  }
-
   if (genome.mutations.includes('armored')) {
     ctx.fillStyle = 'rgba(8,14,24,0.28)';
     for (let i = 0; i < 3; i++) {
@@ -818,21 +793,23 @@ function shadeStructure(ctx: CanvasRenderingContext2D, seed: number, genome: Ene
     }
   }
   if (genome.mutations.includes('volatile')) {
-    ctx.strokeStyle = 'rgba(255,116,45,0.82)';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(13, 8); ctx.lineTo(18, 16); ctx.lineTo(15, 24);
-    ctx.moveTo(31, 11); ctx.lineTo(26, 20); ctx.lineTo(32, 29);
-    ctx.stroke();
+    const heat = ctx.createRadialGradient(25, 24, 2, 25, 24, 23);
+    heat.addColorStop(0, 'rgba(255,146,74,0.14)');
+    heat.addColorStop(1, 'rgba(255,92,35,0)');
+    ctx.fillStyle = heat;
+    ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   }
   if (genome.mutations.includes('resilient')) {
     ctx.fillStyle = 'rgba(70,210,130,0.13)';
     ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   }
   if (genome.mutations.includes('accelerated')) {
-    ctx.fillStyle = 'rgba(92,220,255,0.35)';
-    ctx.fillRect(4, 34, 15, 1);
-    ctx.fillRect(1, 38, 20, 1);
+    const kineticLight = ctx.createLinearGradient(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+    kineticLight.addColorStop(0, 'rgba(92,220,255,0.08)');
+    kineticLight.addColorStop(0.55, 'rgba(92,220,255,0)');
+    kineticLight.addColorStop(1, 'rgba(92,220,255,0.12)');
+    ctx.fillStyle = kineticLight;
+    ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   }
   ctx.globalCompositeOperation = 'source-over';
 }
@@ -993,19 +970,6 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       genome.fusionLevel > 0 ? 0.68 : 0.86,
       genericComponentKind(flankComponent),
     );
-  }
-
-  if (fusionActive) {
-    // A restrained seam makes the graft read as connected engineered anatomy.
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.strokeStyle = 'rgba(128,235,255,0.48)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 2]);
-    ctx.beginPath();
-    ctx.moveTo(24, 8); ctx.lineTo(22, 20); ctx.lineTo(26, 31); ctx.lineTo(23, 42);
-    ctx.stroke();
-    ctx.restore();
   }
 
   shadeStructure(ctx, seed, genome);
