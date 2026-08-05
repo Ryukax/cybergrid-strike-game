@@ -241,7 +241,12 @@ const COMPONENT_LIBRARY: ComponentDefinition[] = [
 // for the receiving domain. This exposes the complete 25-family × 3-role
 // library without turning any family painting into a repeated final enemy.
 const MATRIX_COMPONENT_LIBRARY: ComponentDefinition[] = BASES.flatMap((sourceBase) =>
-  (['head', 'locomotion', 'flank'] as FusionRole[]).map((role) => ({
+  (['head', 'locomotion', 'flank'] as FusionRole[])
+    // A complete skull overwhelms the procedural identity. Skeletons
+    // contribute ribs, limbs and weapons, while another family supplies the
+    // cranial socket.
+    .filter((role) => sourceBase !== 'skeleton' || role !== 'head')
+    .map((role) => ({
     source: sourceBase,
     role,
     domains: [...new Set([
@@ -310,7 +315,7 @@ function selectGenericComponent(
 }
 
 const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
-  biped: ['robot', 'skeleton', 'cyborg', 'golem', 'mech', 'owl'],
+  biped: ['robot', 'cyborg', 'golem', 'mech', 'owl'],
   quadruped: ['beast', 'fox', 'serpent', 'cyborg', 'owl'],
   arthropod: ['insect', 'crab', 'drone', 'crystal', 'nanite'],
   flier: ['avian', 'owl', 'drone', 'insect', 'data-wraith'],
@@ -323,7 +328,7 @@ const COMPATIBLE_HEADS: Record<BodyType, EnemyBaseElement[]> = {
   burrower: ['mole', 'beast', 'crab', 'golem', 'cyborg'],
   vehicle: ['vehicle', 'robot', 'drone', 'mech', 'crab'],
   fortress: ['golem', 'crystal', 'mech', 'turret', 'robot', 'crab'],
-  spectral: ['data-wraith', 'skeleton', 'cephalopod', 'owl', 'nanite'],
+  spectral: ['data-wraith', 'cephalopod', 'owl', 'nanite'],
 };
 
 const COMPATIBLE_LOCOMOTION: Record<BodyType, EnemyBaseElement[]> = {
@@ -534,7 +539,18 @@ function drawCoreChassis(
   // donor's complete silhouette.
   const availableWidth = 36;
   const availableHeight = 32;
-  const bounds = opaqueBounds(image);
+  const authoredBounds = opaqueBounds(image);
+  // The skeleton source painting is a complete crouched character. Its core
+  // socket must use the rib/shoulder assembly only; otherwise the skull and
+  // sword survive composition and read as the same generic enemy every time.
+  const bounds = base === 'skeleton'
+    ? {
+        x: authoredBounds.x + authoredBounds.width * 0.27,
+        y: authoredBounds.y + authoredBounds.height * 0.2,
+        width: authoredBounds.width * 0.46,
+        height: authoredBounds.height * 0.54,
+      }
+    : authoredBounds;
   const sourceAspect = bounds.width / Math.max(1, bounds.height);
   const fitWidth = sourceAspect >= 1
     ? availableWidth
@@ -702,7 +718,32 @@ function graft(
   ctx.clip();
   ctx.globalAlpha = alpha;
   ctx.filter = genomeFilter(genome, seed);
-  const bounds = opaqueBounds(image);
+  const authoredBounds = opaqueBounds(image);
+  const skeletonRegion: Partial<Record<MatrixRegion, OpaqueBounds>> = base === 'skeleton'
+    ? {
+        // A narrow cranial/jaw fragment is permitted for an explicit fusion,
+        // but never the complete round skull silhouette.
+        head: {
+          x: authoredBounds.x + authoredBounds.width * 0.08,
+          y: authoredBounds.y + authoredBounds.height * 0.08,
+          width: authoredBounds.width * 0.25,
+          height: authoredBounds.height * 0.28,
+        },
+        locomotion: {
+          x: authoredBounds.x + authoredBounds.width * 0.04,
+          y: authoredBounds.y + authoredBounds.height * 0.46,
+          width: authoredBounds.width * 0.9,
+          height: authoredBounds.height * 0.54,
+        },
+        flank: {
+          x: authoredBounds.x,
+          y: authoredBounds.y + authoredBounds.height * 0.38,
+          width: authoredBounds.width,
+          height: authoredBounds.height * 0.62,
+        },
+      }
+    : {};
+  const bounds = skeletonRegion[region] ?? authoredBounds;
   const drawDonor = (dx: number, dy: number, dw: number, dh: number) =>
     drawOriented(
       ctx, image, base,
