@@ -3558,6 +3558,10 @@ export default function Game() {
   const fireHeldRef = useRef(false);
   const r2TapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skillTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skillButtonTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skillButtonHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skillButtonDoubleTapRef = useRef(false);
+  const skillButtonHoldingRef = useRef(false);
   const rotateTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Message system
@@ -4061,6 +4065,8 @@ export default function Game() {
   useEffect(() => () => {
     if (r2TapTimerRef.current) clearTimeout(r2TapTimerRef.current);
     if (skillTapTimerRef.current) clearTimeout(skillTapTimerRef.current);
+    if (skillButtonTapTimerRef.current) clearTimeout(skillButtonTapTimerRef.current);
+    if (skillButtonHoldTimerRef.current) clearTimeout(skillButtonHoldTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -6785,6 +6791,14 @@ export default function Game() {
     }, 260);
   }, [cycleActiveControl, finishRivalSkill, playSkillAnimation]);
 
+  const performSkillButtonR2Tap = useCallback(() => {
+    if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'chrono') {
+      resolveRivalSkillAction('alternate');
+    } else {
+      queueR2ControlCycle();
+    }
+  }, [queueR2ControlCycle, resolveRivalSkillAction]);
+
   const handleGamepad = useCallback(() => {
     const gamepadNavigator = navigator as Navigator & {
       webkitGetGamepads?: () => (Gamepad | null)[];
@@ -9450,18 +9464,50 @@ export default function Game() {
             className="control-btn"
             onPointerDown={(event) => {
               event.stopPropagation();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              skillButtonHoldingRef.current = false;
+              skillButtonDoubleTapRef.current = Boolean(skillButtonTapTimerRef.current);
+              if (skillButtonTapTimerRef.current) {
+                clearTimeout(skillButtonTapTimerRef.current);
+                skillButtonTapTimerRef.current = null;
+              }
               if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'chrono') {
-                event.currentTarget.setPointerCapture(event.pointerId);
-                chronoSkillHoldRef.current = true;
-              } else {
-                queueSkillTap();
+                skillButtonHoldTimerRef.current = setTimeout(() => {
+                  skillButtonHoldTimerRef.current = null;
+                  skillButtonHoldingRef.current = true;
+                  chronoSkillHoldRef.current = true;
+                }, 180);
               }
             }}
             onPointerUp={(event) => {
               event.stopPropagation();
+              if (skillButtonHoldTimerRef.current) {
+                clearTimeout(skillButtonHoldTimerRef.current);
+                skillButtonHoldTimerRef.current = null;
+              }
+              chronoSkillHoldRef.current = false;
+              if (skillButtonHoldingRef.current) {
+                skillButtonHoldingRef.current = false;
+                skillButtonDoubleTapRef.current = false;
+                return;
+              }
+              if (skillButtonDoubleTapRef.current) {
+                skillButtonDoubleTapRef.current = false;
+                performSkillButtonR2Tap();
+                return;
+              }
+              skillButtonTapTimerRef.current = setTimeout(() => {
+                skillButtonTapTimerRef.current = null;
+                playSkillAnimation();
+              }, 260);
+            }}
+            onPointerCancel={() => {
+              if (skillButtonHoldTimerRef.current) clearTimeout(skillButtonHoldTimerRef.current);
+              skillButtonHoldTimerRef.current = null;
+              skillButtonHoldingRef.current = false;
+              skillButtonDoubleTapRef.current = false;
               chronoSkillHoldRef.current = false;
             }}
-            onPointerCancel={() => { chronoSkillHoldRef.current = false; }}
             onLostPointerCapture={() => { chronoSkillHoldRef.current = false; }}
           >
             SKILL
