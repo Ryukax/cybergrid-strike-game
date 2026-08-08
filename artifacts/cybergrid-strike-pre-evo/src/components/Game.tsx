@@ -9496,9 +9496,9 @@ export default function Game() {
                 playSkillAnimation();
                 return;
               }
+              performSkillButtonR2Tap();
               skillButtonTapTimerRef.current = setTimeout(() => {
                 skillButtonTapTimerRef.current = null;
-                performSkillButtonR2Tap();
               }, 260);
             }}
             onPointerCancel={() => {
