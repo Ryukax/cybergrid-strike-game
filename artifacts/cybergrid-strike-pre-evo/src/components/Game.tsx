@@ -9470,22 +9470,19 @@ export default function Game() {
                 skillButtonDoubleTapRef.current = false;
                 return;
               }
-              // Entering a signature skill must remain a direct L2 action.
-              // The R2 / double-tap-L2 gesture layer only applies after the
-              // first tap has activated that skill.
-              if (!rivalSkillRef.current.active) {
-                skillButtonDoubleTapRef.current = false;
-                playSkillAnimation();
-                return;
-              }
               if (skillButtonDoubleTapRef.current) {
                 skillButtonDoubleTapRef.current = false;
                 playSkillAnimation();
                 return;
               }
-              performSkillButtonR2Tap();
+              const skillWasActive = rivalSkillRef.current.active;
               skillButtonTapTimerRef.current = setTimeout(() => {
                 skillButtonTapTimerRef.current = null;
+                // Commit a one-tap action only after the double-tap window.
+                // Starting an inactive signature remains L2; an active skill
+                // maps the same single tap to R2.
+                if (skillWasActive) performSkillButtonR2Tap();
+                else playSkillAnimation();
               }, 260);
             }}
             onPointerCancel={() => {
