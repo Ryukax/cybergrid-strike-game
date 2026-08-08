@@ -9491,6 +9491,14 @@ export default function Game() {
                 skillButtonDoubleTapRef.current = false;
                 return;
               }
+              // Entering a signature skill must remain a direct L2 action.
+              // The R2 / double-tap-L2 gesture layer only applies after the
+              // first tap has activated that skill.
+              if (!rivalSkillRef.current.active) {
+                skillButtonDoubleTapRef.current = false;
+                playSkillAnimation();
+                return;
+              }
               if (skillButtonDoubleTapRef.current) {
                 skillButtonDoubleTapRef.current = false;
                 playSkillAnimation();
