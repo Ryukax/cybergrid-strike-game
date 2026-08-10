@@ -2583,6 +2583,8 @@ const VS_NPC_ABILITY_INTERVAL = COMPETITIVE_RULESET.npcAbilityInterval;
 const VS_NPC_SKILL_INTERVAL = COMPETITIVE_RULESET.npcSkillInterval;
 const VS_NPC_MAX_SHIELDS = COMPETITIVE_RULESET.maxShields;
 const RIVAL_SKILL_ANIMATION_DURATION = 1120;
+const NPC_ATTACK_ANIMATION_DURATION = 380;
+const NPC_SKILL_ANIMATION_DURATION = 920;
 const VS_ABILITY_DISRUPT = new Set([
   'time', 'scramble', 'warpback', 'backdash', 'freeze', 'blizzard', 'gravity',
   'rowshuffle', 'pulse', 'magnet', 'signaljam', 'stasisgate', 'oilslick',
@@ -8121,7 +8123,12 @@ export default function Game() {
       npcSkillTimerRef.current -= dt;
 
       const launchNpcShot = (row: number, power = 1, big = false) => {
-        npcAttackStartedRef.current = performance.now();
+        const animationNow = performance.now();
+        // Do not let rapid autofire continually restart an authored skill or
+        // attack before its anticipation/strike/recovery arc completes.
+        if (animationNow - npcSkillStartedRef.current >= NPC_SKILL_ANIMATION_DURATION) {
+          npcAttackStartedRef.current = animationNow;
+        }
         s.npcBullets.push({
           colPos: npcCol - 0.55,
           row,
@@ -8818,11 +8825,17 @@ export default function Game() {
           const attackFrames = npcAttackFramesRef.current;
           const attackElapsed = ts - npcAttackStartedRef.current;
           const skillElapsed = ts - npcSkillStartedRef.current;
-          const attacking = npcAttackStartedRef.current >= 0 && attackElapsed < 720;
-          const usingSkill = npcSkillStartedRef.current >= 0 && skillElapsed < 920;
+          const usingSkill = npcSkillStartedRef.current >= 0
+            && skillElapsed < NPC_SKILL_ANIMATION_DURATION;
+          const attacking = !usingSkill && npcAttackStartedRef.current >= 0
+            && attackElapsed < NPC_ATTACK_ANIMATION_DURATION;
           const activeFrames = attacking || usingSkill ? attackFrames : idleFrames;
           const animationElapsed = attacking ? attackElapsed : usingSkill ? skillElapsed : ts;
-          const animationDuration = attacking ? 720 : usingSkill ? 920 : Math.max(1, activeFrames.length * 145);
+          const animationDuration = attacking
+            ? NPC_ATTACK_ANIMATION_DURATION
+            : usingSkill
+              ? NPC_SKILL_ANIMATION_DURATION
+              : Math.max(1, activeFrames.length * 145);
           const animationProgress = attacking || usingSkill
             ? Math.min(0.999, animationElapsed / animationDuration)
             : (animationElapsed % animationDuration) / animationDuration;
