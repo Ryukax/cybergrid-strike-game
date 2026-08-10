@@ -2913,6 +2913,29 @@ const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b' | 'c'; 
   restore: { sheet: 'c', row: 2 },
 };
 
+const signatureVfxImages = new Map<string, HTMLImageElement>();
+
+function signatureVfxAsset(motif: SkillExecutionMotif) {
+  const sequence = SKILL_VFX_SEQUENCE[motif];
+  const sheet = sequence.sheet === 'c' ? 'c-transparent' : sequence.sheet;
+  return `${sheet}-row-${sequence.row}`;
+}
+
+function getSignatureVfxImage(motif: SkillExecutionMotif) {
+  const asset = signatureVfxAsset(motif);
+  const cached = signatureVfxImages.get(asset);
+  if (cached) return cached;
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = `${import.meta.env.BASE_URL}effects/signature-vfx/${asset}.png?v=1`;
+  signatureVfxImages.set(asset, image);
+  return image;
+}
+
+function preloadSignatureSkillVfx(id: RivalSkillId) {
+  for (const motif of SKILL_EXECUTION_MOTIFS[id]) getSignatureVfxImage(motif);
+}
+
 // The signature sheets are authored, textured animations. Earlier revisions
 // also painted generic circles, arrows, boxes and polygon sigils over them.
 // That diagnostic-style layer made every discipline look like the same basic
@@ -2931,29 +2954,11 @@ function SignatureSkillFx({
   lastAction: RivalSkillView['lastAction'];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const sequenceRefs = useRef<{
-    a: HTMLImageElement | null;
-    b: HTMLImageElement | null;
-    c: HTMLImageElement | null;
-  }>({
-    a: null,
-    b: null,
-    c: null,
-  });
   const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
 
   useEffect(() => {
-    const sequenceA = new Image();
-    const sequenceB = new Image();
-    const sequenceC = new Image();
-    sequenceA.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-a.png?alpha=v2`;
-    sequenceB.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-b.png?alpha=v2`;
-    sequenceC.src = `${import.meta.env.BASE_URL}effects/signature-skill-sequences-c-transparent.png?alpha=v2`;
-    sequenceRefs.current = { a: sequenceA, b: sequenceB, c: sequenceC };
-    return () => {
-      sequenceRefs.current = { a: null, b: null, c: null };
-    };
-  }, []);
+    preloadSignatureSkillVfx(id);
+  }, [id]);
 
   useEffect(() => {
     executionRef.current = { tick: actionTick, action: lastAction, startedAt: performance.now() };
@@ -3165,12 +3170,11 @@ function SignatureSkillFx({
         }
 
         const sequenceMotif = motif ?? SKILL_EXECUTION_MOTIFS[id][0];
-        const sequence = SKILL_VFX_SEQUENCE[sequenceMotif];
-        const sheet = sequenceRefs.current[sequence.sheet];
+        const sheet = getSignatureVfxImage(sequenceMotif);
         if (sheet?.complete && sheet.naturalWidth > 0) {
           const sequenceFrame = Math.min(3, Math.floor(executionProgress * 4));
           const sourceWidth = sheet.naturalWidth / 4;
-          const sourceHeight = sheet.naturalHeight / 4;
+          const sourceHeight = sheet.naturalHeight;
           const vfxTarget = motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
             ? target
             : motif === 'dash' || motif === 'weapon'
@@ -3193,7 +3197,7 @@ function SignatureSkillFx({
           ctx.drawImage(
             sheet,
             sequenceFrame * sourceWidth,
-            sequence.row * sourceHeight,
+            0,
             sourceWidth,
             sourceHeight,
             -drawWidth / 2,
@@ -4142,7 +4146,14 @@ export default function Game() {
 
   useEffect(() => {
     preloadAdvancedProjectileSheet(playerSkin);
+    if (RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
+      preloadSignatureSkillVfx(playerSkin as RivalSkillId);
+    }
   }, [playerSkin]);
+
+  useEffect(() => {
+    if (assemblySkill !== 'shadow') preloadSignatureSkillVfx(assemblySkill);
+  }, [assemblySkill]);
 
   useEffect(() => {
     if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
