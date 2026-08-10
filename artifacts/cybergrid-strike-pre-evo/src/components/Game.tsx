@@ -3562,6 +3562,7 @@ export default function Game() {
   const stateRef = useRef<GameState>(makeInitialState());
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
+  const chronoLastHudUpdateRef = useRef(0);
   const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chronoRewindExhaustedRef = useRef(false);
   const chronoR2DilationRef = useRef({
@@ -8404,16 +8405,26 @@ export default function Game() {
           if (snapshot) {
             stateRef.current = structuredClone(snapshot.state);
             rewind.cursorAt = targetAt;
-            updateHud();
+            if (ts - chronoLastHudUpdateRef.current >= 100) {
+              updateHud();
+              chronoLastHudUpdateRef.current = ts;
+            }
           }
           if (elapsed >= 3000) stopChronoRewind(true);
         }
       } else {
-        if (ts - chronoLastCaptureRef.current >= 33) {
+        const chronoEquipped = playerSkinRef.current === 'chrono'
+          || (playerSkinRef.current === 'assembly' && assemblySkillRef.current === 'chrono');
+        if (chronoEquipped && ts - chronoLastCaptureRef.current >= 60) {
           chronoHistoryRef.current.push({ at: ts, state: structuredClone(stateRef.current) });
-          chronoHistoryRef.current = chronoHistoryRef.current
-            .filter((snapshot) => ts - snapshot.at <= 3100);
+          while (
+            chronoHistoryRef.current.length > 52
+            || (chronoHistoryRef.current[0] && ts - chronoHistoryRef.current[0].at > 3100)
+          ) chronoHistoryRef.current.shift();
           chronoLastCaptureRef.current = ts;
+        } else if (!chronoEquipped && chronoHistoryRef.current.length > 0) {
+          chronoHistoryRef.current = [];
+          chronoLastCaptureRef.current = 0;
         }
         update(dt);
         reconcileIntegrityWork(stateRef.current);
@@ -8839,11 +8850,20 @@ export default function Game() {
           const animationProgress = attacking || usingSkill
             ? Math.min(0.999, animationElapsed / animationDuration)
             : (animationElapsed % animationDuration) / animationDuration;
+          const framePosition = attacking || usingSkill
+            ? animationProgress * Math.max(0, activeFrames.length - 1)
+            : animationProgress * Math.max(1, activeFrames.length);
           const frameIndex = Math.min(
             Math.max(0, activeFrames.length - 1),
-            Math.floor(animationProgress * Math.max(1, activeFrames.length)),
+            Math.floor(framePosition),
           );
+          const nextFrameIndex = attacking || usingSkill
+            ? Math.min(activeFrames.length - 1, frameIndex + 1)
+            : (frameIndex + 1) % Math.max(1, activeFrames.length);
+          const frameBlendRaw = framePosition - Math.floor(framePosition);
+          const frameBlend = frameBlendRaw * frameBlendRaw * (3 - 2 * frameBlendRaw);
           const frame = activeFrames[frameIndex] ?? npcFrameRef.current;
+          const nextFrame = activeFrames[nextFrameIndex] ?? frame;
           if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
             npcCtx.imageSmoothingEnabled = false;
             npcCtx.save();
@@ -8863,7 +8883,12 @@ export default function Game() {
               npcCtx.scale(1 + charge * 0.065, 1 - charge * 0.025);
               npcCtx.translate(-sz * 0.5, -sz * 0.5);
             }
+            npcCtx.globalAlpha = 1 - frameBlend;
             npcCtx.drawImage(frame, 0, 0, sz, sz);
+            if (nextFrame && nextFrame !== frame && frameBlend > 0.001) {
+              npcCtx.globalAlpha = frameBlend;
+              npcCtx.drawImage(nextFrame, 0, 0, sz, sz);
+            }
             npcCtx.restore();
           }
         }
@@ -9009,6 +9034,7 @@ export default function Game() {
     npcInterceptCountRef.current = 0;
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
+    chronoLastHudUpdateRef.current = 0;
     chronoRewindRef.current.held = false;
     chronoRewindExhaustedRef.current = false;
     chronoR2DilationRef.current = { held: false, startedAt: 0, exhausted: false };
@@ -9074,6 +9100,7 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current);
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
+    chronoLastHudUpdateRef.current = 0;
     chronoRewindRef.current.held = false;
     chronoRewindExhaustedRef.current = false;
     if (chronoRewindTimerRef.current) {
