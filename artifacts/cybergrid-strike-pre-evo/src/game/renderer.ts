@@ -812,6 +812,11 @@ const PROJECTILE_EFFECTS: Record<string, { color: string; accent: string; motif:
   tidal: { color: '#06b6d4', accent: '#bae6fd', motif: 0 },
 };
 
+const CONCEPT_PROJECTILE_SKINS = new Set([
+  'tempest', 'cryo', 'terra', 'echo', 'mirage',
+  'beacon', 'swarm', 'bloom', 'tidal',
+]);
+
 function drawSkinProjectileEffect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -839,7 +844,13 @@ function drawSkinProjectileEffect(
   if (!tweenFrames) return false;
   const normalizedCycle = ((cycle / (Math.PI * 2)) + 1) % 1;
   const tweenFrame = Math.floor(normalizedCycle * tweenFrames.length) % tweenFrames.length;
-  const baseSize = radius * (skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3);
+  const conceptProjectile = CONCEPT_PROJECTILE_SKINS.has(skin);
+  // The concept sheets contain detailed internal silhouettes. Give them enough
+  // board space to read as authored objects instead of collapsing into the
+  // same tiny tracer used by legacy shots.
+  const baseSize = radius * (
+    conceptProjectile ? 9.4 : skin === 'orbital' || skin === 'colossus' ? 7.2 : 6.3
+  );
   const pulse = 1 + Math.sin(cycle) * (config.motif === 2 ? 0.2 : 0.09);
   const stretch = config.motif === 0 ? 1.08 + Math.sin(cycle * 2) * 0.18 : 1;
   const bob = config.motif === 5 ? Math.sin(cycle * 1.5) * radius * 0.9 : 0;
@@ -874,7 +885,9 @@ function drawSkinProjectileEffect(
   ctx.rotate(rotation);
   ctx.globalCompositeOperation = 'screen';
   ctx.shadowColor = config.color;
-  ctx.shadowBlur = Math.max(4, radius * 2.4);
+  ctx.shadowBlur = conceptProjectile
+    ? Math.max(2, radius * 0.85)
+    : Math.max(4, radius * 2.4);
   ctx.imageSmoothingEnabled = false;
 
   // Every generated sheet gets readable motion at gameplay scale. Motifs use
