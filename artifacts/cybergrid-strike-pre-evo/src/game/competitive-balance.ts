@@ -6,7 +6,7 @@ import type { Ability } from './types';
  * verifier, or server can execute the same match contract.
  */
 export const COMPETITIVE_RULESET = Object.freeze({
-  id: 'cgs-versus-1.0.0',
+  id: 'cgs-versus-1.1.0',
   maxHp: 100,
   maxShields: 2,
   playerAutoFireInterval: 0.34,
@@ -16,6 +16,11 @@ export const COMPETITIVE_RULESET = Object.freeze({
   npcAbilityInterval: 12,
   npcSkillInterval: 20,
   signatureSkillCooldown: 14,
+  signatureWindow: 7,
+  signatureActionInterval: 0.55,
+  signatureMaxActions: 6,
+  signatureMaxCharges: 4,
+  signatureMaxPlacements: 4,
   maxProjectileDamage: 4,
   maxAbilityDamage: 5,
   maxSignatureDamage: 3,

@@ -3577,6 +3577,7 @@ export default function Game() {
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const rivalSkillCooldownRef = useRef(0);
+  const rivalSkillActionReadyAtRef = useRef(0);
   const npcAbilityTimerRef = useRef(7);
   const npcSkillTimerRef = useRef(11);
   const npcInterceptCountRef = useRef(0);
@@ -6095,10 +6096,21 @@ export default function Game() {
     if (active.id === 'phase') s.ghostTimer = 0;
     if (s.gameMode === 'vs') {
       rivalSkillCooldownRef.current = VS_SKILL_COOLDOWN;
-      // Every completed signature contributes a small verified duel impact.
-      // The skill's bullets/actions remain its primary value.
-      if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
-      else s.npc.hp = Math.max(0, s.npc.hp - COMPETITIVE_RULESET.maxSignatureDamage);
+      // Signature outcomes preserve role identity. Assault converts its finish
+      // into damage, control trades damage for tempo, and defense restores a
+      // bounded resource instead of receiving arbitrary universal damage.
+      if (VS_NPC_ASSAULT_SKILLS.has(active.id)) {
+        if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
+        else s.npc.hp = Math.max(0, s.npc.hp - COMPETITIVE_RULESET.maxSignatureDamage);
+      } else if (VS_NPC_CONTROL_SKILLS.has(active.id)) {
+        if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
+        else s.npc.hp = Math.max(0, s.npc.hp - 1);
+        s.npc.fireCooldown += COMPETITIVE_RULESET.maxFireDisruption * 0.55;
+        s.npc.moveCooldown += COMPETITIVE_RULESET.maxMoveDisruption * 0.55;
+      } else {
+        s.hp = boundedRecovery(s.hp, 2);
+        s.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, s.shieldCharges + 1);
+      }
       const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
       s.hp = normalized.hp;
       s.shieldCharges = normalized.shields;
@@ -6122,6 +6134,16 @@ export default function Game() {
       : action === 'alternate' ? 1 : 2;
     rivalSkillAnimationStartedRef.current = performance.now();
     const s = stateRef.current;
+    if (s.gameMode === 'vs') {
+      const now = performance.now();
+      if (active.actionTick >= COMPETITIVE_RULESET.signatureMaxActions) {
+        showMessage('Signature action budget exhausted.', 650);
+        return;
+      }
+      if (now < rivalSkillActionReadyAtRef.current) return;
+      rivalSkillActionReadyAtRef.current = now
+        + COMPETITIVE_RULESET.signatureActionInterval * 1000;
+    }
     let next = {
       ...active,
       actionTick: active.actionTick + 1,
@@ -6807,6 +6829,13 @@ export default function Game() {
         showMessage('Breakwater established.', 700);
       }
     }
+    if (s.gameMode === 'vs') {
+      next.charges = Math.min(COMPETITIVE_RULESET.signatureMaxCharges, next.charges);
+      next.placements = next.placements.slice(-COMPETITIVE_RULESET.signatureMaxPlacements);
+      const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
+      s.hp = normalized.hp;
+      s.shieldCharges = normalized.shields;
+    }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
     updateHud();
@@ -6904,10 +6933,13 @@ export default function Game() {
         ? [{ col: s.player.col, row: s.player.row }]
         : [],
       chronoPositionIndex: 0,
-      expiresAt: performance.now() + 9000,
+      expiresAt: performance.now() + (
+        s.gameMode === 'vs' ? COMPETITIVE_RULESET.signatureWindow : 9
+      ) * 1000,
       origin: { col: s.player.col, row: s.player.row, hp: s.hp },
     };
     rivalSkillRef.current = next;
+    rivalSkillActionReadyAtRef.current = 0;
     setRivalSkillView(next);
     rivalSkillAnimationCommandRef.current = -1;
     rivalSkillAnimationStartedRef.current = performance.now();
@@ -9620,7 +9652,7 @@ export default function Game() {
         {hud.gameMode === 'vs' ? (
           <div className="panel" id="npcHpPanel" data-overheal={hud.npcHp > NPC_HP ? 'true' : 'false'}>
             NPC {hud.npcHp} HP{hud.npcHp > NPC_HP ? ' ▲' : ''}
-            <span className="versusRulesetBadge">VERSUS 1.0</span>
+            <span className="versusRulesetBadge">VERSUS 1.1</span>
             {hud.npcShieldCharges > 0 && (
               <span id="npcShieldDisplay">{'🛡'.repeat(Math.min(hud.npcShieldCharges, 9))}</span>
             )}
