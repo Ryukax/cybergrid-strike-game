@@ -2589,6 +2589,9 @@ const VS_ABILITY_DISRUPT = new Set([
   'rootsnare', 'sonicnet', 'anchorfield', 'trafficjam', 'mutationlock',
   'quarantine',
 ]);
+const VS_EXPLICIT_CONTROL = new Set([
+  'scramble', 'warpback', 'freeze', 'blizzard', 'gravity', 'rowshuffle',
+]);
 const VS_NPC_DEFENSIVE_SKILLS = new Set<RivalSkillId>([
   'counter', 'null', 'colossus', 'sovereign', 'cryo', 'terra', 'beacon', 'bloom',
 ]);
@@ -5443,9 +5446,50 @@ export default function Game() {
           return;
         }
       }
-      if (VS_ABILITY_DISRUPT.has(type)) {
-        s.npc.fireCooldown += COMPETITIVE_RULESET.maxFireDisruption;
-        s.npc.moveCooldown += COMPETITIVE_RULESET.maxMoveDisruption;
+      let duelMessage = duelDamage > 0
+        ? `${ability.name} · ${duelDamage} duel damage`
+        : '';
+      if (type === 'scramble') {
+        // One rival has no formation object to clear, so SCRAMBLE breaks its
+        // position and firing rhythm instead. The row choice is deterministic
+        // for replay/server parity.
+        s.npc.col = Math.min(2, s.npc.col + 1);
+        s.npc.row = (s.npc.row + (s.npc.row === s.player.row ? 1 : 2)) % 3;
+        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption);
+        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
+        duelMessage = 'SCRAMBLE · rival displaced and firing interrupted';
+      } else if (type === 'warpback') {
+        s.npc.col = 2;
+        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
+        duelMessage = 'WARP BACK · rival returned to its rear column';
+      } else if (type === 'gravity') {
+        s.npc.row = s.player.row;
+        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
+        duelMessage = 'GRAVITY · rival pulled into your lane';
+      } else if (type === 'rowshuffle') {
+        const shuffled = competitiveRandom(s.competitiveSeed);
+        s.competitiveSeed = shuffled.seed;
+        s.npc.row = Math.min(2, Math.floor(shuffled.value * 3));
+        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption * 0.6);
+        duelMessage = 'ROW CHAOS · rival lane deterministically shuffled';
+      } else if (type === 'freeze' || type === 'blizzard') {
+        const intensity = type === 'blizzard' ? 1 : 0.72;
+        s.npc.fireCooldown = Math.max(
+          s.npc.fireCooldown,
+          COMPETITIVE_RULESET.maxFireDisruption * intensity,
+        );
+        s.npc.moveCooldown = Math.max(
+          s.npc.moveCooldown,
+          COMPETITIVE_RULESET.maxMoveDisruption * intensity,
+        );
+        duelMessage = `${type === 'blizzard' ? 'BLIZZARD' : 'FREEZE'} · rival tempo reduced`;
+      }
+      if (VS_ABILITY_DISRUPT.has(type) && !VS_EXPLICIT_CONTROL.has(type)) {
+        // Control never stacks into a permanent lock; each use refreshes a
+        // bounded disruption window defined by the shared competitive rules.
+        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption);
+        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
+        if (!duelMessage) duelMessage = `${ability.name} · rival tempo disrupted`;
       }
       const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
       s.hp = normalized.hp;
@@ -6835,6 +6879,7 @@ export default function Game() {
       const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
       s.hp = normalized.hp;
       s.shieldCharges = normalized.shields;
+      if (duelMessage) showMessage(duelMessage, 1200);
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
