@@ -3981,6 +3981,11 @@ export default function Game() {
   const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
   const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const npcFrameRef = useRef<ImageBitmap | null>(null);
+  const npcIdleFramesRef = useRef<ImageBitmap[]>([]);
+  const npcAttackFramesRef = useRef<ImageBitmap[]>([]);
+  const npcAttackStartedRef = useRef(-1);
+  const npcSkillStartedRef = useRef(-1);
+  const npcVisualPositionRef = useRef({ col: 0, row: 1, at: 0 });
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
     || RIVAL_SKILL_IDS.includes(storedAssemblySkill as RivalSkillId)
@@ -4365,45 +4370,80 @@ export default function Game() {
     let cancelled = false;
     npcFrameRef.current?.close();
     npcFrameRef.current = null;
+    npcIdleFramesRef.current.forEach((frame) => frame.close());
+    npcAttackFramesRef.current.forEach((frame) => frame.close());
+    npcIdleFramesRef.current = [];
+    npcAttackFramesRef.current = [];
     if (npcSkin === 'default' || npcSkin === 'assembly') return;
     const base = import.meta.env.BASE_URL;
-    const source = npcSkin === 'rocket'
-      ? `${base}skins/rocket_idle.png`
-      : npcSkin === 'dots'
-      ? `${base}skins/dots_frame_0.png`
-      : npcSkin === 'gem'
-      ? `${base}skins/gem_frame_0.png`
-      : `${base}skins/skill-${npcSkin}-idle.png`;
-    const img = new Image();
-    img.onload = async () => {
-      let raw = await createImageBitmap(img);
-      if (npcSkin === 'hijack') {
-        const cropped = await createImageBitmap(
-          raw,
-          Math.round(raw.width * 4 / 240),
-          Math.round(raw.height * 24 / 160),
-          Math.round(raw.width * 188 / 240),
-          Math.round(raw.height * 100 / 160),
-        );
-        raw.close();
-        raw = cropped;
+    const loadBitmap = (url: string): Promise<ImageBitmap> => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => createImageBitmap(img).then(resolve).catch(reject);
+      img.onerror = () => reject(new Error(`Failed to load ${url}`));
+      img.src = url;
+    });
+    (async () => {
+      try {
+        const concept = CONCEPT_SKIN_IDS.includes(npcSkin as (typeof CONCEPT_SKIN_IDS)[number]);
+        let idleFrames: ImageBitmap[];
+        let attackFrames: ImageBitmap[];
+        if (concept) {
+          [idleFrames, attackFrames] = await Promise.all([
+            Promise.all(Array.from({ length: 8 }, (_, i) =>
+              loadBitmap(`${base}skins/concept-idle-frames/${npcSkin}-${i}.png`))),
+            Promise.all(Array.from({ length: 8 }, (_, i) =>
+              loadBitmap(`${base}skins/concept-attack-frames/${npcSkin}-${i}.png`))),
+          ]);
+        } else if (npcSkin === 'rocket') {
+          [idleFrames, attackFrames] = await Promise.all([
+            Promise.all([loadBitmap(`${base}skins/rocket_idle.png`)]),
+            Promise.all(Array.from({ length: 13 }, (_, i) =>
+              loadBitmap(`${base}skins/rocket_attack_frame_${i}.png?alpha=v2`))),
+          ]);
+        } else if (npcSkin === 'dots') {
+          idleFrames = await Promise.all(Array.from({ length: 5 }, (_, i) =>
+            loadBitmap(`${base}skins/dots_frame_${i}.png`)));
+          attackFrames = idleFrames;
+        } else if (npcSkin === 'gem') {
+          [idleFrames, attackFrames] = await Promise.all([
+            Promise.all(Array.from({ length: 12 }, (_, i) =>
+              loadBitmap(`${base}skins/gem_frame_${i}.png`))),
+            Promise.all(Array.from({ length: 3 }, (_, i) =>
+              loadBitmap(`${base}skins/gem_attack_frame_${i}.png?alpha=v2`))),
+          ]);
+        } else {
+          let [idle, attack] = await Promise.all([
+            loadBitmap(`${base}skins/skill-${npcSkin}-idle.png`),
+            loadBitmap(`${base}skins/skill-${npcSkin}-attack.png`),
+          ]);
+          if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
+            const cleaned = await sanitizeRivalSkinPair(idle, attack);
+            idle.close();
+            attack.close();
+            idle = cleaned.idle;
+            attack = cleaned.attack;
+          }
+          idleFrames = [idle];
+          attackFrames = [attack];
+        }
+        if (cancelled) {
+          [...new Set([...idleFrames, ...attackFrames])].forEach((frame) => frame.close());
+          return;
+        }
+        npcIdleFramesRef.current = idleFrames;
+        npcAttackFramesRef.current = attackFrames;
+        npcFrameRef.current = idleFrames[0] ?? null;
+      } catch (error) {
+        console.error(`[${npcSkin} NPC skin] animation load error:`, error);
       }
-      const frame = RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)
-        ? await sanitizeRivalSkinFrame(raw)
-        : raw;
-      if (frame !== raw) raw.close();
-      if (cancelled) {
-        frame.close();
-        return;
-      }
-      npcFrameRef.current = frame;
-    };
-    img.onerror = () => console.error(`[${npcSkin} NPC skin] frame load error`);
-    img.src = source;
+    })();
     return () => {
       cancelled = true;
-      npcFrameRef.current?.close();
       npcFrameRef.current = null;
+      const frames = [...new Set([...npcIdleFramesRef.current, ...npcAttackFramesRef.current])];
+      frames.forEach((frame) => frame.close());
+      npcIdleFramesRef.current = [];
+      npcAttackFramesRef.current = [];
     };
   }, [npcSkin]);
 
@@ -8053,6 +8093,7 @@ export default function Game() {
       npcSkillTimerRef.current -= dt;
 
       const launchNpcShot = (row: number, power = 1, big = false) => {
+        npcAttackStartedRef.current = performance.now();
         s.npcBullets.push({
           colPos: npcCol - 0.55,
           row,
@@ -8066,6 +8107,7 @@ export default function Game() {
       };
 
       if (npcAbilityTimerRef.current <= 0) {
+        npcSkillStartedRef.current = performance.now();
         const incomingShots = s.bullets.filter((bullet) =>
           bullet.colPos < 20 && bullet.colPos > 2.4).length;
         if (npc.hp + 8 < s.hp && npc.hp < NPC_HP) {
@@ -8085,6 +8127,7 @@ export default function Game() {
 
       const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
       if (npcRivalSkill && npcSkillTimerRef.current <= 0) {
+        npcSkillStartedRef.current = performance.now();
         if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
           npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
         } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
@@ -8627,8 +8670,19 @@ export default function Game() {
         if (wrap && npcCanvas) {
           const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const npc = stateRef.current.npc;
-          const px = m.x + (3 + npc.col + 0.5) * m.cell;
-          const py = m.y + (npc.row + 0.5) * m.cell;
+          const visual = npcVisualPositionRef.current;
+          if (visual.at <= 0) {
+            visual.col = npc.col;
+            visual.row = npc.row;
+            visual.at = ts;
+          }
+          const visualDt = Math.min(50, Math.max(0, ts - visual.at));
+          const positionBlend = 1 - Math.exp(-visualDt / 72);
+          visual.col += (npc.col - visual.col) * positionBlend;
+          visual.row += (npc.row - visual.row) * positionBlend;
+          visual.at = ts;
+          const px = m.x + (3 + visual.col + 0.5) * m.cell;
+          const py = m.y + (visual.row + 0.5) * m.cell;
           const sz = Math.round(m.cell * 1.08);
           wrap.style.left = `${px}px`;
           wrap.style.top = `${py}px`;
@@ -8640,12 +8694,42 @@ export default function Game() {
           }
           const npcCtx = npcCanvas.getContext('2d');
           npcCtx?.clearRect(0, 0, sz, sz);
-          const frame = npcFrameRef.current;
+          const idleFrames = npcIdleFramesRef.current;
+          const attackFrames = npcAttackFramesRef.current;
+          const attackElapsed = ts - npcAttackStartedRef.current;
+          const skillElapsed = ts - npcSkillStartedRef.current;
+          const attacking = npcAttackStartedRef.current >= 0 && attackElapsed < 720;
+          const usingSkill = npcSkillStartedRef.current >= 0 && skillElapsed < 920;
+          const activeFrames = attacking || usingSkill ? attackFrames : idleFrames;
+          const animationElapsed = attacking ? attackElapsed : usingSkill ? skillElapsed : ts;
+          const animationDuration = attacking ? 720 : usingSkill ? 920 : Math.max(1, activeFrames.length * 145);
+          const animationProgress = attacking || usingSkill
+            ? Math.min(0.999, animationElapsed / animationDuration)
+            : (animationElapsed % animationDuration) / animationDuration;
+          const frameIndex = Math.min(
+            Math.max(0, activeFrames.length - 1),
+            Math.floor(animationProgress * Math.max(1, activeFrames.length)),
+          );
+          const frame = activeFrames[frameIndex] ?? npcFrameRef.current;
           if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
             npcCtx.imageSmoothingEnabled = false;
             npcCtx.save();
             npcCtx.translate(sz, 0);
             npcCtx.scale(-1, 1);
+            // Single-pose legacy skins still breathe and react; multi-frame
+            // skins use their authored idle and attack animation banks.
+            if (!attacking && !usingSkill && activeFrames.length === 1) {
+              const breathe = Math.sin(ts * 0.006) * 0.018;
+              const sway = Math.sin(ts * 0.0035) * sz * 0.018;
+              npcCtx.translate(sz * 0.5 + sway, sz * 0.5);
+              npcCtx.scale(1 - breathe * 0.45, 1 + breathe);
+              npcCtx.translate(-sz * 0.5, -sz * 0.5);
+            } else if (usingSkill) {
+              const charge = Math.sin(Math.min(1, animationProgress) * Math.PI);
+              npcCtx.translate(sz * 0.5, sz * 0.5);
+              npcCtx.scale(1 + charge * 0.065, 1 - charge * 0.025);
+              npcCtx.translate(-sz * 0.5, -sz * 0.5);
+            }
             npcCtx.drawImage(frame, 0, 0, sz, sz);
             npcCtx.restore();
           }
@@ -8778,6 +8862,13 @@ export default function Game() {
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
+    npcAttackStartedRef.current = -1;
+    npcSkillStartedRef.current = -1;
+    npcVisualPositionRef.current = {
+      col: stateRef.current.npc.col,
+      row: stateRef.current.npc.row,
+      at: 0,
+    };
     rivalSkillCooldownRef.current = 0;
     npcAbilityTimerRef.current = 7;
     npcSkillTimerRef.current = 11;

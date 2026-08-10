@@ -1165,6 +1165,13 @@ export function draw(
 
     if (!npcHasOverlay) {
       // NPC body (mirror of player, gun faces LEFT)
+      const npcBreath = Math.sin(renderNow * 0.0065) * m.cell * 0.012;
+      const npcFiring = state.npc.fireCooldown > 0.32;
+      const npcRecoil = npcFiring
+        ? Math.sin(Math.min(1, state.npc.fireCooldown / 0.48) * Math.PI) * m.cell * 0.07
+        : 0;
+      ctx.save();
+      ctx.translate(npcRecoil, npcBreath);
       ctx.fillStyle = '#34d399';
       ctx.beginPath();
       (ctx as Ctx2D).roundRect(npcX - m.cell * 0.22, npcY - m.cell * 0.26, m.cell * 0.44, m.cell * 0.52, 10);
@@ -1173,6 +1180,7 @@ export function draw(
       ctx.fillRect(npcX - m.cell * 0.23, npcY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12); // gun LEFT
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.fillRect(npcX - m.cell * 0.06, npcY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+      ctx.restore();
     }
   }
 
