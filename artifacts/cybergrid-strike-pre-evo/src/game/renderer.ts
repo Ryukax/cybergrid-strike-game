@@ -801,6 +801,15 @@ const PROJECTILE_EFFECTS: Record<string, { color: string; accent: string; motif:
   orbital: { color: '#fde047', accent: '#60a5fa', motif: 4 },
   hijack: { color: '#c084fc', accent: '#2dd4bf', motif: 3 },
   sovereign: { color: '#f43f5e', accent: '#facc15', motif: 2 },
+  tempest: { color: '#38bdf8', accent: '#f8fafc', motif: 5 },
+  cryo: { color: '#67e8f9', accent: '#dbeafe', motif: 4 },
+  terra: { color: '#f59e0b', accent: '#78716c', motif: 0 },
+  echo: { color: '#818cf8', accent: '#22d3ee', motif: 5 },
+  mirage: { color: '#c084fc', accent: '#67e8f9', motif: 3 },
+  beacon: { color: '#22d3ee', accent: '#f8fafc', motif: 4 },
+  swarm: { color: '#38bdf8', accent: '#cbd5e1', motif: 3 },
+  bloom: { color: '#f472b6', accent: '#4ade80', motif: 5 },
+  tidal: { color: '#06b6d4', accent: '#bae6fd', motif: 0 },
 };
 
 function drawSkinProjectileEffect(
@@ -963,7 +972,7 @@ function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
   if (cached) return cached;
   if (typeof Image === 'undefined') return null;
   const sheet = new Image();
-  sheet.src = `${import.meta.env.BASE_URL}effects/advanced-projectiles/${skin}.png?v=1`;
+  sheet.src = `${import.meta.env.BASE_URL}effects/advanced-projectiles/${skin}.png?v=2`;
   advancedProjectileSheets.set(skin, sheet);
   return sheet;
 }
