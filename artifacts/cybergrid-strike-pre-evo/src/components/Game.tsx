@@ -3985,6 +3985,7 @@ export default function Game() {
   const npcAttackFramesRef = useRef<ImageBitmap[]>([]);
   const npcAttackStartedRef = useRef(-1);
   const npcSkillStartedRef = useRef(-1);
+  const npcStrategyStepRef = useRef(0);
   const npcVisualPositionRef = useRef({ col: 0, row: 1, at: 0 });
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
@@ -4417,11 +4418,38 @@ export default function Game() {
             loadBitmap(`${base}skins/skill-${npcSkin}-attack.png`),
           ]);
           if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
-            const cleaned = await sanitizeRivalSkinPair(idle, attack);
-            idle.close();
-            attack.close();
-            idle = cleaned.idle;
-            attack = cleaned.attack;
+            if (npcSkin === 'hijack') {
+              const idleCrop = await createImageBitmap(
+                idle, Math.round(idle.width * 4 / 240), Math.round(idle.height * 24 / 160),
+                Math.round(idle.width * 188 / 240), Math.round(idle.height * 100 / 160),
+              );
+              const attackCrop = await createImageBitmap(
+                attack, 0, Math.round(attack.height * 18 / 160),
+                Math.round(attack.width * 142 / 240), Math.round(attack.height * 82 / 160),
+              );
+              idle.close();
+              attack.close();
+              idle = await sanitizeRivalSkinFrame(idleCrop);
+              attack = await sanitizeRivalSkinFrame(attackCrop);
+            } else if (npcSkin === 'architect' || npcSkin === 'chrono') {
+              const normalizedAttack = document.createElement('canvas');
+              normalizedAttack.width = 160;
+              normalizedAttack.height = 160;
+              const normalizedCtx = normalizedAttack.getContext('2d')!;
+              normalizedCtx.imageSmoothingEnabled = false;
+              normalizedCtx.clearRect(0, 0, 160, 160);
+              if (npcSkin === 'architect') normalizedCtx.drawImage(attack, 0, 27, 160, 107);
+              else normalizedCtx.drawImage(attack, 2, 28, 156, 104);
+              const cleanedIdle = await sanitizeRivalSkinFrame(idle);
+              const preservedAttack = await createImageBitmap(normalizedAttack);
+              attack.close();
+              idle = cleanedIdle;
+              attack = preservedAttack;
+            } else {
+              const cleaned = await sanitizeRivalSkinPair(idle, attack);
+              idle = cleaned.idle;
+              attack = cleaned.attack;
+            }
           }
           idleFrames = [idle];
           attackFrames = [attack];
@@ -8128,17 +8156,103 @@ export default function Game() {
       const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
       if (npcRivalSkill && npcSkillTimerRef.current <= 0) {
         npcSkillStartedRef.current = performance.now();
-        if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
-          npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+        const step = npcStrategyStepRef.current++;
+        const pressureByRow = [0, 1, 2].map((row) =>
+          s.bullets.filter((bullet) => bullet.row === row && bullet.colPos > 2.35).length);
+        const safestRow = pressureByRow.indexOf(Math.min(...pressureByRow));
+        const threatened = pressureByRow.reduce((sum, value) => sum + value, 0) >= 2;
+        const behind = npc.hp + 10 < s.hp;
+        let commandIndex = 0;
+
+        // Each signature keeps a recognizable tactical identity. Decisions use
+        // only deterministic match state so the same executor can move to a
+        // future authoritative PvP simulation.
+        if (npcRivalSkill === 'tempest') {
+          commandIndex = threatened ? 2 : step % 2;
+          if (commandIndex === 2) npc.shieldCharges++;
+          else {
+            launchNpcShot(s.player.row, 2, true);
+            if (commandIndex === 1) launchNpcShot((s.player.row + 1) % 3, 1);
+          }
+        } else if (npcRivalSkill === 'cryo') {
+          commandIndex = behind ? 2 : step % 2;
+          if (commandIndex === 2) {
+            npc.hp = boundedRecovery(npc.hp, 3);
+            npc.shieldCharges++;
+          } else {
+            s.player.fireCooldown = Math.max(s.player.fireCooldown, 1.05);
+            s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.55);
+            if (commandIndex === 1) launchNpcShot(s.player.row, 2, true);
+          }
+        } else if (npcRivalSkill === 'terra') {
+          commandIndex = threatened ? 2 : step % 2;
+          if (commandIndex === 2) npc.shieldCharges += 2;
+          else if (commandIndex === 1) launchNpcShot(s.player.row, 2, true);
+          else {
+            npc.col = Math.min(2, npc.col + 1);
+            npc.shieldCharges++;
+          }
+        } else if (npcRivalSkill === 'echo') {
+          commandIndex = step % 3;
+          if (commandIndex === 0) npc.row = s.player.row;
+          else if (commandIndex === 1) {
+            launchNpcShot(s.player.row, 1, true);
+            launchNpcShot((s.player.row + 2) % 3, 1, true);
+          } else npc.row = safestRow;
+        } else if (npcRivalSkill === 'mirage') {
+          commandIndex = threatened ? 1 : step % 3;
+          npc.row = safestRow;
+          if (commandIndex === 1) npc.shieldCharges++;
+          if (commandIndex === 2) launchNpcShot(s.player.row, 2, true);
+        } else if (npcRivalSkill === 'beacon') {
+          commandIndex = behind ? 2 : step % 2;
+          if (commandIndex === 2) {
+            npc.hp = boundedRecovery(npc.hp, 2);
+            npc.shieldCharges++;
+          } else for (let row = 0; row < 3; row++) launchNpcShot(row, 1);
+        } else if (npcRivalSkill === 'swarm') {
+          commandIndex = step % 3;
+          if (commandIndex === 2) for (let row = 0; row < 3; row++) launchNpcShot(row, 1);
+          else if (commandIndex === 1) s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.85);
+          else launchNpcShot(s.player.row, 1);
+        } else if (npcRivalSkill === 'bloom') {
+          commandIndex = behind || threatened ? 2 : step % 2;
+          if (commandIndex === 2) {
+            npc.hp = boundedRecovery(npc.hp, 3);
+            npc.shieldCharges++;
+          } else launchNpcShot(s.player.row, 1, true);
+        } else if (npcRivalSkill === 'tidal') {
+          commandIndex = threatened ? 2 : step % 2;
+          if (commandIndex === 2) {
+            npc.col = 2;
+            npc.shieldCharges++;
+          } else if (commandIndex === 1) {
+            npc.row = safestRow;
+            s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.5);
+          } else launchNpcShot(s.player.row, 2, true);
+        } else if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
+          commandIndex = behind || threatened ? 2 : 0;
+          if (commandIndex === 2) {
+            npc.hp = boundedRecovery(npc.hp, 2);
+            npc.shieldCharges++;
+          } else launchNpcShot(s.player.row, 1, true);
         } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
-          s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.9);
-          s.cardTimer = Math.max(0, s.cardTimer - 1.5);
-        } else if (VS_NPC_ASSAULT_SKILLS.has(npcRivalSkill)) {
-          launchNpcShot(npc.row, 2, true);
+          commandIndex = step % 3;
+          if (commandIndex === 0) s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.9);
+          else if (commandIndex === 1) {
+            s.cardTimer = Math.max(0, s.cardTimer - 1.5);
+            npc.row = safestRow;
+          } else s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.55);
         } else {
-          npc.hp = boundedRecovery(npc.hp, 2);
+          commandIndex = threatened ? 2 : step % 2;
+          if (commandIndex === 2) npc.shieldCharges++;
+          else launchNpcShot(s.player.row, 2, true);
         }
-        showMessage(`NPC Skill · ${RIVAL_SKILL_LABELS[npcRivalSkill]}`, 1100);
+        npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges);
+        showMessage(
+          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][commandIndex]}`,
+          1100,
+        );
         npcSkillTimerRef.current = VS_NPC_SKILL_INTERVAL;
         updateHud();
       }
@@ -8147,10 +8261,16 @@ export default function Game() {
       npc.moveCooldown -= dt;
       if (npc.moveCooldown <= 0) {
         npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
-        if (nextNpcRandom() < 0.68) {
+        const laneThreat = [0, 1, 2].map((row) =>
+          s.bullets.filter((bullet) => bullet.row === row && bullet.colPos > 2.2).length);
+        const safeRows = [0, 1, 2].filter((row) =>
+          laneThreat[row] === Math.min(...laneThreat));
+        if (laneThreat[npc.row] > 0 && safeRows.some((row) => row !== npc.row)) {
+          npc.row = safeRows[Math.floor(nextNpcRandom() * safeRows.length)];
+        } else if (nextNpcRandom() < 0.58) {
           if (npc.row < s.player.row) npc.row++;
           else if (npc.row > s.player.row) npc.row--;
-        } else if (nextNpcRandom() < 0.2) {
+        } else if (nextNpcRandom() < 0.24) {
           npc.row = Math.max(0, Math.min(2, npc.row + (nextNpcRandom() < 0.5 ? 1 : -1)));
         }
       }
@@ -8864,6 +8984,7 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     npcAttackStartedRef.current = -1;
     npcSkillStartedRef.current = -1;
+    npcStrategyStepRef.current = 0;
     npcVisualPositionRef.current = {
       col: stateRef.current.npc.col,
       row: stateRef.current.npc.row,
