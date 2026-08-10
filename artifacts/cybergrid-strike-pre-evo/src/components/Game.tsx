@@ -88,7 +88,7 @@ import {
   competitiveProjectileDamage,
   competitiveRandom,
 } from '../game/competitive-balance';
-import { draw, getBoardMetrics } from '../game/renderer';
+import { draw, getBoardMetrics, preloadAdvancedProjectileSheet } from '../game/renderer';
 import {
   ensureAudio, startMusic, stopMusic,
   playShot, playHit, playScore, playGameOver, setSystemIntegrityAudio,
@@ -4128,6 +4128,10 @@ export default function Game() {
   }, []);
 
   useEffect(() => {
+    preloadAdvancedProjectileSheet(playerSkin);
+  }, [playerSkin]);
+
+  useEffect(() => {
     if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
       rivalAttackSequenceRef.current = null;
       rivalSkillSequenceRef.current = null;
@@ -4642,6 +4646,15 @@ export default function Game() {
       orbital: 'orbital',
       hijack: 'swarm',
       sovereign: 'energy',
+      tempest: 'energy',
+      cryo: 'suppression',
+      terra: 'physical',
+      echo: 'resonance',
+      mirage: 'portal',
+      beacon: 'grid',
+      swarm: 'swarm',
+      bloom: 'adaptive',
+      tidal: 'energy',
     };
     if (skin !== 'assembly') return skinAttackLanguage[skin];
     try {

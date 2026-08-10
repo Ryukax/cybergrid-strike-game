@@ -977,6 +977,11 @@ function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
   return sheet;
 }
 
+/** Begin loading the selected skin's authored projectile before its first shot. */
+export function preloadAdvancedProjectileSheet(skin: string): void {
+  if (PROJECTILE_EFFECTS[skin]) getAdvancedProjectileSheet(skin);
+}
+
 
 export function draw(
   ctx: CanvasRenderingContext2D,
