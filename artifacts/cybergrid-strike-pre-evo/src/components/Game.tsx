@@ -2466,7 +2466,9 @@ type RivalSkillId =
   | 'rift' | 'vector' | 'gridshift' | 'resonance'
   | 'exchange' | 'causality' | 'arsenal'
   | 'assimilation' | 'null' | 'polarity' | 'colossus'
-  | 'predator' | 'orbital' | 'hijack' | 'sovereign';
+  | 'predator' | 'orbital' | 'hijack' | 'sovereign'
+  | 'tempest' | 'cryo' | 'terra' | 'echo' | 'mirage'
+  | 'beacon' | 'swarm' | 'bloom' | 'tidal';
 interface RivalSkillView {
   active: boolean;
   id: RivalSkillId | null;
@@ -2519,6 +2521,15 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   orbital: 'Orbital Command',
   hijack: 'Command Hijack',
   sovereign: 'Last Sovereign',
+  tempest: 'Storm Kernel',
+  cryo: 'Cryostasis Array',
+  terra: 'Geologic Forge',
+  echo: 'Echo Drive',
+  mirage: 'Mirage Array',
+  beacon: 'Integrity Beacon',
+  swarm: 'Swarm Consensus',
+  bloom: 'Symbiotic Bloom',
+  tidal: 'Tidal Engine',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
 const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
@@ -2528,6 +2539,10 @@ const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
   'sovereign',
 ]);
 type AssemblySkillId = 'shadow' | RivalSkillId;
+const CONCEPT_SKIN_IDS = [
+  'tempest', 'cryo', 'terra', 'echo', 'mirage',
+  'beacon', 'swarm', 'bloom', 'tidal',
+] as const;
 const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   chrono: ['QUEUE', 'STEP', 'REWIND'],
   singularity: ['COLLAPSE', 'POLARITY', 'GUARD'],
@@ -2552,6 +2567,15 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
   orbital: ['DESIGNATE', 'ORDNANCE', 'DROP'],
   hijack: ['ORDER', 'COMMAND', 'BREAK'],
   sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
+  tempest: ['CHARGE', 'CHAIN', 'GROUND'],
+  cryo: ['FREEZE', 'SHATTER', 'PRESERVE'],
+  terra: ['RAISE', 'FAULT', 'HARDEN'],
+  echo: ['TRACE', 'REPLAY', 'DISPLACE'],
+  mirage: ['DECOY', 'VEIL', 'AMBUSH'],
+  beacon: ['SIGNAL', 'ASSIST', 'SYNCHRONIZE'],
+  swarm: ['SEED', 'VOTE', 'OVERRUN'],
+  bloom: ['GRAFT', 'CULTIVATE', 'RECLAIM'],
+  tidal: ['PRESSURE', 'CURRENT', 'BREAKWATER'],
 };
 
 const VS_SKILL_COOLDOWN = COMPETITIVE_RULESET.signatureSkillCooldown;
@@ -2566,14 +2590,14 @@ const VS_ABILITY_DISRUPT = new Set([
   'quarantine',
 ]);
 const VS_NPC_DEFENSIVE_SKILLS = new Set<RivalSkillId>([
-  'counter', 'null', 'colossus', 'sovereign',
+  'counter', 'null', 'colossus', 'sovereign', 'cryo', 'terra', 'beacon', 'bloom',
 ]);
 const VS_NPC_CONTROL_SKILLS = new Set<RivalSkillId>([
   'chrono', 'singularity', 'rift', 'vector', 'gridshift', 'resonance',
-  'exchange', 'causality', 'polarity',
+  'exchange', 'causality', 'polarity', 'echo', 'mirage', 'swarm', 'tidal',
 ]);
 const VS_NPC_ASSAULT_SKILLS = new Set<RivalSkillId>([
-  'apex', 'phase', 'phoenix', 'arsenal', 'predator', 'orbital',
+  'apex', 'phase', 'phoenix', 'arsenal', 'predator', 'orbital', 'tempest',
 ]);
 
 interface RivalSkillGuide {
@@ -2766,6 +2790,15 @@ const RIVAL_SKILL_GUIDE: Record<RivalSkillId, RivalSkillGuide> = {
       'ENDURE — preserves the scarcity state and converts it into defense.',
     ],
   },
+  tempest: { summary: 'Build voltage through movement and release it as lane pressure without abandoning defense.', commands: ['CHARGE — fire an energized strike and store voltage.', 'CHAIN — spend voltage across the current lane.', 'GROUND — convert voltage into shielding and knockback.'] },
+  cryo: { summary: 'Apply frost before rupturing it, or preserve accumulated cold as protection.', commands: ['FREEZE — slow and mark the current enemy lane.', 'SHATTER — damage frozen targets and release stored frost.', 'PRESERVE — convert frost into armor and regeneration.'] },
+  terra: { summary: 'Forge defensive structure, fracture enemy footing, then consolidate the debris.', commands: ['RAISE — construct cover on the current tile.', 'FAULT — damage and displace the current lane.', 'HARDEN — convert cover and debris into shields.'] },
+  echo: { summary: 'Record a battle coordinate, replay its attack, or return instantly to the traced tile.', commands: ['TRACE — record the current tile as an echo origin.', 'REPLAY — fire from every recorded origin.', 'DISPLACE — return to the latest recorded origin.'] },
+  mirage: { summary: 'Place projected positions, conceal the real body, then emerge from a chosen decoy.', commands: ['DECOY — store the current tile as a projected position.', 'VEIL — grant brief phasing and obscure repositioning.', 'AMBUSH — move to the latest decoy and strike its lane.'] },
+  beacon: { summary: 'Mark synchronization lanes and turn coordinated positioning into shared support.', commands: ['SIGNAL — mark the current lane for synchronized fire.', 'ASSIST — fire support shots through signaled lanes.', 'SYNCHRONIZE — convert signals into shields, recovery, and overclock.'] },
+  swarm: { summary: 'Seed lanes with nanites, elect a behavior, then resolve every colony together.', commands: ['SEED — attach a nanite colony to the current lane.', 'VOTE — cycle assault, disruption, and restoration.', 'OVERRUN — consume all seeds using the elected behavior.'] },
+  bloom: { summary: 'Establish symbiotic growths, cultivate them, and reclaim mature growth as resources.', commands: ['GRAFT — plant a restorative growth on the current tile.', 'CULTIVATE — mature every graft and recover gradually.', 'RECLAIM — consume grafts for healing, shields, and a strike.'] },
+  tidal: { summary: 'Accumulate pressure, redirect battlefield currents, and form a displacement barrier.', commands: ['PRESSURE — charge and fire a scaling pressure shot.', 'CURRENT — cycle enemies between lanes.', 'BREAKWATER — push the current lane and gain shielding.'] },
 };
 
 function SkillGuidePanel({ id }: { id: RivalSkillId }) {
@@ -2802,6 +2835,11 @@ const SIGNATURE_SKILL_COLORS: Record<RivalSkillId, [string, string]> = {
   colossus: ['#fbbf24', '#94a3b8'], predator: ['#fb7185', '#f8fafc'],
   orbital: ['#fde047', '#60a5fa'], hijack: ['#c084fc', '#2dd4bf'],
   sovereign: ['#f43f5e', '#fde047'],
+  tempest: ['#38bdf8', '#f8fafc'], cryo: ['#67e8f9', '#dbeafe'],
+  terra: ['#f59e0b', '#57534e'], echo: ['#818cf8', '#22d3ee'],
+  mirage: ['#c084fc', '#22d3ee'], beacon: ['#22d3ee', '#f8fafc'],
+  swarm: ['#38bdf8', '#94a3b8'], bloom: ['#f472b6', '#4ade80'],
+  tidal: ['#06b6d4', '#dbeafe'],
 };
 
 type SkillExecutionMotif =
@@ -2834,6 +2872,15 @@ const SKILL_EXECUTION_MOTIFS: Record<RivalSkillId, [SkillExecutionMotif, SkillEx
   orbital: ['target', 'morph', 'orbital'],
   hijack: ['command', 'target', 'suppress'],
   sovereign: ['sovereign', 'exchange', 'restore'],
+  tempest: ['dash', 'resonance', 'reflect'],
+  cryo: ['suppress', 'weapon', 'restore'],
+  terra: ['construct', 'grid', 'reflect'],
+  echo: ['lock', 'time', 'portal'],
+  mirage: ['construct', 'suppress', 'dash'],
+  beacon: ['target', 'resonance', 'restore'],
+  swarm: ['harvest', 'command', 'morph'],
+  bloom: ['construct', 'restore', 'harvest'],
+  tidal: ['weapon', 'vector', 'reflect'],
 };
 
 const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b' | 'c'; row: number }> = {
@@ -3918,7 +3965,9 @@ export default function Game() {
     | 'rift' | 'vector' | 'gridshift' | 'resonance'
     | 'exchange' | 'causality' | 'arsenal'
     | 'assimilation' | 'null' | 'polarity' | 'colossus'
-    | 'predator' | 'orbital' | 'hijack' | 'sovereign';
+    | 'predator' | 'orbital' | 'hijack' | 'sovereign'
+    | 'tempest' | 'cryo' | 'terra' | 'echo' | 'mirage'
+    | 'beacon' | 'swarm' | 'bloom' | 'tidal';
   const SKIN_KEY = 'cgs_player_skin';
   const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
@@ -3971,6 +4020,15 @@ export default function Game() {
     { id: 'orbital', label: 'Zenith', preview: `${import.meta.env.BASE_URL}skins/skill-orbital-idle.png` },
     { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}skins/skill-hijack-idle.png` },
     { id: 'sovereign', label: 'Regent', preview: `${import.meta.env.BASE_URL}skins/skill-sovereign-idle.png` },
+    { id: 'tempest', label: 'Tempest', preview: `${import.meta.env.BASE_URL}skins/skill-tempest-idle.png` },
+    { id: 'cryo', label: 'Cryo', preview: `${import.meta.env.BASE_URL}skins/skill-cryo-idle.png` },
+    { id: 'terra', label: 'Terra', preview: `${import.meta.env.BASE_URL}skins/skill-terra-idle.png` },
+    { id: 'echo', label: 'Echo', preview: `${import.meta.env.BASE_URL}skins/skill-echo-idle.png` },
+    { id: 'mirage', label: 'Mirage', preview: `${import.meta.env.BASE_URL}skins/skill-mirage-idle.png` },
+    { id: 'beacon', label: 'Beacon', preview: `${import.meta.env.BASE_URL}skins/skill-beacon-idle.png` },
+    { id: 'swarm', label: 'Swarm', preview: `${import.meta.env.BASE_URL}skins/skill-swarm-idle.png` },
+    { id: 'bloom', label: 'Bloom', preview: `${import.meta.env.BASE_URL}skins/skill-bloom-idle.png` },
+    { id: 'tidal', label: 'Tidal', preview: `${import.meta.env.BASE_URL}skins/skill-tidal-idle.png` },
   ];
 
   // Rocket skin frames (static pre-transparified PNGs):
@@ -4104,7 +4162,8 @@ export default function Game() {
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
     const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId);
-    if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem' && !rivalSkin) return;
+    const conceptSkin = CONCEPT_SKIN_IDS.includes(playerSkin as (typeof CONCEPT_SKIN_IDS)[number]);
+    if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem' && !rivalSkin && !conceptSkin) return;
     const base = import.meta.env.BASE_URL;
     const loadBmp = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
@@ -4147,6 +4206,26 @@ export default function Game() {
     (async () => {
       try {
         const base = import.meta.env.BASE_URL;
+        if (conceptSkin) {
+          const [idleFrames, attackFrames] = await Promise.all([
+            Promise.all(Array.from(
+              { length: 8 },
+              (_, index) => loadBitmap(`${base}skins/concept-idle-frames/${playerSkin}-${index}.png`),
+            )),
+            Promise.all(Array.from(
+              { length: 8 },
+              (_, index) => loadBitmap(`${base}skins/concept-attack-frames/${playerSkin}-${index}.png`),
+            )),
+          ]);
+          if (cancelled) {
+            [...idleFrames, ...attackFrames].forEach((bitmap) => bitmap.close());
+            return;
+          }
+          gifFramesRef.current = idleFrames;
+          gifAttackFramesRef.current = attackFrames;
+          rocketFrameRef.current = -1;
+          return;
+        }
         if (rivalSkin) {
           const alphaVersion = playerSkin === 'architect' ? 'v3' : 'v2';
           let [rawIdle, rawAttack] = await Promise.all([
@@ -4229,7 +4308,12 @@ export default function Game() {
           rocketFrameRef.current = -1;
           return;
         }
-        const urls = playerSkin === 'rocket'
+        const urls = conceptSkin
+          ? Array.from(
+              { length: 8 },
+              (_, index) => `${base}skins/concept-idle-frames/${playerSkin}-${index}.png`,
+            )
+          : playerSkin === 'rocket'
           ? [`${base}skins/rocket_idle.png`]
           : playerSkin === 'dots'
           ? [
@@ -4640,7 +4724,13 @@ export default function Game() {
     if (playerOriginShot && playerSkinRef.current === 'assembly') {
       setAssemblyAttackPulse((pulse) => pulse + 1);
     }
-    if (playerOriginShot && RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)) rivalShootFlash();
+    if (
+      playerOriginShot
+      && (
+        RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
+        || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number])
+      )
+    ) rivalShootFlash();
   }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
@@ -6514,6 +6604,195 @@ export default function Game() {
         s.regenTimer = Math.max(s.regenTimer, 3);
         showMessage('Sovereign endures scarcity.', 750);
       }
+    } else if (active.id === 'tempest') {
+      if (action === 'primary') {
+        next.charges = Math.min(5, next.charges + 1);
+        s.overclockTimer = Math.max(s.overclockTimer, 1.5 + next.charges * 0.35);
+        fireBullet(undefined, { power: 2 + Math.floor(next.charges / 2), big: true, pierce: next.charges >= 4 });
+        showMessage(`Storm charge ${next.charges}/5.`, 700);
+      } else if (action === 'alternate') {
+        const power = Math.max(1, next.charges);
+        const rows = new Set([s.player.row, (s.player.row + 1) % 3]);
+        for (const enemy of s.enemies.filter((candidate) => rows.has(candidate.row))) {
+          enemy.hp -= 1 + Math.ceil(power / 2);
+          enemy.flash = 0.18;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        next.charges = Math.max(0, next.charges - 2);
+        showMessage('Voltage chained through formation.', 750);
+      } else {
+        s.shieldCharges += Math.max(1, Math.ceil(next.charges / 2));
+        for (const enemy of s.enemies.filter((candidate) => candidate.row === s.player.row)) {
+          enemy.colPos = Math.min(5.8, enemy.colPos + 0.8);
+        }
+        next.charges = 0;
+        showMessage('Storm Kernel grounded.', 700);
+      }
+    } else if (active.id === 'cryo') {
+      const lane = s.enemies.filter((enemy) => enemy.row === s.player.row);
+      if (action === 'primary') {
+        for (const enemy of lane) {
+          enemy.speed = Math.min(enemy.speed, 0.025);
+          enemy.flash = 0.16;
+        }
+        next.placements = [...new Set([...next.placements, s.player.row])];
+        next.charges = Math.min(5, next.charges + lane.length);
+        showMessage(lane.length ? 'Lane frozen.' : 'Frost held in reserve.', 700);
+      } else if (action === 'alternate') {
+        for (const enemy of lane) enemy.hp -= 2 + Math.min(3, next.charges);
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        next.charges = 0;
+        next.placements = next.placements.filter((row) => row !== s.player.row);
+        showMessage('Cryostasis shattered.', 700);
+      } else {
+        s.shieldCharges += 1 + Math.floor(next.charges / 2);
+        s.regenTimer = Math.max(s.regenTimer, 2 + next.charges);
+        next.charges = 0;
+        showMessage('Cryostasis preserved.', 700);
+      }
+    } else if (active.id === 'terra') {
+      if (action === 'primary') {
+        next.placements = [...next.placements, s.player.col * 3 + s.player.row].slice(-4);
+        next.charges = next.placements.length;
+        s.shieldCharges++;
+        showMessage(`Forge cover ${next.charges}/4 raised.`, 700);
+      } else if (action === 'alternate') {
+        const lane = s.enemies.filter((enemy) => enemy.row === s.player.row);
+        for (const enemy of lane) {
+          enemy.hp -= 2;
+          enemy.colPos = Math.min(5.8, enemy.colPos + 1);
+          enemy.flash = 0.18;
+        }
+        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        next.charges = Math.min(6, next.charges + lane.length);
+        showMessage('Fault line propagated.', 700);
+      } else {
+        s.shieldCharges += Math.max(1, next.charges);
+        next.placements = [];
+        next.charges = 0;
+        showMessage('Forge mass hardened.', 700);
+      }
+    } else if (active.id === 'echo') {
+      const cell = s.player.col * 3 + s.player.row;
+      if (action === 'primary') {
+        next.placements = [...next.placements.filter((saved) => saved !== cell), cell].slice(-4);
+        next.charges = next.placements.length;
+        showMessage(`Echo origin ${next.charges}/4 traced.`, 700);
+      } else if (action === 'alternate') {
+        const origins = next.placements.length ? next.placements : [cell];
+        for (const origin of origins) fireBullet(origin % 3, { originCol: Math.floor(origin / 3), power: 2, big: true });
+        showMessage(`Replayed ${origins.length} traced attack${origins.length === 1 ? '' : 's'}.`, 750);
+      } else {
+        const origin = next.placements.at(-1);
+        if (origin === undefined) showMessage('Trace an origin first.', 650);
+        else {
+          s.player.col = Math.floor(origin / 3);
+          s.player.row = origin % 3;
+          s.ghostTimer = Math.max(s.ghostTimer, 0.8);
+          showMessage('Echo displacement complete.', 700);
+        }
+      }
+    } else if (active.id === 'mirage') {
+      const cell = s.player.col * 3 + s.player.row;
+      if (action === 'primary') {
+        next.placements = [...next.placements, cell].slice(-3);
+        next.charges = next.placements.length;
+        showMessage(`Decoy ${next.charges}/3 projected.`, 700);
+      } else if (action === 'alternate') {
+        s.ghostTimer = Math.max(s.ghostTimer, 2.25);
+        s.shieldCharges++;
+        showMessage('Mirage veil active.', 700);
+      } else {
+        const decoy = next.placements.pop();
+        if (decoy === undefined) showMessage('Project a decoy first.', 650);
+        else {
+          s.player.col = Math.floor(decoy / 3);
+          s.player.row = decoy % 3;
+          fireBullet(s.player.row, { originCol: s.player.col, power: 4, big: true, pierce: true });
+          next.charges = next.placements.length;
+          showMessage('Mirage ambush resolved.', 700);
+        }
+      }
+    } else if (active.id === 'beacon') {
+      if (action === 'primary') {
+        next.placements = [...new Set([...next.placements, s.player.row])];
+        next.charges = next.placements.length;
+        showMessage(`Synchronization signal ${next.charges}/3.`, 700);
+      } else if (action === 'alternate') {
+        const lanes = next.placements.length ? next.placements : [s.player.row];
+        for (const row of lanes) fireBullet(row, { power: 2, big: true, pierce: lanes.length === 3 });
+        showMessage('Helpers synchronized fire.', 700);
+      } else {
+        const sync = Math.max(1, next.placements.length);
+        s.shieldCharges += sync;
+        s.regenTimer = Math.max(s.regenTimer, 2 + sync);
+        s.overclockTimer = Math.max(s.overclockTimer, 2 + sync);
+        next.placements = [];
+        next.charges = 0;
+        showMessage(`Integrity synchronized across ${sync} lane${sync === 1 ? '' : 's'}.`, 800);
+      }
+    } else if (active.id === 'swarm') {
+      if (action === 'primary') {
+        next.placements = [...next.placements, s.player.row].slice(-6);
+        next.charges = next.placements.length;
+        showMessage(`Nanite seed ${next.charges}/6 attached.`, 700);
+      } else if (action === 'alternate') {
+        next.mode = (next.mode + 1) % 3;
+        showMessage(`Consensus: ${['ASSAULT', 'DISRUPTION', 'RESTORATION'][next.mode]}.`, 750);
+      } else {
+        const seeds = next.placements.length;
+        if (next.mode === 0) {
+          for (const enemy of s.enemies.filter((candidate) => next.placements.includes(candidate.row))) enemy.hp -= Math.max(1, seeds);
+          s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
+        } else if (next.mode === 1) {
+          for (const enemy of s.enemies.filter((candidate) => next.placements.includes(candidate.row))) enemy.speed = Math.min(enemy.speed, 0.02);
+          s.signalJamTimer = Math.max(s.signalJamTimer, 2 + seeds);
+        } else {
+          s.hp += Math.ceil(seeds / 2);
+          s.shieldCharges += Math.floor(seeds / 2);
+        }
+        next.placements = [];
+        next.charges = 0;
+        showMessage('Swarm consensus executed.', 750);
+      }
+    } else if (active.id === 'bloom') {
+      const cell = s.player.col * 3 + s.player.row;
+      if (action === 'primary') {
+        next.placements = [...next.placements.filter((growth) => growth !== cell), cell].slice(-5);
+        next.charges = next.placements.length;
+        showMessage(`Symbiotic graft ${next.charges}/5 planted.`, 700);
+      } else if (action === 'alternate') {
+        next.mode = Math.min(3, next.mode + 1);
+        s.regenTimer = Math.max(s.regenTimer, 1 + next.placements.length + next.mode);
+        showMessage(`Growth cultivated to stage ${next.mode}/3.`, 700);
+      } else {
+        const growth = Math.max(1, next.placements.length * Math.max(1, next.mode));
+        s.hp += Math.ceil(growth / 2);
+        s.shieldCharges += Math.floor(growth / 3);
+        fireBullet(undefined, { power: 1 + Math.ceil(growth / 3), big: true, pierce: growth >= 6 });
+        next.placements = [];
+        next.charges = 0;
+        next.mode = 0;
+        showMessage('Symbiotic growth reclaimed.', 750);
+      }
+    } else if (active.id === 'tidal') {
+      if (action === 'primary') {
+        next.charges = Math.min(5, next.charges + 1);
+        fireBullet(undefined, { power: 1 + next.charges, big: true, pierce: next.charges >= 4 });
+        showMessage(`Tidal pressure ${next.charges}/5.`, 700);
+      } else if (action === 'alternate') {
+        const direction = next.mode === 0 ? 1 : -1;
+        for (const enemy of s.enemies) enemy.row = (enemy.row + direction + 3) % 3;
+        next.mode = next.mode ? 0 : 1;
+        showMessage(`Current redirected ${direction > 0 ? 'down' : 'up'}.`, 700);
+      } else {
+        for (const enemy of s.enemies.filter((candidate) => candidate.row === s.player.row)) {
+          enemy.colPos = Math.min(5.8, enemy.colPos + 0.7 + next.charges * 0.15);
+        }
+        s.shieldCharges += Math.max(1, Math.ceil(next.charges / 2));
+        next.charges = 0;
+        showMessage('Breakwater established.', 700);
+      }
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
@@ -8032,7 +8311,8 @@ export default function Game() {
         || playerSkinRef.current === 'dots'
         || playerSkinRef.current === 'gem'
         || playerSkinRef.current === 'assembly'
-        || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId);
+        || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
+        || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
       const npcHasOverlay = stateRef.current.gameMode === 'vs' && npcSkinRef.current !== 'default';
       if (ctx) draw(
         ctx,
@@ -8052,7 +8332,8 @@ export default function Game() {
           const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
-          const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId);
+          const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
+            || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
           const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 0.85 : rivalSkin ? 1.08 : 0.72;
           const sz = Math.round(m.cell * szScale);
           wrap.style.left   = `${px}px`;
@@ -8087,6 +8368,17 @@ export default function Game() {
               // Gem attack takes highest priority
               const aFrames = gifAttackFramesRef.current;
               bitmap = aFrames[gemAttackFrameRef.current % Math.max(1, aFrames.length)];
+            } else if (
+              CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number])
+              && gemAttackFrameRef.current >= 0
+            ) {
+              const attackFrames = gifAttackFramesRef.current;
+              const attackProgress = Math.max(0, Math.min(
+                0.999,
+                (performance.now() - rivalAttackStartedRef.current) / RIVAL_ATTACK_DURATION,
+              ));
+              const attackIndex = Math.floor(attackProgress * attackFrames.length);
+              bitmap = attackFrames[Math.min(attackIndex, attackFrames.length - 1)];
             } else if (rivalSkin && gemAttackFrameRef.current >= 0) {
               bitmap = frames[0];
               rivalAttackBitmap = gifAttackFramesRef.current[0];
@@ -8100,9 +8392,16 @@ export default function Game() {
               const elapsed = performance.now() - gemMoveStartRef.current;
               const mIdx = Math.min(Math.floor(elapsed / GEM_MOVE_FRAME_MS), mFrames.length - 1);
               bitmap = mFrames[mIdx % Math.max(1, mFrames.length)];
-            } else if (playerSkinRef.current === 'dots' || playerSkinRef.current === 'gem') {
+            } else if (
+              playerSkinRef.current === 'dots'
+              || playerSkinRef.current === 'gem'
+              || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number])
+            ) {
               // Idle auto-cycle
-              bitmap = frames[Math.floor(performance.now() / 120) % frames.length];
+              const frameDuration = CONCEPT_SKIN_IDS.includes(
+                playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number],
+              ) ? 95 : 120;
+              bitmap = frames[Math.floor(performance.now() / frameDuration) % frames.length];
             } else {
               // Rocket idle — frames[0] is the only idle frame
               bitmap = frames[0];
@@ -9049,10 +9348,14 @@ export default function Game() {
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
       {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly'
-        || RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) && (
+        || RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)
+        || CONCEPT_SKIN_IDS.includes(playerSkin as (typeof CONCEPT_SKIN_IDS)[number])) && (
         <div
           ref={spriteWrapRef}
-          className={RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId) ? 'rivalPlayerSprite' : undefined}
+          className={RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)
+            || CONCEPT_SKIN_IDS.includes(playerSkin as (typeof CONCEPT_SKIN_IDS)[number])
+            ? 'rivalPlayerSprite'
+            : undefined}
           style={{
             position: 'absolute',
             pointerEvents: 'none',
