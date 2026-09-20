@@ -83,6 +83,15 @@ export interface Enemy {
   counterpartAbilityId?: string;
   abilityCooldown?: number;
   abilityWindup?: number;
+  /** Compact, rewind-safe tactical state. Runtime strategy data stays scalar. */
+  strategyDecisionCooldown?: number;
+  strategyDecisionIndex?: number;
+  strategyLaneChangeCooldown?: number;
+  strategyTargetRow?: number;
+  strategyAbilityTargetRow?: number;
+  strategyCastReady?: boolean;
+  strategySpeedMultiplier?: number;
+  strategyCooldownScale?: number;
 }
 
 export interface Particle {
@@ -99,16 +108,32 @@ export interface Player {
   col: number;
   row: number;
   fireCooldown: number;
+  /** Versus control effects can temporarily prevent lane movement. */
+  moveCooldown: number;
 }
 
 export interface NpcAgent {
-  /** Column within the right half (0–2); actual board col = 3 + this. Fixed at 1. */
+  /** Column within the right half (0–2); actual board col = 3 + this. */
   col: number;
   row: number;
   fireCooldown: number;
   moveCooldown: number;
   hp: number;
   shieldCharges: number;
+  /** Rewind-safe competitive decision timeline and signature resources. */
+  abilityCooldown: number;
+  signatureCooldown: number;
+  signatureWindow: number;
+  signatureActionCooldown: number;
+  signatureActions: number;
+  signatureLastCommand: number;
+  signatureMode: number;
+  signatureCharges: number;
+  signaturePlacements: number[];
+  signatureOriginCol: number;
+  signatureOriginRow: number;
+  strategyStep: number;
+  decisionLock: number;
 }
 
 export interface AbilityCooldowns {

@@ -73,9 +73,15 @@ export function getEnemyMovementClass(base: EnemyBaseElement): EnemyMovementClas
 }
 
 interface ComponentDefinition {
+  id?: string;
+  familyId?: string;
   source: VisualSource;
   role: FusionRole;
   domains: ElementDomain[];
+  bodyTypes?: BodyType[];
+  kind?: GenericComponentKind;
+  variant?: number;
+  motifSafe?: boolean;
 }
 
 type GenericComponentKind =
@@ -159,6 +165,7 @@ function coherentConceptSources(
 }
 
 function genericComponentKind(component: ComponentDefinition): GenericComponentKind {
+  if (component.kind) return component.kind;
   const domain = ELEMENT_DOMAIN[component.source as EnemyBaseElement]
     ?? (['automaton', 'capsid', 'phage', 'clockwork-mantis', 'utility-rover'].includes(component.source) ? 'machine'
       : component.source === 'beetle' ? 'chitin'
@@ -259,6 +266,19 @@ const MATRIX_COMPONENT_LIBRARY: ComponentDefinition[] = BASES.flatMap((sourceBas
 );
 const COMPLETE_COMPONENT_LIBRARY = [...COMPONENT_LIBRARY, ...MATRIX_COMPONENT_LIBRARY];
 
+// These concept paintings contain dominant complete-character motifs (large
+// faces, halos/rings, badges, deposits) that become stagnant when clipped into
+// every organism. Their material and motion vocabulary remains available for
+// locomotion, but they are not valid cranial or utility modules.
+const MOTIF_HEAVY_HEAD_SOURCES = new Set<VisualSource>([
+  'toon-trickster', 'gremlin', 'reef-jester', 'elemental-forge',
+  'capsid', 'phage', 'parasite', 'spore', 'skeleton',
+]);
+const MOTIF_HEAVY_FLANK_SOURCES = new Set<VisualSource>([
+  'toon-trickster', 'reef-jester', 'elemental-forge',
+  'capsid', 'parasite', 'spore',
+]);
+
 function selectGenericComponent(
   genome: EnemyGenome,
   seed: number,
@@ -268,11 +288,14 @@ function selectGenericComponent(
   preferredSources: Set<VisualSource> | undefined = undefined,
 ): ComponentDefinition | undefined {
   const domain = ELEMENT_DOMAIN[genome.baseElement];
-  const candidates = COMPLETE_COMPONENT_LIBRARY.filter((component) =>
+  const bodyType = BODY_TYPE[genome.baseElement];
+  const candidates = PRODUCTION_COMPONENT_CATALOG.filter((component) =>
     component.role === role
     && component.source !== genome.baseElement
     && !excluded.includes(component.source)
-    && component.domains.includes(domain));
+    && component.domains.includes(domain)
+    && component.motifSafe !== false
+    && (component.bodyTypes?.includes(bodyType) ?? true));
   if (candidates.length === 0) return undefined;
   const plannedCandidates = plannedKinds.length > 0
     ? candidates.filter((component) => plannedKinds.includes(genericComponentKind(component)))
@@ -361,6 +384,46 @@ const CLASS_LOCOMOTION: Record<EnemyGenome['enemyClass'], EnemyBaseElement[]> = 
   support: ['plant', 'cephalopod', 'snail', 'robot', 'drone', 'vehicle'],
   scavenger: ['vehicle', 'mole', 'crab', 'fox', 'nanite', 'serpent'],
 };
+
+const BODY_TYPES = Object.keys(BODY_PLAN_VOCABULARY) as BodyType[];
+
+// Production ceiling implementation: 24 proven source families each expose
+// two governed lineages. Every lineage contributes two variants in each of the
+// three functional sockets: 48 families x 6 components = 288 components.
+// Variants are deterministic crop/fit interpretations of established source
+// anatomy, never unrestricted random ornaments or complete-character atlases.
+const PRODUCTION_COMPONENT_CATALOG: ComponentDefinition[] = BASES.flatMap((sourceBase) =>
+  ([0, 1] as const).flatMap((lineage) => {
+    const bodyType = BODY_TYPE[sourceBase];
+    const familyId = `${sourceBase}-${lineage === 0 ? 'prime' : 'adaptive'}`;
+    return (['head', 'locomotion', 'flank'] as FusionRole[]).flatMap((role) => {
+      const vocabulary = BODY_PLAN_VOCABULARY[bodyType][role];
+      const matrixDefinition = MATRIX_COMPONENT_LIBRARY.find((component) =>
+        component.source === sourceBase && component.role === role);
+      return ([0, 1] as const).map((roleVariant) => {
+        const kind = vocabulary[(lineage + roleVariant) % vocabulary.length];
+        return {
+          id: `${familyId}-${role}-${roleVariant}`,
+          familyId,
+          source: sourceBase,
+          role,
+          domains: matrixDefinition?.domains ?? [ELEMENT_DOMAIN[sourceBase]],
+          bodyTypes: BODY_TYPES.filter((candidate) =>
+            BODY_PLAN_VOCABULARY[candidate][role].includes(kind)),
+          kind,
+          variant: lineage * 2 + roleVariant,
+          motifSafe: !(role === 'head' && MOTIF_HEAVY_HEAD_SOURCES.has(sourceBase))
+            && !(role === 'flank' && MOTIF_HEAVY_FLANK_SOURCES.has(sourceBase)),
+        } satisfies ComponentDefinition;
+      });
+    });
+  }),
+);
+
+export const ENEMY_COMPONENT_SYSTEM_STATS = Object.freeze({
+  families: new Set(PRODUCTION_COMPONENT_CATALOG.map((component) => component.familyId)).size,
+  components: PRODUCTION_COMPONENT_CATALOG.length,
+});
 
 const VISUAL_SCALE: Record<EnemyBaseElement, number> = {
   insect: 0.82, drone: 0.86, fungus: 0.9, nanite: 0.94,
@@ -696,6 +759,20 @@ function graftMask(
   ctx.closePath();
 }
 
+function clearFunctionalSocket(
+  ctx: CanvasRenderingContext2D,
+  seed: number,
+  region: MatrixRegion,
+  kind?: GenericComponentKind,
+): void {
+  ctx.save();
+  graftMask(ctx, seed, region, kind);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = '#000';
+  ctx.fill();
+  ctx.restore();
+}
+
 function graft(
   ctx: CanvasRenderingContext2D,
   image: HTMLImageElement,
@@ -705,6 +782,7 @@ function graft(
   region: MatrixRegion,
   alpha: number,
   kind?: GenericComponentKind,
+  variant = 0,
 ): void {
   if (!ready(image)) return;
   const output = ctx;
@@ -743,12 +821,23 @@ function graft(
         },
       }
     : {};
-  const bounds = skeletonRegion[region] ?? authoredBounds;
+  const baseBounds = skeletonRegion[region] ?? authoredBounds;
+  const trimX = baseBounds.width * (variant % 2 === 0 ? 0.02 : 0.09);
+  const trimTop = baseBounds.height * (variant < 2 ? 0.02 : 0.08);
+  const trimBottom = baseBounds.height * (variant < 2 ? 0.07 : 0.02);
+  const bounds = {
+    x: baseBounds.x + trimX,
+    y: baseBounds.y + trimTop,
+    width: Math.max(1, baseBounds.width - trimX * 2),
+    height: Math.max(1, baseBounds.height - trimTop - trimBottom),
+  };
+  const breadth = [1, 0.88, 1.12, 0.96][variant % 4];
+  const rise = [0, 1.5, -1, 0.5][variant % 4];
   const drawDonor = (dx: number, dy: number, dw: number, dh: number) =>
     drawOriented(
       ctx, image, base,
       bounds.x, bounds.y, bounds.width, bounds.height,
-      dx, dy, dw, dh,
+      dx + (dw - dw * breadth) / 2, dy + rise, dw * breadth, dh,
     );
   if (region === 'head') {
     if (kind === 'crown') {
@@ -887,14 +976,21 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     [compositionPlan.locomotion],
     conceptSources,
   );
+  // Viability filter: ordinary organisms may combine a distinct head and
+  // locomotion donor, but the utility socket must echo one of those established
+  // visual languages. This caps an unfused body at three readable lineages
+  // (core + two donors) without reducing the cross-family combination space.
+  const establishedDonors = new Set<VisualSource>(
+    [headComponent?.source, locomotionComponent?.source]
+      .filter((candidate): candidate is VisualSource => Boolean(candidate)),
+  );
   const flankComponent = selectGenericComponent(
     genome,
     seed + 175,
     'flank',
-    [headComponent?.source, locomotionComponent?.source]
-      .filter((candidate): candidate is VisualSource => Boolean(candidate)),
+    [],
     [compositionPlan.flank],
-    conceptSources,
+    establishedDonors.size > 0 ? establishedDonors : conceptSources,
   );
   const headPool = COMPATIBLE_HEADS[bodyType];
   const locomotionPool = [
@@ -956,19 +1052,25 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     && fusionOutcome
     && fusionBase !== genome.baseElement;
   const resolvedHead = fusionActive && fusionOutcome.role === 'head'
-    ? { image: fusion, base: fusionBase, kind: fusionKind }
+    ? { image: fusion, base: fusionBase, kind: fusionKind, variant: Math.floor(gene(seed, 701) * 4) }
     : {
         image: head,
         base: headBase,
         kind: headComponent ? genericComponentKind(headComponent) : undefined,
+        variant: headComponent?.variant ?? Math.floor(gene(seed, 703) * 4),
       };
   const resolvedLocomotion = fusionActive && fusionOutcome.role === 'locomotion'
-    ? { image: fusion, base: fusionBase, kind: fusionKind }
+    ? { image: fusion, base: fusionBase, kind: fusionKind, variant: Math.floor(gene(seed, 709) * 4) }
     : {
         image: locomotion,
         base: locomotionBase,
         kind: locomotionComponent ? genericComponentKind(locomotionComponent) : undefined,
+        variant: locomotionComponent?.variant ?? Math.floor(gene(seed, 711) * 4),
       };
+  // The core paintings contain enough source anatomy to remain readable while
+  // loading. Remove that inherited cranial region before fitting the selected
+  // genome head so an organism can never display stacked or competing faces.
+  clearFunctionalSocket(ctx, seed + 31, 'head', resolvedHead.kind);
   graft(
     ctx,
     resolvedHead.image,
@@ -978,6 +1080,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     'head',
     0.98,
     resolvedHead.kind,
+    resolvedHead.variant,
   );
   graft(
     ctx,
@@ -988,6 +1091,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
     'locomotion',
     0.97,
     resolvedLocomotion.kind,
+    resolvedLocomotion.variant,
   );
   if (fusionActive && fusionOutcome.role === 'flank') {
     graft(
@@ -999,6 +1103,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       'flank',
       0.9,
       fusionKind,
+      Math.floor(gene(seed, 719) * 4),
     );
   } else if (flankComponent && flankImage) {
     graft(
@@ -1010,6 +1115,7 @@ function render(canvas: HTMLCanvasElement, seed: number, genome: EnemyGenome): v
       'flank',
       genome.fusionLevel > 0 ? 0.68 : 0.86,
       genericComponentKind(flankComponent),
+      flankComponent.variant ?? Math.floor(gene(seed, 727) * 4),
     );
   }
 

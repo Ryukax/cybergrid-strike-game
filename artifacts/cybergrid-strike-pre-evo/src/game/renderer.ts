@@ -826,7 +826,8 @@ function drawSkinProjectileEffect(
   now: number,
   skin?: string,
 ): boolean {
-  const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
+  if (!skin) return false;
+  const config = PROJECTILE_EFFECTS[skin];
   if (!config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
@@ -920,6 +921,19 @@ function drawSkinProjectileEffect(
   drawFrame(0, 1);
   ctx.restore();
   return true;
+}
+
+/** Draw the identical authored projectile used by the tactical grid. */
+export function drawCampaignSkinProjectile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  direction: number,
+  now: number,
+  skin?: string,
+): boolean {
+  return drawSkinProjectileEffect(ctx, x, y, radius, direction, now, skin);
 }
 
 const advancedProjectileSheets = new Map<string, HTMLImageElement>();
@@ -1422,10 +1436,13 @@ export function draw(
       const visualSeed = getEnemyVisualSeed(e);
       const sprite = getProceduralVirusSprite(visualSeed, genome);
       const motion = getEntityMotion(genome.baseElement, now, visualSeed);
-      const spriteWidth = drawCell * 1.48;
-      const spriteHeight = drawCell * 0.99;
+      // Preserve the source's 3:2 aspect ratio while reserving real clearance
+      // above the silhouette. At 99% cell height the top contour, motion and
+      // HP marker competed for the same boundary and every family read clipped.
+      const spriteHeight = drawCell * 0.84;
+      const spriteWidth = spriteHeight * 1.5;
       ctx.save();
-      ctx.translate(motion.x, motion.y);
+      ctx.translate(motion.x, motion.y + drawCell * 0.055);
       ctx.scale(motion.scaleX, motion.scaleY);
       ctx.imageSmoothingEnabled = false;
       // Phase is communicated by its aura, never by making portions of the

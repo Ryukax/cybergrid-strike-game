@@ -13,9 +13,13 @@ type Props = {
   editing: boolean;
   children: ReactNode;
   onChange: (rect: HudLayoutRect) => void;
+  minWidth?: number;
+  minHeight?: number;
 };
 
-export function HudLayoutItem({ label, rect, editing, children, onChange }: Props) {
+export function HudLayoutItem({
+  label, rect, editing, children, onChange, minWidth = 112, minHeight = 38,
+}: Props) {
   const itemRef = useRef<HTMLDivElement>(null);
 
   const beginInteraction = (
@@ -43,8 +47,8 @@ export function HudLayoutItem({ label, rect, editing, children, onChange }: Prop
       if (mode === 'resize') {
         onChange({
           ...start,
-          width: Math.max(112, Math.min(bounds.width - start.x * bounds.width, start.width + dx)),
-          height: Math.max(38, Math.min(bounds.height - start.y * bounds.height, start.height + dy)),
+          width: Math.max(minWidth, Math.min(bounds.width - start.x * bounds.width, start.width + dx)),
+          height: Math.max(minHeight, Math.min(bounds.height - start.y * bounds.height, start.height + dy)),
         });
         return;
       }

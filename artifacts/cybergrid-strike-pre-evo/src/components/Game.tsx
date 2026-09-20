@@ -2,6 +2,7 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, type Mutable
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
 import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
+import { ActionCinematic } from './ActionCinematic';
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -98,6 +99,18 @@ import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morph
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
 import { getEnemyMovementClass, getProceduralVirusSprite, type EnemyMovementClass } from '../game/procedural-virus';
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
+import { resolveCampaignBiome } from '../game/campaign-scenery';
+import { ENCOUNTERS_PER_OPERATION, resolveCampaignProgress } from '../game/campaign-director';
+import {
+  chooseVersusMovementRow,
+  chooseVersusNpcAbility,
+  chooseVersusNpcSignature,
+  planCampaignNpc,
+  shotRowsForPlan,
+  type VersusAbilityPlan,
+  type VersusNpcContext,
+  type VersusSignaturePlan,
+} from '../game/npc-strategy';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 const ABILITY_PRESETS_KEY = 'cgs_ability_presets_v1';
@@ -140,6 +153,7 @@ const CYBER_BASES = new Set([
 const BESTIARY_KEY = 'cgs_bestiary_v1';
 const VIRTUAL_DPAD_KEY = 'cgs_virtual_dpad_v1';
 const INTEGRITY_CONSTRUCT_VISIBLE_KEY = 'cgs_integrity_construct_visible_v1';
+const ACTION_WINDOW_VISIBLE_KEY = 'cgs_action_window_visible_v2';
 const LEARNED_ABILITIES_KEY = 'cgs_learned_abilities_v1';
 const PLAYSTYLE_SIGNALS_KEY = 'cgs_playstyle_signals_v1';
 const ENABLED_ABILITIES_KEY = 'cgs_enabled_abilities_v1';
@@ -2062,6 +2076,9 @@ const PLAYER_ABILITY_MATRIX: AbilityBlueprint[] = ABILITY_POOL.map((ability) => 
   abilityId: ability.id,
   ...playerAbilityComponents(ability),
 }));
+const PLAYER_ABILITY_BY_ID = new Map(
+  PLAYER_ABILITY_MATRIX.map((entry) => [entry.abilityId, entry]),
+);
 
 function constitutionComponents(genome: EnemyGenome): Omit<AbilityBlueprint, 'abilityId'> {
   const constitution = enemyAbilityFor(genome);
@@ -2086,14 +2103,17 @@ function constitutionComponents(genome: EnemyGenome): Omit<AbilityBlueprint, 'ab
     cryo: 'thermal',
     void: 'phase',
     radiant: 'phase',
-    fluidic: 'fluid',
     corrosive: 'fluid',
-    botanical: 'organic',
+    bloom: 'organic',
     kinetic: 'kinetic',
   };
   const medium = genome.entityType === 'mechanical'
     ? 'signal'
-    : mediumByElement[genome.element] ?? 'kinetic';
+    : genome.entityType === 'fluidic'
+      ? 'fluid'
+      : genome.entityType === 'botanical'
+        ? 'organic'
+        : mediumByElement[genome.element] ?? 'kinetic';
   return { delivery, function: fn, medium };
 }
 
@@ -2367,7 +2387,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     cardSelectionOpen: false,
     rotateUsedThisHand: false,
     usedInHand: [],
-    player: { col: 1, row: 1, fireCooldown: 0 },
+    player: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0 },
     architectCannons: [],
     bullets: [],
     enemies: [],
@@ -2380,7 +2400,27 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     // VS mode
     gameMode: mode,
     competitiveSeed: 0x43534731,
-    npc: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0, hp: NPC_HP, shieldCharges: 0 },
+    npc: {
+      col: 1,
+      row: 1,
+      fireCooldown: 0,
+      moveCooldown: 0,
+      hp: NPC_HP,
+      shieldCharges: 0,
+      abilityCooldown: CARD_CHARGE_TIME,
+      signatureCooldown: COMPETITIVE_RULESET.signatureSkillCooldown,
+      signatureWindow: 0,
+      signatureActionCooldown: 0,
+      signatureActions: 0,
+      signatureLastCommand: -1,
+      signatureMode: 0,
+      signatureCharges: 0,
+      signaturePlacements: [],
+      signatureOriginCol: 1,
+      signatureOriginRow: 1,
+      strategyStep: 0,
+      decisionLock: 0,
+    },
     npcBullets: [],
     npcEnemies: [],
     playerWon: false,
@@ -2431,6 +2471,10 @@ function clampIntegrity(value: number): number {
  * creates Integrity Work and repairs the three authoritative visual scopes.
  */
 function reconcileIntegrityWork(state: GameState): void {
+  // Score awards may jump by 100, 200 or 300. Derive progression from the
+  // crossed threshold instead of requiring an exact modulo hit; otherwise a
+  // bonus kill can skip a boundary and freeze the displayed wave forever.
+  state.wave = Math.max(state.wave, 1 + Math.floor(state.score / 500));
   const newlyVerified = Math.max(0, state.score - state.integrityWork);
   if (newlyVerified <= 0) return;
   state.integrityWork += newlyVerified;
@@ -3567,7 +3611,7 @@ export default function Game() {
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
   const chronoLastHudUpdateRef = useRef(0);
-  const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chronoRewindTimerRef = useRef<number | null>(null);
   const chronoRewindExhaustedRef = useRef(false);
   const chronoR2DilationRef = useRef({
     held: false,
@@ -3575,6 +3619,7 @@ export default function Game() {
     exhausted: false,
   });
   const chronoSkillHoldRef = useRef(false);
+  const echoSkillDrainHoldRef = useRef(false);
   const chronoSkillHoldPrevRef = useRef(false);
   const stopChronoRewindRef = useRef<(exhausted?: boolean) => void>(() => {});
   const chronoRewindRef = useRef({
@@ -3588,9 +3633,40 @@ export default function Game() {
   const lastTimeRef = useRef<number>(0);
   const rivalSkillCooldownRef = useRef(0);
   const rivalSkillActionReadyAtRef = useRef(0);
-  const npcAbilityTimerRef = useRef(7);
-  const npcSkillTimerRef = useRef(11);
   const npcInterceptCountRef = useRef(0);
+  const echoReplayQueueRef = useRef<number[]>([]);
+  const echoReplayNextShotRef = useRef(0);
+  const echoBrinkRef = useRef({
+    held: false,
+    drainHeld: false,
+    inputHeld: false,
+    drainInputHeld: false,
+    nextCountAt: 0,
+    locked: new WeakSet<object>(),
+    targets: [] as Array<{
+      enemy: GameState['enemies'][number] | null;
+      npc: boolean;
+      row: number;
+      colPos: number;
+      acquiredAt: number;
+    }>,
+  });
+  const echoL2PressRef = useRef({
+    tracking: false,
+    startedAt: 0,
+    holdCommitted: false,
+  });
+  const echoBrinkStrikesRef = useRef<Array<{
+    row: number;
+    colPos: number;
+    startedAt: number;
+    target: GameState['enemies'][number] | null;
+    npc: boolean;
+    damageApplied: boolean;
+    impactCol: number;
+    lastTargetCol: number;
+    lastSampleAt: number;
+  }>>([]);
 
   // Input state (refs — no re-render needed)
   const keyboardRef = useRef({ up: false, down: false, left: false, right: false });
@@ -3682,24 +3758,58 @@ export default function Game() {
     () => localStorage.getItem(VIRTUAL_DPAD_KEY) !== 'off',
   );
   const [controllerStatus, setControllerStatus] = useState(() => {
-    const nav = navigator as Navigator & { webkitGetGamepads?: () => (Gamepad | null)[] };
-    return navigator.getGamepads || nav.webkitGetGamepads
+    const nav = navigator as unknown as {
+      getGamepads?: () => (Gamepad | null)[];
+      webkitGetGamepads?: () => (Gamepad | null)[];
+    };
+    return typeof nav.getGamepads === 'function' || typeof nav.webkitGetGamepads === 'function'
       ? 'WAITING — press any controller button'
       : 'GAMEPAD API UNAVAILABLE IN THIS BROWSER';
   });
   const [integrityConstructVisible, setIntegrityConstructVisible] = useState(
     () => localStorage.getItem(INTEGRITY_CONSTRUCT_VISIBLE_KEY) !== 'off',
   );
+  const [actionWindowVisible, setActionWindowVisible] = useState(
+    () => localStorage.getItem(ACTION_WINDOW_VISIBLE_KEY) !== 'off',
+  );
+  const [actionWindowScene, setActionWindowScene] = useState(0);
+  const actionWindowMetricsRef = useRef({
+    initialized: false,
+    work: 0,
+    node: 54,
+    species: 0,
+    mutations: 0,
+    fusions: 0,
+  });
+  const actionWindowReturnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const defaultActionWindowWidth = Math.min(560, window.innerWidth - 24);
   const defaultHudLayout: Record<string, HudLayoutRect> = {
     wave: { x: 0.82, y: 0.018, width: 150, height: 44 },
     work: { x: 0.41, y: 0.018, width: 210, height: 44 },
     integrity: { x: 0.25, y: 0.075, width: 560, height: 42 },
     construct: { x: 0.72, y: 0.13, width: 310, height: 285 },
+    action: {
+      x: Math.max(0, 0.5 - defaultActionWindowWidth / (2 * window.innerWidth)),
+      y: 0.105,
+      width: defaultActionWindowWidth,
+      height: 102,
+    },
   };
   const [hudLayout, setHudLayout] = useState<Record<string, HudLayoutRect>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('cybergrid-hud-layout-v1') ?? '{}');
-      return { ...defaultHudLayout, ...saved };
+      const merged = { ...defaultHudLayout, ...saved };
+      const actionWidth = Math.max(280, Math.min(window.innerWidth - 12, merged.action.width));
+      const actionHeight = Math.max(82, Math.min(window.innerHeight - 12, merged.action.height));
+      return {
+        ...merged,
+        action: {
+          x: Math.max(0, Math.min(1 - actionWidth / window.innerWidth, merged.action.x)),
+          y: Math.max(0, Math.min(1 - actionHeight / window.innerHeight, merged.action.y)),
+          width: actionWidth,
+          height: actionHeight,
+        },
+      };
     } catch {
       return defaultHudLayout;
     }
@@ -3992,7 +4102,6 @@ export default function Game() {
   const npcAttackFramesRef = useRef<ImageBitmap[]>([]);
   const npcAttackStartedRef = useRef(-1);
   const npcSkillStartedRef = useRef(-1);
-  const npcStrategyStepRef = useRef(0);
   const npcVisualPositionRef = useRef({ col: 0, row: 1, at: 0 });
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
@@ -4004,6 +4113,7 @@ export default function Game() {
   const [assemblyAttackPulse, setAssemblyAttackPulse] = useState(0);
   const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
   const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
+  const [echoChannelView, setEchoChannelView] = useState<'idle' | 'brink' | 'drain'>('idle');
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -4056,10 +4166,16 @@ export default function Game() {
 
   // Gem skin — separate attack frames; -1 = idle, 0–2 = attack sequence
   const gifAttackFramesRef = useRef<ImageBitmap[]>([]);
+  const echoBrinkFramesRef = useRef<readonly ImageBitmap[]>([]);
   const gemAttackFrameRef  = useRef(-1);
   const gemAttackTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rivalAttackStartedRef = useRef(-1);
   const RIVAL_ATTACK_DURATION = 720;
+  const BRINK_SWING_WINDOW_START = RIVAL_ATTACK_DURATION / 3;
+  const BRINK_SWING_WINDOW_END = (RIVAL_ATTACK_DURATION * 2) / 3;
+  const BRINK_INTERCEPT_SECONDS = 0.31;
+  const BRINK_MAX_LEAD = 0.9;
+  const BRINK_HIT_RADIUS = 0.82;
 
   // Gem skin — move frames; gemMoveStartRef = performance.now() timestamp when move began, -1 = idle
   const gifMoveFramesRef   = useRef<ImageBitmap[]>([]);
@@ -4245,12 +4361,17 @@ export default function Game() {
               (_, index) => loadBitmap(`${base}skins/concept-attack-frames/${playerSkin}-${index}.png`),
             )),
           ]);
+          const brinkFrames = playerSkin === 'echo'
+            ? await Promise.all([2, 3, 5].map((index) =>
+                loadBitmap(`${base}skins/concept-attack-frames/echo-${index}.png?brink=v3`)))
+            : [];
           if (cancelled) {
-            [...idleFrames, ...attackFrames].forEach((bitmap) => bitmap.close());
+            [...idleFrames, ...attackFrames, ...brinkFrames].forEach((bitmap) => bitmap.close());
             return;
           }
           gifFramesRef.current = idleFrames;
           gifAttackFramesRef.current = attackFrames;
+          echoBrinkFramesRef.current = Object.freeze(brinkFrames);
           rocketFrameRef.current = -1;
           return;
         }
@@ -4372,6 +4493,8 @@ export default function Game() {
       gifFramesRef.current = [];
       gifAttackFramesRef.current.forEach(b => b.close());
       gifAttackFramesRef.current = [];
+      echoBrinkFramesRef.current.forEach(b => b.close());
+      echoBrinkFramesRef.current = [];
       gifMoveFramesRef.current.forEach(b => b.close());
       gifMoveFramesRef.current = [];
       rocketFrameRef.current = -1;
@@ -4431,6 +4554,7 @@ export default function Game() {
             loadBitmap(`${base}skins/skill-${npcSkin}-idle.png`),
             loadBitmap(`${base}skins/skill-${npcSkin}-attack.png`),
           ]);
+          let authoredAttackFrames: ImageBitmap[] | null = null;
           if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
             if (npcSkin === 'hijack') {
               const idleCrop = await createImageBitmap(
@@ -4464,9 +4588,25 @@ export default function Game() {
               idle = cleaned.idle;
               attack = cleaned.attack;
             }
+            const attackSheet = await loadBitmap(
+              `${base}skins/advanced-attack-sequences/${npcSkin}.png?v=5`,
+            );
+            const frameSize = attackSheet.height;
+            const frameCount = Math.max(1, Math.floor(attackSheet.width / frameSize));
+            authoredAttackFrames = await Promise.all(
+              Array.from({ length: frameCount }, (_, frameIndex) => createImageBitmap(
+                attackSheet,
+                frameIndex * frameSize,
+                0,
+                frameSize,
+                frameSize,
+              )),
+            );
+            attackSheet.close();
           }
           idleFrames = [idle];
-          attackFrames = [attack];
+          attackFrames = authoredAttackFrames ?? [attack];
+          if (authoredAttackFrames) attack.close();
         }
         if (cancelled) {
           [...new Set([...idleFrames, ...attackFrames])].forEach((frame) => frame.close());
@@ -4600,6 +4740,42 @@ export default function Game() {
   const [presence, setPresence] = useState<PresenceSnapshot | null>(null);
 
   useEffect(() => {
+    if (phase !== 'playing' || !actionWindowVisible) {
+      setActionWindowScene(0);
+      actionWindowMetricsRef.current.initialized = false;
+      if (actionWindowReturnTimerRef.current) clearTimeout(actionWindowReturnTimerRef.current);
+      actionWindowReturnTimerRef.current = null;
+      return;
+    }
+    const metrics = {
+      initialized: true,
+      work: hud.integrityWork,
+      node: presence?.systemIntegrity.node ?? hud.systemIntegrity.node,
+      species: hud.ecosystem.species,
+      mutations: hud.ecosystem.mutations,
+      fusions: hud.ecosystem.fusions,
+    };
+    const previous = actionWindowMetricsRef.current;
+    let nextScene = 0;
+    if (previous.initialized) {
+      if (metrics.node < previous.node - 0.15) nextScene = 2;
+      else if (metrics.species > previous.species || metrics.mutations > previous.mutations
+        || metrics.fusions > previous.fusions) nextScene = 3;
+      else if (metrics.work > previous.work || metrics.node > previous.node + 0.15) nextScene = 1;
+    }
+    actionWindowMetricsRef.current = metrics;
+    if (nextScene === 0) return;
+    setActionWindowScene(nextScene);
+    if (actionWindowReturnTimerRef.current) clearTimeout(actionWindowReturnTimerRef.current);
+    actionWindowReturnTimerRef.current = setTimeout(() => {
+      setActionWindowScene(0);
+      actionWindowReturnTimerRef.current = null;
+    }, 6200);
+  }, [phase, actionWindowVisible, hud.integrityWork, hud.systemIntegrity.node,
+    hud.ecosystem.species, hud.ecosystem.mutations, hud.ecosystem.fusions,
+    presence?.systemIntegrity.node]);
+
+  useEffect(() => {
     if (phase !== 'playing') {
       setPresence(null);
       void leavePresence();
@@ -4682,13 +4858,32 @@ export default function Game() {
   }, []);
 
   const showMessage = useCallback((text: string, duration: number | false = 2000) => {
+    if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'echo'
+      && (text.startsWith('BRINK') || text.startsWith('DRAIN'))) return;
     if (msgFadeTimerRef.current) clearTimeout(msgFadeTimerRef.current);
     setHud((prev) => ({ ...prev, message: text }));
     if (duration !== false) {
       msgFadeTimerRef.current = setTimeout(() => {
-        setHud((prev) => ({ ...prev, message: '' }));
+        const echoWindow = rivalSkillRef.current.active && rivalSkillRef.current.id === 'echo';
+        setHud((prev) => ({
+          ...prev,
+          message: echoWindow ? 'ECHO DRIVE · X TRACE · Y REPLAY · B DISPLACE' : '',
+        }));
       }, duration);
     }
+  }, []);
+
+  const showFrameMessage = useCallback((text: string, duration = 800) => {
+    if (msgFadeTimerRef.current) clearTimeout(msgFadeTimerRef.current);
+    if (messageRef.current) messageRef.current.textContent = text;
+    msgFadeTimerRef.current = setTimeout(() => {
+      if (messageRef.current) {
+        messageRef.current.textContent = rivalSkillRef.current.active
+          && rivalSkillRef.current.id === 'echo'
+          ? 'ECHO DRIVE · X TRACE · Y REPLAY · B DISPLACE'
+          : '';
+      }
+    }, duration);
   }, []);
 
   const addParticles = useCallback((x: number, y: number, color: string) => {
@@ -4835,6 +5030,8 @@ export default function Game() {
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
     if (!s.running) return;
+    if ((s.player.moveCooldown ?? 0) > 0) return;
+    if (echoBrinkRef.current.held || echoBrinkRef.current.drainHeld) return;
     if (col < 0 || col > 2 || row < 0 || row > 2) return;
     // Player retains facing even while moving backward.
     s.player.col = col;
@@ -4851,18 +5048,20 @@ export default function Game() {
         chronoPositionIndex: recorded.length - 1,
       };
       rivalSkillRef.current = updated;
-      setRivalSkillView(updated);
+      if (s.gameMode !== 'vs') setRivalSkillView(updated);
     }
     registerPlaystyle('movement');
     s.moveFlash = 0.15;
     playMove();
-    updateHud();
+    if (!(s.gameMode === 'vs' && chrono.active && chrono.id === 'chrono')) updateHud();
     if (playerSkinRef.current === 'gem') gemMoveFlash();
   }, [updateHud, gemMoveFlash, registerPlaystyle]);
 
   const manualBuster = useCallback(() => {
     const s = stateRef.current;
     if (!s.running) return;
+    if (echoBrinkRef.current.held || echoBrinkRef.current.drainHeld
+      || echoBrinkStrikesRef.current.length > 0) return;
     if (s.player.fireCooldown <= 0) {
       registerPlaystyle('manualFire');
       if (!s.autoBuster) registerPlaystyle('autoOffFire');
@@ -5008,7 +5207,7 @@ export default function Game() {
           }
         }
       }
-      if (hits > 0) { if (s.score % 500 === 0) s.wave++; playScore(); }
+      if (hits > 0) { reconcileIntegrityWork(s); playScore(); }
       showMessage('Grid Bomb detonated your row!', 1500);
     } else if (type === 'shield') {
       s.shieldCharges = Math.min(3, s.shieldCharges + 1);
@@ -5039,7 +5238,7 @@ export default function Game() {
         if (s.drainTimer > 0) s.hp++;
         kills++;
       }
-      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage('NUKE — all viruses wiped!', 1500);
     } else if (type === 'barrage') {
       for (let i = 0; i < 3; i++) fireBullet(undefined, { power: 2, big: true, pierce: true });
@@ -5058,7 +5257,7 @@ export default function Game() {
           kills++;
         }
       }
-      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage(`Purge erased ${kills} weakened virus${kills !== 1 ? 'es' : ''}!`, 1500);
     } else if (type === 'armor') {
       s.shieldCharges = Math.min(s.shieldCharges + 3, 9);
@@ -5081,7 +5280,7 @@ export default function Game() {
         if (s.drainTimer > 0) s.hp++;
         kills++;
       }
-      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} neutralized, double Integrity Work!`, 1800);
     } else if (type === 'cardflood') {
       // Give a brand-new hand immediately — reroll until at least one card is usable
@@ -5189,7 +5388,7 @@ export default function Game() {
             kills++;
           }
         }
-        if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+        if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
         showMessage(`Chain Kill — ${kills} virus${kills !== 1 ? 'es' : ''} destroyed!`, 1500);
       } else {
         showMessage('No viruses to chain!', 1000);
@@ -5205,7 +5404,7 @@ export default function Game() {
         if (s.drainTimer > 0) s.hp++;
         kills++;
       }
-      if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
+      if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage(`Cluster — ${kills} most-advanced virus${kills !== 1 ? 'es' : ''} eliminated!`, 1500);
 
     } else if (type === 'rowshuffle') {
@@ -6253,6 +6452,37 @@ export default function Game() {
     updateHud();
   }, [fireBullet, showMessage, updateHud, endGame]);
 
+  const cancelEchoDrive = useCallback(() => {
+    const active = rivalSkillRef.current;
+    if (!active.active || active.id !== 'echo') return;
+
+    const cleared = emptyRivalSkillView();
+    rivalSkillRef.current = cleared;
+    setRivalSkillView(cleared);
+    echoBrinkRef.current = {
+      held: false,
+      drainHeld: false,
+      inputHeld: false,
+      drainInputHeld: false,
+      nextCountAt: 0,
+      locked: new WeakSet<object>(),
+      targets: [],
+    };
+    echoL2PressRef.current = {
+      tracking: false,
+      startedAt: 0,
+      holdCommitted: false,
+    };
+    echoBrinkStrikesRef.current = [];
+    chronoSkillHoldRef.current = false;
+    echoSkillDrainHoldRef.current = false;
+    setEchoChannelView('idle');
+    rivalSkillAnimationCommandRef.current = -1;
+    rivalSkillAnimationStartedRef.current = -1;
+    showMessage('ECHO DRIVE CANCELLED', 700);
+    updateHud();
+  }, [showMessage, updateHud]);
+
   const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
     const active = rivalSkillRef.current;
     if (!active.active || !active.id) return;
@@ -6285,10 +6515,21 @@ export default function Game() {
           ];
         }
         next.charges = next.placements.length;
+        if (s.gameMode === 'vs') {
+          next.charges = Math.min(COMPETITIVE_RULESET.signatureMaxCharges, next.charges);
+          next.placements = next.placements.slice(-COMPETITIVE_RULESET.signatureMaxPlacements);
+          next.chronoQueueOrigins = next.chronoQueueOrigins.slice(
+            -COMPETITIVE_RULESET.signatureMaxPlacements,
+          );
+          rivalSkillRef.current = next;
+          showFrameMessage(`Attack queued ×${next.charges}.`);
+          return;
+        }
         showMessage(`Attack queued ×${next.charges}.`, 700);
       } else if (action === 'alternate') {
+        let stepMessage: string;
         if (next.chronoPositions.length < 2) {
-          showMessage('Move first to record another Time Step.', 900);
+          stepMessage = 'Move first to record another Time Step.';
         } else {
           const index = (next.chronoPositionIndex + 1) % next.chronoPositions.length;
           const destination = next.chronoPositions[index];
@@ -6296,8 +6537,14 @@ export default function Game() {
           s.player.row = destination.row;
           s.moveFlash = 0.15;
           next.chronoPositionIndex = index;
-          showMessage(`Time Step ${index + 1}/${next.chronoPositions.length}.`, 700);
+          stepMessage = `Time Step ${index + 1}/${next.chronoPositions.length}.`;
         }
+        if (s.gameMode === 'vs') {
+          rivalSkillRef.current = next;
+          showFrameMessage(stepMessage);
+          return;
+        }
+        showMessage(stepMessage, 800);
       } else {
         // Chrono's guard action is continuous; held-state handlers below drive it.
         return;
@@ -6835,24 +7082,38 @@ export default function Game() {
       }
     } else if (active.id === 'echo') {
       const cell = s.player.col * 3 + s.player.row;
+      let echoMessage = '';
       if (action === 'primary') {
         next.placements = [...next.placements.filter((saved) => saved !== cell), cell].slice(-4);
         next.charges = next.placements.length;
-        showMessage(`Echo origin ${next.charges}/4 traced.`, 700);
+        echoMessage = `Echo origin ${next.charges}/4 traced.`;
       } else if (action === 'alternate') {
         const origins = next.placements.length ? next.placements : [cell];
-        for (const origin of origins) fireBullet(origin % 3, { originCol: Math.floor(origin / 3), power: 2, big: true });
-        showMessage(`Replayed ${origins.length} traced attack${origins.length === 1 ? '' : 's'}.`, 750);
+        if (s.gameMode === 'vs') {
+          echoReplayQueueRef.current = origins.slice(0, 4);
+          echoReplayNextShotRef.current = performance.now();
+        } else {
+          for (const origin of origins) fireBullet(origin % 3, { originCol: Math.floor(origin / 3), power: 2, big: true });
+        }
+        echoMessage = `Replayed ${origins.length} traced attack${origins.length === 1 ? '' : 's'}.`;
       } else {
         const origin = next.placements.at(-1);
-        if (origin === undefined) showMessage('Trace an origin first.', 650);
+        if (origin === undefined) echoMessage = 'Trace an origin first.';
         else {
           s.player.col = Math.floor(origin / 3);
           s.player.row = origin % 3;
           s.ghostTimer = Math.max(s.ghostTimer, 0.8);
-          showMessage('Echo displacement complete.', 700);
+          echoMessage = 'Echo displacement complete.';
         }
       }
+      if (s.gameMode === 'vs') {
+        next.charges = Math.min(COMPETITIVE_RULESET.signatureMaxCharges, next.charges);
+        next.placements = next.placements.slice(-COMPETITIVE_RULESET.signatureMaxPlacements);
+        rivalSkillRef.current = next;
+        showFrameMessage(echoMessage);
+        return;
+      }
+      showMessage(echoMessage, 750);
     } else if (active.id === 'mirage') {
       const cell = s.player.col * 3 + s.player.row;
       if (action === 'primary') {
@@ -6961,12 +7222,11 @@ export default function Game() {
       const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
       s.hp = normalized.hp;
       s.shieldCharges = normalized.shields;
-      if (duelMessage) showMessage(duelMessage, 1200);
     }
     rivalSkillRef.current = next;
     setRivalSkillView(next);
     updateHud();
-  }, [finishRivalSkill, fireBullet, showMessage, updateHud]);
+  }, [finishRivalSkill, fireBullet, showMessage, showFrameMessage, updateHud]);
 
   const startChronoRewind = useCallback((input: 'pointer' | 'keyboard' | 'gamepad' = 'pointer') => {
     const active = rivalSkillRef.current;
@@ -7066,12 +7326,36 @@ export default function Game() {
       origin: { col: s.player.col, row: s.player.row, hp: s.hp },
     };
     rivalSkillRef.current = next;
+    if (id === 'echo') {
+      echoBrinkRef.current = {
+        held: false,
+        drainHeld: false,
+        inputHeld: false,
+        drainInputHeld: false,
+        nextCountAt: 0,
+        locked: new WeakSet<object>(),
+        targets: [],
+      };
+      echoBrinkStrikesRef.current = [];
+      echoL2PressRef.current = {
+        tracking: false,
+        startedAt: 0,
+        holdCommitted: false,
+      };
+      chronoSkillHoldRef.current = false;
+      echoSkillDrainHoldRef.current = false;
+      setEchoChannelView('idle');
+    }
     rivalSkillActionReadyAtRef.current = 0;
     setRivalSkillView(next);
     rivalSkillAnimationCommandRef.current = -1;
     rivalSkillAnimationStartedRef.current = performance.now();
-    if (id === 'chrono') s.slowTimer = Math.max(s.slowTimer, 9);
+    if (id === 'chrono' && s.gameMode !== 'vs') s.slowTimer = Math.max(s.slowTimer, 9);
     if (id === 'phase') s.ghostTimer = Math.max(s.ghostTimer, 9);
+    if (id === 'echo') {
+      showMessage('ECHO DRIVE · X TRACE · Y REPLAY · B DISPLACE', false);
+      return;
+    }
     const suffix = id === 'apex'
       ? ` · ${['BREAKER', 'REFLECTOR', 'NULLIFIER'][initialMode]} scan`
       : '';
@@ -7353,6 +7637,7 @@ export default function Game() {
     if (!s.running) return;
 
     handleGamepad();
+    s.player.moveCooldown = Math.max(0, (s.player.moveCooldown ?? 0) - dt);
 
     // Chrona uses R2 and the on-screen Skill control as equivalent dual inputs:
     // a short tap resolves Step on release, while a hold dilates the complete
@@ -7368,6 +7653,18 @@ export default function Game() {
     const dilationInputPressed = (r2Input.r2 && !r2Input.prevR2)
       || (skillHold && !chronoSkillHoldPrevRef.current);
     const now = performance.now();
+    if (s.gameMode === 'vs' && echoReplayQueueRef.current.length > 0
+      && now >= echoReplayNextShotRef.current) {
+      const origin = echoReplayQueueRef.current.shift();
+      if (origin !== undefined) {
+        fireBullet(origin % 3, {
+          originCol: Math.floor(origin / 3),
+          power: 2,
+          big: true,
+        });
+      }
+      echoReplayNextShotRef.current = now + 110;
+    }
     if (!chronoBreakForDilation) {
       r2Dilation.held = false;
       r2Dilation.startedAt = 0;
@@ -7392,6 +7689,229 @@ export default function Game() {
         dt *= 0.18;
       }
     }
+
+    // Echo's original command window remains authoritative. While it is open,
+    // held L2 (or the held on-screen Skill control) layers Brink over it and
+    // held R2 layers Drain. Neither channel exists outside that window.
+    // original trigger assignment without changing either mechanic.
+    const echoActive = rivalSkillRef.current.active && rivalSkillRef.current.id === 'echo';
+    const echoChannel = echoBrinkRef.current;
+    const echoL2Press = echoL2PressRef.current;
+    if (!echoActive) {
+      echoChannel.held = false;
+      echoChannel.drainHeld = false;
+      echoChannel.inputHeld = false;
+      echoChannel.drainInputHeld = false;
+      echoChannel.nextCountAt = 0;
+      echoChannel.targets = [];
+      echoL2Press.tracking = false;
+      echoL2Press.startedAt = 0;
+      echoL2Press.holdCommitted = false;
+    } else {
+      if (r2Input.skill && !echoL2Press.tracking) {
+        echoL2Press.tracking = true;
+        echoL2Press.startedAt = now;
+        echoL2Press.holdCommitted = false;
+      }
+      if (r2Input.skill && echoL2Press.tracking && !echoL2Press.holdCommitted
+        && now - echoL2Press.startedAt >= 180) {
+        echoL2Press.holdCommitted = true;
+      }
+      if (!r2Input.skill && echoL2Press.tracking) {
+        const wasTap = !echoL2Press.holdCommitted;
+        echoL2Press.tracking = false;
+        echoL2Press.startedAt = 0;
+        echoL2Press.holdCommitted = false;
+        if (wasTap) {
+          cancelEchoDrive();
+          return;
+        }
+      }
+      const brinkInputHeld = (r2Input.skill && echoL2Press.holdCommitted) || skillHold;
+      const drainInputHeld = (r2Input.r2 || echoSkillDrainHoldRef.current) && !brinkInputHeld;
+      if (brinkInputHeld && !echoChannel.inputHeld) {
+        echoSkillDrainHoldRef.current = false;
+        echoChannel.drainHeld = false;
+        echoChannel.drainInputHeld = false;
+        echoChannel.nextCountAt = 0;
+        setEchoChannelView('brink');
+        showMessage('BRINK · ACQUIRING', 650);
+      }
+      if (drainInputHeld && !echoChannel.drainInputHeld) {
+        setEchoChannelView('drain');
+        showMessage('DRAIN · COLLISION LINK ACTIVE', 650);
+      }
+      if (!brinkInputHeld && echoChannel.inputHeld) {
+        // Brink owns the execution animation. Stop any ordinary Echo attack
+        // already in flight so only the 2 → 3 → 5 partitions are visible.
+        if (gemAttackTimer.current) {
+          clearTimeout(gemAttackTimer.current);
+          gemAttackTimer.current = null;
+        }
+        gemAttackFrameRef.current = -1;
+        rivalAttackStartedRef.current = -1;
+        rivalSkillAnimationStartedRef.current = -1;
+        rivalSkillAnimationCommandRef.current = -1;
+        s.player.fireCooldown = Math.max(
+          s.player.fireCooldown,
+          (RIVAL_ATTACK_DURATION * 2) / 1000 + 0.12,
+        );
+        const strikeCountBeforeRelease = echoBrinkStrikesRef.current.length;
+        const claimedTargets = new Set<GameState['enemies'][number]>();
+        for (const lock of echoChannel.targets) {
+          const liveEnemy = lock.npc ? null
+            : lock.enemy && s.enemies.includes(lock.enemy) && lock.enemy.hp > 0
+              && lock.enemy.colPos >= -0.5 && !claimedTargets.has(lock.enemy)
+              ? lock.enemy
+            : [...s.enemies]
+                .filter((enemy) => enemy.hp > 0 && enemy.colPos >= -0.5 && !claimedTargets.has(enemy))
+                .sort((a, b) => {
+                  const rowPenaltyA = a.row === lock.row ? 0 : 4;
+                  const rowPenaltyB = b.row === lock.row ? 0 : 4;
+                  return rowPenaltyA + Math.abs(a.colPos - lock.colPos)
+                    - rowPenaltyB - Math.abs(b.colPos - lock.colPos);
+                })[0]
+                ?? null;
+          if (lock.npc && (s.gameMode !== 'vs' || s.npc.hp <= 0)) continue;
+          if (!lock.npc && !liveEnemy) continue;
+          if (liveEnemy) claimedTargets.add(liveEnemy);
+          // Brink commits to a fixed intercept point at release. Lead is based
+          // on the target's observed travel while locked, so the partition does
+          // not follow the target but its frame-3 swing still meets normal
+          // forward movement. Abrupt lane changes remain a legitimate dodge.
+          const targetCol = lock.npc ? 3 + s.npc.col : liveEnemy?.colPos ?? lock.colPos;
+          const trackedSeconds = Math.max(0, (now - lock.acquiredAt) / 1000);
+          const observedForwardSpeed = liveEnemy && liveEnemy === lock.enemy
+            && trackedSeconds >= 0.08
+            ? Math.max(0, (lock.colPos - targetCol) / trackedSeconds)
+            : Math.max(0, liveEnemy?.speed ?? 0);
+          const leadDistance = liveEnemy
+            ? Math.min(BRINK_MAX_LEAD, observedForwardSpeed * BRINK_INTERCEPT_SECONDS)
+            : 0;
+          const impactCol = targetCol - leadDistance;
+          echoBrinkStrikesRef.current.push({
+            row: lock.npc ? s.npc.row : liveEnemy?.row ?? lock.row,
+            colPos: Math.max(-0.25, impactCol - 0.34),
+            startedAt: now,
+            target: liveEnemy,
+            npc: lock.npc,
+            damageApplied: false,
+            impactCol,
+            lastTargetCol: targetCol,
+            lastSampleAt: now,
+          });
+        }
+        if (echoBrinkStrikesRef.current.length > strikeCountBeforeRelease) {
+          // Echo performs his complete authored attack once with the Brink
+          // partitions. Only the partitions omit the Drain half-sphere frame.
+          rivalShootFlash();
+        }
+        echoChannel.targets = [];
+        setEchoChannelView(drainInputHeld ? 'drain' : 'idle');
+        updateHud();
+      }
+      if (!drainInputHeld && echoChannel.drainInputHeld) {
+        setEchoChannelView(brinkInputHeld ? 'brink' : 'idle');
+      }
+      echoChannel.inputHeld = brinkInputHeld;
+      echoChannel.drainInputHeld = drainInputHeld;
+      echoChannel.held = brinkInputHeld;
+      echoChannel.drainHeld = drainInputHeld;
+      if (!echoChannel.held) echoChannel.nextCountAt = 0;
+      if (echoChannel.held && s.hp > 1 && now >= echoChannel.nextCountAt) {
+        const nextMonster = [...s.enemies]
+          .filter((enemy) => enemy.hp > 0 && enemy.colPos >= -0.5 && !echoChannel.locked.has(enemy))
+          .sort((a, b) => a.colPos - b.colPos)[0];
+        const target = nextMonster ?? (s.gameMode === 'vs' && s.npc.hp > 0
+          && !echoChannel.locked.has(s.npc) ? s.npc : undefined);
+        if (target) {
+          echoChannel.locked.add(target);
+          s.hp = Math.max(1, s.hp - 1);
+          if ('colPos' in target && 'row' in target) {
+            echoChannel.targets.push({
+              enemy: target,
+              npc: false,
+              row: target.row,
+              colPos: target.colPos,
+              acquiredAt: now,
+            });
+            target.flash = 0.22;
+          } else {
+            echoChannel.targets.push({
+              enemy: null,
+              npc: true,
+              row: s.npc.row,
+              colPos: 3 + s.npc.col,
+              acquiredAt: now,
+            });
+          }
+          const updated = {
+            ...rivalSkillRef.current,
+            charges: rivalSkillRef.current.charges + 1,
+          };
+          rivalSkillRef.current = updated;
+          setRivalSkillView(updated);
+          showMessage(`BRINK LOCK ${updated.charges} · HP ${s.hp}`, 520);
+          updateHud();
+          if (s.gameMode === 'vs' && s.npc.hp <= 0) {
+            endGame(true);
+            return;
+          }
+        }
+        echoChannel.nextCountAt = now + 430;
+      }
+    }
+    for (const strike of echoBrinkStrikesRef.current) {
+      if (strike.damageApplied) continue;
+      const elapsed = now - strike.startedAt;
+      const previousElapsed = strike.lastSampleAt - strike.startedAt;
+      const target = strike.target;
+      const targetCol = strike.npc ? 3 + s.npc.col : target?.colPos ?? strike.lastTargetCol;
+      const targetRow = strike.npc ? s.npc.row : target?.row;
+      const targetAlive = strike.npc
+        ? s.gameMode === 'vs' && s.npc.hp > 0
+        : Boolean(target && target.hp > 0 && target.colPos >= -0.5);
+      const sampleTouchesSwing = previousElapsed <= BRINK_SWING_WINDOW_END
+        && elapsed >= BRINK_SWING_WINDOW_START;
+      const sweptPastImpact = Math.min(strike.lastTargetCol, targetCol) - BRINK_HIT_RADIUS
+        <= strike.impactCol
+        && Math.max(strike.lastTargetCol, targetCol) + BRINK_HIT_RADIUS
+          >= strike.impactCol;
+      const contact = sampleTouchesSwing && targetAlive
+        && targetRow === strike.row && sweptPastImpact;
+      strike.lastTargetCol = targetCol;
+      strike.lastSampleAt = now;
+      if (contact) {
+        strike.damageApplied = true;
+        playHit();
+        if (strike.npc) {
+          if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
+          else s.npc.hp = Math.max(0, s.npc.hp - 1);
+          updateHud();
+          if (s.npc.hp <= 0) {
+            endGame(true);
+            return;
+          }
+        } else if (target) {
+          target.hp -= 1;
+          target.flash = 0.22;
+          if (target.hp <= 0) {
+            target.colPos = -9;
+            s.score += 100;
+            reconcileIntegrityWork(s);
+          }
+          updateHud();
+        }
+      } else if (elapsed > BRINK_SWING_WINDOW_END) {
+        // Resolve the miss only after frame 3 has finished. This lets the
+        // entire authored swing make contact and prevents a single early
+        // sample from permanently discarding an otherwise valid strike.
+        strike.damageApplied = true;
+      }
+    }
+    echoBrinkStrikesRef.current = echoBrinkStrikesRef.current.filter((strike) => {
+      return now - strike.startedAt < RIVAL_ATTACK_DURATION;
+    });
 
     if (s.gameMode !== 'vs' && !s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeRetryWave > 0 && s.wave >= s.upgradeRetryWave) {
@@ -7426,7 +7946,14 @@ export default function Game() {
     }
 
     const upgradeGamepad = gamepadRef.current;
-    if (s.upgradePromptOpen && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
+    // R1 is ignored by Evolution while a signature skill or Chrona's rewind
+    // owns combat input. A pending milestone may remain visible, but Reverse
+    // can never promote that same press into a menu-open action.
+    if (s.upgradePromptOpen
+      && !rivalSkillRef.current.active
+      && !chronoRewindRef.current.held
+      && upgradeGamepad.r1
+      && !upgradeGamepad.prevR1) {
       openUpgradeSelection();
       return;
     }
@@ -7466,12 +7993,13 @@ export default function Game() {
     const kb = keyboardRef.current;
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
-    if (gp.skill && !gp.prevSkill) queueSkillTap();
+    const echoTriggerInput = rivalSkillRef.current.active && rivalSkillRef.current.id === 'echo';
+    if (gp.skill && !gp.prevSkill && !echoTriggerInput) queueSkillTap();
     const rivalInputActive = rivalSkillRef.current.active;
     const chronoBreakActive = rivalInputActive && rivalSkillRef.current.id === 'chrono';
     // R2 normally cycles active control. During Chrono Break it becomes a
     // second Step input while Y remains unchanged as the documented command.
-    if (gp.r2 && !gp.prevR2 && !chronoBreakActive) queueR2ControlCycle();
+    if (gp.r2 && !gp.prevR2 && !chronoBreakActive && !echoTriggerInput) queueR2ControlCycle();
     if (rivalInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
       else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
@@ -7717,7 +8245,9 @@ export default function Game() {
     }
 
     s.player.fireCooldown -= dt;
-    if (s.autoBuster && s.player.fireCooldown <= 0) {
+    if (s.autoBuster && s.player.fireCooldown <= 0
+      && !echoBrinkRef.current.held && !echoBrinkRef.current.drainHeld
+      && echoBrinkStrikesRef.current.length === 0) {
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
       const baseAutoInterval = s.gameMode === 'vs'
         ? COMPETITIVE_RULESET.playerAutoFireInterval
@@ -7823,6 +8353,9 @@ export default function Game() {
       if (genome.fusionLevel > 0) s.ecosystemStats.totalFusions++;
       registerSpawn(getMorphSig(value));
       const enemyAbility = enemyCounterpartFor(genome);
+      const openingAbilityRoll = (
+        (Math.imul(value ^ (s.enemyFormationId * 4099), 2654435761) >>> 0) % 1000
+      ) / 1000;
       s.enemies.push({
         colPos: 5.6,
         row,
@@ -7840,9 +8373,17 @@ export default function Game() {
         ability: enemyAbility,
         counterpartAbilityId: linkedPlayerAbility(genome),
         abilityCooldown: enemyAbility
-          ? ENEMY_ABILITY_FIRST_CAST_MIN + Math.random() * ENEMY_ABILITY_FIRST_CAST_RANGE
+          ? ENEMY_ABILITY_FIRST_CAST_MIN + openingAbilityRoll * ENEMY_ABILITY_FIRST_CAST_RANGE
           : 0,
         abilityWindup: 0,
+        strategyDecisionCooldown: 0,
+        strategyDecisionIndex: 0,
+        strategyLaneChangeCooldown: 0,
+        strategyTargetRow: row,
+        strategyAbilityTargetRow: row,
+        strategyCastReady: false,
+        strategySpeedMultiplier: 1,
+        strategyCooldownScale: 1,
       });
 
       s.enemyFormationId++;
@@ -7868,11 +8409,83 @@ export default function Game() {
     // Move enemies
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
+    const campaignAlliesByRow: [number, number, number] = [0, 0, 0];
+    const campaignInjuredByRow: [number, number, number] = [0, 0, 0];
+    for (const enemy of s.enemies) {
+      if (enemy.colPos < -1) continue;
+      campaignAlliesByRow[enemy.row]++;
+      if (enemy.hp < (enemy.maxHp ?? enemy.hp)) campaignInjuredByRow[enemy.row]++;
+    }
     for (const e of s.enemies) {
       if (!Number.isFinite(e.speed) || e.speed < 0.15) e.speed = 0.85;
       const movement = movementClassOf(e);
       const isFastMover = movement === 'flier' || movement === 'hover' || movement === 'quadruped'
         || movement === 'arthropod' || movement === 'aquatic';
+      const abilitySuppressed = s.freezeTimer > 0 || (s.signalJamTimer > 0 && isCyberEnemy(e));
+      if (e.ability && !abilitySuppressed && (e.abilityWindup ?? 0) <= 0) {
+        e.abilityCooldown = Math.max(0, (e.abilityCooldown ?? 0) - dt);
+      }
+      const counterpart = e.counterpartAbilityId
+        ? PLAYER_ABILITY_BY_ID.get(e.counterpartAbilityId)
+        : undefined;
+      e.strategyDecisionCooldown = Math.max(0, (e.strategyDecisionCooldown ?? 0) - dt);
+      e.strategyLaneChangeCooldown = Math.max(0, (e.strategyLaneChangeCooldown ?? 0) - dt);
+      if (e.genome && (e.strategyDecisionCooldown ?? 0) <= 0) {
+        const actorLaneThreat: [number, number, number] = [0, 0, 0];
+        for (const bullet of s.bullets) {
+          const distance = e.colPos - bullet.colPos;
+          if (bullet.speed <= 0 || distance <= 0 || distance > 2.8) continue;
+          actorLaneThreat[bullet.row] += Math.max(1, bullet.power ?? 1);
+        }
+        const nearbyInjuredAllies = s.enemies.filter((ally) =>
+          ally.colPos >= -1
+          && ally.row === e.row
+          && Math.abs(ally.colPos - e.colPos) <= 1.8
+          && ally.hp < (ally.maxHp ?? ally.hp)).length;
+        const decisionIndex = (e.strategyDecisionIndex ?? 0) + 1;
+        e.strategyDecisionIndex = decisionIndex;
+        const plan = planCampaignNpc({
+          seed: e.visualSeed ?? e.value,
+          decisionIndex,
+          niche: e.genome.niche,
+          enemyClass: e.genome.enemyClass,
+          hasAbility: Boolean(e.ability),
+          abilityFunction: counterpart?.function ?? 'rupture',
+          delivery: counterpart?.delivery ?? 'pulse',
+          row: e.row,
+          colPos: e.colPos,
+          hp: e.hp,
+          maxHp: e.maxHp ?? e.hp,
+          playerRow: s.player.row,
+          playerCol: s.player.col,
+          laneThreat: actorLaneThreat,
+          alliesByRow: campaignAlliesByRow,
+          injuredAlliesByRow: campaignInjuredByRow,
+          nearbyInjuredAllies,
+          canReposition: (!movement || !HEAVY_CLASSES.has(movement))
+            && (e.strategyLaneChangeCooldown ?? 0) <= 0
+            && (e.abilityWindup ?? 0) <= 0,
+          abilityReady: Boolean(
+            e.ability
+            && !abilitySuppressed
+            && (e.abilityCooldown ?? 0) <= 0
+            && (e.abilityWindup ?? 0) <= 0
+          ),
+        });
+        e.strategyTargetRow = plan.targetRow;
+        e.strategyCastReady = plan.shouldCast;
+        e.strategySpeedMultiplier = plan.speedMultiplier;
+        e.strategyCooldownScale = plan.cooldownScale;
+        e.strategyDecisionCooldown = plan.retryDelay;
+        if ((!movement || !HEAVY_CLASSES.has(movement))
+          && (e.strategyLaneChangeCooldown ?? 0) <= 0
+          && (e.abilityWindup ?? 0) <= 0
+          && plan.targetRow !== e.row) {
+          e.row += Math.sign(plan.targetRow - e.row);
+          e.strategyLaneChangeCooldown = 0.9;
+          e.flash = Math.max(e.flash, 0.09);
+        }
+      }
       let speedScale = s.overdriveTimer > 0 ? 2.5 : 1;
       if (s.slowTimer > 0) speedScale = isFastMover ? 0.32 : 0.55;
       if (s.blizzardTimer > 0) {
@@ -7882,16 +8495,13 @@ export default function Game() {
       }
       if (s.freezeTimer > 0) speedScale = 0.08;
       if (s.signalJamTimer > 0 && isCyberEnemy(e)) speedScale *= 0.32;
+      speedScale *= Math.max(0.72, Math.min(1.12, e.strategySpeedMultiplier ?? 1));
 
-      const abilitySuppressed = s.freezeTimer > 0 || (s.signalJamTimer > 0 && isCyberEnemy(e));
       if (e.ability && !abilitySuppressed) {
-        e.abilityCooldown = Math.max(0, (e.abilityCooldown ?? 0) - dt);
         if ((e.abilityWindup ?? 0) > 0) {
           e.abilityWindup = Math.max(0, (e.abilityWindup ?? 0) - dt);
           speedScale *= 0.12;
           if (e.abilityWindup <= 0) {
-            const counterpart = PLAYER_ABILITY_MATRIX.find((entry) =>
-              entry.abilityId === e.counterpartAbilityId);
             const counterpartFunction = counterpart?.function;
             if (counterpartFunction === 'impulse') {
               if (e.row === s.player.row) s.player.col = Math.max(0, s.player.col - 1);
@@ -7906,9 +8516,14 @@ export default function Game() {
                 ally.flash = 0.08;
               }
             } else if (counterpartFunction === 'adapt') {
-              const laneCounts = [0, 1, 2].map((row) =>
-                s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
-              e.row = laneCounts.indexOf(Math.min(...laneCounts));
+              const plannedRow = e.strategyAbilityTargetRow;
+              if (plannedRow !== undefined && plannedRow >= 0 && plannedRow <= 2) {
+                e.row = plannedRow;
+              } else {
+                const laneCounts = [0, 1, 2].map((row) =>
+                  s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
+                e.row = laneCounts.indexOf(Math.min(...laneCounts));
+              }
             } else if (counterpartFunction === 'ward') {
               e.maxHp = Math.min(9, (e.maxHp ?? e.hp) + 1);
               e.hp = Math.min(e.maxHp, e.hp + 1);
@@ -7924,10 +8539,18 @@ export default function Game() {
             } else if (counterpart?.medium === 'thermal') {
               s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.4);
             }
-            e.abilityCooldown = 6.5 + (e.value % 4);
+            e.abilityCooldown = (6.5 + (e.value % 4)) * (e.strategyCooldownScale ?? 1);
+            e.strategyAbilityTargetRow = undefined;
+            e.strategyCastReady = false;
+            e.strategyDecisionCooldown = 0;
           }
-        } else if ((e.abilityCooldown ?? 0) <= 0 && e.colPos > 1.15 && e.colPos < 5.3) {
+        } else if ((e.abilityCooldown ?? 0) <= 0
+          && e.strategyCastReady
+          && e.colPos > 1.15
+          && e.colPos < 5.3) {
+          e.strategyAbilityTargetRow = e.strategyTargetRow ?? e.row;
           e.abilityWindup = ENEMY_ABILITY_WINDUP;
+          e.strategyCastReady = false;
         }
       }
       e.colPos -= e.speed * speedScale * dt;
@@ -7974,6 +8597,11 @@ export default function Game() {
         } else if (eloIsIntangible) {
           // Player phases while automation is disabled. The enemy continues
           // through the occupied cell without damage or consuming a shield.
+        } else if (echoBrinkRef.current.drainHeld) {
+          s.hp += 1;
+          e.colPos = -9;
+          playHit();
+          updateHud();
         } else if (s.shieldCharges > 0) {
           s.shieldCharges--;
           e.colPos = -9;
@@ -8035,6 +8663,14 @@ export default function Game() {
         a.counterpartAbilityId = linkedPlayerAbility(a.genome);
         a.abilityCooldown = Math.max(3.5, a.abilityCooldown ?? 5);
         a.abilityWindup = 0;
+        a.strategyDecisionCooldown = 0;
+        a.strategyDecisionIndex = 0;
+        a.strategyLaneChangeCooldown = 0;
+        a.strategyCastReady = false;
+        a.strategyTargetRow = a.row;
+        a.strategyAbilityTargetRow = a.row;
+        a.strategySpeedMultiplier = 1;
+        a.strategyCooldownScale = 1;
         b.colPos = -9;
         const fusedSignature = genomeSignature(a);
         if (fusedSignature && !s.ecosystemStats.entitySignatures.includes(fusedSignature)) {
@@ -8073,7 +8709,7 @@ export default function Game() {
             e.colPos = -9;
             s.lanePressure[e.row] = Math.min(6, s.lanePressure[e.row] + 1);
             s.score += s.overdriveTimer > 0 || e.catalystMarked ? 300 : 100;
-            if (s.score % 500 === 0) s.wave++;
+            reconcileIntegrityWork(s);
             if (s.drainTimer > 0) { s.hp++; }
             if (s.overloadTimer > 0) {
               s.bullets.push({
@@ -8131,8 +8767,11 @@ export default function Game() {
         return next.value;
       };
       rivalSkillCooldownRef.current = Math.max(0, rivalSkillCooldownRef.current - dt);
-      npcAbilityTimerRef.current -= dt;
-      npcSkillTimerRef.current -= dt;
+      npc.abilityCooldown = Math.max(0, npc.abilityCooldown - dt);
+      npc.signatureCooldown = Math.max(0, npc.signatureCooldown - dt);
+      npc.signatureWindow = Math.max(0, npc.signatureWindow - dt);
+      npc.signatureActionCooldown = Math.max(0, npc.signatureActionCooldown - dt);
+      npc.decisionLock = Math.max(0, npc.decisionLock - dt);
 
       const launchNpcShot = (row: number, power = 1, big = false) => {
         const animationNow = performance.now();
@@ -8142,7 +8781,7 @@ export default function Game() {
           npcAttackStartedRef.current = animationNow;
         }
         s.npcBullets.push({
-          colPos: npcCol - 0.55,
+          colPos: 3 + npc.col - 0.55,
           row,
           speed: big ? -5.7 : -6.4,
           power,
@@ -8153,150 +8792,157 @@ export default function Game() {
         });
       };
 
-      if (npcAbilityTimerRef.current <= 0) {
-        npcSkillStartedRef.current = performance.now();
-        const incomingShots = s.bullets.filter((bullet) =>
-          bullet.colPos < 20 && bullet.colPos > 2.4).length;
-        if (npc.hp + 8 < s.hp && npc.hp < NPC_HP) {
-          npc.hp = boundedRecovery(npc.hp, 4);
-          showMessage('NPC ability · REPAIR +4', 850);
-        } else if (npc.shieldCharges < VS_NPC_MAX_SHIELDS && incomingShots >= 2) {
-          npc.shieldCharges++;
-          showMessage('NPC ability · AEGIS +1', 850);
-        } else {
-          launchNpcShot(npc.row);
-          launchNpcShot((npc.row + 1) % 3);
-          showMessage('NPC ability · TWIN VOLLEY', 850);
+      const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
+      const buildNpcContext = (step: number): VersusNpcContext => {
+        const incomingByRow: [number, number, number] = [0, 0, 0];
+        for (const bullet of s.bullets) {
+          if (bullet.colPos <= 2.2 || bullet.colPos > npcCol + 0.75) continue;
+          incomingByRow[bullet.row] += Math.max(1, bullet.power ?? 1);
         }
-        npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + nextNpcRandom() * 2;
+        return {
+          skillId: npcRivalSkill,
+          npcHp: npc.hp,
+          playerHp: s.hp,
+          maxHp: NPC_HP,
+          npcShields: npc.shieldCharges,
+          maxShields: VS_NPC_MAX_SHIELDS,
+          npcRow: npc.row,
+          playerRow: s.player.row,
+          npcCol: npc.col,
+          incomingByRow,
+          playerFireCooldown: s.player.fireCooldown,
+          playerMoveCooldown: s.player.moveCooldown,
+          cardProgress: s.cardsReady ? 1 : Math.min(1, s.cardTimer / CARD_CHARGE_TIME),
+          step,
+          signatureMode: npc.signatureMode,
+          signatureCharges: npc.signatureCharges,
+          signaturePlacements: npc.signaturePlacements,
+          signatureOriginRow: npc.signatureOriginRow,
+          signatureOriginCol: npc.signatureOriginCol,
+          signatureLastCommand: npc.signatureLastCommand,
+        };
+      };
+      const applyNpcPlan = (plan: VersusAbilityPlan | VersusSignaturePlan) => {
+        if (plan.moveToRow !== undefined) {
+          npc.row = Math.max(0, Math.min(2, plan.moveToRow));
+        }
+        if ('columnDelta' in plan && plan.columnDelta !== 0) {
+          npc.col = Math.max(0, Math.min(2, npc.col + plan.columnDelta));
+        }
+        if ('nextCharges' in plan) {
+          npc.signatureMode = plan.nextMode;
+          npc.signatureCharges = plan.nextCharges;
+          npc.signaturePlacements = [...plan.nextPlacements];
+          npc.signatureOriginRow = plan.nextOriginRow;
+          npc.signatureOriginCol = plan.nextOriginCol;
+        }
+        if (plan.recovery > 0) npc.hp = boundedRecovery(npc.hp, plan.recovery);
+        if (plan.shields > 0) {
+          npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + plan.shields);
+        }
+        if (plan.fireDisruption > 0) {
+          s.player.fireCooldown = Math.max(
+            s.player.fireCooldown,
+            Math.min(COMPETITIVE_RULESET.maxFireDisruption, plan.fireDisruption),
+          );
+        }
+        if (plan.moveDisruption > 0) {
+          s.player.moveCooldown = Math.max(
+            s.player.moveCooldown,
+            Math.min(COMPETITIVE_RULESET.maxMoveDisruption, plan.moveDisruption),
+          );
+        }
+        if (plan.cardPressure > 0 && !s.cardsReady) {
+          s.cardTimer = Math.max(0, s.cardTimer - Math.min(2, plan.cardPressure));
+        }
+        for (const row of shotRowsForPlan(plan)) {
+          launchNpcShot(row, plan.power, plan.big);
+        }
+        const normalized = clampCompetitiveResources(npc.hp, npc.shieldCharges);
+        npc.hp = normalized.hp;
+        npc.shieldCharges = normalized.shields;
+      };
+
+      let npcHighLevelActed = false;
+
+      if (npcRivalSkill
+        && npc.signatureWindow <= 0
+        && npc.signatureCooldown <= 0
+        && npc.decisionLock <= 0) {
+        npc.signatureWindow = COMPETITIVE_RULESET.signatureWindow;
+        npc.signatureActionCooldown = 0;
+        npc.signatureActions = 0;
+        npc.signatureLastCommand = -1;
+        npc.signatureMode = 0;
+        npc.signatureCharges = 0;
+        npc.signaturePlacements = [];
+        npc.signatureOriginCol = npc.col;
+        npc.signatureOriginRow = npc.row;
+        npc.signatureCooldown = VS_NPC_SKILL_INTERVAL;
+      }
+
+      if (npc.abilityCooldown <= 0
+        && npc.signatureWindow <= 0
+        && npc.decisionLock <= 0) {
+        npcSkillStartedRef.current = performance.now();
+        const step = npc.strategyStep++;
+        const plan = chooseVersusNpcAbility(buildNpcContext(step));
+        applyNpcPlan(plan);
+        const selectedAbility = runtimeAbilityById(plan.abilityId);
+        const abilityName = selectedAbility?.name
+          ?? plan.abilityId.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+        showMessage(`NPC ability · ${abilityName}`, 850);
+        npc.abilityCooldown = Math.max(
+          VS_NPC_ABILITY_INTERVAL,
+          selectedAbility?.cooldown ?? VS_NPC_ABILITY_INTERVAL,
+        ) + nextNpcRandom();
+        npc.decisionLock = NPC_SKILL_ANIMATION_DURATION / 1000;
+        npcHighLevelActed = true;
         updateHud();
       }
 
-      const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
-      if (npcRivalSkill && npcSkillTimerRef.current <= 0) {
+      if (!npcHighLevelActed
+        && npcRivalSkill
+        && npc.signatureWindow > 0
+        && npc.signatureActionCooldown <= 0
+        && npc.signatureActions < Math.min(4, COMPETITIVE_RULESET.signatureMaxActions)
+        && npc.decisionLock <= 0) {
         npcSkillStartedRef.current = performance.now();
-        const step = npcStrategyStepRef.current++;
-        const pressureByRow = [0, 1, 2].map((row) =>
-          s.bullets.filter((bullet) => bullet.row === row && bullet.colPos > 2.35).length);
-        const safestRow = pressureByRow.indexOf(Math.min(...pressureByRow));
-        const threatened = pressureByRow.reduce((sum, value) => sum + value, 0) >= 2;
-        const behind = npc.hp + 10 < s.hp;
-        let commandIndex = 0;
-
-        // Each signature keeps a recognizable tactical identity. Decisions use
-        // only deterministic match state so the same executor can move to a
-        // future authoritative PvP simulation.
-        if (npcRivalSkill === 'tempest') {
-          commandIndex = threatened ? 2 : step % 2;
-          if (commandIndex === 2) npc.shieldCharges++;
-          else {
-            launchNpcShot(s.player.row, 2, true);
-            if (commandIndex === 1) launchNpcShot((s.player.row + 1) % 3, 1);
-          }
-        } else if (npcRivalSkill === 'cryo') {
-          commandIndex = behind ? 2 : step % 2;
-          if (commandIndex === 2) {
-            npc.hp = boundedRecovery(npc.hp, 3);
-            npc.shieldCharges++;
-          } else {
-            s.player.fireCooldown = Math.max(s.player.fireCooldown, 1.05);
-            s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.55);
-            if (commandIndex === 1) launchNpcShot(s.player.row, 2, true);
-          }
-        } else if (npcRivalSkill === 'terra') {
-          commandIndex = threatened ? 2 : step % 2;
-          if (commandIndex === 2) npc.shieldCharges += 2;
-          else if (commandIndex === 1) launchNpcShot(s.player.row, 2, true);
-          else {
-            npc.col = Math.min(2, npc.col + 1);
-            npc.shieldCharges++;
-          }
-        } else if (npcRivalSkill === 'echo') {
-          commandIndex = step % 3;
-          if (commandIndex === 0) npc.row = s.player.row;
-          else if (commandIndex === 1) {
-            launchNpcShot(s.player.row, 1, true);
-            launchNpcShot((s.player.row + 2) % 3, 1, true);
-          } else npc.row = safestRow;
-        } else if (npcRivalSkill === 'mirage') {
-          commandIndex = threatened ? 1 : step % 3;
-          npc.row = safestRow;
-          if (commandIndex === 1) npc.shieldCharges++;
-          if (commandIndex === 2) launchNpcShot(s.player.row, 2, true);
-        } else if (npcRivalSkill === 'beacon') {
-          commandIndex = behind ? 2 : step % 2;
-          if (commandIndex === 2) {
-            npc.hp = boundedRecovery(npc.hp, 2);
-            npc.shieldCharges++;
-          } else for (let row = 0; row < 3; row++) launchNpcShot(row, 1);
-        } else if (npcRivalSkill === 'swarm') {
-          commandIndex = step % 3;
-          if (commandIndex === 2) for (let row = 0; row < 3; row++) launchNpcShot(row, 1);
-          else if (commandIndex === 1) s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.85);
-          else launchNpcShot(s.player.row, 1);
-        } else if (npcRivalSkill === 'bloom') {
-          commandIndex = behind || threatened ? 2 : step % 2;
-          if (commandIndex === 2) {
-            npc.hp = boundedRecovery(npc.hp, 3);
-            npc.shieldCharges++;
-          } else launchNpcShot(s.player.row, 1, true);
-        } else if (npcRivalSkill === 'tidal') {
-          commandIndex = threatened ? 2 : step % 2;
-          if (commandIndex === 2) {
-            npc.col = 2;
-            npc.shieldCharges++;
-          } else if (commandIndex === 1) {
-            npc.row = safestRow;
-            s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.5);
-          } else launchNpcShot(s.player.row, 2, true);
-        } else if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
-          commandIndex = behind || threatened ? 2 : 0;
-          if (commandIndex === 2) {
-            npc.hp = boundedRecovery(npc.hp, 2);
-            npc.shieldCharges++;
-          } else launchNpcShot(s.player.row, 1, true);
-        } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
-          commandIndex = step % 3;
-          if (commandIndex === 0) s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.9);
-          else if (commandIndex === 1) {
-            s.cardTimer = Math.max(0, s.cardTimer - 1.5);
-            npc.row = safestRow;
-          } else s.player.moveCooldown = Math.max(s.player.moveCooldown, 0.55);
-        } else {
-          commandIndex = threatened ? 2 : step % 2;
-          if (commandIndex === 2) npc.shieldCharges++;
-          else launchNpcShot(s.player.row, 2, true);
-        }
-        npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges);
+        const step = npc.strategyStep++;
+        const plan = chooseVersusNpcSignature(buildNpcContext(step));
+        applyNpcPlan(plan);
+        npc.signatureLastCommand = plan.commandIndex;
         showMessage(
-          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][commandIndex]}`,
+          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][plan.commandIndex]}`,
           1100,
         );
-        npcSkillTimerRef.current = VS_NPC_SKILL_INTERVAL;
+        npc.signatureActions++;
+        npc.signatureActionCooldown = Math.max(
+          COMPETITIVE_RULESET.signatureActionInterval,
+          NPC_SKILL_ANIMATION_DURATION / 1000,
+        );
+        npc.decisionLock = Math.max(
+          COMPETITIVE_RULESET.signatureActionInterval,
+          NPC_SKILL_ANIMATION_DURATION / 1000,
+        );
+        if (npc.signatureActions >= Math.min(4, COMPETITIVE_RULESET.signatureMaxActions)) {
+          npc.signatureWindow = 0;
+        }
+        npcHighLevelActed = true;
         updateHud();
       }
 
-      // Move toward the most-advanced (rightmost) incoming green attack
+      // Reposition according to the selected skin's doctrine and live lane threat.
       npc.moveCooldown -= dt;
-      if (npc.moveCooldown <= 0) {
+      if (!npcHighLevelActed && npc.moveCooldown <= 0) {
         npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
-        const laneThreat = [0, 1, 2].map((row) =>
-          s.bullets.filter((bullet) => bullet.row === row && bullet.colPos > 2.2).length);
-        const safeRows = [0, 1, 2].filter((row) =>
-          laneThreat[row] === Math.min(...laneThreat));
-        if (laneThreat[npc.row] > 0 && safeRows.some((row) => row !== npc.row)) {
-          npc.row = safeRows[Math.floor(nextNpcRandom() * safeRows.length)];
-        } else if (nextNpcRandom() < 0.58) {
-          if (npc.row < s.player.row) npc.row++;
-          else if (npc.row > s.player.row) npc.row--;
-        } else if (nextNpcRandom() < 0.24) {
-          npc.row = Math.max(0, Math.min(2, npc.row + (nextNpcRandom() < 0.5 ? 1 : -1)));
-        }
+        const context = buildNpcContext(npc.strategyStep);
+        npc.row = chooseVersusMovementRow(context, nextNpcRandom());
       }
 
       // Fire a left-moving bullet only when a green attack is in the NPC's row
       npc.fireCooldown -= dt;
-      if (npc.fireCooldown <= 0) {
+      if (!npcHighLevelActed && npc.fireCooldown <= 0) {
         launchNpcShot(npc.row);
         const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
         npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
@@ -8364,7 +9010,8 @@ export default function Game() {
           if (npc.shieldCharges > 0) {
             npc.shieldCharges--;
           } else {
-            npc.hp -= competitiveProjectileDamage(bullet.power);
+            const resolvedDamage = competitiveProjectileDamage(bullet.power);
+            npc.hp -= resolvedDamage;
             s.score += 100;
             if (npc.hp <= 0) { updateHud(); endGame(true); return; }
           }
@@ -8376,10 +9023,13 @@ export default function Game() {
         if (bullet.row !== s.player.row) continue;
         if (Math.abs(bullet.colPos - s.player.col) < (bullet.big ? 0.52 : 0.38)) {
           bullet.colPos = -9;
-          if (s.shieldCharges > 0) {
+          const resolvedDamage = competitiveProjectileDamage(bullet.power);
+          if (echoBrinkRef.current.drainHeld) {
+            s.hp += resolvedDamage;
+          } else if (s.shieldCharges > 0) {
             s.shieldCharges--;
           } else if (s.ghostTimer <= 0) {
-            s.hp -= competitiveProjectileDamage(bullet.power);
+            s.hp -= resolvedDamage;
             if (s.hp <= 0) { updateHud(); endGame(false); return; }
           }
           playHit();
@@ -8388,7 +9038,7 @@ export default function Game() {
       }
       s.npcBullets = s.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.colPos < 7);
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -8414,7 +9064,18 @@ export default function Game() {
             }
           }
           if (snapshot) {
-            stateRef.current = structuredClone(snapshot.state);
+            const current = stateRef.current;
+            const restored = structuredClone(snapshot.state);
+            // Chrono Break rewinds battlefield state, not modal/UI history.
+            // Preserve the live Evolution lifecycle so a snapshot captured
+            // around a milestone cannot resurrect its selection menu.
+            restored.upgradePromptOpen = current.upgradePromptOpen;
+            restored.upgradePromptTimer = current.upgradePromptTimer;
+            restored.upgradeSelectionOpen = false;
+            restored.upgradeOptions = current.upgradeOptions;
+            restored.upgradeRetryWave = current.upgradeRetryWave;
+            restored.nextUpgradeWave = current.nextUpgradeWave;
+            stateRef.current = restored;
             rewind.cursorAt = targetAt;
             if (ts - chronoLastHudUpdateRef.current >= 100) {
               updateHud();
@@ -8607,6 +9268,33 @@ export default function Game() {
       );
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
+      // Each Brink lock manifests an independent Echo at the target and plays
+      // the authored attack strip once. The original remains on its own tile.
+      if (ctx && playerSkinRef.current === 'echo' && echoBrinkStrikesRef.current.length > 0) {
+        const brinkFrames = echoBrinkFramesRef.current;
+        // Brink partitions use only the requested authored 2 -> 3 -> 5 sequence.
+        // Ordinary attacks are suppressed through the execution/recovery window,
+        // preventing their terminal pose from appearing appended to this strip.
+        if (brinkFrames.length === 3) {
+          const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          for (const strike of echoBrinkStrikesRef.current) {
+            const progress = Math.max(0, Math.min(0.999,
+              (performance.now() - strike.startedAt) / RIVAL_ATTACK_DURATION));
+            const sequenceStep = Math.min(
+              brinkFrames.length - 1,
+              Math.floor(progress * brinkFrames.length),
+            );
+            const size = m.cell * 1.08;
+            const x = m.x + (strike.colPos + 0.5) * m.cell - size / 2;
+            const y = m.y + (strike.row + 0.5) * m.cell - size / 2;
+            ctx.save();
+            ctx.globalAlpha = 0.9;
+            ctx.drawImage(brinkFrames[sequenceStep], x, y, size, size);
+            ctx.restore();
+          }
+        }
+      }
+
       if (skinHasOverlay) {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
@@ -8638,7 +9326,10 @@ export default function Game() {
             let rivalAttackBitmap: ImageBitmap | undefined;
             let rivalAttackProgress = 0;
             const skillElapsed = performance.now() - rivalSkillAnimationStartedRef.current;
+            const echoPartitionExecuting = playerSkinRef.current === 'echo'
+              && echoBrinkStrikesRef.current.length > 0;
             const rivalSkillAnimating = rivalSkin
+              && !echoPartitionExecuting
               && rivalSkillAnimationStartedRef.current >= 0
               && skillElapsed >= 0
               && skillElapsed < RIVAL_SKILL_ANIMATION_DURATION;
@@ -8696,7 +9387,29 @@ export default function Game() {
             if (sctx) {
               sctx.clearRect(0, 0, sz, sz);
               const mirror = playerSkinRef.current === 'gem' && gemMoveMirrorRef.current;
-              if (rivalSkillAnimating) {
+              const echoBracing = playerSkinRef.current === 'echo' && echoBrinkRef.current.held;
+              const echoDraining = playerSkinRef.current === 'echo'
+                && echoBrinkRef.current.drainHeld
+                && !echoBrinkRef.current.held
+                && echoBrinkStrikesRef.current.length === 0;
+              if (echoBracing || echoDraining) {
+                sctx.save();
+                if (echoBracing) {
+                  // Deterministic high-frequency recoil reads as a body bracing
+                  // against rising system load, rather than positional drift.
+                  const pulse = Math.floor(performance.now() / 42);
+                  sctx.translate((pulse % 3 - 1) * sz * 0.035, (pulse % 2 ? -1 : 1) * sz * 0.014);
+                  sctx.translate(sz * 0.5, sz * 0.58);
+                  sctx.scale(0.94, 1.06);
+                  sctx.translate(-sz * 0.5, -sz * 0.58);
+                }
+                const authoredFrames = gifAttackFramesRef.current;
+                const heldFrame = echoDraining
+                  ? authoredFrames[Math.min(4, authoredFrames.length - 1)]
+                  : frames[0];
+                sctx.drawImage(heldFrame ?? bitmap, 0, 0, sz, sz);
+                sctx.restore();
+              } else if (rivalSkillAnimating) {
                 const command = rivalSkillAnimationCommandRef.current;
                 const sequence = command >= 0
                   ? rivalSkillCommandSequencesRef.current[command]
@@ -9033,15 +9746,30 @@ export default function Game() {
     stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
     npcAttackStartedRef.current = -1;
     npcSkillStartedRef.current = -1;
-    npcStrategyStepRef.current = 0;
     npcVisualPositionRef.current = {
       col: stateRef.current.npc.col,
       row: stateRef.current.npc.row,
       at: 0,
     };
     rivalSkillCooldownRef.current = 0;
-    npcAbilityTimerRef.current = 7;
-    npcSkillTimerRef.current = 11;
+    echoReplayQueueRef.current = [];
+    echoReplayNextShotRef.current = 0;
+    echoBrinkRef.current = {
+      held: false,
+      drainHeld: false,
+      inputHeld: false,
+      drainInputHeld: false,
+      nextCountAt: 0,
+      locked: new WeakSet<object>(),
+      targets: [],
+    };
+    echoL2PressRef.current = {
+      tracking: false,
+      startedAt: 0,
+      holdCommitted: false,
+    };
+    echoBrinkStrikesRef.current = [];
+    echoSkillDrainHoldRef.current = false;
     npcInterceptCountRef.current = 0;
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
@@ -9374,6 +10102,14 @@ export default function Game() {
     });
   };
 
+  const toggleActionWindow = () => {
+    setActionWindowVisible((visible) => {
+      const next = !visible;
+      localStorage.setItem(ACTION_WINDOW_VISIBLE_KEY, next ? 'on' : 'off');
+      return next;
+    });
+  };
+
   const updateHudLayout = (key: string, rect: HudLayoutRect) => {
     setHudLayout((layout) => {
       const next = { ...layout, [key]: rect };
@@ -9621,6 +10357,21 @@ export default function Game() {
         </span>
         <b>{integrityConstructVisible ? 'ON' : 'OFF'}</b>
       </button>
+      <button
+        id={pausedView ? 'pauseActionWindowToggleBtn' : 'menuActionWindowToggleBtn'}
+        className="optionToggleBtn"
+        aria-pressed={actionWindowVisible}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggleActionWindow();
+        }}
+      >
+        <span>
+          <strong>ACTION WINDOW</strong>
+          <small>Show the movable cinematic fight bar during every match</small>
+        </span>
+        <b>{actionWindowVisible ? 'ON' : 'OFF'}</b>
+      </button>
       {pausedView && (
         <button
           id="pausePictureInPictureBtn"
@@ -9682,6 +10433,114 @@ export default function Game() {
   const integrityClass = displayedIntegrity.node < 25
     ? 'integrity-critical'
     : displayedIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
+  const actionWindowActive = phase === 'playing' && actionWindowVisible;
+  const actionGlobalIntegrity = Math.round(displayedIntegrity.global);
+  const actionSectorIntegrity = Math.round(displayedIntegrity.sector);
+  const actionNodeIntegrity = Math.round(displayedIntegrity.node);
+  const actionHelperCount = Math.max(1, Math.min(4, presence?.activePlayers ?? 1));
+  const actionIntegrityState = actionNodeIntegrity < 25 ? 'critical' : actionNodeIntegrity < 55 ? 'damaged' : 'stable';
+  const actionMaterialUnits = Math.max(0, Math.min(1000, presence?.coreUnits
+    ?? Math.round((actionNodeIntegrity * .52 + actionSectorIntegrity * .3 + actionGlobalIntegrity * .18) * 10)));
+  const actionBoundaryRadius = 132 + actionGlobalIntegrity * 0.32;
+  const actionSectorLinkOpacity = 0.22 + actionSectorIntegrity / 145;
+  const governedCampaignBiome = resolveCampaignBiome(actionGlobalIntegrity, hud.wave);
+  const actionBiome = governedCampaignBiome.id;
+  const actionBiomeLabel = governedCampaignBiome.label;
+  const actionConstraint = actionSectorIntegrity < 34 ? 'fractured'
+    : actionSectorIntegrity < 67 ? 'constrained' : 'permissive';
+  const actionConstraintLabel = actionConstraint === 'fractured' ? 'FRACTURED LOAD'
+    : actionConstraint === 'constrained' ? 'LIMITED BANDWIDTH' : 'OPEN THROUGHPUT';
+  const actionManifestation = actionNodeIntegrity < 34 ? 'recovery-nest'
+    : actionNodeIntegrity < 67 ? 'relay-foundry' : 'archive-habitat';
+  const actionManifestationLabel = actionManifestation === 'recovery-nest' ? 'RECOVERY NEST'
+    : actionManifestation === 'relay-foundry' ? 'RELAY FOUNDRY' : 'ARCHIVE HABITAT';
+  const actionOccurrence = actionWindowScene === 1 ? `HELPERS FORGE ${actionManifestationLabel}`
+    : actionWindowScene === 2 ? `${actionConstraintLabel} DISMANTLES MODULES`
+      : actionWindowScene === 3 ? `DISCOVERY ADAPTS ${actionManifestationLabel}`
+        : `${actionManifestationLabel} MAINTAINS BIOME`;
+  // Keep the geography deterministic for the whole chapter. Work must change the
+  // world by constructing it, not by rerolling every object's position and size.
+  const actionConstructSeed = hud.wave * 97 + actionBiome.length * 31;
+  const actionMacroCapacity = 200;
+  const actionAllowedDepth = actionSectorIntegrity < 34 ? 1 : actionSectorIntegrity < 67 ? 2 : 3;
+  const actionMacroBlueprint = Array.from({ length: actionAllowedDepth }, (_, depth) =>
+    Array.from({ length: 10 }, (_, course) =>
+      Array.from({ length: 17 }, (_, columnIndex) => {
+        const column = columnIndex - 8;
+        const distance = Math.abs(column);
+        const archiveShell = distance <= Math.max(1, 7 - Math.floor(course * .68));
+        const archiveOpening = course >= 2 && course <= 5 && distance <= 1;
+        const archiveTerrace = course === 3 || course === 6;
+        const inBlueprint = actionManifestation === 'archive-habitat'
+          ? archiveShell && (!archiveOpening || depth > 0) && (archiveTerrace || distance % 2 === 0 || depth > 0)
+          : actionManifestation === 'relay-foundry'
+            ? course < 2 || (distance >= 5 && course < 9) || (distance <= 3 && course >= 4 && course < 6)
+            : course < 2 || ((distance - 5.5) ** 2 / 22 + (course - 2.5) ** 2 / 28 <= 1 && !(distance < 3 && course < 8));
+        return { depth, course, column, inBlueprint };
+      }).filter((voxel) => voxel.inBlueprint),
+    ).flat(),
+  ).flat();
+  const actionMacroCandidates = Array.from({ length: 10 }, (_, course) => {
+    const courseVoxels = actionMacroBlueprint.filter((voxel) => voxel.course === course);
+    const courseCapacity = Math.floor(actionMacroCapacity / 10);
+    const stride = Math.max(1, Math.ceil(courseVoxels.length / courseCapacity));
+    return courseVoxels.filter((_, index) => index % stride === 0).slice(0, courseCapacity);
+  }).flat().sort((a, b) => a.course - b.course || Math.abs(a.column) - Math.abs(b.column) || a.depth - b.depth || a.column - b.column);
+  const actionMacroActive = Math.round(actionMaterialUnits / 1000 * actionMacroCandidates.length);
+  const actionMacroVoxels = actionMacroCandidates.map((voxel, index) => {
+    const disintegrity = (100 - actionNodeIntegrity) / 100;
+    const isMaterialized = index < actionMacroActive;
+    const warp = isMaterialized ? disintegrity * Math.max(0, voxel.course - 1) : 0;
+    return {
+      ...voxel,
+      index,
+      active: isMaterialized,
+      x: 280 + voxel.column * 13 + voxel.depth * 6 + Math.sin(index * 2.17) * warp * 9,
+      y: 66 - voxel.course * 6 - voxel.depth * 3 + Math.cos(index * 1.73) * warp * 7,
+      rotation: Math.sin(index * 3.11) * warp * 13,
+    };
+  });
+  const actionResidentCount = Math.min(6, hud.ecosystem.species);
+  const actionFunctionalObjectCount = Math.min(12, Math.floor(hud.integrityWork / 175));
+  const actionResidentPositions = [
+    { x: 88, y: 56 }, { x: 472, y: 55 }, { x: 128, y: 39 },
+    { x: 432, y: 38 }, { x: 171, y: 59 }, { x: 389, y: 58 },
+  ];
+  const campaignProgress = resolveCampaignProgress(hud.wave);
+  const actionStoryChapter = campaignProgress.act.title;
+  const actionStructureCost = 2100;
+  const actionCompletedCount = Math.floor(hud.integrityWork / actionStructureCost);
+  const actionCurrentWork = hud.integrityWork % actionStructureCost;
+  const actionBuildSteps = Math.max(0, Math.min(6, Math.floor(actionCurrentWork / 350)));
+  const actionRole = actionCompletedCount % 4;
+  const actionRoleBlueprints = [
+    { name: 'HABITAT', frame: 'M-12,12 V-5 M12,12 V-5 M-12,-5 L0,-13 L12,-5', shell: 'M-12,12 V-5 L0,-13 L12,-5 V12 Z', extensions: 'M-18,12 V0 L-12,-5 M18,12 V0 L12,-5', crown: 'M-5,-10 L0,-18 L5,-10', systems: 'M-8,5 H8 M0,-7 V9' },
+    { name: 'RELAY', frame: 'M-14,12 V-8 M14,12 V-8 M-14,-8 H14', shell: 'M-14,12 V-8 H14 V12 Z', extensions: 'M-18,-8 H18 M-10,1 H10', crown: 'M0,-8 V-19 M-6,-19 H6 M-4,-14 H4', systems: 'M-9,6 H9 M-9,1 H9' },
+    { name: 'CONSERVATORY', frame: 'M-16,12 V2 Q0,-18 16,2 V12', shell: 'M-16,12 V2 Q0,-18 16,2 V12 Z', extensions: 'M-8,12 V2 Q0,-8 8,2 V12', crown: 'M-5,-7 Q0,-16 5,-7', systems: 'M-11,5 Q0,-3 11,5 M0,-7 V10' },
+    { name: 'FOUNDRY', frame: 'M-15,12 V-2 L-6,-10 H6 L15,-2 V12', shell: 'M-15,12 V-2 L-6,-10 H6 L15,-2 V12 Z', extensions: 'M-6,-10 V-17 M6,-10 V-17', crown: 'M-9,-17 H-3 M3,-17 H9', systems: 'M-10,4 H10 M-7,9 H7' },
+  ] as const;
+  const activeRoleBlueprint = actionRoleBlueprints[actionRole];
+  const actionArchivedCount = Math.min(15, actionCompletedCount);
+  const actionActiveDistricts = Math.min(actionArchivedCount, Math.max(0,
+    1 + hud.ecosystem.species + hud.ecosystem.fusions));
+  const actionLinkedDistricts = actionSectorIntegrity >= 70 ? actionArchivedCount
+    : actionSectorIntegrity >= 45 ? Math.ceil(actionArchivedCount * .66)
+      : Math.ceil(actionArchivedCount * .33);
+  const actionDamageSteps = actionNodeIntegrity >= 80 ? 0 : actionNodeIntegrity >= 65 ? 1
+    : actionNodeIntegrity >= 50 ? 2 : actionNodeIntegrity >= 35 ? 3 : actionNodeIntegrity >= 20 ? 4 : 5;
+  const actionStoryBeat = campaignProgress.operation.title;
+  const actionSceneryCount = Math.min(12, Math.max(1, Math.floor(actionGlobalIntegrity / 8)));
+  const actionStoryEvent = actionWindowScene === 1 ? 'RESTORATION EXPANDS THE SETTLEMENT'
+    : actionWindowScene === 2 ? 'DISINTEGRITY RECLAIMS THE FRONTIER'
+      : actionWindowScene === 3 ? 'NEW LIFE ENTERS THE REPOSITORY'
+        : hud.pressureState === 'critical' ? 'THE SECTOR HOLDS UNDER PRESSURE'
+          : hud.pressureState === 'recovery' ? 'THE LANDSCAPE IS RECOVERING'
+            : 'THE LIVING SECTOR ADVANCES';
+  const actionPolygon = (x: number, y: number, radius: number, sides: number, rotation = 0) =>
+    Array.from({ length: sides }, (_, index) => {
+      const angle = rotation + Math.PI * 2 * index / sides;
+      return `${x + Math.cos(angle) * radius},${y + Math.sin(angle) * radius}`;
+    }).join(' ');
 
   return (
     <div id="game" className={`${phase === 'menu' ? 'menu-open ' : ''}${integrityClass}`}>
@@ -9851,7 +10710,8 @@ export default function Game() {
         </>
       )}
 
-      {phase === 'playing' && rivalSkillView.active && rivalSkillView.id && (
+      {phase === 'playing' && rivalSkillView.active && rivalSkillView.id
+        && rivalSkillView.id !== 'echo' && (
         <SignatureSkillFx
           id={rivalSkillView.id}
           stateRef={stateRef}
@@ -9866,6 +10726,13 @@ export default function Game() {
           className={`rivalSkillControls skill-${rivalSkillView.id}`}
           style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}
         >
+          {false && rivalSkillView.id === 'echo' && echoChannelView !== 'idle' && (
+            <div className={`echoChannelStatus ${echoChannelView}`}>
+              {echoChannelView === 'brink'
+                ? 'BRINK · ACQUIRING'
+                : 'DRAIN · COLLISION LINK ACTIVE'}
+            </div>
+          )}
           <div className="rivalSkillTitle">
             {RIVAL_SKILL_LABELS[rivalSkillView.id]}
             <small>{Math.max(0, Math.ceil((rivalSkillView.expiresAt - performance.now()) / 1000))}s</small>
@@ -10019,6 +10886,125 @@ export default function Game() {
       )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
+      {actionWindowActive && (
+        <HudLayoutItem
+          label="ACTION WINDOW"
+          rect={hudLayout.action}
+          editing={hudLayoutEditing}
+          onChange={(rect) => updateHudLayout('action', rect)}
+          minWidth={280}
+          minHeight={82}
+        >
+          <div
+            id="actionWindowBar"
+            className={`actionScene-${actionWindowScene} actionIntegrity-${actionIntegrityState} biome-${actionBiome} constraint-${actionConstraint}`}
+            aria-label={`Living sector Action Window at ${actionNodeIntegrity} percent Node Integrity`}
+          >
+            <div className="actionWindowHeader">
+              <span>{actionStoryChapter} // {actionStoryBeat}</span>
+              <span className="campaignOperationProgress" title={campaignProgress.operation.briefing}>OP {campaignProgress.operationIndex + 1}/6 · {campaignProgress.operation.objective.toUpperCase()} · {campaignProgress.encounterIndex + 1}/{ENCOUNTERS_PER_OPERATION}</span>
+              <span className="actionWindowLive">W{hud.wave} · {actionBiomeLabel} · N{actionNodeIntegrity}</span>
+            </div>
+            <div className="actionWindowStage">
+              <div className="actionWindowGrid" />
+              <div className="actionWindowDivider" />
+              <ActionCinematic work={hud.integrityWork} global={actionGlobalIntegrity} sector={actionSectorIntegrity}
+                node={actionNodeIntegrity} species={hud.ecosystem.species} mutations={hud.ecosystem.mutations}
+                fusions={hud.ecosystem.fusions} helpers={actionHelperCount} scene={actionWindowScene} wave={hud.wave}
+                playerSkin={playerSkin} npcSkin={npcSkin}
+                getPlayerFrame={() => spriteCanvasRef.current}
+                getNpcFrame={() => npcSpriteCanvasRef.current}
+                getEnemyFrame={() => {
+                  const living = stateRef.current.enemies.find((enemy) => enemy.colPos > -1 && enemy.genome);
+                  return living?.genome ? getProceduralVirusSprite(living.visualSeed ?? living.value, living.genome) : null;
+                }}
+                getCombat={() => {
+                  const current = stateRef.current;
+                  const nearestEnemy = current.enemies.filter((enemy) => enemy.colPos > -1)
+                    .sort((a, b) => a.colPos - b.colPos)[0];
+                  return {
+                    versus: current.gameMode === 'vs',
+                    playerCol: current.player.col, playerRow: current.player.row,
+                    npcCol: current.gameMode === 'vs' ? current.npc.col : Math.max(0, Math.min(3, (nearestEnemy?.colPos ?? 5) - 3)),
+                    npcRow: current.gameMode === 'vs' ? current.npc.row : nearestEnemy?.row ?? 1,
+                    playerHp: current.hp, npcHp: current.gameMode === 'vs' ? current.npc.hp : nearestEnemy?.hp ?? 1,
+                    shots: [
+                      ...current.bullets.slice(-8).map((shot) => ({
+                        x: shot.colPos, row: shot.row, enemy: false,
+                        skin: shot.effectSkin ?? playerSkin,
+                      })),
+                      ...current.npcBullets.slice(-8).map((shot) => ({
+                        x: shot.colPos - 3, row: shot.row, enemy: true,
+                        skin: shot.effectSkin ?? npcSkin,
+                      })),
+                    ],
+                  };
+                }} />
+              <svg className="actionIntegritySegment legacyActionDiagram" viewBox="0 0 560 78" role="img"
+                aria-label={`${actionStoryChapter}: ${actionStoryEvent}`}>
+                <path className="persistentGround" d="M60,68 Q280,63 500,68" />
+                <g className="constructArchive" aria-label={`${actionArchivedCount} completed structures`}>
+                  {Array.from({ length: actionArchivedCount }, (_, index) => {
+                    const column = index % 5;
+                    const row = Math.floor(index / 5);
+                    const x = 72 + column * 31 + row * 7;
+                    const y = 57 - row * 15;
+                    const archiveDamaged = actionDamageSteps >= 4 && index >= actionArchivedCount - (actionDamageSteps - 3);
+                    const role = index % 4;
+                    const districtActive = index < actionActiveDistricts && !archiveDamaged;
+                    return <g key={index} className={`archiveStructure role-${role} ${districtActive ? 'districtActive' : ''} ${archiveDamaged ? 'archiveDamaged' : ''}`}
+                      style={{ '--archive-order': index } as React.CSSProperties} transform={`translate(${x} ${y}) scale(${.38 - row * .035})`}>
+                      <path d="M-18,12 H18 L14,16 H-14 Z" />
+                      <path d={actionRoleBlueprints[role].shell} />
+                      <path d={actionRoleBlueprints[role].extensions} />
+                      <path d={actionRoleBlueprints[role].crown} />
+                      <circle className="districtCore" cy="1" r="3" />
+                      {districtActive && <><circle className="districtLife" cx={-8 + index % 3 * 8} cy="9" r="1.5" /><path className="districtSignal" d="M0,-2 Q8,-8 15,-3" /></>}
+                      {hud.ecosystem.mutations > index && <path className="districtAdaptation" d="M-12,5 L-20,-2 M12,5 L20,-2" />}
+                      {hud.ecosystem.fusions > index && <path className="districtFusion" d="M-7,-8 Q0,-20 7,-8" />}
+                      {archiveDamaged && <path className="archiveCrack" d="M4,-10 L-2,-2 L5,5 L0,12" />}
+                    </g>;
+                  })}
+                </g>
+                <g className="districtConnections">
+                  {Array.from({ length: Math.max(0, actionArchivedCount - 1) }, (_, index) => {
+                    const fromColumn = index % 5;
+                    const fromRow = Math.floor(index / 5);
+                    const toColumn = (index + 1) % 5;
+                    const toRow = Math.floor((index + 1) / 5);
+                    return <path key={index} className={index < actionLinkedDistricts - 1 ? 'linked' : 'severed'}
+                      d={`M${72 + fromColumn * 31 + fromRow * 7},${57 - fromRow * 15} L${72 + toColumn * 31 + toRow * 7},${57 - toRow * 15}`} />;
+                  })}
+                </g>
+                <g className="districtHelpers">
+                  {Array.from({ length: actionHelperCount }, (_, index) => <g key={index} transform={`translate(${82 + index * 28} ${62 - index % 2 * 7})`}>
+                    <circle r="2.2" /><path d="M-4,4 L0,0 L4,4" />
+                  </g>)}
+                </g>
+                <path className="archiveLane" d="M48,66 H202" />
+                <g key={`active-structure-${actionCompletedCount}`} className={`persistentConstruct activeConstruct activeRole-${actionRole} damage-${actionDamageSteps}`} transform="translate(280 47) scale(2.25)">
+                  <path className={`constructLayer foundation ${actionBuildSteps >= 1 ? 'present' : ''}`} d="M-18,12 H18 L14,16 H-14 Z" />
+                  <path className={`constructLayer frame ${actionBuildSteps >= 2 ? 'present' : ''}`} d={activeRoleBlueprint.frame} />
+                  <path className={`constructLayer core ${actionBuildSteps >= 3 ? 'present' : ''}`} d={activeRoleBlueprint.shell} />
+                  <path className={`constructLayer wings ${actionBuildSteps >= 4 ? 'present' : ''}`} d={activeRoleBlueprint.extensions} />
+                  <path className={`constructLayer crown ${actionBuildSteps >= 5 ? 'present' : ''}`} d={activeRoleBlueprint.crown} />
+                  <g className={`constructLayer systems ${actionBuildSteps >= 6 ? 'present' : ''}`}>
+                    <circle cy="1" r="3" /><path d={activeRoleBlueprint.systems} />
+                  </g>
+                  {actionDamageSteps >= 1 && <path className="metricDamage damageOne" d="M11,-8 L5,-1 L12,5" />}
+                  {actionDamageSteps >= 2 && <path className="metricDamage damageTwo" d="M-10,-9 L-4,-3 L-9,5 L-2,11" />}
+                  {actionDamageSteps >= 3 && <path className="metricDamage damageThree" d="M3,-12 L-1,-5 L5,2 L1,12" />}
+                  {actionDamageSteps >= 4 && <path className="missingSection" d="M3,-1 L18,-7 V12 H5 Z" />}
+                  {actionDamageSteps >= 5 && <path className="coreFailure" d="M-8,11 L0,1 L8,11" />}
+                </g>
+                <path className="archiveDirection" d="M205,58 H174 M180,53 L174,58 L180,63" />
+                <text className="archiveLabel" x="112" y="75">LIVING DISTRICTS · {actionCompletedCount}</text>
+                <text className="constructStateLabel" x="326" y="76">{actionDamageSteps ? `${actionNodeIntegrity}% · SITE ${actionCompletedCount + 1} DAMAGED` : `SITE ${actionCompletedCount + 1} · BUILD ${actionBuildSteps}/6`}</text>
+              </svg>
+            </div>
+          </div>
+        </HudLayoutItem>
+      )}
       <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
         <div id="cardUi">
           <div id="cardCharge">
@@ -10121,16 +11107,32 @@ export default function Game() {
             onPointerDown={(event) => {
               event.stopPropagation();
               event.currentTarget.setPointerCapture(event.pointerId);
+              chronoSkillHoldRef.current = false;
+              echoSkillDrainHoldRef.current = false;
               skillButtonHoldingRef.current = false;
               skillButtonDoubleTapRef.current = Boolean(skillButtonTapTimerRef.current);
               if (skillButtonTapTimerRef.current) {
                 clearTimeout(skillButtonTapTimerRef.current);
                 skillButtonTapTimerRef.current = null;
               }
-              if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'chrono') {
+              if (skillButtonDoubleTapRef.current
+                && rivalSkillRef.current.active
+                && rivalSkillRef.current.id === 'echo') {
+                // The held second press is Echo's alternate on-screen channel:
+                // double-tap then hold sustains Drain, while a single hold
+                // below sustains Brink.
                 skillButtonHoldTimerRef.current = setTimeout(() => {
                   skillButtonHoldTimerRef.current = null;
                   skillButtonHoldingRef.current = true;
+                  chronoSkillHoldRef.current = false;
+                  echoSkillDrainHoldRef.current = true;
+                }, 180);
+              } else if (rivalSkillRef.current.active
+                && (rivalSkillRef.current.id === 'chrono' || rivalSkillRef.current.id === 'echo')) {
+                skillButtonHoldTimerRef.current = setTimeout(() => {
+                  skillButtonHoldTimerRef.current = null;
+                  skillButtonHoldingRef.current = true;
+                  echoSkillDrainHoldRef.current = false;
                   chronoSkillHoldRef.current = true;
                 }, 180);
               }
@@ -10142,6 +11144,7 @@ export default function Game() {
                 skillButtonHoldTimerRef.current = null;
               }
               chronoSkillHoldRef.current = false;
+              echoSkillDrainHoldRef.current = false;
               if (skillButtonHoldingRef.current) {
                 skillButtonHoldingRef.current = false;
                 skillButtonDoubleTapRef.current = false;
@@ -10168,8 +11171,12 @@ export default function Game() {
               skillButtonHoldingRef.current = false;
               skillButtonDoubleTapRef.current = false;
               chronoSkillHoldRef.current = false;
+              echoSkillDrainHoldRef.current = false;
             }}
-            onLostPointerCapture={() => { chronoSkillHoldRef.current = false; }}
+            onLostPointerCapture={() => {
+              chronoSkillHoldRef.current = false;
+              echoSkillDrainHoldRef.current = false;
+            }}
           >
             SKILL
             <small>V · L2</small>
@@ -10777,9 +11784,14 @@ export default function Game() {
       )}
 
       {/* Status message */}
-      {hud.message && (
-        <div id="message" ref={messageRef}>{hud.message}</div>
-      )}
+      <div
+        id="message"
+        ref={messageRef}
+        className={rivalSkillView.active && rivalSkillView.id === 'echo' ? 'aboveEchoSkillMenu' : undefined}
+        style={rivalSkillView.active && rivalSkillView.id === 'echo' && boardBottom > 0
+          ? { top: Math.max(8, boardBottom - 24), bottom: 'auto' }
+          : undefined}
+      >{hud.message}</div>
     </div>
   );
 }
