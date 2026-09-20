@@ -52,6 +52,10 @@ export interface Bullet {
     | 'swarm' | 'suppression' | 'polarity' | 'orbital';
   /** Skin identity used only for additional projectile animation effects. */
   effectSkin?: string;
+  /** Stable enemy visual seeds already resolved by this projectile. */
+  hitEnemySeeds?: number[];
+  /** Prevents a piercing projectile from resolving repeatedly on the VS rival. */
+  hitNpc?: boolean;
 }
 
 export type EnemyAbility =
@@ -83,6 +87,15 @@ export interface Enemy {
   counterpartAbilityId?: string;
   abilityCooldown?: number;
   abilityWindup?: number;
+  /** Recovery prevents a signature ability from immediately restarting. */
+  abilityRecovery?: number;
+  /** Locked recipients/destination used by authored telegraphs and resolution. */
+  abilityTargetSeeds?: number[];
+  abilityTargetRow?: number;
+  abilityTargetColumn?: number;
+  /** Temporary Arc Armor layers; one layer blocks one resolved hit. */
+  armorCharges?: number;
+  armorTimer?: number;
 }
 
 export interface Particle {
@@ -109,6 +122,10 @@ export interface NpcAgent {
   moveCooldown: number;
   hp: number;
   shieldCharges: number;
+  ability?: EnemyAbility;
+  abilityWindup?: number;
+  abilityRecovery?: number;
+  abilityTargetRow?: number;
 }
 
 export interface AbilityCooldowns {

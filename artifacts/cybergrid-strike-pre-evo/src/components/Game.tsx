@@ -90,6 +90,17 @@ import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morph
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
 import { getEnemyMovementClass, getProceduralVirusSprite, type EnemyMovementClass } from '../game/procedural-virus';
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
+import {
+  getEnemyAbilityProfile,
+  getEnemyAbilityProfileForGenome,
+  type EnemyAbilityProfile,
+} from '../game/enemy-ability-registry';
+import {
+  enemyVitals,
+  resolveDamage,
+  resolveHeal,
+  selectMostWoundedAlly,
+} from '../game/combat-effects';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 const ABILITY_PRESETS_KEY = 'cgs_ability_presets_v1';
@@ -2010,7 +2021,181 @@ function isCyberEnemy(enemy: GameState['enemies'][number]): boolean {
   return Boolean(enemy.genome && CYBER_BASES.has(enemy.genome.baseElement));
 }
 
+function enemyStableSeed(enemy: GameState['enemies'][number], fallbackIndex = 0): number {
+  return enemy.visualSeed
+    ?? enemy.value * 131 + (enemy.formationId ?? fallbackIndex) * 104729;
+}
+
+function rangedProfileSeconds(
+  range: { readonly min: number; readonly max: number },
+  enemy: GameState['enemies'][number],
+  salt: number,
+): number {
+  const seed = Math.abs(enemyStableSeed(enemy) * 31 + enemy.value * 17 + salt * 101);
+  const unit = (seed % 997) / 996;
+  return range.min + (range.max - range.min) * unit;
+}
+
+function incomingProjectileThreat(
+  state: GameState,
+  enemy: GameState['enemies'][number],
+): number {
+  let threat = 0;
+  for (const bullet of state.bullets) {
+    if (bullet.row !== enemy.row || bullet.speed <= 0 || bullet.colPos >= enemy.colPos + 0.3) continue;
+    const closingSpeed = Math.max(0.1, bullet.speed + enemy.speed);
+    const timeToImpact = (enemy.colPos - bullet.colPos) / closingSpeed;
+    if (timeToImpact < 0 || timeToImpact > 1.8) continue;
+    threat += (bullet.power ?? 1) * (1.9 - timeToImpact);
+  }
+  return threat;
+}
+
+function findEnemyBySeed(
+  enemies: readonly GameState['enemies'][number][],
+  seed: number,
+): GameState['enemies'][number] | undefined {
+  return enemies.find((candidate, index) =>
+    candidate.hp > 0 && candidate.colPos > -1 && enemyStableSeed(candidate, index) === seed);
+}
+
+function clearEnemyAbilityTarget(enemy: GameState['enemies'][number]): void {
+  enemy.abilityTargetSeeds = undefined;
+  enemy.abilityTargetRow = undefined;
+  enemy.abilityTargetColumn = undefined;
+}
+
+function prepareAuthoredEnemyAbility(
+  state: GameState,
+  enemy: GameState['enemies'][number],
+  enemyIndex: number,
+  profile: EnemyAbilityProfile,
+): boolean {
+  clearEnemyAbilityTarget(enemy);
+
+  if (profile.id === 'arcArmor') {
+    let bestTarget: GameState['enemies'][number] | undefined;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const candidate of state.enemies) {
+      if (candidate.hp <= 0 || candidate.colPos <= -1) continue;
+      if (Math.abs(candidate.colPos - enemy.colPos) > 2.4 || Math.abs(candidate.row - enemy.row) > 1) continue;
+      if ((candidate.armorCharges ?? 0) >= 2) continue;
+      const maxHp = Math.max(candidate.hp, candidate.maxHp ?? candidate.hp);
+      const missingRatio = maxHp > 0 ? (maxHp - candidate.hp) / maxHp : 0;
+      const threat = incomingProjectileThreat(state, candidate);
+      const score = threat * 12 + missingRatio * 4 - Math.abs(candidate.colPos - enemy.colPos) * 0.2;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTarget = candidate;
+      }
+    }
+    if (!bestTarget || bestScore <= 0.2) return false;
+    enemy.abilityTargetSeeds = [enemyStableSeed(bestTarget, state.enemies.indexOf(bestTarget))];
+    return true;
+  }
+
+  if (profile.id === 'mendingPulse') {
+    const targets: number[] = [];
+    for (let pick = 0; pick < profile.targeting.maxTargets; pick++) {
+      const selected = selectMostWoundedAlly(state.enemies, {
+        sourceIndex: enemyIndex,
+        includeSource: false,
+        maxColumnDistance: 2.4,
+        minimumMissingHp: 1,
+        predicate: (candidate, index) =>
+          !targets.includes(enemyStableSeed(candidate, index))
+          && Math.abs(candidate.row - enemy.row) <= 1,
+      });
+      if (selected === undefined) break;
+      targets.push(enemyStableSeed(state.enemies[selected], selected));
+    }
+    if (targets.length === 0) return false;
+    enemy.abilityTargetSeeds = targets;
+    return true;
+  }
+
+  if (profile.id === 'phaseLeap') {
+    const targetRow = state.player.row;
+    const targetColumn = Math.max(1.15, Math.min(3.15, state.player.col + 1));
+    if (enemy.colPos - targetColumn < 0.65) return false;
+    const occupied = state.enemies.some((candidate) =>
+      candidate !== enemy
+      && candidate.hp > 0
+      && candidate.row === targetRow
+      && Math.abs(candidate.colPos - targetColumn) < 0.52);
+    if (occupied) return false;
+    enemy.abilityTargetRow = targetRow;
+    enemy.abilityTargetColumn = targetColumn;
+    return true;
+  }
+
+  return false;
+}
+
+function resolveAuthoredEnemyAbility(
+  state: GameState,
+  enemy: GameState['enemies'][number],
+  profile: EnemyAbilityProfile,
+): boolean {
+  let struckPlayer = false;
+
+  if (profile.id === 'arcArmor') {
+    const armorEffect = profile.effects.find((effect) => effect.kind === 'armor');
+    const targetSeed = enemy.abilityTargetSeeds?.[0];
+    const target = targetSeed === undefined ? undefined : findEnemyBySeed(state.enemies, targetSeed);
+    if (target && armorEffect?.kind === 'armor') {
+      target.armorCharges = Math.min(
+        armorEffect.maximumLayers,
+        (target.armorCharges ?? 0) + armorEffect.layers,
+      );
+      target.armorTimer = armorEffect.durationSeconds;
+      target.flash = Math.max(target.flash, 0.12);
+    }
+  } else if (profile.id === 'mendingPulse') {
+    const healEffect = profile.effects.find((effect) => effect.kind === 'heal');
+    if (healEffect?.kind === 'heal') {
+      for (const targetSeed of enemy.abilityTargetSeeds ?? []) {
+        const target = findEnemyBySeed(state.enemies, targetSeed);
+        if (!target || Math.abs(target.colPos - enemy.colPos) > 2.8
+          || Math.abs(target.row - enemy.row) > 1) continue;
+        const healed = resolveHeal(enemyVitals(target), {
+          kind: 'heal',
+          target: { side: 'enemy', id: String(targetSeed) },
+          abilityId: profile.id,
+          amount: healEffect.hitPoints,
+        });
+        target.hp = healed.vitals.hp;
+        target.maxHp = healed.vitals.maxHp;
+        if (healed.healed > 0) target.flash = Math.max(target.flash, 0.14);
+      }
+    }
+  } else if (profile.id === 'phaseLeap') {
+    const destinationRow = enemy.abilityTargetRow;
+    const destinationColumn = enemy.abilityTargetColumn;
+    if (destinationRow !== undefined && destinationColumn !== undefined) {
+      enemy.row = destinationRow;
+      enemy.colPos = destinationColumn;
+      enemy.flash = Math.max(enemy.flash, 0.16);
+      const strike = profile.effects.find((effect) => effect.kind === 'strike');
+      if (strike?.kind === 'strike'
+        && state.player.row === destinationRow
+        && Math.abs(state.player.col - destinationColumn) <= strike.reachCells) {
+        if (state.shieldCharges > 0) state.shieldCharges--;
+        else if (state.ghostTimer <= 0) state.hp = Math.max(0, state.hp - strike.damage);
+        struckPlayer = true;
+      }
+    }
+  }
+
+  clearEnemyAbilityTarget(enemy);
+  enemy.abilityRecovery = profile.timing.phases.recovery.durationSeconds;
+  enemy.abilityCooldown = rangedProfileSeconds(profile.timing.cooldownSeconds, enemy, state.wave + 17);
+  return struckPlayer;
+}
+
 function enemyAbilityFor(genome: EnemyGenome): EnemyAbility | undefined {
+  const authored = getEnemyAbilityProfileForGenome(genome);
+  if (authored) return authored.id;
   const mature = genome.fusionLevel > 0 || (genome.generation >= 2 && genome.mutations.length >= 2);
   if (!mature) return undefined;
   const movement = getEnemyMovementClass(genome.baseElement);
@@ -2078,9 +2263,8 @@ function constitutionComponents(genome: EnemyGenome): Omit<AbilityBlueprint, 'ab
     cryo: 'thermal',
     void: 'phase',
     radiant: 'phase',
-    fluidic: 'fluid',
     corrosive: 'fluid',
-    botanical: 'organic',
+    bloom: 'organic',
     kinetic: 'kinetic',
   };
   const medium = genome.entityType === 'mechanical'
@@ -2371,7 +2555,16 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     currentCardOptions: randomAbilityOptions(undefined, enabledIds),
     // VS mode
     gameMode: mode,
-    npc: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0, hp: NPC_HP, shieldCharges: 0 },
+    npc: {
+      col: 1,
+      row: 1,
+      fireCooldown: 0,
+      moveCooldown: 0,
+      hp: NPC_HP,
+      shieldCharges: 0,
+      abilityWindup: 0,
+      abilityRecovery: 0,
+    },
     npcBullets: [],
     npcEnemies: [],
     playerWon: false,
@@ -3505,7 +3698,7 @@ export default function Game() {
   const stateRef = useRef<GameState>(makeInitialState());
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
-  const chronoRewindTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chronoRewindTimerRef = useRef<number | null>(null);
   const chronoRewindExhaustedRef = useRef(false);
   const stopChronoRewindRef = useRef<(exhausted?: boolean) => void>(() => {});
   const chronoRewindRef = useRef({
@@ -6631,6 +6824,9 @@ export default function Game() {
       const existingAutoFire = cloneAutoFireTimersRef.current[direction];
       if (existingAutoFire) clearInterval(existingAutoFire);
       cloneAutoFireTimersRef.current[direction] = setInterval(() => {
+        if (phaseRef.current !== 'playing'
+          || pausedRef.current
+          || !stateRef.current.running) return;
         const latest = cloneSessionRef.current;
         const latestRow = latest.rows[direction];
         if (!latest.visible || latestRow === null || latest.statuses[direction] !== 'autofiring') {
@@ -7233,7 +7429,8 @@ export default function Game() {
       if (genome.fusionLevel > 0) s.ecosystemStats.totalFusions++;
       registerSpawn(getMorphSig(value));
       const enemyAbility = enemyCounterpartFor(genome);
-      s.enemies.push({
+      const abilityProfile = getEnemyAbilityProfile(enemyAbility);
+      const spawnedEnemy: GameState['enemies'][number] = {
         colPos: 5.6,
         row,
         speed,
@@ -7249,11 +7446,18 @@ export default function Game() {
         regenerationCharge: 0,
         ability: enemyAbility,
         counterpartAbilityId: linkedPlayerAbility(genome),
-        abilityCooldown: enemyAbility
-          ? ENEMY_ABILITY_FIRST_CAST_MIN + Math.random() * ENEMY_ABILITY_FIRST_CAST_RANGE
-          : 0,
+        abilityCooldown: 0,
         abilityWindup: 0,
-      });
+        abilityRecovery: 0,
+        armorCharges: 0,
+        armorTimer: 0,
+      };
+      spawnedEnemy.abilityCooldown = abilityProfile
+        ? rangedProfileSeconds(abilityProfile.timing.initialDelaySeconds, spawnedEnemy, s.wave)
+        : enemyAbility
+          ? ENEMY_ABILITY_FIRST_CAST_MIN + Math.random() * ENEMY_ABILITY_FIRST_CAST_RANGE
+          : 0;
+      s.enemies.push(spawnedEnemy);
 
       s.enemyFormationId++;
       // Courteous escalation: waves increase pressure, while density, advanced
@@ -7293,13 +7497,29 @@ export default function Game() {
       if (s.freezeTimer > 0) speedScale = 0.08;
       if (s.signalJamTimer > 0 && isCyberEnemy(e)) speedScale *= 0.32;
 
+      if ((e.armorTimer ?? 0) > 0) {
+        e.armorTimer = Math.max(0, (e.armorTimer ?? 0) - dt);
+        if (e.armorTimer <= 0) e.armorCharges = 0;
+      }
+
       const abilitySuppressed = s.freezeTimer > 0 || (s.signalJamTimer > 0 && isCyberEnemy(e));
       if (e.ability && !abilitySuppressed) {
+        const authoredProfile = getEnemyAbilityProfile(e.ability);
         e.abilityCooldown = Math.max(0, (e.abilityCooldown ?? 0) - dt);
-        if ((e.abilityWindup ?? 0) > 0) {
+        if (authoredProfile && (e.abilityRecovery ?? 0) > 0) {
+          e.abilityRecovery = Math.max(0, (e.abilityRecovery ?? 0) - dt);
+          speedScale *= authoredProfile.timing.phases.recovery.movementScale;
+        } else if ((e.abilityWindup ?? 0) > 0) {
           e.abilityWindup = Math.max(0, (e.abilityWindup ?? 0) - dt);
-          speedScale *= 0.12;
-          if (e.abilityWindup <= 0) {
+          speedScale *= authoredProfile?.timing.phases.windup.movementScale ?? 0.12;
+          if (e.abilityWindup <= 0 && authoredProfile) {
+            const struckPlayer = resolveAuthoredEnemyAbility(s, e, authoredProfile);
+            if (struckPlayer) {
+              playHit();
+              updateHud();
+              if (s.hp <= 0) { endGame(false); return; }
+            }
+          } else if (e.abilityWindup <= 0) {
             const counterpart = PLAYER_ABILITY_MATRIX.find((entry) =>
               entry.abilityId === e.counterpartAbilityId);
             const counterpartFunction = counterpart?.function;
@@ -7337,7 +7557,14 @@ export default function Game() {
             e.abilityCooldown = 6.5 + (e.value % 4);
           }
         } else if ((e.abilityCooldown ?? 0) <= 0 && e.colPos > 1.15 && e.colPos < 5.3) {
-          e.abilityWindup = ENEMY_ABILITY_WINDUP;
+          if (!authoredProfile || prepareAuthoredEnemyAbility(s, e, s.enemies.indexOf(e), authoredProfile)) {
+            e.abilityWindup = authoredProfile?.timing.phases.windup.durationSeconds
+              ?? ENEMY_ABILITY_WINDUP;
+          } else {
+            // A healer without a wounded ally or a protector without incoming
+            // pressure waits briefly instead of wasting a signature cast.
+            e.abilityCooldown = 0.45;
+          }
         }
       }
       e.colPos -= e.speed * speedScale * dt;
@@ -7443,8 +7670,15 @@ export default function Game() {
         a.flash = 0.16;
         a.ability = enemyCounterpartFor(a.genome);
         a.counterpartAbilityId = linkedPlayerAbility(a.genome);
-        a.abilityCooldown = Math.max(3.5, a.abilityCooldown ?? 5);
+        const fusedAbilityProfile = getEnemyAbilityProfile(a.ability);
+        a.abilityCooldown = fusedAbilityProfile
+          ? rangedProfileSeconds(fusedAbilityProfile.timing.initialDelaySeconds, a, s.wave + 31)
+          : Math.max(3.5, a.abilityCooldown ?? 5);
         a.abilityWindup = 0;
+        a.abilityRecovery = 0;
+        clearEnemyAbilityTarget(a);
+        a.armorCharges = 0;
+        a.armorTimer = 0;
         b.colPos = -9;
         const fusedSignature = genomeSignature(a);
         if (fusedSignature && !s.ecosystemStats.entitySignatures.includes(fusedSignature)) {
@@ -7458,9 +7692,15 @@ export default function Game() {
 
     // Bullet–enemy collisions
     for (const b of s.bullets) {
-      for (const e of s.enemies) {
+      for (let enemyIndex = 0; enemyIndex < s.enemies.length; enemyIndex++) {
+        const e = s.enemies[enemyIndex];
+        if (e.hp <= 0 || e.colPos <= -1) continue;
+        const targetSeed = enemyStableSeed(e, enemyIndex);
+        if (b.hitEnemySeeds?.includes(targetSeed)) continue;
         if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
-          if (!b.pierce) b.colPos = 99;
+          b.hitEnemySeeds = [...(b.hitEnemySeeds ?? []), targetSeed];
+          const consumed = !b.pierce;
+          if (consumed) b.colPos = 99;
           const movement = movementClassOf(e);
           let damage = b.power ?? 1;
           if ((e.genome?.fusionLevel ?? 0) > 0) damage += s.runUpgrades.hybridHunter ?? 0;
@@ -7468,17 +7708,47 @@ export default function Game() {
             if (movement === 'fortress' || e.genome?.mutations.includes('armored')) damage += 2;
             else if (movement === 'spectral' || movement === 'colony' || isCyberEnemy(e)) damage += 1;
           }
-          e.hp -= damage;
           const phaseSuppressed = s.freezeTimer > 0
             || (s.signalJamTimer > 0 && isCyberEnemy(e))
             || (s.adaptiveAmmoTimer > 0 && movement === 'spectral');
           if (!phaseSuppressed && e.genome?.phaseChance && Math.random() < e.genome.phaseChance) {
-            e.hp += damage;
             e.flash = 0.04;
+            if (consumed) break;
             continue;
           }
-          e.flash = 0.08;
-          if (e.hp <= 0) {
+          const damageResolution = resolveDamage({
+            ...enemyVitals(e),
+            shield: e.armorCharges ?? 0,
+            shieldMode: 'charges',
+          }, {
+            kind: 'damage',
+            source: { side: 'player', id: 'player-projectile' },
+            target: { side: 'enemy', id: String(targetSeed) },
+            amount: damage,
+            damageType: b.attackStyle === 'energy' ? 'energy' : 'physical',
+          });
+          e.hp = damageResolution.vitals.hp;
+          e.maxHp = damageResolution.vitals.maxHp;
+          e.armorCharges = damageResolution.vitals.shield ?? 0;
+          if ((e.armorCharges ?? 0) <= 0) e.armorTimer = 0;
+          e.flash = damageResolution.shieldDamage > 0 ? 0.13 : 0.08;
+
+          const interruptProfile = getEnemyAbilityProfile(e.ability);
+          if (damageResolution.hpDamage > 0
+            && interruptProfile
+            && (e.abilityWindup ?? 0) > 0
+            && interruptProfile.timing.phases.windup.interruptible) {
+            e.abilityWindup = 0;
+            e.abilityRecovery = interruptProfile.timing.phases.recovery.durationSeconds;
+            e.abilityCooldown = rangedProfileSeconds(
+              interruptProfile.timing.cooldownSeconds,
+              e,
+              s.wave + 43,
+            );
+            clearEnemyAbilityTarget(e);
+          }
+
+          if (damageResolution.defeated) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
             e.colPos = -9;
             s.lanePressure[e.row] = Math.min(6, s.lanePressure[e.row] + 1);
@@ -7502,9 +7772,10 @@ export default function Game() {
             setSessionCGRD(rewardAccRef.current.totalCGRD);
             playScore();
             updateHud();
-          } else {
+          } else if (damageResolution.hpDamage > 0 || damageResolution.shieldDamage > 0) {
             playHit();
           }
+          if (consumed) break;
         }
       }
     }
@@ -7552,26 +7823,66 @@ export default function Game() {
         });
       };
 
-      if (npcAbilityTimerRef.current <= 0) {
-        const incomingShots = s.bullets.filter((bullet) =>
-          bullet.colPos < 20 && bullet.colPos > 2.4).length;
-        if (npc.hp + 8 < s.hp && npc.hp < NPC_HP) {
-          npc.hp = Math.min(NPC_HP, npc.hp + 4);
-          showMessage('NPC ability · REPAIR +4', 850);
-        } else if (npc.shieldCharges < VS_NPC_MAX_SHIELDS && incomingShots >= 2) {
-          npc.shieldCharges++;
-          showMessage('NPC ability · AEGIS +1', 850);
+      const incomingByLane = [0, 0, 0];
+      for (const bullet of s.bullets) {
+        if (bullet.speed <= 0 || bullet.colPos >= npcCol || bullet.colPos < -0.5) continue;
+        const timeToImpact = (npcCol - bullet.colPos) / bullet.speed;
+        if (timeToImpact <= 1.5) incomingByLane[bullet.row] += bullet.power ?? 1;
+      }
+
+      let npcCommitted = (npc.abilityWindup ?? 0) > 0 || (npc.abilityRecovery ?? 0) > 0;
+      const activeNpcProfile = getEnemyAbilityProfile(npc.ability);
+      if ((npc.abilityRecovery ?? 0) > 0) {
+        npc.abilityRecovery = Math.max(0, (npc.abilityRecovery ?? 0) - dt);
+        if (npc.abilityRecovery <= 0) npc.ability = undefined;
+      } else if ((npc.abilityWindup ?? 0) > 0 && activeNpcProfile) {
+        npc.abilityWindup = Math.max(0, (npc.abilityWindup ?? 0) - dt);
+        if (npc.abilityWindup <= 0) {
+          if (activeNpcProfile.id === 'arcArmor') {
+            npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+          } else if (activeNpcProfile.id === 'mendingPulse') {
+            npc.hp = Math.min(NPC_HP, npc.hp + 4);
+          } else if (activeNpcProfile.id === 'phaseLeap'
+            && npc.abilityTargetRow !== undefined) {
+            npc.row = npc.abilityTargetRow;
+          }
+          showMessage(`NPC ability · ${activeNpcProfile.presentation.castLabel}`, 900);
+          npc.abilityRecovery = activeNpcProfile.timing.phases.recovery.durationSeconds;
+          npc.abilityTargetRow = undefined;
+          npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
+          updateHud();
+        }
+      } else if (npcAbilityTimerRef.current <= 0) {
+        const safestLane = incomingByLane.indexOf(Math.min(...incomingByLane));
+        const missingHp = NPC_HP - npc.hp;
+        const mendScore = missingHp >= 4 ? missingHp * 0.55 : Number.NEGATIVE_INFINITY;
+        const armorScore = npc.shieldCharges < VS_NPC_MAX_SHIELDS
+          ? incomingByLane[npc.row] * 3 + (missingHp > 0 ? 0.5 : 0)
+          : Number.NEGATIVE_INFINITY;
+        const phaseScore = incomingByLane[npc.row] > incomingByLane[safestLane]
+          ? incomingByLane[npc.row] * 2.6 + 1
+          : Number.NEGATIVE_INFINITY;
+        const bestUtility = Math.max(mendScore, armorScore, phaseScore);
+
+        if (Number.isFinite(bestUtility) && bestUtility > 0.75) {
+          npc.ability = bestUtility === phaseScore
+            ? 'phaseLeap'
+            : bestUtility === armorScore ? 'arcArmor' : 'mendingPulse';
+          const profile = getEnemyAbilityProfile(npc.ability)!;
+          npc.abilityTargetRow = npc.ability === 'phaseLeap' ? safestLane : undefined;
+          npc.abilityWindup = profile.timing.phases.windup.durationSeconds;
+          npcCommitted = true;
         } else {
           launchNpcShot(npc.row);
           launchNpcShot((npc.row + 1) % 3);
           showMessage('NPC ability · TWIN VOLLEY', 850);
+          npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
+          updateHud();
         }
-        npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
-        updateHud();
       }
 
       const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
-      if (npcRivalSkill && npcSkillTimerRef.current <= 0) {
+      if (npcRivalSkill && npcSkillTimerRef.current <= 0 && !npcCommitted) {
         if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
           npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
         } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
@@ -7589,7 +7900,7 @@ export default function Game() {
 
       // Move toward the most-advanced (rightmost) incoming green attack
       npc.moveCooldown -= dt;
-      if (npc.moveCooldown <= 0) {
+      if (!npcCommitted && npc.moveCooldown <= 0) {
         npc.moveCooldown = NPC_MOVE_INTERVAL;
         if (Math.random() < 0.68) {
           if (npc.row < s.player.row) npc.row++;
@@ -7601,7 +7912,7 @@ export default function Game() {
 
       // Fire a left-moving bullet only when a green attack is in the NPC's row
       npc.fireCooldown -= dt;
-      if (npc.fireCooldown <= 0) {
+      if (!npcCommitted && npc.fireCooldown <= 0) {
         launchNpcShot(npc.row);
         const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
         npc.fireCooldown = NPC_FIRE_INTERVAL * (1 + hpLead);
@@ -7635,7 +7946,7 @@ export default function Game() {
         for (const e of s.npcEnemies) {
           if (e.colPos < 0) continue;
           if (Math.abs(b.colPos - e.colPos) < 0.42 && b.row === e.row) {
-            b.colPos = 2.0; // kill bullet (filtered < 2.4 next frame)
+            b.colPos = -9; // consumed; removed by the post-collision filter
             e.hp -= b.power;
             e.flash = 0.08;
             if (e.hp <= 0) {
@@ -7663,15 +7974,28 @@ export default function Game() {
       // Direct duel collisions: Player shots cross the seam into the selected
       // NPC, while the NPC's return fire crosses back into the Player grid.
       for (const bullet of s.bullets) {
-        if (bullet.colPos > 20 || bullet.row !== npc.row) continue;
+        if (bullet.hitNpc || bullet.colPos > 20 || bullet.row !== npc.row) continue;
         if (Math.abs(bullet.colPos - npcCol) < (bullet.big ? 0.52 : 0.38)) {
+          bullet.hitNpc = true;
           if (!bullet.pierce) bullet.colPos = 99;
+          const hpBefore = npc.hp;
           if (npc.shieldCharges > 0) {
             npc.shieldCharges--;
           } else {
             npc.hp -= bullet.power ?? 1;
             s.score += 100;
             if (npc.hp <= 0) { updateHud(); endGame(true); return; }
+          }
+          const interruptedProfile = getEnemyAbilityProfile(npc.ability);
+          if (npc.hp < hpBefore
+            && interruptedProfile
+            && (npc.abilityWindup ?? 0) > 0
+            && interruptedProfile.timing.phases.windup.interruptible) {
+            npc.abilityWindup = 0;
+            npc.abilityRecovery = interruptedProfile.timing.phases.recovery.durationSeconds;
+            npc.abilityTargetRow = undefined;
+            npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL;
+            showMessage(`INTERRUPTED · ${interruptedProfile.presentation.castLabel}`, 700);
           }
           playHit();
           updateHud();
@@ -7718,15 +8042,18 @@ export default function Game() {
               break;
             }
           }
-          if (snapshot) {
+          if (snapshot && snapshot.at !== rewind.cursorAt) {
             stateRef.current = structuredClone(snapshot.state);
-            rewind.cursorAt = targetAt;
+            rewind.cursorAt = snapshot.at;
             updateHud();
           }
           if (elapsed >= 3000) stopChronoRewind(true);
         }
       } else {
-        if (ts - chronoLastCaptureRef.current >= 33) {
+        // Chrono is the only skin that consumes rewind history. Keeping a
+        // compact 10 Hz ring avoids cloning the complete combat state for
+        // every other match and prevents Trace/Replay-style GC stalls.
+        if (playerSkinRef.current === 'chrono' && ts - chronoLastCaptureRef.current >= 100) {
           chronoHistoryRef.current.push({ at: ts, state: structuredClone(stateRef.current) });
           chronoHistoryRef.current = chronoHistoryRef.current
             .filter((snapshot) => ts - snapshot.at <= 3100);
@@ -8537,6 +8864,21 @@ export default function Game() {
       if (rotateTapTimerRef.current) {
         clearTimeout(rotateTapTimerRef.current);
         rotateTapTimerRef.current = null;
+      }
+      if (chronoRewindTimerRef.current) {
+        clearTimeout(chronoRewindTimerRef.current);
+        chronoRewindTimerRef.current = null;
+      }
+      for (const direction of ['north', 'south'] as const) {
+        const actionTimer = cloneActionTimersRef.current[direction];
+        if (actionTimer) clearTimeout(actionTimer);
+        cloneActionTimersRef.current[direction] = null;
+        const expiryTimer = cloneExpiryTimersRef.current[direction];
+        if (expiryTimer) clearTimeout(expiryTimer);
+        cloneExpiryTimersRef.current[direction] = null;
+        const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+        if (autoFireTimer) clearInterval(autoFireTimer);
+        cloneAutoFireTimersRef.current[direction] = null;
       }
       cleanups.forEach((c) => c());
     };

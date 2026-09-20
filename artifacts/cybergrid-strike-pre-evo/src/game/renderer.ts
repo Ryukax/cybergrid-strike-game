@@ -3,6 +3,7 @@ import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
 import { ENEMY_ABILITY_WINDUP } from './constants';
+import { getEnemyAbilityProfile } from './enemy-ability-registry';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -813,7 +814,7 @@ function drawSkinProjectileEffect(
   skin?: string,
 ): boolean {
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
-  if (!config) return false;
+  if (!skin || !config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
   const skinPhase = [...skin].reduce((sum, char) => sum + char.charCodeAt(0), 0) * 0.017;
@@ -966,6 +967,242 @@ function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
   sheet.src = `${import.meta.env.BASE_URL}effects/advanced-projectiles/${skin}.png?v=1`;
   advancedProjectileSheets.set(skin, sheet);
   return sheet;
+}
+
+const ENEMY_TELEGRAPH_COLORS: Record<NonNullable<Enemy['ability']>, string> = {
+  momentumCharge: '#fb923c',
+  phaseLeap: '#c084fc',
+  mendingPulse: '#4ade80',
+  laneShift: '#67e8f9',
+  arcArmor: '#facc15',
+};
+
+function drawTelegraphTag(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  color: string,
+  y: number,
+  cell: number,
+): void {
+  const fontSize = Math.max(7, Math.min(10, cell * 0.115));
+  ctx.save();
+  ctx.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const width = ctx.measureText(text).width + fontSize * 0.9;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
+  ctx.fillRect(-width * 0.5, y - fontSize * 0.72, width, fontSize * 1.42);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(-width * 0.5, y - fontSize * 0.72, width, fontSize * 1.42);
+  ctx.fillStyle = color;
+  ctx.fillText(text, 0, y);
+  ctx.restore();
+}
+
+function drawTargetBrackets(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  halfSize: number,
+  color: string,
+): void {
+  const corner = halfSize * 0.42;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.5, halfSize * 0.12);
+  ctx.setLineDash([]);
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(x + sx * (halfSize - corner), y + sy * halfSize);
+      ctx.lineTo(x + sx * halfSize, y + sy * halfSize);
+      ctx.lineTo(x + sx * halfSize, y + sy * (halfSize - corner));
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * Ability tells are intentionally rendered from existing simulation state.
+ * Target ownership stays in the simulation; the renderer only identifies
+ * targets that are already unambiguous (mending range and an open phase lane).
+ */
+function drawEnemyAbilityTelegraph(
+  ctx: CanvasRenderingContext2D,
+  enemy: Enemy,
+  state: GameState,
+  metrics: BoardMetrics,
+  now: number,
+  drawCell: number,
+): void {
+  if (!enemy.ability || (enemy.abilityWindup ?? 0) <= 0) return;
+
+  const color = ENEMY_TELEGRAPH_COLORS[enemy.ability];
+  const profile = getEnemyAbilityProfile(enemy.ability);
+  const windupDuration = profile?.timing.phases.windup.durationSeconds ?? ENEMY_ABILITY_WINDUP;
+  const progress = 1 - Math.min(1, (enemy.abilityWindup ?? 0) / windupDuration);
+  const eased = progress * progress * (3 - 2 * progress);
+  const pulse = 0.72 + Math.sin(now * 0.022) * 0.18;
+  const ex = metrics.x + (enemy.colPos + 0.5) * metrics.cell;
+  const ey = metrics.y + (enemy.row + 0.5) * metrics.cell;
+  const radius = drawCell * 0.48;
+
+  ctx.save();
+  ctx.translate(ex, ey);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1.5, metrics.cell * 0.027);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 6;
+
+  if (enemy.ability === 'arcArmor') {
+    // Four independent plates visibly close around the protected body. The
+    // brackets make it explicit that the caster, rather than a lane, is armed.
+    const plateDistance = radius * (1.35 - eased * 0.47);
+    const plateWidth = radius * 0.45;
+    const plateDepth = radius * 0.2;
+    ctx.globalAlpha = 0.42 + eased * 0.35;
+    for (let side = 0; side < 4; side++) {
+      ctx.save();
+      ctx.rotate(side * Math.PI * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(-plateWidth, -plateDistance);
+      ctx.lineTo(plateWidth, -plateDistance);
+      ctx.lineTo(plateWidth * 0.68, -plateDistance + plateDepth);
+      ctx.lineTo(-plateWidth * 0.68, -plateDistance + plateDepth);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+    const targetSeed = enemy.abilityTargetSeeds?.[0];
+    const target = targetSeed === undefined ? undefined : state.enemies.find((candidate) =>
+      getEnemyVisualSeed(candidate) === targetSeed);
+    const targetX = target ? (target.colPos - enemy.colPos) * metrics.cell : 0;
+    const targetY = target ? (target.row - enemy.row) * metrics.cell : 0;
+    ctx.globalAlpha = pulse;
+    if (target && target !== enemy) {
+      ctx.setLineDash([Math.max(3, metrics.cell * 0.06), Math.max(2, metrics.cell * 0.04)]);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(targetX, targetY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    drawTargetBrackets(ctx, targetX, targetY, radius * 0.72, color);
+    drawTelegraphTag(ctx, 'ARC ARMOR', color, radius * 0.86, metrics.cell);
+  } else if (enemy.ability === 'mendingPulse') {
+    // Mirror the actual pulse range: same-row allies within 1.8 columns. Only
+    // damaged recipients are marked, keeping healthy formations uncluttered.
+    const lockedTargets = new Set(enemy.abilityTargetSeeds ?? []);
+    const targets = state.enemies.filter((ally) =>
+      ally !== enemy
+      && ally.colPos >= -1
+      && (lockedTargets.size > 0
+        ? lockedTargets.has(getEnemyVisualSeed(ally))
+        : Math.abs(ally.row - enemy.row) <= 1
+          && Math.abs(ally.colPos - enemy.colPos) <= 2.4
+          && ally.hp < (ally.maxHp ?? ally.hp)));
+
+    ctx.globalAlpha = 0.35 + pulse * 0.32;
+    ctx.setLineDash([Math.max(3, metrics.cell * 0.07), Math.max(2, metrics.cell * 0.045)]);
+    if (targets.length > 0) {
+      for (const target of targets) {
+        const tx = (target.colPos - enemy.colPos) * metrics.cell;
+        const ty = (target.row - enemy.row) * metrics.cell;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+
+        // A travelling packet makes the direction of aid readable without
+        // adding particles or another animation system.
+        const packetProgress = (eased * 0.72 + (now * 0.00045)) % 1;
+        const px = tx * packetProgress;
+        const py = ty * packetProgress;
+        ctx.setLineDash([]);
+        ctx.fillRect(px - metrics.cell * 0.045, py - metrics.cell * 0.045,
+          metrics.cell * 0.09, metrics.cell * 0.09);
+        drawTargetBrackets(ctx, tx, ty, metrics.cell * 0.28, color);
+        ctx.setLineDash([Math.max(3, metrics.cell * 0.07), Math.max(2, metrics.cell * 0.045)]);
+      }
+    } else {
+      // No eligible ally: display the pulse's governed reach rather than
+      // falsely marking a recipient.
+      ctx.beginPath();
+      ctx.moveTo(-metrics.cell * 1.8, 0);
+      ctx.lineTo(metrics.cell * 1.8, 0);
+      ctx.stroke();
+      drawTargetBrackets(ctx, 0, 0, radius * 0.68, color);
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.moveTo(-radius * 0.24, 0); ctx.lineTo(radius * 0.24, 0);
+    ctx.moveTo(0, -radius * 0.24); ctx.lineTo(0, radius * 0.24);
+    ctx.stroke();
+    drawTelegraphTag(ctx, targets.length > 0 ? `MEND ${targets.length}` : 'MEND', color,
+      radius * 0.86, metrics.cell);
+  } else if (enemy.ability === 'phaseLeap') {
+    const destinationRow = enemy.abilityTargetRow ?? enemy.row;
+    const destinationColumn = enemy.abilityTargetColumn ?? enemy.colPos;
+    const destinationX = (destinationColumn - enemy.colPos) * metrics.cell;
+    const destinationY = (destinationRow - enemy.row) * metrics.cell;
+    const bend = destinationRow < enemy.row ? radius * 0.9 : -radius * 0.9;
+
+    ctx.globalAlpha = 0.35 + pulse * 0.35;
+    ctx.setLineDash([Math.max(3, metrics.cell * 0.07), Math.max(2, metrics.cell * 0.05)]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(destinationX * 0.5 + bend, destinationY * 0.5, destinationX, destinationY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Departure fragments open as the destination brackets close, visually
+    // separating phase movement from ordinary lane shifting.
+    ctx.globalAlpha = 0.58;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(side * radius * (0.18 + eased * 0.36), -radius * 0.38);
+      ctx.lineTo(side * radius * (0.42 + eased * 0.34), 0);
+      ctx.lineTo(side * radius * (0.18 + eased * 0.36), radius * 0.38);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = pulse;
+    drawTargetBrackets(ctx, destinationX, destinationY, radius * (0.58 - eased * 0.08), color);
+    ctx.beginPath();
+    ctx.moveTo(destinationX - radius * 0.34, destinationY);
+    ctx.lineTo(destinationX, destinationY - radius * 0.24);
+    ctx.lineTo(destinationX + radius * 0.34, destinationY);
+    ctx.lineTo(destinationX, destinationY + radius * 0.24);
+    ctx.closePath();
+    ctx.stroke();
+    drawTelegraphTag(ctx, `PHASE ${destinationRow + 1}`, color,
+      radius * 0.86, metrics.cell);
+  } else {
+    // Existing abilities retain a compact countdown tell. Unlike the three
+    // family signatures above, this deliberately does not imply a target.
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
+    ctx.beginPath();
+    if (enemy.ability === 'momentumCharge') {
+      ctx.moveTo(-radius * 0.3, -radius * 0.3);
+      ctx.lineTo(radius * 0.35, 0);
+      ctx.lineTo(-radius * 0.3, radius * 0.3);
+    } else {
+      ctx.moveTo(-radius * 0.3, 0);
+      ctx.lineTo(0, -radius * 0.25);
+      ctx.lineTo(radius * 0.3, 0);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
 
@@ -1134,6 +1371,46 @@ export function draw(
       ctx.beginPath();
       ctx.arc(npcX, npcY, m.cell * 0.38, 0, Math.PI * 2);
       ctx.stroke();
+    }
+
+    if (state.npc.ability && (state.npc.abilityWindup ?? 0) > 0) {
+      const ability = state.npc.ability;
+      const profile = getEnemyAbilityProfile(ability);
+      const color = ENEMY_TELEGRAPH_COLORS[ability];
+      const duration = profile?.timing.phases.windup.durationSeconds ?? ENEMY_ABILITY_WINDUP;
+      const progress = 1 - Math.min(1, (state.npc.abilityWindup ?? 0) / duration);
+      const radius = m.cell * (0.4 + progress * 0.06);
+      ctx.save();
+      ctx.translate(npcX, npcY);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(2, m.cell * 0.03);
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
+      ctx.globalAlpha = 0.62 + Math.sin(renderNow * 0.02) * 0.16;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+      ctx.stroke();
+      if (ability === 'phaseLeap' && state.npc.abilityTargetRow !== undefined) {
+        const targetY = (state.npc.abilityTargetRow - state.npc.row) * m.cell;
+        ctx.setLineDash([Math.max(3, m.cell * 0.06), Math.max(2, m.cell * 0.04)]);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, targetY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        drawTargetBrackets(ctx, 0, targetY, m.cell * 0.28, color);
+      } else if (ability === 'arcArmor') {
+        drawTargetBrackets(ctx, 0, 0, radius * 0.72, color);
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(-radius * 0.24, 0); ctx.lineTo(radius * 0.24, 0);
+        ctx.moveTo(0, -radius * 0.24); ctx.lineTo(0, radius * 0.24);
+        ctx.stroke();
+      }
+      drawTelegraphTag(ctx, profile?.presentation.castLabel ?? ability.toUpperCase(), color,
+        radius * 0.92, m.cell);
+      ctx.restore();
     }
 
     if (!npcHasOverlay) {
@@ -1417,46 +1694,32 @@ export function draw(
         undefined,
       );
     }
-    if ((e.abilityWindup ?? 0) > 0 && e.ability) {
-      const telegraphColors = {
-        momentumCharge: '#fb923c',
-        phaseLeap: '#c084fc',
-        mendingPulse: '#4ade80',
-        laneShift: '#67e8f9',
-        arcArmor: '#facc15',
-      };
-      const progress = 1 - Math.min(1, (e.abilityWindup ?? 0) / ENEMY_ABILITY_WINDUP);
-      const radius = drawCell * (0.45 + progress * 0.08);
+    if ((e.armorCharges ?? 0) > 0) {
+      const armorRadius = drawCell * 0.46;
+      const armorColor = '#facc15';
       ctx.save();
-      ctx.strokeStyle = telegraphColors[e.ability];
-      ctx.fillStyle = telegraphColors[e.ability];
-      ctx.lineWidth = Math.max(2, m.cell * 0.035);
-      ctx.shadowColor = telegraphColors[e.ability];
-      ctx.shadowBlur = 10;
-      ctx.globalAlpha = 0.6 + Math.sin(now * 0.025) * 0.22;
-      ctx.beginPath();
-      ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
-      ctx.stroke();
-      ctx.globalAlpha = 0.75;
-      ctx.beginPath();
-      if (e.ability === 'momentumCharge') {
-        ctx.moveTo(-radius * 0.3, -radius * 0.3);
-        ctx.lineTo(radius * 0.35, 0);
-        ctx.lineTo(-radius * 0.3, radius * 0.3);
-      } else if (e.ability === 'phaseLeap') {
-        ctx.arc(0, 0, radius * 0.22, 0, Math.PI * 2);
-      } else if (e.ability === 'mendingPulse') {
-        ctx.moveTo(-radius * 0.25, 0); ctx.lineTo(radius * 0.25, 0);
-        ctx.moveTo(0, -radius * 0.25); ctx.lineTo(0, radius * 0.25);
-      } else if (e.ability === 'laneShift') {
-        ctx.moveTo(-radius * 0.3, 0); ctx.lineTo(0, -radius * 0.25); ctx.lineTo(radius * 0.3, 0);
-      } else {
-        ctx.rect(-radius * 0.22, -radius * 0.22, radius * 0.44, radius * 0.44);
+      ctx.strokeStyle = armorColor;
+      ctx.lineWidth = Math.max(1.5, m.cell * 0.025);
+      ctx.shadowColor = armorColor;
+      ctx.shadowBlur = 7;
+      ctx.globalAlpha = 0.62 + Math.sin(now * 0.018) * 0.12;
+      const layers = Math.max(1, Math.min(2, Math.round(e.armorCharges ?? 0)));
+      for (let layer = 0; layer < layers; layer++) {
+        const inset = layer * m.cell * 0.055;
+        ctx.beginPath();
+        for (let point = 0; point < 6; point++) {
+          const angle = -Math.PI / 2 + point * Math.PI / 3;
+          const px = Math.cos(angle) * (armorRadius + inset);
+          const py = Math.sin(angle) * (armorRadius + inset);
+          if (point === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
       }
-      ctx.stroke();
       ctx.restore();
     }
     ctx.restore();
+    drawEnemyAbilityTelegraph(ctx, e, state, m, now, drawCell);
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 6, ey - m.cell * 0.43, 12, 3);
