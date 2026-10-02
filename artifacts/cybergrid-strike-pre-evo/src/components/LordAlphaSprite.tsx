@@ -243,7 +243,7 @@ const SPRITE_CSS = `
   .lordAlphaSprite__motion[data-motion="victory"] { animation: lord-alpha-victory-rise .75s ease-in-out infinite; }
   .lordAlphaSprite__motion[data-motion="death"] { animation: lord-alpha-death-settle .46s ease-in forwards; }
   .lordAlphaSprite__plateStep {
-    animation: lord-alpha-plate-build .34s steps(1, end) both;
+    animation: lord-alpha-plate-build .52s steps(1, end) both;
     stroke-dasharray: 22;
   }
   .lordAlphaSprite__gesture { animation: lord-alpha-gesture-build .28s ease-out both; }
@@ -592,7 +592,7 @@ export function LordAlphaSprite({
                   fill="white"
                   stroke="white"
                   strokeWidth="2"
-                  style={{ animationDelay: `${pairIndex * 58}ms` }}
+                  style={{ animationDelay: `${pairIndex * 90}ms` }}
                 />
               )))}
             </mask>
@@ -621,7 +621,7 @@ export function LordAlphaSprite({
               stroke={pairIndex % 2 === 0 ? '#e8fbff' : '#f6df85'}
               strokeWidth="1.2"
               strokeLinejoin="round"
-              style={{ animationDelay: `${pairIndex * 58}ms` }}
+              style={{ animationDelay: `${pairIndex * 90}ms` }}
             />
           )))}
         </svg>

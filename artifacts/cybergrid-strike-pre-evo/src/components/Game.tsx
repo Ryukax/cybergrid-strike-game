@@ -4245,6 +4245,7 @@ export default function Game() {
   const lordAlphaSkillModeOpenRef = useRef(lordAlphaSkillsPreview);
   const [lordAlphaSkillBankIndex, setLordAlphaSkillBankIndex] = useState(0);
   const lordAlphaSkillBankIndexRef = useRef(0);
+  const lordAlphaPreviewIntroPlayedRef = useRef(false);
   const lordAlphaComboRef = useRef(createLordAlphaComboState());
   const lordAlphaVolleyPresentationRef = useRef<{
     variant: LordAlphaComboBeat;
@@ -5210,7 +5211,7 @@ export default function Game() {
     if (!ability) return;
     // Already used this hand or on cooldown — do nothing
     if (!lordAlphaPreviewInvocation && s.usedInHand.includes(type)) return;
-    if ((s.abilityCooldowns[type] ?? 0) > 0) return;
+    if (!lordAlphaPreviewInvocation && (s.abilityCooldowns[type] ?? 0) > 0) return;
     if (!lordAlphaPreviewInvocation) registerPlaystyle('abilityUse');
 
     if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
@@ -5867,7 +5868,9 @@ export default function Game() {
     }
 
     playAbility(type);
-    s.abilityCooldowns[type] = ability.cooldown;
+    if (!lordAlphaPreviewInvocation) {
+      s.abilityCooldowns[type] = ability.cooldown;
+    }
 
     // Preview commands reuse the live mechanic without consuming the unrelated
     // random card hand. Ordinary card execution retains the existing rule.
@@ -7320,7 +7323,7 @@ export default function Game() {
     const s = stateRef.current;
     if (action.mechanicId) {
       const cooldown = s.abilityCooldowns[action.mechanicId] ?? 0;
-      if (cooldown > 0) {
+      if (!lordAlphaSkillsPreview && cooldown > 0) {
         showMessage(`${action.label} · ${Math.ceil(cooldown)}s cooldown`, 900);
         return;
       }
@@ -7328,8 +7331,20 @@ export default function Game() {
       return;
     }
     if (action.id === 'shadow-clone') {
-      lordAlphaSkillModeOpenRef.current = false;
-      setLordAlphaSkillModeOpen(false);
+      // The live clone-control path returns early once clones exist. Re-issue
+      // the presentation here so this query-gated animation lab can replay the
+      // authored sequence without changing the clone mechanic itself.
+      if (cloneSessionRef.current.visible) {
+        triggerLordAlphaPresentation(
+          action.presentation.kind,
+          'skill',
+          action.presentation.durationMs,
+          {
+            subtype: action.presentation.subtype,
+            origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+          },
+        );
+      }
       playSkillAnimation();
       return;
     }
@@ -9392,6 +9407,43 @@ export default function Game() {
     startMusic(() => stateRef.current.running);
   }, [updateHud, showMessage, lordAlphaForm, triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
 
+  // This URL is an isolated live preview, so loading it should enter the
+  // playable scene rather than leave every preview-only element behind the
+  // normal main menu.
+  useEffect(() => {
+    if (!lordAlphaSkillsPreview || phaseRef.current !== 'menu') return;
+    startGame('classic');
+  }, [lordAlphaSkillsPreview, startGame]);
+
+  // Let Equip construct first, then play one authored sequence so a freshly
+  // opened link immediately proves that the animation pipeline is active.
+  useEffect(() => {
+    if (!lordAlphaSkillsPreview || phase !== 'playing' || lordAlphaPreviewIntroPlayedRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (phaseRef.current !== 'playing' || lordAlphaPreviewIntroPlayedRef.current) return;
+      lordAlphaPreviewIntroPlayedRef.current = true;
+      const action = LORD_ALPHA_SKILL_PREVIEW_ACTIONS[0];
+      const s = stateRef.current;
+      triggerLordAlphaPresentation(
+        action.presentation.kind,
+        'skill',
+        action.presentation.durationMs,
+        {
+          subtype: action.presentation.subtype,
+          origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+        },
+      );
+      showMessage(action.label.toUpperCase(), action.presentation.durationMs);
+    }, LORD_ALPHA_EVENT_TIMINGS_MS.equip + 220);
+    return () => window.clearTimeout(timer);
+  }, [
+    lordAlphaSkillsPreview,
+    phase,
+    lordAlphaBoardAnchor,
+    showMessage,
+    triggerLordAlphaPresentation,
+  ]);
+
   const togglePause = useCallback(() => {
     if (phaseRef.current !== 'playing') return;
     const s = stateRef.current;
@@ -10059,7 +10111,9 @@ export default function Game() {
             position: 'absolute',
             pointerEvents: 'none',
             transform: 'translate(-50%,-50%)',
-            opacity: skillPlayerFxActive ? 0 : playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
+            opacity: skillPlayerFxActive && playerSkin !== LORD_ALPHA_SKIN_ID
+              ? 0
+              : playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
             filter: playerSkin === 'gem' && !hud.autoBuster ? 'drop-shadow(0 0 8px #a78bfa)' : 'none',
             transition: 'opacity 150ms ease, filter 150ms ease',
           }}
@@ -10091,7 +10145,7 @@ export default function Game() {
               event={lordAlphaEvent}
               comboBeat={lordAlphaComboBeat}
               equipSourceForm={lordAlphaForm === 'supreme' ? 'relaxed' : lordAlphaForm}
-              className="lordAlphaGameplay"
+              className={`lordAlphaGameplay${lordAlphaSkillsPreview ? ' lordAlphaGameplayPreview' : ''}`}
             />
           )}
         </div>
@@ -10114,7 +10168,11 @@ export default function Game() {
       )}
 
       {phase === 'playing' && lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID && (
-        <section id="lordAlphaSkillPreview" data-open={lordAlphaSkillModeOpen || undefined}>
+        <section
+          id="lordAlphaSkillPreview"
+          data-open={lordAlphaSkillModeOpen || undefined}
+          data-presenting={lordAlphaEvent ? true : undefined}
+        >
           <header>
             <span>
               <strong>LORD ALPHA SKILLS</strong>
@@ -10161,7 +10219,7 @@ export default function Game() {
             {LORD_ALPHA_SKILL_BINDINGS.map((binding, slotIndex) => {
               const action = resolveLordAlphaSkillAction(lordAlphaSkillBankIndex, slotIndex);
               if (!action) return null;
-              const cooldown = action.mechanicId
+              const cooldown = action.mechanicId && !lordAlphaSkillsPreview
                 ? Math.ceil(hud.abilityCooldowns[action.mechanicId] ?? 0)
                 : 0;
               return (

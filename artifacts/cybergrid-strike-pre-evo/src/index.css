@@ -1426,6 +1426,17 @@ canvas#canvas {
   filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.5));
 }
 
+/* The opt-in animation lab keeps gameplay coordinates and hitboxes intact,
+   while enlarging only active presentation frames enough to read on a phone. */
+.lordAlphaGameplayPreview[data-motion="skill"] {
+  z-index: 18;
+}
+
+.lordAlphaGameplayPreview[data-motion="skill"] .lordAlphaSprite__motion {
+  scale: 1.35;
+  transform-origin: 50% 86%;
+}
+
 .lordAlphaNpcGameplay {
   filter:
     drop-shadow(0 0 3px rgba(253, 230, 138, 0.4))
