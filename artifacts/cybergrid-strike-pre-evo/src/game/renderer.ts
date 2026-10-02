@@ -1,9 +1,21 @@
-import type { GameState, BoardMetrics, Enemy, EnemyGenome } from './types';
+import type {
+  GameState,
+  BoardMetrics,
+  Bullet,
+  Enemy,
+  EnemyGenome,
+  LordAlphaProjectileVariant,
+} from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
 import { ENEMY_ABILITY_WINDUP } from './constants';
 import { getEnemyAbilityProfile } from './enemy-ability-registry';
+import { getNpcSignatureProfile } from './npc-signature-registry';
+import {
+  LORD_ALPHA_SKIN_ID,
+  generateLordAlphaTopology,
+} from './lord-alpha';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -804,6 +816,261 @@ const PROJECTILE_EFFECTS: Record<string, { color: string; accent: string; motif:
   sovereign: { color: '#f43f5e', accent: '#facc15', motif: 2 },
 };
 
+export const LORD_ALPHA_PROJECTILE_VARIANTS = [
+  'quick',
+  'web',
+  'power',
+  'roc',
+  'finisher',
+] as const satisfies readonly LordAlphaProjectileVariant[];
+
+export const LORD_ALPHA_PROJECTILE_DURATION_MS = {
+  quick: 180,
+  web: 260,
+  power: 280,
+  roc: 200,
+  finisher: 320,
+} as const satisfies Record<LordAlphaProjectileVariant, number>;
+
+export interface LordAlphaProjectileFrame {
+  readonly variant: LordAlphaProjectileVariant;
+  readonly ageMs: number;
+  readonly progress: number;
+  readonly nodeReveal: number;
+  readonly edgeReveal: number;
+  readonly impact: number;
+  readonly recovery: number;
+}
+
+const clampUnit = (value: number): number => Math.max(0, Math.min(1, value));
+const smoothUnit = (value: number): number => {
+  const bounded = clampUnit(value);
+  return bounded * bounded * (3 - 2 * bounded);
+};
+
+/**
+ * Resolve presentation from an immutable birth clock. It never reads or writes
+ * projectile physics, so the five grammars cannot affect collision or balance.
+ */
+export function resolveLordAlphaProjectileFrame(
+  nowMs: number,
+  birthMs: number,
+  variant: LordAlphaProjectileVariant,
+): LordAlphaProjectileFrame {
+  const safeNow = Number.isFinite(nowMs) ? nowMs : 0;
+  const safeBirth = Number.isFinite(birthMs) ? birthMs : safeNow;
+  const ageMs = Math.max(0, safeNow - safeBirth);
+  const duration = LORD_ALPHA_PROJECTILE_DURATION_MS[variant];
+  const progress = clampUnit(ageMs / duration);
+  return {
+    variant,
+    ageMs,
+    progress,
+    nodeReveal: smoothUnit(progress / 0.28),
+    edgeReveal: smoothUnit((progress - 0.12) / 0.5),
+    impact: smoothUnit((progress - 0.5) / 0.27),
+    recovery: smoothUnit((progress - 0.78) / 0.22),
+  };
+}
+
+let lordAlphaReducedMotionQuery: MediaQueryList | null = null;
+
+/**
+ * Cache the media-query object rather than querying once per projectile per
+ * frame. MediaQueryList.matches remains live if the OS preference changes.
+ */
+function prefersReducedLordAlphaProjectileMotion(): boolean {
+  if (
+    !lordAlphaReducedMotionQuery
+    && typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+  ) {
+    lordAlphaReducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  }
+  return lordAlphaReducedMotionQuery?.matches ?? false;
+}
+
+// Each graph is generated once and reused by every projectile. No per-frame
+// topology allocation occurs, even during multishot or clone autofire.
+const LORD_ALPHA_PROJECTILE_TOPOLOGIES = {
+  web: generateLordAlphaTopology({
+    kind: 'radial', seed: 'lasi-projectile-web', nodeCount: 12,
+  }),
+  power: generateLordAlphaTopology({
+    kind: 'net', seed: 'lasi-projectile-power', nodeCount: 12,
+  }),
+  finisher: generateLordAlphaTopology({
+    kind: 'radial', seed: 'lasi-projectile-finisher', nodeCount: 18,
+  }),
+} as const;
+
+function drawLordAlphaTopologyCarrier(
+  ctx: CanvasRenderingContext2D,
+  topology: (typeof LORD_ALPHA_PROJECTILE_TOPOLOGIES)[keyof typeof LORD_ALPHA_PROJECTILE_TOPOLOGIES],
+  frame: LordAlphaProjectileFrame,
+  scale: number,
+  radius: number,
+  colors: readonly [string, string],
+  curve = 0,
+): void {
+  const visibleNodes = Math.max(1, Math.ceil(topology.nodes.length * frame.nodeReveal));
+  const visibleEdges = Math.ceil(topology.edges.length * frame.edgeReveal);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(0.8, radius * 0.16);
+  ctx.strokeStyle = colors[0];
+  for (let index = 0; index < visibleEdges; index += 1) {
+    const edge = topology.edges[index];
+    const from = topology.nodes[edge.from];
+    const to = topology.nodes[edge.to];
+    if (!from || !to || from.id >= visibleNodes || to.id >= visibleNodes) continue;
+    const controlY = (from.y + to.y) * scale * 0.5
+      + Math.sin((edge.from + 1) * 1.73 + edge.to * 0.61) * curve * radius;
+    ctx.beginPath();
+    ctx.moveTo(from.x * scale, from.y * scale);
+    ctx.quadraticCurveTo((from.x + to.x) * scale * 0.5, controlY, to.x * scale, to.y * scale);
+    ctx.stroke();
+  }
+  for (let index = 0; index < visibleNodes; index += 1) {
+    const node = topology.nodes[index];
+    ctx.fillStyle = index % 4 === 0 ? colors[1] : '#e0f2fe';
+    ctx.beginPath();
+    ctx.arc(
+      node.x * scale,
+      node.y * scale,
+      Math.max(0.75, radius * (index === 0 ? 0.28 : 0.16)),
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+}
+
+/**
+ * Purely visual replacement for Lord Alpha's existing bullet carrier. Bullet
+ * position, radius, speed, power, pierce, lifetime, and collision remain owned
+ * by the existing simulation.
+ */
+function drawLordAlphaProjectile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  direction: number,
+  now: number,
+  birthMs?: number,
+  requestedVariant?: LordAlphaProjectileVariant,
+): void {
+  const variant = requestedVariant ?? 'quick';
+  // Older or restored bullets without a carrier clock remain readable as a
+  // completed grammar; new bullets always construct from their recorded birth.
+  const effectiveBirth = Number.isFinite(birthMs)
+    ? birthMs as number
+    : now - LORD_ALPHA_PROJECTILE_DURATION_MS[variant];
+  const presentationNow = prefersReducedLordAlphaProjectileMotion()
+    ? effectiveBirth + LORD_ALPHA_PROJECTILE_DURATION_MS[variant]
+    : now;
+  const frame = resolveLordAlphaProjectileFrame(presentationNow, effectiveBirth, variant);
+  const scale = Math.max(2, radius);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(direction, 1);
+  ctx.shadowColor = '#60a5fa';
+  ctx.shadowBlur = Math.max(3, radius * 1.4);
+
+  switch (variant) {
+    case 'quick': {
+      const length = scale * (0.2 + frame.nodeReveal * 2.35);
+      ctx.strokeStyle = 'rgba(186, 230, 253, .94)';
+      ctx.lineWidth = Math.max(1, radius * 0.22);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-length, 0);
+      ctx.lineTo(scale * 0.72, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#fff7c2';
+      ctx.beginPath();
+      ctx.arc(scale * 0.72, 0, Math.max(1, radius * 0.3), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'web':
+      ctx.rotate(frame.progress * 0.16);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.web,
+        frame,
+        scale * 1.62,
+        radius,
+        ['rgba(125, 211, 252, .92)', '#fde68a'],
+        0.12,
+      );
+      break;
+    case 'power':
+      ctx.transform(1, 0.16, -0.13, 1, 0, 0);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.power,
+        frame,
+        scale * (1.34 + frame.impact * 0.18),
+        radius,
+        ['rgba(224, 242, 254, .96)', '#67e8f9'],
+      );
+      ctx.strokeStyle = `rgba(253, 230, 138, ${0.24 + frame.impact * 0.6})`;
+      ctx.lineWidth = Math.max(1, radius * 0.22);
+      ctx.strokeRect(-scale * 1.05, -scale * 0.72, scale * 2.1, scale * 1.44);
+      break;
+    case 'roc': {
+      const impulse = smoothUnit(frame.progress / 0.38);
+      ctx.lineCap = 'round';
+      for (let feather = 0; feather < 4; feather += 1) {
+        const offset = (feather - 1.5) * radius * 0.55;
+        const reach = scale * (0.62 + impulse * (1.5 + feather * 0.12));
+        ctx.strokeStyle = feather % 2 === 0
+          ? 'rgba(255, 247, 194, .9)'
+          : 'rgba(186, 230, 253, .84)';
+        ctx.lineWidth = Math.max(0.8, radius * (0.12 + feather * 0.025));
+        ctx.beginPath();
+        ctx.moveTo(scale * 0.62, offset * 0.2);
+        ctx.quadraticCurveTo(-reach * 0.35, offset * 1.4, -reach, offset);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = `rgba(255, 253, 242, ${0.35 + (1 - frame.recovery) * 0.5})`;
+      ctx.lineWidth = Math.max(1, radius * 0.2);
+      ctx.beginPath();
+      ctx.arc(0, 0, scale * (0.45 + impulse * 0.78), -0.62, 0.62);
+      ctx.stroke();
+      break;
+    }
+    case 'finisher': {
+      const tighten = smoothUnit((frame.progress - 0.46) / 0.54);
+      const netScale = scale * (2.05 - tighten * 0.72);
+      ctx.rotate(frame.progress * 0.28);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.finisher,
+        frame,
+        netScale,
+        radius,
+        ['rgba(224, 242, 254, .94)', '#fde68a'],
+        0.18 * (1 - tighten),
+      );
+      ctx.strokeStyle = `rgba(96, 165, 250, ${0.34 + frame.impact * 0.52})`;
+      ctx.lineWidth = Math.max(1, radius * 0.18);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, netScale * 0.82, netScale * 0.42, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255, 247, 194, ${0.2 + frame.impact * 0.68})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(1, radius * (0.26 + tighten * 0.3)), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
 function drawSkinProjectileEffect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -811,8 +1078,22 @@ function drawSkinProjectileEffect(
   radius: number,
   direction: number,
   now: number,
-  skin?: string,
+  projectile: Bullet,
 ): boolean {
+  const skin = projectile.effectSkin;
+  if (skin === LORD_ALPHA_SKIN_ID) {
+    drawLordAlphaProjectile(
+      ctx,
+      x,
+      y,
+      radius,
+      direction,
+      now,
+      projectile.presentationBirthMs,
+      projectile.presentationVariant,
+    );
+    return true;
+  }
   const config = skin ? PROJECTILE_EFFECTS[skin] : undefined;
   if (!skin || !config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
@@ -1022,6 +1303,163 @@ function drawTargetBrackets(
       ctx.stroke();
     }
   }
+  ctx.restore();
+}
+
+function drawNpcSignatureTelegraph(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  npcX: number,
+  npcY: number,
+  metrics: BoardMetrics,
+  now: number,
+): void {
+  const profile = getNpcSignatureProfile(state.npc.signatureId);
+  if (!profile || (state.npc.signatureWindup ?? 0) <= 0) return;
+
+  const progress = 1 - Math.min(1, (state.npc.signatureWindup ?? 0) / profile.windupSeconds);
+  const eased = progress * progress * (3 - 2 * progress);
+  const radius = metrics.cell * (0.3 + eased * 0.13);
+  const targetRow = state.npc.signatureTargetRow ?? state.npc.row;
+  const targetY = (targetRow - state.npc.row) * metrics.cell;
+  const color = profile.telegraph.color;
+  const pulse = 0.7 + Math.sin(now * 0.018) * 0.18;
+
+  ctx.save();
+  ctx.translate(npcX, npcY);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1.5, metrics.cell * 0.025);
+  ctx.globalAlpha = pulse;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 7;
+
+  // Every signature displays the lane sampled at cast start. The marker does
+  // not follow subsequent player movement, preserving dodge counterplay.
+  if (targetRow !== state.npc.row) {
+    ctx.setLineDash([metrics.cell * 0.06, metrics.cell * 0.045]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  drawTargetBrackets(ctx, 0, targetY, metrics.cell * 0.23, color);
+
+  switch (profile.telegraph.motif) {
+    case 'clock':
+      ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * eased); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(eased * Math.PI * 2) * radius, Math.sin(eased * Math.PI * 2) * radius); ctx.stroke();
+      break;
+    case 'orbit':
+      for (let ring = 0; ring < 3; ring++) {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, radius, radius * (0.28 + ring * 0.14), ring * Math.PI / 3 + eased, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    case 'transfer':
+    case 'exchange':
+      for (const direction of [-1, 1]) {
+        const y = direction * radius * 0.3;
+        ctx.beginPath(); ctx.moveTo(-direction * radius, y); ctx.lineTo(direction * radius, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(direction * radius, y); ctx.lineTo(direction * radius * 0.65, y - direction * radius * 0.18); ctx.lineTo(direction * radius * 0.65, y + direction * radius * 0.18); ctx.closePath(); ctx.fill();
+      }
+      break;
+    case 'construct':
+    case 'grid':
+      for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) {
+        const size = radius * 0.36 * eased;
+        ctx.strokeRect(x * radius * 0.58 - size * 0.5, y * radius * 0.58 - size * 0.5, size, size);
+      }
+      break;
+    case 'adapt':
+      ctx.beginPath();
+      for (let point = 0; point < 6; point++) {
+        const angle = -Math.PI / 2 + point * Math.PI / 3;
+        const distance = point % 2 === 0 ? radius : radius * 0.52;
+        const x = Math.cos(angle) * distance;
+        const y = Math.sin(angle) * distance;
+        if (point === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.stroke();
+      break;
+    case 'reflect':
+    case 'vector':
+      ctx.beginPath(); ctx.moveTo(radius, -radius * 0.55); ctx.lineTo(-radius * 0.2, 0); ctx.lineTo(radius, radius * 0.55); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-radius, -radius * 0.42); ctx.lineTo(radius * 0.2, 0); ctx.lineTo(-radius, radius * 0.42); ctx.stroke();
+      break;
+    case 'phase':
+    case 'portal':
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, targetY, radius * 0.62, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      break;
+    case 'flame':
+      for (let flame = -1; flame <= 1; flame++) {
+        ctx.beginPath();
+        ctx.moveTo(flame * radius * 0.45, radius * 0.75);
+        ctx.quadraticCurveTo(flame * radius * 0.7, 0, flame * radius * 0.2, -radius);
+        ctx.quadraticCurveTo(flame * radius * 0.05, 0, flame * radius * 0.45, radius * 0.75);
+        ctx.stroke();
+      }
+      break;
+    case 'wave':
+      ctx.beginPath();
+      for (let step = 0; step <= 16; step++) {
+        const x = -radius + (step / 16) * radius * 2;
+        const y = Math.sin(step * Math.PI * 0.5 + now * 0.012) * radius * 0.32;
+        if (step === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      break;
+    case 'causality':
+      ctx.beginPath(); ctx.moveTo(-radius, -radius); ctx.lineTo(radius, -radius); ctx.lineTo(-radius, radius); ctx.lineTo(radius, radius); ctx.closePath(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, radius * 0.18, 0, Math.PI * 2); ctx.fill();
+      break;
+    case 'arsenal':
+      ctx.beginPath(); ctx.moveTo(-radius, radius * 0.22); ctx.lineTo(radius * 0.55, radius * 0.22); ctx.lineTo(radius, 0); ctx.lineTo(radius * 0.55, -radius * 0.22); ctx.lineTo(-radius, -radius * 0.22); ctx.closePath(); ctx.stroke();
+      break;
+    case 'harvest':
+      ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI * 0.8, Math.PI * 0.8); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, radius * 0.58, Math.PI * 0.2, Math.PI * 1.8); ctx.stroke();
+      break;
+    case 'null':
+      ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-radius * 0.7, radius * 0.7); ctx.lineTo(radius * 0.7, -radius * 0.7); ctx.stroke();
+      break;
+    case 'polarity':
+      ctx.beginPath(); ctx.arc(-radius * 0.55, 0, radius * 0.38, 0, Math.PI * 2); ctx.arc(radius * 0.55, 0, radius * 0.38, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-radius * 0.72, 0); ctx.lineTo(-radius * 0.38, 0); ctx.moveTo(-radius * 0.55, -radius * 0.17); ctx.lineTo(-radius * 0.55, radius * 0.17); ctx.moveTo(radius * 0.72, 0); ctx.lineTo(radius * 0.38, 0); ctx.stroke();
+      break;
+    case 'fortress':
+      ctx.strokeRect(-radius, -radius * 0.72, radius * 2, radius * 1.44);
+      for (let merlon = -1; merlon <= 1; merlon++) ctx.strokeRect(merlon * radius * 0.55 - radius * 0.16, -radius, radius * 0.32, radius * 0.3);
+      break;
+    case 'hunt':
+      ctx.beginPath(); ctx.arc(0, targetY, radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-radius * 1.2, targetY); ctx.lineTo(radius * 1.2, targetY); ctx.moveTo(0, targetY - radius * 1.2); ctx.lineTo(0, targetY + radius * 1.2); ctx.stroke();
+      break;
+    case 'orbital':
+      for (let lane = 0; lane < 3; lane++) {
+        const laneY = (lane - state.npc.row) * metrics.cell;
+        ctx.beginPath(); ctx.arc(0, laneY, lane === targetRow ? radius * 0.55 : radius * 0.34, 0, Math.PI * 2); ctx.stroke();
+      }
+      break;
+    case 'command':
+      for (let chevron = 0; chevron < 3; chevron++) {
+        const x = -radius * 0.75 + chevron * radius * 0.62;
+        ctx.beginPath(); ctx.moveTo(x, -radius * 0.55); ctx.lineTo(x + radius * 0.42, 0); ctx.lineTo(x, radius * 0.55); ctx.stroke();
+      }
+      break;
+    case 'crown':
+      ctx.beginPath();
+      ctx.moveTo(-radius, radius * 0.55); ctx.lineTo(-radius * 0.75, -radius * 0.65); ctx.lineTo(-radius * 0.2, 0); ctx.lineTo(0, -radius); ctx.lineTo(radius * 0.2, 0); ctx.lineTo(radius * 0.75, -radius * 0.65); ctx.lineTo(radius, radius * 0.55); ctx.closePath(); ctx.stroke();
+      break;
+  }
+
+  drawTelegraphTag(ctx, profile.castLabel, color, radius * 1.38, metrics.cell);
   ctx.restore();
 }
 
@@ -1413,6 +1851,8 @@ export function draw(
       ctx.restore();
     }
 
+    drawNpcSignatureTelegraph(ctx, state, npcX, npcY, m, renderNow);
+
     if (!npcHasOverlay) {
       // NPC body (mirror of player, gun faces LEFT)
       ctx.fillStyle = '#34d399';
@@ -1433,7 +1873,7 @@ export function draw(
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
     const direction = Math.sign(b.speed) || 1;
     const attackStyle = b.attackStyle ?? 'physical';
-    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b.effectSkin);
+    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b);
     if (!skinProjectileDrawn) {
       ctx.save();
       if (attackStyle === 'melee') {
@@ -1601,7 +2041,7 @@ export function draw(
       const bx = m.x + b.colPos * m.cell;
       const by = m.y + (b.row + 0.5) * m.cell;
       const radius = m.cell * 0.08;
-      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b.effectSkin);
+      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b);
       if (!skinProjectileDrawn) {
         ctx.fillStyle = '#67e8f9';
         ctx.beginPath();

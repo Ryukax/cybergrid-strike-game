@@ -2,6 +2,8 @@ import { useRef, useEffect, useLayoutEffect, useState, useCallback, type Mutable
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
 import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
+import { LordAlphaSprite, type LordAlphaMotion } from './LordAlphaSprite';
+import { LordAlphaVfx } from './LordAlphaVfx';
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -101,6 +103,37 @@ import {
   resolveHeal,
   selectMostWoundedAlly,
 } from '../game/combat-effects';
+import {
+  NPC_SIGNATURE_IDS,
+  NPC_SIGNATURE_PROFILES,
+  getNpcSignatureProfile,
+  isNpcSignatureId,
+  type NpcSignatureId,
+} from '../game/npc-signature-registry';
+import {
+  LORD_ALPHA_FORM_IDS,
+  LORD_ALPHA_FORMS,
+  LORD_ALPHA_SKIN_ID,
+  LORD_ALPHA_COMBO_BEATS,
+  LORD_ALPHA_COMBO_PRESENTATIONS,
+  LORD_ALPHA_EVENT_TIMINGS_MS,
+  LORD_ALPHA_SKILL_BANKS,
+  LORD_ALPHA_SKILL_BINDINGS,
+  LORD_ALPHA_SKILL_PREVIEW_ACTIONS,
+  LORD_ALPHA_VFX_TIMINGS_MS,
+  advanceLordAlphaCombo,
+  createLordAlphaComboState,
+  createLordAlphaPresentationEvent,
+  getLordAlphaCardPresentation,
+  isLordAlphaSkillsPreviewSearch,
+  resolveLordAlphaSkillAction,
+  wrapLordAlphaSkillBank,
+  type LordAlphaComboBeat,
+  type LordAlphaForm,
+  type LordAlphaPresentationEvent,
+  type LordAlphaPresentationEventKind,
+  type LordAlphaPresentationEventOptions,
+} from '../game/lord-alpha';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
 const ABILITY_PRESETS_KEY = 'cgs_ability_presets_v1';
@@ -150,6 +183,7 @@ const GENERATED_ABILITIES_KEY = 'cgs_generated_abilities_v1';
 const AVATAR_COMPONENTS_KEY = 'cgs_avatar_components_v1';
 const EQUIPPED_COMPONENTS_KEY = 'cgs_equipped_components_v1';
 const ASSEMBLY_SKILL_KEY = 'cgs_assembly_skill_v1';
+const LORD_ALPHA_FORM_KEY = 'cgs_lord_alpha_form_v1';
 const CONSTITUTION_MATRIX_KEY = 'cgs_constitution_matrix_v2';
 const SYNCHRONY_THRESHOLD = 3;
 
@@ -2564,6 +2598,8 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
       shieldCharges: 0,
       abilityWindup: 0,
       abilityRecovery: 0,
+      signatureWindup: 0,
+      signatureRecovery: 0,
     },
     npcBullets: [],
     npcEnemies: [],
@@ -2644,13 +2680,7 @@ interface CloneView {
   cols: Record<CloneDirection, number | null>;
 }
 
-type RivalSkillId =
-  | 'chrono' | 'singularity' | 'override' | 'architect'
-  | 'apex' | 'counter' | 'phase' | 'phoenix'
-  | 'rift' | 'vector' | 'gridshift' | 'resonance'
-  | 'exchange' | 'causality' | 'arsenal'
-  | 'assimilation' | 'null' | 'polarity' | 'colossus'
-  | 'predator' | 'orbital' | 'hijack' | 'sovereign';
+type RivalSkillId = NpcSignatureId;
 interface RivalSkillView {
   active: boolean;
   id: RivalSkillId | null;
@@ -2677,32 +2707,10 @@ const emptyRivalSkillView = (): RivalSkillView => ({
   expiresAt: 0,
   origin: { col: 1, row: 1, hp: 5 },
 });
-const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
-  chrono: 'Chrono Break',
-  singularity: 'Singularity Engine',
-  override: 'Neural Override',
-  architect: 'Grid Architect',
-  apex: 'Apex Adaptation',
-  counter: 'Counter Matrix',
-  phase: 'Phase Hunt',
-  phoenix: 'Phoenix Circuit',
-  rift: 'Rift Circuit',
-  vector: 'Vector Dominion',
-  gridshift: 'Grid Shift',
-  resonance: 'Resonance Array',
-  exchange: 'Code Exchange',
-  causality: 'Causality Lock',
-  arsenal: 'Living Arsenal',
-  assimilation: 'Arsenal Assimilation',
-  null: 'Null Domain',
-  polarity: 'Polarity Crown',
-  colossus: 'Aegis Colossus',
-  predator: 'Predator Protocol',
-  orbital: 'Orbital Command',
-  hijack: 'Command Hijack',
-  sovereign: 'Last Sovereign',
-};
-const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
+const RIVAL_SKILL_LABELS = Object.fromEntries(
+  NPC_SIGNATURE_IDS.map((id) => [id, NPC_SIGNATURE_PROFILES[id].label]),
+) as Record<RivalSkillId, string>;
+const RIVAL_SKILL_IDS: RivalSkillId[] = [...NPC_SIGNATURE_IDS];
 const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
   'override', 'architect', 'apex', 'counter', 'phase', 'vector',
   'gridshift', 'resonance', 'exchange', 'causality', 'arsenal',
@@ -2738,7 +2746,6 @@ const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
 
 const VS_SKILL_COOLDOWN = 14;
 const VS_NPC_ABILITY_INTERVAL = 12;
-const VS_NPC_SKILL_INTERVAL = 20;
 const VS_NPC_MAX_SHIELDS = 2;
 const RIVAL_SKILL_ANIMATION_DURATION = 1120;
 const VS_ABILITY_DAMAGE: Record<string, number> = {
@@ -2753,17 +2760,6 @@ const VS_ABILITY_DISRUPT = new Set([
   'rootsnare', 'sonicnet', 'anchorfield', 'trafficjam', 'mutationlock',
   'quarantine',
 ]);
-const VS_NPC_DEFENSIVE_SKILLS = new Set<RivalSkillId>([
-  'counter', 'null', 'colossus', 'sovereign',
-]);
-const VS_NPC_CONTROL_SKILLS = new Set<RivalSkillId>([
-  'chrono', 'singularity', 'rift', 'vector', 'gridshift', 'resonance',
-  'exchange', 'causality', 'polarity',
-]);
-const VS_NPC_ASSAULT_SKILLS = new Set<RivalSkillId>([
-  'apex', 'phase', 'phoenix', 'arsenal', 'predator', 'orbital',
-]);
-
 interface RivalSkillGuide {
   summary: string;
   commands: [string, string, string];
@@ -3689,9 +3685,139 @@ const emptyCloneView = (): CloneView => ({
   cols: { north: null, south: null },
 });
 
+interface NpcSignatureDecision {
+  targetRow: number;
+  /** Signature-specific branch, frozen for the duration of the telegraph. */
+  mode: number;
+  /** Bounded intensity derived from the state visible when the cast begins. */
+  charges: number;
+}
+
+function planNpcSignature(
+  id: RivalSkillId,
+  state: GameState,
+  incomingByLane: readonly number[],
+): NpcSignatureDecision | null {
+  const npc = state.npc;
+  const npcCol = 3 + npc.col;
+  const liveIncoming = state.bullets.filter((bullet) =>
+    bullet.speed > 0 && bullet.colPos > -0.5 && bullet.colPos < npcCol && !bullet.hitNpc);
+  const nearestIncoming = [...liveIncoming]
+    .sort((a, b) => b.colPos - a.colPos)[0];
+  const strongestIncoming = [...liveIncoming]
+    .sort((a, b) => (b.power ?? 1) - (a.power ?? 1))[0];
+  const safestLane = incomingByLane.indexOf(Math.min(...incomingByLane));
+  const pressuredLane = incomingByLane.indexOf(Math.max(...incomingByLane));
+  const totalThreat = incomingByLane.reduce((sum, value) => sum + value, 0);
+  const missingHp = Math.max(0, NPC_HP - npc.hp);
+  const targetRow = state.player.row;
+
+  switch (id) {
+    case 'override':
+    case 'counter':
+    case 'assimilation':
+    case 'polarity': {
+      const carrier = id === 'override' || id === 'assimilation'
+        ? strongestIncoming
+        : nearestIncoming;
+      if (!carrier) return null;
+      return {
+        targetRow: carrier.row,
+        mode: carrier.big ? 1 : carrier.pierce ? 2 : 0,
+        charges: Math.max(1, Math.min(4, carrier.power ?? 1)),
+      };
+    }
+    case 'architect':
+      return {
+        targetRow: totalThreat > 0 ? pressuredLane : targetRow,
+        mode: totalThreat > 1 || npc.shieldCharges === 0 ? 1 : 0,
+        charges: Math.max(1, Math.min(3, Math.ceil(totalThreat))),
+      };
+    case 'apex': {
+      const repairScore = missingHp * 1.4;
+      const reflectScore = totalThreat * 1.8;
+      const mode = repairScore > Math.max(2, reflectScore) ? 2
+        : reflectScore > 1 ? 1 : 0;
+      return { targetRow: mode === 1 ? pressuredLane : targetRow, mode, charges: 1 };
+    }
+    case 'phase':
+      return { targetRow, mode: safestLane, charges: Math.max(1, Math.ceil(totalThreat)) };
+    case 'phoenix':
+      if (missingHp < 2 && totalThreat < 2) return null;
+      return { targetRow, mode: missingHp >= 4 ? 1 : 0, charges: Math.min(3, Math.max(1, missingHp)) };
+    case 'singularity':
+      return {
+        targetRow: totalThreat > 0 ? pressuredLane : targetRow,
+        mode: totalThreat > 0 ? 1 : 0,
+        charges: Math.max(1, Math.min(3, liveIncoming.length)),
+      };
+    case 'rift':
+      return { targetRow, mode: (targetRow + 2) % 3, charges: 2 };
+    case 'vector':
+      return {
+        targetRow: totalThreat > 0 ? pressuredLane : targetRow,
+        mode: liveIncoming.length > state.npcBullets.length ? 0 : 1,
+        charges: Math.max(1, Math.min(3, liveIncoming.length)),
+      };
+    case 'gridshift':
+      if (liveIncoming.length === 0) return null;
+      return { targetRow: pressuredLane, mode: incomingByLane[(pressuredLane + 1) % 3] <= incomingByLane[(pressuredLane + 2) % 3] ? 1 : 2, charges: liveIncoming.length };
+    case 'resonance':
+      return { targetRow, mode: state.player.col, charges: 3 };
+    case 'exchange':
+      return {
+        targetRow,
+        mode: npc.hp < state.hp ? 0 : totalThreat > 0 ? 1 : 2,
+        charges: Math.max(1, Math.min(3, Math.abs(state.hp - npc.hp))),
+      };
+    case 'causality':
+      return {
+        targetRow,
+        mode: missingHp >= 2 ? 0 : npc.row !== targetRow ? 1 : 2,
+        charges: 1,
+      };
+    case 'arsenal':
+      return {
+        targetRow: totalThreat > 0 ? pressuredLane : targetRow,
+        mode: totalThreat >= 2 ? 1 : npc.row !== targetRow ? 2 : 0,
+        charges: 1,
+      };
+    case 'null':
+      return { targetRow: nearestIncoming?.row ?? targetRow, mode: liveIncoming.length > 0 ? 1 : 0, charges: 1 };
+    case 'colossus':
+      return { targetRow, mode: totalThreat >= 2 ? 1 : 0, charges: Math.max(1, Math.min(3, missingHp)) };
+    case 'predator':
+      return { targetRow, mode: state.player.col, charges: 1 };
+    case 'orbital':
+      return { targetRow, mode: totalThreat >= 3 ? 1 : 0, charges: 3 };
+    case 'hijack':
+      return { targetRow, mode: liveIncoming.length >= 2 ? 1 : 0, charges: Math.max(1, liveIncoming.length) };
+    case 'sovereign':
+      return { targetRow, mode: missingHp >= 4 ? 1 : 0, charges: Math.max(1, Math.min(5, missingHp)) };
+    case 'chrono':
+      return {
+        targetRow,
+        mode: liveIncoming.length > 0 ? 1 : 0,
+        charges: Math.max(1, Math.min(3, liveIncoming.length + 1)),
+      };
+    default: {
+      const exhaustive: never = id;
+      throw new Error(`Unhandled NPC signature plan: ${exhaustive}`);
+    }
+  }
+}
+
+function npcSignatureCooldown(id: RivalSkillId): number {
+  const range = NPC_SIGNATURE_PROFILES[id].cooldownSeconds;
+  return (range.min + range.max) * 0.5;
+}
+
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pipVideoRef = useRef<HTMLVideoElement>(null);
+  const lordAlphaSkillsPreview = useRef(
+    typeof window !== 'undefined' && isLordAlphaSkillsPreviewSearch(window.location.search),
+  ).current;
   const pipStreamRef = useRef<MediaStream | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
   const pipMirrorFrameRef = useRef(0);
@@ -4081,7 +4207,7 @@ export default function Game() {
 
   // Player skin
   type PlayerSkin =
-    | 'default' | 'rocket' | 'dots' | 'gem' | 'assembly'
+    | 'default' | 'rocket' | 'dots' | 'gem' | 'assembly' | 'lord-alpha'
     | 'chrono' | 'singularity' | 'override' | 'architect'
     | 'apex' | 'counter' | 'phase' | 'phoenix'
     | 'rift' | 'vector' | 'gridshift' | 'resonance'
@@ -4089,14 +4215,51 @@ export default function Game() {
     | 'assimilation' | 'null' | 'polarity' | 'colossus'
     | 'predator' | 'orbital' | 'hijack' | 'sovereign';
   const SKIN_KEY = 'cgs_player_skin';
-  const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
+  const knownPlayerSkins = new Set<PlayerSkin>([
+    'default', 'rocket', 'dots', 'gem', 'assembly', LORD_ALPHA_SKIN_ID,
+    ...RIVAL_SKILL_IDS,
+  ]);
+  const storedSkin = localStorage.getItem(SKIN_KEY);
+  const savedSkin: PlayerSkin = lordAlphaSkillsPreview
+    ? LORD_ALPHA_SKIN_ID
+    : storedSkin && knownPlayerSkins.has(storedSkin as PlayerSkin)
+      ? storedSkin as PlayerSkin
+      : 'default';
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const storedLordAlphaForm = localStorage.getItem(LORD_ALPHA_FORM_KEY);
+  const savedLordAlphaForm: LordAlphaForm = lordAlphaSkillsPreview
+    ? 'supreme'
+    : LORD_ALPHA_FORM_IDS.includes(storedLordAlphaForm as LordAlphaForm)
+      ? storedLordAlphaForm as LordAlphaForm
+      : 'supreme';
+  const [lordAlphaForm, setLordAlphaForm] = useState<LordAlphaForm>(savedLordAlphaForm);
+  const [lordAlphaMotion, setLordAlphaMotion] = useState<LordAlphaMotion>('idle');
+  const [lordAlphaMotionPulse, setLordAlphaMotionPulse] = useState(0);
+  const [lordAlphaEventPulse, setLordAlphaEventPulse] = useState(0);
+  const [lordAlphaEvent, setLordAlphaEvent] = useState<LordAlphaPresentationEvent | null>(null);
+  const [lordAlphaImpactPulse, setLordAlphaImpactPulse] = useState(0);
+  const [lordAlphaImpactEvent, setLordAlphaImpactEvent] = useState<LordAlphaPresentationEvent | null>(null);
+  const [lordAlphaComboBeat, setLordAlphaComboBeat] = useState<LordAlphaComboBeat | null>(null);
+  const [lordAlphaSkillModeOpen, setLordAlphaSkillModeOpen] = useState(lordAlphaSkillsPreview);
+  const lordAlphaSkillModeOpenRef = useRef(lordAlphaSkillsPreview);
+  const [lordAlphaSkillBankIndex, setLordAlphaSkillBankIndex] = useState(0);
+  const lordAlphaSkillBankIndexRef = useRef(0);
+  const lordAlphaComboRef = useRef(createLordAlphaComboState());
+  const lordAlphaVolleyPresentationRef = useRef<{
+    variant: LordAlphaComboBeat;
+    birthMs: number;
+  } | null>(null);
+  const lordAlphaPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lordAlphaImpactTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lordAlphaMotionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [npcSkin, setNpcSkin] = useState<PlayerSkin>('default');
   const npcSkinRef = useRef<PlayerSkin>('default');
   const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
   const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const npcFrameRef = useRef<ImageBitmap | null>(null);
+  const npcSignatureSequenceRef = useRef<HTMLImageElement | null>(null);
+  const npcSignatureCommandSequencesRef = useRef<HTMLImageElement[]>([]);
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
     || RIVAL_SKILL_IDS.includes(storedAssemblySkill as RivalSkillId)
@@ -4117,6 +4280,11 @@ export default function Game() {
     { id: 'dots', label: 'Dots', preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
     { id: 'gem', label: 'Elo', preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
     { id: 'assembly', label: 'Assembly', preview: null },
+    {
+      id: LORD_ALPHA_SKIN_ID,
+      label: 'Lord Alpha / Web Slinger',
+      preview: `${import.meta.env.BASE_URL}${LORD_ALPHA_FORMS.supreme.idleSuffix}`,
+    },
     { id: 'chrono', label: 'Chrona', preview: `${import.meta.env.BASE_URL}skins/skill-chrono-idle.png` },
     { id: 'singularity', label: 'Gravitas', preview: `${import.meta.env.BASE_URL}skins/skill-singularity-idle.png` },
     { id: 'override', label: 'Cipher', preview: `${import.meta.env.BASE_URL}skins/skill-override-idle.png` },
@@ -4440,7 +4608,24 @@ export default function Game() {
     let cancelled = false;
     npcFrameRef.current?.close();
     npcFrameRef.current = null;
-    if (npcSkin === 'default' || npcSkin === 'assembly') return;
+    npcSignatureSequenceRef.current = null;
+    npcSignatureCommandSequencesRef.current = [];
+    const signatureSkin = isNpcSignatureId(npcSkin)
+      ? npcSkin
+      : npcSkin === 'assembly' && assemblySkill !== 'shadow'
+        ? assemblySkill
+        : undefined;
+    if (signatureSkin) {
+      const activation = new Image();
+      activation.src = `${import.meta.env.BASE_URL}skins/advanced-skill-sequences/${signatureSkin}.png?v=1`;
+      npcSignatureSequenceRef.current = activation;
+      npcSignatureCommandSequencesRef.current = [0, 1, 2].map((command) => {
+        const sequence = new Image();
+        sequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-command-sequences/${signatureSkin}-${command}.png?v=1`;
+        return sequence;
+      });
+    }
+    if (npcSkin === 'default' || npcSkin === 'assembly' || npcSkin === LORD_ALPHA_SKIN_ID) return;
     const base = import.meta.env.BASE_URL;
     const source = npcSkin === 'rocket'
       ? `${base}skins/rocket_idle.png`
@@ -4479,8 +4664,10 @@ export default function Game() {
       cancelled = true;
       npcFrameRef.current?.close();
       npcFrameRef.current = null;
+      npcSignatureSequenceRef.current = null;
+      npcSignatureCommandSequencesRef.current = [];
     };
-  }, [npcSkin]);
+  }, [npcSkin, assemblySkill]);
 
   // ── Blockchain reward state ───────────────────────────────────────────────
   const rewardAccRef = useRef<RewardAccumulator>(new RewardAccumulator());
@@ -4684,6 +4871,98 @@ export default function Game() {
     }
   }, []);
 
+  const triggerLordAlphaPresentation = useCallback((
+    kind: LordAlphaPresentationEventKind,
+    motion: LordAlphaMotion,
+    duration: number = LORD_ALPHA_EVENT_TIMINGS_MS[kind],
+    options: LordAlphaPresentationEventOptions = {},
+  ) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (lordAlphaPresentationTimerRef.current) {
+      clearTimeout(lordAlphaPresentationTimerRef.current);
+    }
+    if (lordAlphaMotionTimerRef.current) {
+      clearTimeout(lordAlphaMotionTimerRef.current);
+    }
+    setLordAlphaEvent(createLordAlphaPresentationEvent(kind, 0, options));
+    setLordAlphaMotion(motion);
+    setLordAlphaMotionPulse((pulse) => pulse + 1);
+    setLordAlphaEventPulse((pulse) => pulse + 1);
+    lordAlphaPresentationTimerRef.current = setTimeout(() => {
+      setLordAlphaEvent(null);
+      lordAlphaPresentationTimerRef.current = null;
+    }, duration);
+    lordAlphaMotionTimerRef.current = setTimeout(() => {
+      setLordAlphaMotion('idle');
+      lordAlphaMotionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  const lordAlphaBoardAnchor = useCallback((col: number, row: number) => {
+    const canvas = canvasRef.current;
+    const width = canvas?.offsetWidth ?? 0;
+    const height = canvas?.offsetHeight ?? 0;
+    if (!canvas || width <= 0 || height <= 0) {
+      return {
+        x: Math.min(1, Math.max(0, (col + 0.5) / 6)),
+        y: Math.min(1, Math.max(0, (row + 0.5) / 3)),
+      };
+    }
+    const metrics = getBoardMetrics(width, height);
+    return {
+      x: Math.min(1, Math.max(0, (metrics.x + (col + 0.5) * metrics.cell) / width)),
+      y: Math.min(1, Math.max(0, (metrics.y + (row + 0.5) * metrics.cell) / height)),
+    };
+  }, []);
+
+  const triggerLordAlphaImpact = useCallback((
+    options: LordAlphaPresentationEventOptions,
+  ) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (lordAlphaImpactTimerRef.current) clearTimeout(lordAlphaImpactTimerRef.current);
+    setLordAlphaImpactEvent(createLordAlphaPresentationEvent('web', 0, options));
+    setLordAlphaImpactPulse((pulse) => pulse + 1);
+    lordAlphaImpactTimerRef.current = setTimeout(() => {
+      setLordAlphaImpactEvent(null);
+      lordAlphaImpactTimerRef.current = null;
+    }, LORD_ALPHA_VFX_TIMINGS_MS['web-impact']);
+  }, []);
+
+  const triggerLordAlphaMotion = useCallback((
+    motion: LordAlphaMotion,
+    duration: number | false = 260,
+  ) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    // Movement, auto-fire, and hit reactions remain playable during a major
+    // presentation, but must not visually restart or replace its authored pose.
+    if (lordAlphaPresentationTimerRef.current) return;
+    if (lordAlphaMotionTimerRef.current) {
+      clearTimeout(lordAlphaMotionTimerRef.current);
+    }
+    setLordAlphaMotion(motion);
+    setLordAlphaMotionPulse((pulse) => pulse + 1);
+    if (duration === false) {
+      lordAlphaMotionTimerRef.current = null;
+      return;
+    }
+    lordAlphaMotionTimerRef.current = setTimeout(() => {
+      setLordAlphaMotion('idle');
+      lordAlphaMotionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  useEffect(() => () => {
+    if (lordAlphaPresentationTimerRef.current) {
+      clearTimeout(lordAlphaPresentationTimerRef.current);
+    }
+    if (lordAlphaMotionTimerRef.current) {
+      clearTimeout(lordAlphaMotionTimerRef.current);
+    }
+    if (lordAlphaImpactTimerRef.current) {
+      clearTimeout(lordAlphaImpactTimerRef.current);
+    }
+  }, []);
+
   const addParticles = useCallback((x: number, y: number, color: string) => {
     const s = stateRef.current;
     for (let i = 0; i < 10; i++) {
@@ -4702,6 +4981,7 @@ export default function Game() {
       dots: 'energy',
       gem: 'energy',
       assembly: 'adaptive',
+      'lord-alpha': 'portal',
       chrono: 'temporal',
       singularity: 'gravity',
       override: 'swarm',
@@ -4756,6 +5036,10 @@ export default function Game() {
     big?: boolean;
     pierce?: boolean;
     originCol?: number;
+    /** One visual combo advance per player Buster volley. */
+    presentationPrimary?: boolean;
+    /** Secondary shots in that volley inherit the same visual beat. */
+    presentationVariant?: LordAlphaComboBeat;
   }) => {
     const s = stateRef.current;
     const row = rowOverride !== undefined ? rowOverride : s.player.row;
@@ -4777,6 +5061,27 @@ export default function Game() {
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
     const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
     const attackStyle = resolveAttackStyle();
+    let presentationVariant = opts?.presentationVariant;
+    let presentationBirthMs: number | undefined;
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && opts?.presentationPrimary) {
+      const presentationNow = performance.now();
+      const advanced = advanceLordAlphaCombo(lordAlphaComboRef.current, presentationNow);
+      lordAlphaComboRef.current = advanced.state;
+      presentationVariant = advanced.beat;
+      presentationBirthMs = presentationNow;
+      lordAlphaVolleyPresentationRef.current = {
+        variant: advanced.beat,
+        birthMs: presentationNow,
+      };
+      setLordAlphaComboBeat(advanced.beat);
+      triggerLordAlphaMotion('attack', LORD_ALPHA_COMBO_PRESENTATIONS[advanced.beat].durationMs);
+    }
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && presentationVariant && presentationBirthMs === undefined) {
+      const inherited = lordAlphaVolleyPresentationRef.current;
+      presentationBirthMs = inherited?.variant === presentationVariant
+        ? inherited.birthMs
+        : performance.now();
+    }
     s.bullets.push({
       colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
       row,
@@ -4786,6 +5091,7 @@ export default function Game() {
       pierce,
       attackStyle,
       effectSkin: playerSkinRef.current,
+      ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
     });
     if (s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
@@ -4798,6 +5104,7 @@ export default function Game() {
         pierce: false,
         attackStyle,
         effectSkin: playerSkinRef.current,
+        ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
       });
     }
     playShot();
@@ -4808,7 +5115,8 @@ export default function Game() {
       setAssemblyAttackPulse((pulse) => pulse + 1);
     }
     if (playerOriginShot && RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)) rivalShootFlash();
-  }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle]);
+    return presentationVariant ?? null;
+  }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle, triggerLordAlphaMotion]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
@@ -4836,7 +5144,10 @@ export default function Game() {
     playMove();
     updateHud();
     if (playerSkinRef.current === 'gem') gemMoveFlash();
-  }, [updateHud, gemMoveFlash, registerPlaystyle]);
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      triggerLordAlphaMotion('move', 330);
+    }
+  }, [updateHud, gemMoveFlash, registerPlaystyle, triggerLordAlphaMotion]);
 
   const manualBuster = useCallback(() => {
     const s = stateRef.current;
@@ -4844,10 +5155,14 @@ export default function Game() {
     if (s.player.fireCooldown <= 0) {
       registerPlaystyle('manualFire');
       if (!s.autoBuster) registerPlaystyle('autoOffFire');
-      fireBullet();
-      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
+      const presentationVariant = fireBullet(undefined, { presentationPrimary: true });
+      if (s.multishotTimer > 0) {
+        fireBullet((s.player.row + 1) % 3, { presentationVariant: presentationVariant ?? undefined });
+      }
       if (s.turretTimer > 0) {
-        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+        for (let r = 0; r < 3; r++) {
+          if (r !== s.player.row) fireBullet(r, { presentationVariant: presentationVariant ?? undefined });
+        }
       }
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
       s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.25) / rapidScale;
@@ -4859,6 +5174,14 @@ export default function Game() {
     if (!s.running) return;
     s.running = false;
     s.playerWon = won;
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      if (lordAlphaPresentationTimerRef.current) {
+        clearTimeout(lordAlphaPresentationTimerRef.current);
+        lordAlphaPresentationTimerRef.current = null;
+      }
+      setLordAlphaEvent(null);
+    }
+    triggerLordAlphaMotion(won ? 'victory' : 'death', false);
     stopMusic();
     if (won) {
       showMessage('SYSTEM OVERRIDE — NPC neutralised!', false);
@@ -4871,16 +5194,46 @@ export default function Game() {
     updateHud();
   }, [showMessage, updateHud]);
 
-  const useCard = useCallback((type: string) => {
+  const useCard = useCallback((
+    type: string,
+    options: { lordAlphaPreview?: boolean } = {},
+  ) => {
     const s = stateRef.current;
-    if (!s.running || !s.cardsReady) return;
+    const lordAlphaPreviewInvocation = Boolean(
+      options.lordAlphaPreview
+      && lordAlphaSkillsPreview
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+    );
+    if (!s.running || (!s.cardsReady && !lordAlphaPreviewInvocation)) return;
     const ability = runtimeAbilityById(type);
     const generated = generatedAbilityRegistry[type];
     if (!ability) return;
     // Already used this hand or on cooldown — do nothing
-    if (s.usedInHand.includes(type)) return;
+    if (!lordAlphaPreviewInvocation && s.usedInHand.includes(type)) return;
     if ((s.abilityCooldowns[type] ?? 0) > 0) return;
-    registerPlaystyle('abilityUse');
+    if (!lordAlphaPreviewInvocation) registerPlaystyle('abilityUse');
+
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      const presentation = getLordAlphaCardPresentation(type);
+      if (presentation) {
+        const closestEnemy = [...s.enemies]
+          .filter((enemy) => enemy.colPos > -1)
+          .sort((left, right) => left.colPos - right.colPos)[0];
+        const target = s.gameMode === 'vs'
+          ? lordAlphaBoardAnchor(3 + s.npc.col, s.npc.row)
+          : lordAlphaBoardAnchor(closestEnemy?.colPos ?? 4, closestEnemy?.row ?? s.player.row);
+        triggerLordAlphaPresentation(
+          presentation.kind,
+          'skill',
+          presentation.durationMs,
+          {
+            subtype: presentation.subtype,
+            origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+            target,
+          },
+        );
+      }
+    }
 
     const canvas = canvasRef.current;
     const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
@@ -5015,7 +5368,9 @@ export default function Game() {
         kills++;
       }
       if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
-      showMessage('NUKE — all viruses wiped!', 1500);
+      showMessage(playerSkinRef.current === LORD_ALPHA_SKIN_ID
+        ? 'Tharthareon emerges through the Calculus gate.'
+        : 'NUKE — all viruses wiped!', 1500);
     } else if (type === 'barrage') {
       for (let i = 0; i < 3; i++) fireBullet(undefined, { power: 2, big: true, pierce: true });
       showMessage('Barrage — 3 piercing shots on your row!', 1500);
@@ -5057,7 +5412,9 @@ export default function Game() {
         kills++;
       }
       if (kills > 0) { if (s.score % 500 === 0) s.wave++; playScore(); updateHud(); }
-      showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} neutralized, double Integrity Work!`, 1800);
+      showMessage(playerSkinRef.current === LORD_ALPHA_SKIN_ID
+        ? `THE MILLENNIUM DRAGON HAS LANDED. ${kills} virus${kills !== 1 ? 'es' : ''} neutralized.`
+        : `MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} neutralized, double Integrity Work!`, 1800);
     } else if (type === 'cardflood') {
       // Give a brand-new hand immediately — reroll until at least one card is usable
       let nextOptions = randomAbilityOptions(
@@ -5512,11 +5869,14 @@ export default function Game() {
     playAbility(type);
     s.abilityCooldowns[type] = ability.cooldown;
 
-    // Mark this card as used in the current hand (cards stay visible, dimmed)
-    s.usedInHand = [...s.usedInHand, type];
+    // Preview commands reuse the live mechanic without consuming the unrelated
+    // random card hand. Ordinary card execution retains the existing rule.
+    if (!lordAlphaPreviewInvocation) {
+      s.usedInHand = [...s.usedInHand, type];
+    }
 
     updateHud();
-  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle, endGame]);
+  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle, endGame, triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -6711,7 +7071,7 @@ export default function Game() {
     lastTimeRef.current = now;
     showMessage('Timeline resumed.', 650);
     updateHud();
-  }, [showMessage, updateHud]);
+  }, [showMessage, updateHud, triggerLordAlphaMotion]);
   stopChronoRewindRef.current = stopChronoRewind;
 
   const activateRivalSkill = useCallback((id: RivalSkillId) => {
@@ -6846,6 +7206,17 @@ export default function Game() {
       showMessage('Clone autofiring · control switched.', 1200);
       return;
     }
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      triggerLordAlphaPresentation(
+        'clone',
+        'skill',
+        LORD_ALPHA_EVENT_TIMINGS_MS.clone,
+        {
+          subtype: 'clone-symmetry',
+          origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+        },
+      );
+    }
     ensureAudio();
     const clockwiseOffsets = [
       { col: 0, row: -1 }, { col: 1, row: -1 },
@@ -6923,9 +7294,72 @@ export default function Game() {
         skillFxTimerRef.current = null;
       }, 1530);
     }, 900);
-  }, [activateRivalSkill, fireBullet, showMessage, registerPlaystyle]);
+  }, [activateRivalSkill, fireBullet, showMessage, registerPlaystyle, triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
+
+  const cycleLordAlphaSkillBank = useCallback((direction: number) => {
+    if (!lordAlphaSkillsPreview || playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    const next = wrapLordAlphaSkillBank(lordAlphaSkillBankIndexRef.current + direction);
+    lordAlphaSkillBankIndexRef.current = next;
+    setLordAlphaSkillBankIndex(next);
+    showMessage(`${LORD_ALPHA_SKILL_BANKS[next].label} · X / Y / B`, 900);
+  }, [lordAlphaSkillsPreview, showMessage]);
+
+  const toggleLordAlphaSkillMode = useCallback(() => {
+    if (!lordAlphaSkillsPreview || playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return false;
+    const next = !lordAlphaSkillModeOpenRef.current;
+    lordAlphaSkillModeOpenRef.current = next;
+    setLordAlphaSkillModeOpen(next);
+    showMessage(next ? 'LORD ALPHA SKILLS · X / Y / B' : 'LORD ALPHA SKILLS CLOSED', 900);
+    return true;
+  }, [lordAlphaSkillsPreview, showMessage]);
+
+  const previewLordAlphaSkill = useCallback((
+    action: (typeof LORD_ALPHA_SKILL_PREVIEW_ACTIONS)[number],
+  ) => {
+    if (!lordAlphaSkillsPreview || phaseRef.current !== 'playing') return;
+    const s = stateRef.current;
+    if (action.mechanicId) {
+      const cooldown = s.abilityCooldowns[action.mechanicId] ?? 0;
+      if (cooldown > 0) {
+        showMessage(`${action.label} · ${Math.ceil(cooldown)}s cooldown`, 900);
+        return;
+      }
+      useCard(action.mechanicId, { lordAlphaPreview: true });
+      return;
+    }
+    if (action.id === 'shadow-clone') {
+      lordAlphaSkillModeOpenRef.current = false;
+      setLordAlphaSkillModeOpen(false);
+      playSkillAnimation();
+      return;
+    }
+    triggerLordAlphaPresentation(
+      action.presentation.kind,
+      'skill',
+      action.presentation.durationMs,
+      {
+        subtype: action.presentation.subtype,
+        origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+      },
+    );
+    showMessage(action.label.toUpperCase(), action.presentation.durationMs);
+  }, [
+    lordAlphaSkillsPreview,
+    lordAlphaBoardAnchor,
+    playSkillAnimation,
+    showMessage,
+    triggerLordAlphaPresentation,
+    useCard,
+  ]);
+
+  const triggerLordAlphaSkillSlot = useCallback((slotIndex: number) => {
+    if (!lordAlphaSkillModeOpenRef.current) return;
+    const action = resolveLordAlphaSkillAction(lordAlphaSkillBankIndexRef.current, slotIndex);
+    if (action) previewLordAlphaSkill(action);
+  }, [previewLordAlphaSkill]);
 
   const queueSkillTap = useCallback(() => {
+    if (toggleLordAlphaSkillMode()) return;
     if (skillTapTimerRef.current) {
       clearTimeout(skillTapTimerRef.current);
       skillTapTimerRef.current = null;
@@ -6937,15 +7371,39 @@ export default function Game() {
       skillTapTimerRef.current = null;
       playSkillAnimation();
     }, 260);
-  }, [cycleActiveControl, finishRivalSkill, playSkillAnimation]);
+  }, [cycleActiveControl, finishRivalSkill, playSkillAnimation, toggleLordAlphaSkillMode]);
 
   const handleGamepad = useCallback(() => {
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gamepadNavigator = navigator as Navigator & {
+      webkitGetGamepads?: () => (Gamepad | null)[];
+    };
+    const pads = navigator.getGamepads?.()
+      ?? gamepadNavigator.webkitGetGamepads?.()
+      ?? [];
     let gp: Gamepad | null = null;
     const activeIndex = activeGamepadIndexRef.current;
     if (activeIndex !== null) {
       const activePad = pads[activeIndex];
       if (activePad && activePad.connected !== false) gp = activePad;
+    }
+    // Steam Link can expose several simultaneous devices (a physical pad,
+    // Steam's virtual pad, and the touch controller). Follow the device that
+    // is actually producing input instead of remaining stuck on the first,
+    // often-idle controller returned by Chromium.
+    const hasInput = (pad: Gamepad) =>
+      pad.axes.some((axis) => Math.abs(axis) > 0.2)
+      || pad.buttons.some((button) => button.pressed || button.value > 0.2);
+    let inputPad: Gamepad | null = null;
+    for (let i = 0; i < pads.length; i++) {
+      const pad = pads[i];
+      if (pad && pad.connected !== false && hasInput(pad)) {
+        inputPad = pad;
+        break;
+      }
+    }
+    if (inputPad && inputPad.index !== gp?.index) {
+      gp = inputPad;
+      activeGamepadIndexRef.current = inputPad.index;
     }
     for (let i = 0; i < pads.length; i++) {
       const pad = pads[i];
@@ -6975,21 +7433,27 @@ export default function Game() {
       return;
     }
     const buttonPressed = (idx: number) => { const b = gp!.buttons[idx]; return !!(b && (b.pressed || b.value > 0.2)); };
+    const anyButtonPressed = (...indices: number[]) => indices.some(buttonPressed);
     const deadzone = 0.18;
     let moveX = gp.axes[0] ?? 0, moveY = gp.axes[1] ?? 0;
+    // Some Steam Input layouts expose the active stick on axes 2/3.
+    const alternateX = gp.axes[2] ?? 0;
+    const alternateY = gp.axes[3] ?? 0;
+    if (Math.abs(moveX) < deadzone && Math.abs(alternateX) >= deadzone) moveX = alternateX;
+    if (Math.abs(moveY) < deadzone && Math.abs(alternateY) >= deadzone) moveY = alternateY;
     if (buttonPressed(14)) moveX = -1; else if (buttonPressed(15)) moveX = 1;
     if (buttonPressed(12)) moveY = -1; else if (buttonPressed(13)) moveY = 1;
     if (Math.abs(moveX) < deadzone) moveX = 0;
     if (Math.abs(moveY) < deadzone) moveY = 0;
     g.prevMoveX = g.moveX;
     g.prevFire = g.fire;
-    g.fire = buttonPressed(0);            // A only
-    g.prevCardX = g.cardX; g.cardX = buttonPressed(2);  // X → slot 0
-    g.prevCardY = g.cardY; g.cardY = buttonPressed(3);  // Y → slot 1
-    g.prevCardB = g.cardB; g.cardB = buttonPressed(1);  // B → slot 2
+    g.fire = anyButtonPressed(0, 11);            // A / right-stick press fallback
+    g.prevCardX = g.cardX; g.cardX = anyButtonPressed(2, 10);  // X / left-stick press fallback
+    g.prevCardY = g.cardY; g.cardY = anyButtonPressed(3);  // Y
+    g.prevCardB = g.cardB; g.cardB = anyButtonPressed(1);  // B
     g.prevRotate = g.rotate;
-    g.rotate = buttonPressed(8) || buttonPressed(17);   // View / ellipsis / share
-    g.prevStart = g.start; g.start = buttonPressed(9);  // Start → pause
+    g.rotate = anyButtonPressed(8, 16, 17);   // View / ellipsis / share
+    g.prevStart = g.start; g.start = anyButtonPressed(9);  // Start pause
     g.prevL1 = g.l1; g.l1 = buttonPressed(4);          // L1 modifier
     g.prevR2 = g.r2; g.r2 = buttonPressed(7);          // R2 → cycle active control
     g.prevSkill = g.skill; g.skill = buttonPressed(6); // L2 → skill animation
@@ -7038,7 +7502,17 @@ export default function Game() {
     }
 
     const upgradeGamepad = gamepadRef.current;
-    if (s.upgradePromptOpen && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
+    const lordAlphaSkillModeAtFrameStart = lordAlphaSkillsPreview
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID
+      && lordAlphaSkillModeOpenRef.current;
+    if (lordAlphaSkillModeAtFrameStart && upgradeGamepad.l1 && !upgradeGamepad.prevL1) {
+      cycleLordAlphaSkillBank(-1);
+    }
+    if (lordAlphaSkillModeAtFrameStart && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
+      cycleLordAlphaSkillBank(1);
+    }
+    if (s.upgradePromptOpen && !lordAlphaSkillModeAtFrameStart
+      && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
       openUpgradeSelection();
       return;
     }
@@ -7080,7 +7554,15 @@ export default function Game() {
     const gp = gamepadRef.current;
     if (gp.skill && !gp.prevSkill) queueSkillTap();
     if (gp.r2 && !gp.prevR2) queueR2ControlCycle();
-    const rivalInputActive = rivalSkillRef.current.active;
+    const lordAlphaSkillInputActive = lordAlphaSkillsPreview
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID
+      && lordAlphaSkillModeOpenRef.current;
+    if (lordAlphaSkillInputActive) {
+      if (gp.cardX && !gp.prevCardX) triggerLordAlphaSkillSlot(0);
+      else if (gp.cardY && !gp.prevCardY) triggerLordAlphaSkillSlot(1);
+      else if (gp.cardB && !gp.prevCardB) triggerLordAlphaSkillSlot(2);
+    }
+    const rivalInputActive = !lordAlphaSkillInputActive && rivalSkillRef.current.active;
     if (rivalInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveRivalSkillAction('primary');
       else if (gp.cardY && !gp.prevCardY) resolveRivalSkillAction('alternate');
@@ -7089,7 +7571,7 @@ export default function Game() {
         else stopChronoRewind();
       } else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
     }
-    const cloneInputActive = cloneSessionRef.current.inputActive;
+    const cloneInputActive = !lordAlphaSkillInputActive && cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
     if (cloneInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveCloneAction('attack');
@@ -7157,7 +7639,8 @@ export default function Game() {
     }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
-    if (!cloneControlActive && !rivalInputActive && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
+    if (!lordAlphaSkillInputActive && !cloneControlActive && !rivalInputActive
+      && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
       if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
@@ -7292,8 +7775,10 @@ export default function Game() {
         s.cardSelectionOpen = true;
         s.rotateUsedThisHand = false;
         s.usedInHand = [];
-        playCardReady();
-        showMessage('Ability Cards loaded! Use them, then hand resets.', 2000);
+        if (!(lordAlphaSkillsPreview && playerSkinRef.current === LORD_ALPHA_SKIN_ID)) {
+          playCardReady();
+          showMessage('Ability Cards loaded! Use them, then hand resets.', 2000);
+        }
         updateHud();
       }
     } else {
@@ -7329,10 +7814,14 @@ export default function Game() {
     if (s.autoBuster && s.player.fireCooldown <= 0) {
       const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
       s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34) / rapidScale;
-      fireBullet();
-      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
+      const presentationVariant = fireBullet(undefined, { presentationPrimary: true });
+      if (s.multishotTimer > 0) {
+        fireBullet((s.player.row + 1) % 3, { presentationVariant: presentationVariant ?? undefined });
+      }
       if (s.turretTimer > 0) {
-        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+        for (let r = 0; r < 3; r++) {
+          if (r !== s.player.row) fireBullet(r, { presentationVariant: presentationVariant ?? undefined });
+        }
       }
     }
 
@@ -7515,6 +8004,7 @@ export default function Game() {
           if (e.abilityWindup <= 0 && authoredProfile) {
             const struckPlayer = resolveAuthoredEnemyAbility(s, e, authoredProfile);
             if (struckPlayer) {
+              triggerLordAlphaMotion('hit');
               playHit();
               updateHud();
               if (s.hp <= 0) { endGame(false); return; }
@@ -7620,6 +8110,7 @@ export default function Game() {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
         } else {
           s.hp--;
+          triggerLordAlphaMotion('hit');
           applyIntegrityBreach(
             s,
             1 + (e.genome ? Math.min(1, e.genome.mutations.length * 0.12 + e.genome.fusionLevel * 0.18) : 0),
@@ -7732,6 +8223,13 @@ export default function Game() {
           e.armorCharges = damageResolution.vitals.shield ?? 0;
           if ((e.armorCharges ?? 0) <= 0) e.armorTimer = 0;
           e.flash = damageResolution.shieldDamage > 0 ? 0.13 : 0.08;
+          if (b.effectSkin === LORD_ALPHA_SKIN_ID && b.presentationVariant === 'web') {
+            triggerLordAlphaImpact({
+              subtype: 'web-restraint',
+              origin: lordAlphaBoardAnchor(b.colPos, b.row),
+              target: lordAlphaBoardAnchor(e.colPos, e.row),
+            });
+          }
 
           const interruptProfile = getEnemyAbilityProfile(e.ability);
           if (damageResolution.hpDamage > 0
@@ -7811,7 +8309,7 @@ export default function Game() {
       npcSkillTimerRef.current -= dt;
 
       const launchNpcShot = (row: number, power = 1, big = false) => {
-        s.npcBullets.push({
+        const shot: Bullet = {
           colPos: npcCol - 0.55,
           row,
           speed: big ? -5.7 : -6.4,
@@ -7820,7 +8318,9 @@ export default function Game() {
           pierce: false,
           attackStyle: resolveAttackStyle(npcSkinRef.current),
           effectSkin: npcSkinRef.current,
-        });
+        };
+        s.npcBullets.push(shot);
+        return shot;
       };
 
       const incomingByLane = [0, 0, 0];
@@ -7830,7 +8330,10 @@ export default function Game() {
         if (timeToImpact <= 1.5) incomingByLane[bullet.row] += bullet.power ?? 1;
       }
 
-      let npcCommitted = (npc.abilityWindup ?? 0) > 0 || (npc.abilityRecovery ?? 0) > 0;
+      let npcCommitted = (npc.abilityWindup ?? 0) > 0
+        || (npc.abilityRecovery ?? 0) > 0
+        || (npc.signatureWindup ?? 0) > 0
+        || (npc.signatureRecovery ?? 0) > 0;
       const activeNpcProfile = getEnemyAbilityProfile(npc.ability);
       if ((npc.abilityRecovery ?? 0) > 0) {
         npc.abilityRecovery = Math.max(0, (npc.abilityRecovery ?? 0) - dt);
@@ -7852,7 +8355,7 @@ export default function Game() {
           npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL + Math.random() * 2;
           updateHud();
         }
-      } else if (npcAbilityTimerRef.current <= 0) {
+      } else if (npcAbilityTimerRef.current <= 0 && !npcCommitted) {
         const safestLane = incomingByLane.indexOf(Math.min(...incomingByLane));
         const missingHp = NPC_HP - npc.hp;
         const mendScore = missingHp >= 4 ? missingHp * 0.55 : Number.NEGATIVE_INFINITY;
@@ -7881,21 +8384,218 @@ export default function Game() {
         }
       }
 
-      const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
-      if (npcRivalSkill && npcSkillTimerRef.current <= 0 && !npcCommitted) {
-        if (VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill)) {
-          npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
-        } else if (VS_NPC_CONTROL_SKILLS.has(npcRivalSkill)) {
-          s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.9);
-          s.cardTimer = Math.max(0, s.cardTimer - 1.5);
-        } else if (VS_NPC_ASSAULT_SKILLS.has(npcRivalSkill)) {
-          launchNpcShot(npc.row, 2, true);
-        } else {
-          npc.hp = Math.min(NPC_HP, npc.hp + 2);
+      const selectedNpcSignature = isNpcSignatureId(npcSkinRef.current)
+        ? npcSkinRef.current
+        : npcSkinRef.current === 'assembly' && assemblySkillRef.current !== 'shadow'
+          ? assemblySkillRef.current
+          : undefined;
+      const activeNpcSignature = getNpcSignatureProfile(npc.signatureId);
+
+      if ((npc.signatureRecovery ?? 0) > 0) {
+        npc.signatureRecovery = Math.max(0, (npc.signatureRecovery ?? 0) - dt);
+        if (npc.signatureRecovery <= 0) {
+          npc.signatureId = undefined;
+          npc.signatureTargetRow = undefined;
+          npc.signatureMode = undefined;
+          npc.signatureCharges = undefined;
+          npc.signatureOriginRow = undefined;
+          npc.signatureOriginHp = undefined;
         }
-        showMessage(`NPC Skill · ${RIVAL_SKILL_LABELS[npcRivalSkill]}`, 1100);
-        npcSkillTimerRef.current = VS_NPC_SKILL_INTERVAL;
-        updateHud();
+      } else if ((npc.signatureWindup ?? 0) > 0 && activeNpcSignature) {
+        npc.signatureWindup = Math.max(0, (npc.signatureWindup ?? 0) - dt);
+        if (npc.signatureWindup <= 0) {
+          const signatureId = activeNpcSignature.id;
+          const targetRow = npc.signatureTargetRow ?? s.player.row;
+          const mode = npc.signatureMode ?? 0;
+          const charges = Math.max(1, npc.signatureCharges ?? 1);
+          const incomingCarriers = () => s.bullets.filter((bullet) =>
+            bullet.speed > 0 && bullet.colPos > -0.5 && bullet.colPos < npcCol && !bullet.hitNpc);
+          const consumeCarrier = (strongest = false): Bullet | undefined => {
+            const candidates = incomingCarriers();
+            const preferred = candidates.filter((bullet) => bullet.row === targetRow);
+            const pool = preferred.length > 0 ? preferred : candidates;
+            pool.sort((a, b) => strongest
+              ? (b.power ?? 1) - (a.power ?? 1)
+              : b.colPos - a.colPos);
+            const carrier = pool[0];
+            if (carrier) carrier.colPos = 99;
+            return carrier;
+          };
+          const launchPulse = (row: number, power: number, big = false, delayIndex = 0) => {
+            const pulse = launchNpcShot(row, power, big);
+            pulse.colPos += delayIndex * 0.34;
+            return pulse;
+          };
+
+          switch (signatureId) {
+            case 'chrono':
+              s.player.fireCooldown = Math.max(s.player.fireCooldown, 1.05);
+              launchPulse(targetRow, 2, true);
+              launchPulse((targetRow + 1) % 3, 1, false, 1);
+              break;
+            case 'singularity':
+              for (const bullet of incomingCarriers()) {
+                bullet.row = targetRow;
+                bullet.speed = Math.max(2.8, bullet.speed * 0.58);
+              }
+              launchPulse(targetRow, 2 + Math.min(1, charges - 1), true);
+              break;
+            case 'override': {
+              const carrier = consumeCarrier(true);
+              launchPulse(targetRow, Math.min(3, carrier?.power ?? charges), true);
+              break;
+            }
+            case 'architect':
+              npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+              launchPulse(targetRow, mode === 1 ? 2 : 1, mode === 1);
+              break;
+            case 'apex':
+              if (mode === 2) npc.hp = Math.min(NPC_HP, npc.hp + 3);
+              else if (mode === 1) {
+                consumeCarrier();
+                npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+              } else launchPulse(targetRow, 3, true);
+              break;
+            case 'counter': {
+              const carrier = consumeCarrier();
+              if (carrier) launchPulse(
+                targetRow,
+                Math.min(3, Math.max(1, Math.ceil((carrier.power ?? 1) * 0.75))),
+                carrier.big,
+              );
+              else launchPulse(targetRow, 1);
+              break;
+            }
+            case 'phase':
+              npc.row = Math.max(0, Math.min(2, mode));
+              launchPulse(targetRow, 3, true);
+              break;
+            case 'phoenix':
+              npc.hp = Math.min(NPC_HP, npc.hp + Math.min(3, Math.ceil(charges / 2)));
+              for (let row = 0; row < 3; row++) {
+                launchPulse(row, row === targetRow ? 2 : 1, row === targetRow, row);
+              }
+              break;
+            case 'rift':
+              launchPulse(targetRow, 2, true);
+              launchPulse(mode, 2, true, 1);
+              break;
+            case 'vector':
+              for (const bullet of incomingCarriers()) bullet.speed = Math.max(2.6, bullet.speed * 0.62);
+              for (const bullet of s.npcBullets) bullet.speed = Math.max(-8.4, bullet.speed * 1.25);
+              launchPulse(targetRow, 2, true);
+              break;
+            case 'gridshift':
+              for (const bullet of incomingCarriers()) bullet.row = (bullet.row + mode) % 3;
+              launchPulse(targetRow, 1);
+              break;
+            case 'resonance':
+              for (let beat = 0; beat < 3; beat++) launchPulse(targetRow, 1, beat === 2, beat);
+              break;
+            case 'exchange':
+              if (mode === 0 && npc.hp < s.hp) {
+                npc.hp = Math.min(NPC_HP, npc.hp + 1);
+                if (s.shieldCharges > 0) s.shieldCharges--;
+                else s.hp = Math.max(1, s.hp - 1);
+              } else if (mode === 1) {
+                consumeCarrier();
+                npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+              } else launchPulse(targetRow, 2, true);
+              break;
+            case 'causality':
+              if (mode === 0) {
+                npc.hp = Math.min(NPC_HP, Math.max(npc.hp, npc.signatureOriginHp ?? npc.hp));
+              } else if (mode === 1) npc.row = npc.signatureOriginRow ?? npc.row;
+              launchPulse(targetRow, mode === 2 ? 3 : 2, true);
+              break;
+            case 'arsenal':
+              if (mode === 1) {
+                npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+                launchPulse(targetRow, 1, true);
+              } else if (mode === 2) {
+                npc.row = targetRow;
+                launchPulse(targetRow, 2, true);
+              } else launchPulse(targetRow, 3, true);
+              break;
+            case 'assimilation': {
+              const carrier = consumeCarrier(true);
+              const copiedPower = Math.min(3, carrier?.power ?? charges);
+              if (carrier?.pierce) {
+                npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + 1);
+              }
+              launchPulse(targetRow, copiedPower, true);
+              break;
+            }
+            case 'null':
+              consumeCarrier();
+              for (const id of Object.keys(s.abilityCooldowns)) {
+                s.abilityCooldowns[id] = Math.min(12, s.abilityCooldowns[id] + 1.5);
+              }
+              s.player.fireCooldown = Math.max(s.player.fireCooldown, 0.65);
+              break;
+            case 'polarity': {
+              const carrier = consumeCarrier();
+              launchPulse(targetRow, Math.min(3, carrier?.power ?? 1), carrier?.big ?? false);
+              break;
+            }
+            case 'colossus': {
+              npc.shieldCharges = Math.min(
+                VS_NPC_MAX_SHIELDS,
+                npc.shieldCharges + (mode === 1 ? 2 : 1),
+              );
+              const siege = launchPulse(targetRow, 4, true);
+              siege.speed = -4.2;
+              break;
+            }
+            case 'predator':
+              npc.row = targetRow;
+              launchPulse(targetRow, 3, true);
+              break;
+            case 'orbital':
+              for (let row = 0; row < 3; row++) {
+                launchPulse(row, row === targetRow ? 4 : 1, row === targetRow, row);
+              }
+              break;
+            case 'hijack':
+              for (const bullet of incomingCarriers().slice(0, 3)) bullet.row = (bullet.row + 1) % 3;
+              launchPulse(targetRow, 1);
+              break;
+            case 'sovereign':
+              npc.shieldCharges = Math.min(
+                VS_NPC_MAX_SHIELDS,
+                npc.shieldCharges + Math.min(2, Math.ceil(charges / 2)),
+              );
+              launchPulse(targetRow, Math.min(5, 2 + Math.ceil(charges / 2)), true);
+              break;
+            default: {
+              const exhaustive: never = signatureId;
+              throw new Error(`Unhandled NPC signature: ${exhaustive}`);
+            }
+          }
+
+          showMessage(`NPC Skill · ${activeNpcSignature.label} · ${activeNpcSignature.castLabel}`, 1150);
+          npc.signatureRecovery = activeNpcSignature.recoverySeconds;
+          npcSkillTimerRef.current = npcSignatureCooldown(signatureId);
+          updateHud();
+        }
+      } else if (selectedNpcSignature && npcSkillTimerRef.current <= 0 && !npcCommitted) {
+        const decision = planNpcSignature(selectedNpcSignature, s, incomingByLane);
+        if (decision) {
+          const profile = NPC_SIGNATURE_PROFILES[selectedNpcSignature];
+          npc.signatureId = selectedNpcSignature;
+          npc.signatureWindup = profile.windupSeconds;
+          npc.signatureTargetRow = decision.targetRow;
+          npc.signatureMode = decision.mode;
+          npc.signatureCharges = decision.charges;
+          npc.signatureOriginRow = npc.row;
+          npc.signatureOriginHp = npc.hp;
+          npcCommitted = true;
+          showMessage(`NPC Skill preparing · ${profile.castLabel}`, 900);
+        } else {
+          // Reactive signatures retry soon instead of firing an unrelated
+          // generic effect when their defining condition is absent.
+          npcSkillTimerRef.current = 0.8;
+        }
       }
 
       // Move toward the most-advanced (rightmost) incoming green attack
@@ -7986,6 +8686,13 @@ export default function Game() {
             s.score += 100;
             if (npc.hp <= 0) { updateHud(); endGame(true); return; }
           }
+          if (bullet.effectSkin === LORD_ALPHA_SKIN_ID && bullet.presentationVariant === 'web') {
+            triggerLordAlphaImpact({
+              subtype: 'web-restraint',
+              origin: lordAlphaBoardAnchor(bullet.colPos, bullet.row),
+              target: lordAlphaBoardAnchor(npcCol, npc.row),
+            });
+          }
           const interruptedProfile = getEnemyAbilityProfile(npc.ability);
           if (npc.hp < hpBefore
             && interruptedProfile
@@ -7996,6 +8703,19 @@ export default function Game() {
             npc.abilityTargetRow = undefined;
             npcAbilityTimerRef.current = VS_NPC_ABILITY_INTERVAL;
             showMessage(`INTERRUPTED · ${interruptedProfile.presentation.castLabel}`, 700);
+          }
+          const interruptedSignature = getNpcSignatureProfile(npc.signatureId);
+          if (npc.hp < hpBefore
+            && interruptedSignature
+            && (npc.signatureWindup ?? 0) > 0
+            && interruptedSignature.interruptible) {
+            npc.signatureWindup = 0;
+            npc.signatureRecovery = interruptedSignature.recoverySeconds;
+            npc.signatureTargetRow = undefined;
+            npc.signatureMode = undefined;
+            npc.signatureCharges = undefined;
+            npcSkillTimerRef.current = Math.max(4, interruptedSignature.cooldownSeconds.min * 0.45);
+            showMessage(`INTERRUPTED · ${interruptedSignature.castLabel}`, 750);
           }
           playHit();
           updateHud();
@@ -8009,6 +8729,7 @@ export default function Game() {
             s.shieldCharges--;
           } else if (s.ghostTimer <= 0) {
             s.hp -= bullet.power ?? 1;
+            triggerLordAlphaMotion('hit');
             if (s.hp <= 0) { updateHud(); endGame(false); return; }
           }
           playHit();
@@ -8017,7 +8738,7 @@ export default function Game() {
       }
       s.npcBullets = s.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.colPos < 7);
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind]);
+  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, triggerLordAlphaMotion, triggerLordAlphaImpact, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -8215,6 +8936,7 @@ export default function Game() {
         || playerSkinRef.current === 'dots'
         || playerSkinRef.current === 'gem'
         || playerSkinRef.current === 'assembly'
+        || playerSkinRef.current === LORD_ALPHA_SKIN_ID
         || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId);
       const npcHasOverlay = stateRef.current.gameMode === 'vs' && npcSkinRef.current !== 'default';
       if (ctx) draw(
@@ -8236,7 +8958,10 @@ export default function Game() {
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
           const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId);
-          const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 0.85 : rivalSkin ? 1.08 : 0.72;
+          const szScale = playerSkinRef.current === 'dots' ? 1.0
+            : playerSkinRef.current === 'gem' ? 0.85
+              : playerSkinRef.current === LORD_ALPHA_SKIN_ID ? 1.12
+                : rivalSkin ? 1.08 : 0.72;
           const sz = Math.round(m.cell * szScale);
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
@@ -8437,10 +9162,37 @@ export default function Game() {
           const frame = npcFrameRef.current;
           if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
             npcCtx.imageSmoothingEnabled = false;
+            const signature = getNpcSignatureProfile(npc.signatureId);
+            const inWindup = signature && (npc.signatureWindup ?? 0) > 0;
+            const inRecovery = signature && (npc.signatureRecovery ?? 0) > 0;
+            const sequence = inWindup
+              ? npcSignatureSequenceRef.current
+              : inRecovery
+                ? npcSignatureCommandSequencesRef.current[(npc.signatureMode ?? 0) % 3]
+                : null;
+            const phaseProgress = inWindup && signature
+              ? 1 - Math.min(1, (npc.signatureWindup ?? 0) / signature.windupSeconds)
+              : inRecovery && signature
+                ? 1 - Math.min(1, (npc.signatureRecovery ?? 0) / signature.recoverySeconds)
+                : 0;
             npcCtx.save();
             npcCtx.translate(sz, 0);
             npcCtx.scale(-1, 1);
-            npcCtx.drawImage(frame, 0, 0, sz, sz);
+            if (sequence?.complete && sequence.naturalWidth > 0 && sequence.naturalHeight > 0) {
+              // Signature strips contain eight authored frames. Select one
+              // discrete frame so adjacent poses never blend into an
+              // unintended extra animation.
+              const sourceSize = sequence.naturalHeight;
+              const frameCount = Math.max(1, Math.floor(sequence.naturalWidth / sourceSize));
+              const frameIndex = Math.min(frameCount - 1, Math.floor(phaseProgress * frameCount));
+              npcCtx.drawImage(
+                sequence,
+                frameIndex * sourceSize, 0, sourceSize, sourceSize,
+                0, 0, sz, sz,
+              );
+            } else {
+              npcCtx.drawImage(frame, 0, 0, sz, sz);
+            }
             npcCtx.restore();
           }
         }
@@ -8542,14 +9294,17 @@ export default function Game() {
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const viewport = window.visualViewport;
+    const viewportWidth = Math.round(viewport?.width ?? window.innerWidth);
+    const viewportHeight = Math.round(viewport?.height ?? window.innerHeight);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.floor(window.innerWidth * dpr);
-    canvas.height = Math.floor(window.innerHeight * dpr);
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
+    canvas.width = Math.floor(viewportWidth * dpr);
+    canvas.height = Math.floor(viewportHeight * dpr);
+    canvas.style.width = viewportWidth + 'px';
+    canvas.style.height = viewportHeight + 'px';
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const m = getBoardMetrics(window.innerWidth, window.innerHeight);
+    const m = getBoardMetrics(viewportWidth, viewportHeight);
     setBoardBottom(m.y + m.boardH);
   }, []);
 
@@ -8592,6 +9347,42 @@ export default function Game() {
     menuSelectionRef.current = 0;
     setMenuSelection(0);
     setPhase('playing');
+    if (lordAlphaImpactTimerRef.current) {
+      clearTimeout(lordAlphaImpactTimerRef.current);
+      lordAlphaImpactTimerRef.current = null;
+    }
+    setLordAlphaImpactEvent(null);
+    if (lordAlphaSkillsPreview && playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      lordAlphaSkillModeOpenRef.current = true;
+      setLordAlphaSkillModeOpen(true);
+      lordAlphaSkillBankIndexRef.current = 0;
+      setLordAlphaSkillBankIndex(0);
+    }
+    lordAlphaComboRef.current = createLordAlphaComboState();
+    lordAlphaVolleyPresentationRef.current = null;
+    setLordAlphaComboBeat(null);
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && lordAlphaForm === 'supreme') {
+      triggerLordAlphaPresentation(
+        'equip',
+        'skill',
+        LORD_ALPHA_EVENT_TIMINGS_MS.equip,
+        {
+          subtype: 'equip-assembly',
+          origin: lordAlphaBoardAnchor(stateRef.current.player.col, stateRef.current.player.row),
+        },
+      );
+    } else {
+      if (lordAlphaPresentationTimerRef.current) {
+        clearTimeout(lordAlphaPresentationTimerRef.current);
+        lordAlphaPresentationTimerRef.current = null;
+      }
+      if (lordAlphaMotionTimerRef.current) {
+        clearTimeout(lordAlphaMotionTimerRef.current);
+        lordAlphaMotionTimerRef.current = null;
+      }
+      setLordAlphaEvent(null);
+      setLordAlphaMotion('idle');
+    }
     updateHud();
     if (mode === 'vs') {
       showMessage('DIRECT DUEL — move, fire, and reduce the opposing NPC to 0 HP!', 3000);
@@ -8599,7 +9390,7 @@ export default function Game() {
       showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
     }
     startMusic(() => stateRef.current.running);
-  }, [updateHud, showMessage]);
+  }, [updateHud, showMessage, lordAlphaForm, triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
 
   const togglePause = useCallback(() => {
     if (phaseRef.current !== 'playing') return;
@@ -8622,6 +9413,24 @@ export default function Game() {
 
   const restart = useCallback(() => {
     stopMusic();
+    if (lordAlphaPresentationTimerRef.current) {
+      clearTimeout(lordAlphaPresentationTimerRef.current);
+      lordAlphaPresentationTimerRef.current = null;
+    }
+    if (lordAlphaMotionTimerRef.current) {
+      clearTimeout(lordAlphaMotionTimerRef.current);
+      lordAlphaMotionTimerRef.current = null;
+    }
+    if (lordAlphaImpactTimerRef.current) {
+      clearTimeout(lordAlphaImpactTimerRef.current);
+      lordAlphaImpactTimerRef.current = null;
+    }
+    lordAlphaComboRef.current = createLordAlphaComboState();
+    lordAlphaVolleyPresentationRef.current = null;
+    setLordAlphaComboBeat(null);
+    setLordAlphaEvent(null);
+    setLordAlphaImpactEvent(null);
+    setLordAlphaMotion('idle');
     for (const direction of ['north', 'south'] as const) {
       const timer = cloneActionTimersRef.current[direction];
       if (timer) clearTimeout(timer);
@@ -8717,6 +9526,7 @@ export default function Game() {
   useEffect(() => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    window.visualViewport?.addEventListener('resize', resizeCanvas);
 
     // Safari can withhold a controller from getGamepads() until the first
     // button press. Remember the event index so polling acquires it immediately,
@@ -8795,7 +9605,25 @@ export default function Game() {
         return;
       }
       const k = keyboardRef.current;
-      if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
+      const lordAlphaSkillInputActive = lordAlphaSkillsPreview
+        && playerSkinRef.current === LORD_ALPHA_SKIN_ID
+        && lordAlphaSkillModeOpenRef.current;
+      if (lordAlphaSkillInputActive && ev.code === 'BracketLeft') {
+        ev.preventDefault();
+        cycleLordAlphaSkillBank(-1);
+      } else if (lordAlphaSkillInputActive && ev.code === 'BracketRight') {
+        ev.preventDefault();
+        cycleLordAlphaSkillBank(1);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'z' || ev.key === 'Z')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(0);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'x' || ev.key === 'X')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(1);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'c' || ev.key === 'C')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(2);
+      } else if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = true;
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
@@ -8856,6 +9684,7 @@ export default function Game() {
       cancelAnimationFrame(animRef.current);
       stopMusic();
       window.removeEventListener('resize', resizeCanvas);
+      window.visualViewport?.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('gamepadconnected', onGamepadConnected);
       window.removeEventListener('gamepaddisconnected', onGamepadDisconnected);
       document.removeEventListener('visibilitychange', onVisibilityChange);
@@ -8883,7 +9712,8 @@ export default function Game() {
       cleanups.forEach((c) => c());
     };
   }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
-    resolveCloneAction, resolveRivalSkillAction, startChronoRewind, stopChronoRewind, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
+    resolveCloneAction, resolveRivalSkillAction, startChronoRewind, stopChronoRewind, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard,
+    cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -9221,7 +10051,7 @@ export default function Game() {
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
       {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly'
-        || RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) && (
+        || playerSkin === LORD_ALPHA_SKIN_ID || RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) && (
         <div
           ref={spriteWrapRef}
           className={RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId) ? 'rivalPlayerSprite' : undefined}
@@ -9238,7 +10068,7 @@ export default function Game() {
             ref={spriteCanvasRef}
             style={{
               position: 'relative',
-              display: playerSkin === 'assembly' ? 'none' : 'block',
+              display: playerSkin === 'assembly' || playerSkin === LORD_ALPHA_SKIN_ID ? 'none' : 'block',
               imageRendering: 'pixelated',
             }}
           />
@@ -9251,7 +10081,117 @@ export default function Game() {
               attackPulse={assemblyAttackPulse}
             />
           )}
+          {playerSkin === LORD_ALPHA_SKIN_ID && (
+            <LordAlphaSprite
+              form={lordAlphaForm}
+              facing="right"
+              motion={lordAlphaMotion}
+              pulse={lordAlphaMotionPulse}
+              eventPulse={lordAlphaEventPulse}
+              event={lordAlphaEvent}
+              comboBeat={lordAlphaComboBeat}
+              equipSourceForm={lordAlphaForm === 'supreme' ? 'relaxed' : lordAlphaForm}
+              className="lordAlphaGameplay"
+            />
+          )}
         </div>
+      )}
+
+      {phase === 'playing' && playerSkin === LORD_ALPHA_SKIN_ID && lordAlphaEvent && (
+        <LordAlphaVfx
+          event={lordAlphaEvent}
+          pulse={lordAlphaEventPulse}
+          className="lordAlphaGlobalVfx"
+        />
+      )}
+
+      {phase === 'playing' && playerSkin === LORD_ALPHA_SKIN_ID && lordAlphaImpactEvent && (
+        <LordAlphaVfx
+          event={lordAlphaImpactEvent}
+          pulse={lordAlphaImpactPulse}
+          className="lordAlphaGlobalVfx lordAlphaImpactVfx"
+        />
+      )}
+
+      {phase === 'playing' && lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID && (
+        <section id="lordAlphaSkillPreview" data-open={lordAlphaSkillModeOpen || undefined}>
+          <header>
+            <span>
+              <strong>LORD ALPHA SKILLS</strong>
+              <small>live mapped mechanics</small>
+            </span>
+            <button
+              type="button"
+              className="lordAlphaSkillModeToggle"
+              aria-pressed={lordAlphaSkillModeOpen}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                toggleLordAlphaSkillMode();
+              }}
+            >
+              <kbd>V</kbd><small>L2</small>{lordAlphaSkillModeOpen ? 'CLOSE' : 'OPEN'}
+            </button>
+          </header>
+          {lordAlphaSkillModeOpen && (
+            <>
+              <nav className="lordAlphaSkillBankNav" aria-label="Lord Alpha skill bank">
+                <button
+                  type="button"
+                  aria-label="Previous Lord Alpha skill bank"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    cycleLordAlphaSkillBank(-1);
+                  }}
+                >
+                  <kbd>L1</kbd><small>[</small>
+                </button>
+                <strong>{LORD_ALPHA_SKILL_BANKS[lordAlphaSkillBankIndex].label}</strong>
+                <button
+                  type="button"
+                  aria-label="Next Lord Alpha skill bank"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    cycleLordAlphaSkillBank(1);
+                  }}
+                >
+                  <kbd>R1</kbd><small>]</small>
+                </button>
+              </nav>
+          <div className="lordAlphaSkillPreviewGrid">
+            {LORD_ALPHA_SKILL_BINDINGS.map((binding, slotIndex) => {
+              const action = resolveLordAlphaSkillAction(lordAlphaSkillBankIndex, slotIndex);
+              if (!action) return null;
+              const cooldown = action.mechanicId
+                ? Math.ceil(hud.abilityCooldowns[action.mechanicId] ?? 0)
+                : 0;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  data-preview-action={action.id}
+                  disabled={cooldown > 0}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    previewLordAlphaSkill(action);
+                  }}
+                >
+                  <span className="lordAlphaSkillBinding">
+                    <kbd>{binding.gamepad}</kbd>
+                    <small>{binding.keyboard}</small>
+                  </span>
+                  <span>{action.label}</span>
+                  {cooldown > 0 && <em>{cooldown}s</em>}
+                </button>
+              );
+            })}
+          </div>
+              <p>
+                <b>A / SPACE</b> Buster combo · <b>R2</b> active control<br />
+                Equip Latency · {LORD_ALPHA_EVENT_TIMINGS_MS.equip} ms · controls remain live
+              </p>
+            </>
+          )}
+        </section>
       )}
 
       {phase === 'playing' && hud.gameMode === 'vs' && npcSkin !== 'default' && (
@@ -9267,7 +10207,7 @@ export default function Game() {
           <canvas
             ref={npcSpriteCanvasRef}
             style={{
-              display: npcSkin === 'assembly' ? 'none' : 'block',
+              display: npcSkin === 'assembly' || npcSkin === LORD_ALPHA_SKIN_ID ? 'none' : 'block',
               imageRendering: 'pixelated',
             }}
           />
@@ -9277,6 +10217,15 @@ export default function Game() {
               equipped={equippedAvatarComponents}
               className="avatarAssemblyGameplay"
               animation="idle"
+            />
+          )}
+          {npcSkin === LORD_ALPHA_SKIN_ID && (
+            <LordAlphaSprite
+              form="supreme"
+              facing="left"
+              motion="idle"
+              pulse={0}
+              className="lordAlphaGameplay lordAlphaNpcGameplay"
             />
           )}
         </div>
@@ -9339,7 +10288,22 @@ export default function Game() {
                 ].filter(Boolean).join(' ')}
                 data-direction={direction}
               >
-                {!attacking && !autofiring && (
+                {playerSkin === LORD_ALPHA_SKIN_ID && (
+                  <LordAlphaSprite
+                    form={lordAlphaForm}
+                    facing="right"
+                    motion={attacking || autofiring
+                      ? 'attack'
+                      : defending ? 'skill'
+                        : status === 'dispersing' ? 'death' : 'idle'}
+                    pulse={lordAlphaMotionPulse + (attacking ? 1 : 0)}
+                    eventPulse={lordAlphaEventPulse}
+                    event={createLordAlphaPresentationEvent('clone', 0)}
+                    compact
+                    className="lordAlphaClone"
+                  />
+                )}
+                {playerSkin !== LORD_ALPHA_SKIN_ID && !attacking && !autofiring && (
                   <img
                     className="cloneBaseFrame"
                     src={`${import.meta.env.BASE_URL}effects/${
@@ -9350,7 +10314,7 @@ export default function Game() {
                     alt=""
                   />
                 )}
-                {(attacking || autofiring) && (
+                {playerSkin !== LORD_ALPHA_SKIN_ID && (attacking || autofiring) && (
                   <span className={`cloneAttackFrames${autofiring ? ' sustained' : ''}`} aria-hidden="true">
                     {[0, 1, 2].map((frame) => (
                       <img
@@ -9534,7 +10498,16 @@ export default function Game() {
       )}
 
       {/* Card UI + rotate button — column, positioned just below the grid */}
-      <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
+      <div
+        id="cardUiWrapper"
+        aria-hidden={lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID
+          && lordAlphaSkillModeOpen || undefined}
+        style={{
+          top: boardBottom > 0 ? boardBottom + 12 : undefined,
+          display: lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID
+            && lordAlphaSkillModeOpen ? 'none' : undefined,
+        }}
+      >
         <div id="cardUi">
           <div id="cardCharge">
             <div id="cardChargeLabel" ref={cardLabelRef}>
@@ -9638,7 +10611,9 @@ export default function Game() {
               queueSkillTap();
             }}
           >
-            SKILL
+            {lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID
+              ? lordAlphaSkillModeOpen ? 'SKILLS OPEN' : 'LORD ALPHA SKILLS'
+              : 'SKILL'}
             <small>V · L2</small>
           </button>
         )}
@@ -9657,6 +10632,9 @@ export default function Game() {
           onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); }}
         >
           BUSTER
+          {lordAlphaSkillsPreview && playerSkin === LORD_ALPHA_SKIN_ID && (
+            <small>SPACE · A</small>
+          )}
         </button>
       </div>
 
@@ -9758,7 +10736,17 @@ export default function Game() {
                       startGame('vs');
                     }}
                   >
-                    {skin.id === 'assembly'
+                    {skin.id === LORD_ALPHA_SKIN_ID
+                      ? <span className="lordAlphaSkinIcon">
+                          <LordAlphaSprite
+                            form="supreme"
+                            facing="left"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                      : skin.id === 'assembly'
                       ? <AvatarAssembly
                           components={avatarComponents}
                           equipped={equippedAvatarComponents}
@@ -9823,7 +10811,17 @@ export default function Game() {
                       localStorage.setItem(SKIN_KEY, skin.id);
                     }}
                   >
-                    {skin.id === 'assembly'
+                    {skin.id === LORD_ALPHA_SKIN_ID
+                      ? <span className="lordAlphaSkinIcon">
+                          <LordAlphaSprite
+                            form={lordAlphaForm}
+                            facing="right"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                      : skin.id === 'assembly'
                       ? <AvatarAssembly
                           components={avatarComponents}
                           equipped={equippedAvatarComponents}
@@ -9841,6 +10839,46 @@ export default function Game() {
                   </button>
                 ))}
               </div>
+
+              {playerSkin === LORD_ALPHA_SKIN_ID && (
+                <section className="lordAlphaFormPanel" aria-label="Lord Alpha presentation">
+                  <div id="customSubtitle">Presentation state</div>
+                  <div className="lordAlphaFormPicker">
+                    {LORD_ALPHA_FORM_IDS.map((form) => (
+                      <button
+                        key={form}
+                        type="button"
+                        className={`lordAlphaFormBtn ${lordAlphaForm === form ? 'selected' : ''}`}
+                        aria-pressed={lordAlphaForm === form}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setLordAlphaForm(form);
+                          localStorage.setItem(LORD_ALPHA_FORM_KEY, form);
+                        }}
+                      >
+                        <span className="lordAlphaFormPreview">
+                          <LordAlphaSprite
+                            form={form}
+                            facing="right"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                        <strong>{LORD_ALPHA_FORMS[form].label}</strong>
+                        <small>{form === 'relaxed'
+                          ? 'Relaxed hair · tactical base'
+                          : form === 'afro'
+                            ? 'Afro · tactical base'
+                            : 'Lord Alpha Supreme I · equipped'}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="lordAlphaFormNote">
+                    Advanced skin only · original hitbox, movement, damage, controls, and Shadow Clone timing retained.
+                  </p>
+                </section>
+              )}
 
               {RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId) && (
                 <SkillGuidePanel id={playerSkin as RivalSkillId} />

@@ -1,3 +1,5 @@
+import type { NpcSignatureId } from './npc-signature-registry';
+
 export type GameMode = 'classic' | 'vs';
 export type EnemyNiche =
   | 'scout' | 'bulwark' | 'hunter' | 'swarm'
@@ -38,6 +40,14 @@ export interface EnemyGenome {
   fusionAffinity?: EnemyElement;
 }
 
+/** Visual-only attack-language stages for Lord Alpha's existing projectile. */
+export type LordAlphaProjectileVariant =
+  | 'quick'
+  | 'web'
+  | 'power'
+  | 'roc'
+  | 'finisher';
+
 export interface Bullet {
   colPos: number;
   row: number;
@@ -52,6 +62,13 @@ export interface Bullet {
     | 'swarm' | 'suppression' | 'polarity' | 'orbital';
   /** Skin identity used only for additional projectile animation effects. */
   effectSkin?: string;
+  /**
+   * Visual presentation clock for Lord Alpha. This never participates in
+   * movement, damage, collision, cooldown, or persistence calculations.
+   */
+  presentationBirthMs?: number;
+  /** Visual-only Lord Alpha projectile grammar selected once per attack volley. */
+  presentationVariant?: LordAlphaProjectileVariant;
   /** Stable enemy visual seeds already resolved by this projectile. */
   hitEnemySeeds?: number[];
   /** Prevents a piercing projectile from resolving repeatedly on the VS rival. */
@@ -126,6 +143,17 @@ export interface NpcAgent {
   abilityWindup?: number;
   abilityRecovery?: number;
   abilityTargetRow?: number;
+  /** Authored skin signature currently telegraphing or recovering. */
+  signatureId?: NpcSignatureId;
+  signatureWindup?: number;
+  signatureRecovery?: number;
+  /** Lane sampled when the cast begins; it does not track the player. */
+  signatureTargetRow?: number;
+  /** Signature-specific tactical branch selected at cast time. */
+  signatureMode?: number;
+  signatureCharges?: number;
+  signatureOriginRow?: number;
+  signatureOriginHp?: number;
 }
 
 export interface AbilityCooldowns {

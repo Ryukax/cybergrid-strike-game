@@ -21,6 +21,7 @@ html, body, #root {
   margin: 0;
   width: 100%;
   height: 100%;
+  min-height: 100%;
   overflow: hidden;
   background: radial-gradient(circle at top, #163457 0%, var(--bg1) 55%, #02060d 100%);
   font-family: Arial, sans-serif;
@@ -35,9 +36,13 @@ body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100svh;
+  height: 100dvh;
+  min-height: 100svh;
   overflow: hidden;
   touch-action: none;
   user-select: none;
+  overscroll-behavior: none;
 }
 
 #game::after {
@@ -551,8 +556,16 @@ canvas#canvas {
   height: 80px;
   font-size: 12px;
   display: flex;
+  flex-direction: column;
+  gap: 2px;
   align-items: center;
   justify-content: center;
+}
+
+#busterBtn small {
+  color: rgba(255, 228, 230, 0.72);
+  font-size: 7px;
+  letter-spacing: 0.04em;
 }
 
 #busterBtn:active {
@@ -1400,6 +1413,285 @@ canvas#canvas {
 
 @media (prefers-reduced-motion: reduce) {
   .rivalPlayerSprite { animation: none; }
+}
+
+.lordAlphaGameplay {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100% !important;
+  height: 112% !important;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.5));
+}
+
+.lordAlphaNpcGameplay {
+  filter:
+    drop-shadow(0 0 3px rgba(253, 230, 138, 0.4))
+    drop-shadow(0 0 5px rgba(96, 165, 250, 0.36));
+}
+
+.lordAlphaClone {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100% !important;
+  height: 108% !important;
+  transform: translate(-50%, -50%);
+}
+
+.lordAlphaGlobalVfx {
+  z-index: 16 !important;
+  mix-blend-mode: screen;
+}
+
+#lordAlphaSkillPreview {
+  position: fixed;
+  z-index: 42;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  width: min(310px, calc(100vw - 16px));
+  padding: 7px;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  border-radius: 10px;
+  background: rgba(2, 10, 25, 0.94);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.2);
+  touch-action: manipulation;
+}
+
+#lordAlphaSkillPreview > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 3px 7px;
+  letter-spacing: 0.09em;
+}
+
+#lordAlphaSkillPreview > header > span {
+  display: grid;
+  gap: 2px;
+}
+
+#lordAlphaSkillPreview > header strong { font-size: 10px; }
+#lordAlphaSkillPreview > header > span small {
+  color: rgba(186, 230, 253, 0.64);
+  font-size: 8px;
+}
+
+.lordAlphaSkillModeToggle,
+.lordAlphaSkillBankNav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 26px;
+  padding: 3px 6px;
+  color: #dff8ff;
+  border: 1px solid rgba(125, 211, 252, 0.48);
+  border-radius: 6px;
+  background: rgba(9, 30, 58, 0.92);
+  font: 700 7px/1 Arial, sans-serif;
+  letter-spacing: 0.04em;
+}
+
+.lordAlphaSkillModeToggle kbd,
+.lordAlphaSkillBankNav kbd,
+.lordAlphaSkillBinding kbd {
+  color: #07111f;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 4px;
+  background: #dff8ff;
+  box-shadow: inset 0 -1px 0 rgba(2, 6, 23, 0.28);
+  font: 800 8px/1 Arial, sans-serif;
+}
+
+.lordAlphaSkillModeToggle kbd,
+.lordAlphaSkillBankNav kbd {
+  padding: 3px 4px;
+}
+
+.lordAlphaSkillModeToggle small,
+.lordAlphaSkillBankNav small {
+  color: #fde68a;
+  font-size: 7px;
+}
+
+.lordAlphaSkillBankNav {
+  display: grid;
+  grid-template-columns: 58px 1fr 58px;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.lordAlphaSkillBankNav > strong {
+  color: #fde68a;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-align: center;
+}
+
+.lordAlphaSkillPreviewGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.lordAlphaSkillPreviewGrid button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 43px;
+  padding: 5px 3px;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 7px;
+  background: linear-gradient(145deg, rgba(12, 41, 75, 0.96), rgba(30, 27, 75, 0.9));
+  font: 700 8px/1.15 Arial, sans-serif;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.lordAlphaSkillPreviewGrid button:disabled {
+  opacity: 0.54;
+}
+
+.lordAlphaSkillBinding {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
+.lordAlphaSkillBinding kbd {
+  min-width: 20px;
+  padding: 4px 3px;
+}
+
+.lordAlphaSkillBinding small {
+  color: #fde68a;
+  font-size: 7px;
+}
+
+.lordAlphaSkillPreviewGrid button > em {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  color: #fda4af;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.lordAlphaSkillPreviewGrid button:active {
+  border-color: #fde68a;
+  background: rgba(30, 64, 175, 0.96);
+}
+
+#lordAlphaSkillPreview > p {
+  margin: 6px 2px 0;
+  color: rgba(186, 230, 253, 0.62);
+  font-size: 8px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+@media (max-height: 500px) {
+  #lordAlphaSkillPreview { width: min(310px, calc(100vw - 16px)); }
+  .lordAlphaSkillPreviewGrid button { min-height: 29px; font-size: 7px; }
+}
+
+.lordAlphaSkinIcon {
+  position: relative;
+  display: block;
+  width: 62px;
+  height: 58px;
+  margin: 0 auto 2px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.lordAlphaFormPanel {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.56), rgba(30, 41, 59, 0.72));
+}
+
+.lordAlphaFormPicker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.lordAlphaFormBtn {
+  min-width: 0;
+  min-height: 116px;
+  padding: 7px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  overflow: hidden;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.72);
+  touch-action: manipulation;
+}
+
+.lordAlphaFormBtn.selected {
+  border-color: #fde68a;
+  box-shadow: 0 0 13px rgba(96, 165, 250, 0.28), inset 0 0 10px rgba(253, 230, 138, 0.1);
+}
+
+.lordAlphaFormBtn strong {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lordAlphaFormBtn small {
+  min-height: 20px;
+  color: rgba(219, 234, 254, 0.62);
+  font-size: 7px;
+  line-height: 1.3;
+}
+
+.lordAlphaFormPreview {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 72px;
+  margin: -7px auto -8px;
+  transform: scale(0.82);
+  transform-origin: 50% 76%;
+  pointer-events: none;
+}
+
+.lordAlphaFormNote {
+  margin: 8px 2px 0;
+  color: rgba(219, 234, 254, 0.56);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+@media (max-width: 520px) {
+  .lordAlphaFormPicker { gap: 5px; }
+  .lordAlphaFormBtn { min-height: 108px; padding-inline: 2px; }
+  .lordAlphaFormPreview { transform: scale(0.72); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lordAlphaGlobalVfx { mix-blend-mode: normal; }
 }
 
 #learnedLoadoutGrid {
