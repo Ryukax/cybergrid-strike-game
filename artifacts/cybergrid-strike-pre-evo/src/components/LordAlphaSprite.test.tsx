@@ -90,14 +90,14 @@ test('body-motion and major-event pulses remain independently addressable', () =
 
 test('semantic skill events select distinct generated frame sequences', () => {
   const cases = [
-    ['web', 'web-chain', 'web-shot', 520],
-    ['web', 'web-pull', 'grapple', 720],
-    ['move', 'roc-stun', 'roc-stun', 560],
-    ['wormhole', 'dimensional-net', 'dimensional-net', 840],
-    ['wormhole', 'wormhole-cast', 'wormhole-step', 720],
-    ['clone', 'clone-symmetry', 'shadow-clone', 880],
-    ['tharthareon', 'tharthareon-emerge', 'tharthareon', 920],
-    ['dragon', 'ultimate-landing', 'millennium-dragon', 960],
+    ['web', 'web-chain', 'web-shot', 840],
+    ['web', 'web-pull', 'grapple', 960],
+    ['move', 'roc-stun', 'roc-stun', 840],
+    ['wormhole', 'dimensional-net', 'dimensional-net', 1_120],
+    ['wormhole', 'wormhole-cast', 'wormhole-step', 960],
+    ['clone', 'clone-symmetry', 'shadow-clone', 1_120],
+    ['tharthareon', 'tharthareon-emerge', 'tharthareon', 1_240],
+    ['dragon', 'ultimate-landing', 'millennium-dragon', 1_280],
   ] as const;
 
   for (const [kind, subtype, assetId, durationMs] of cases) {

@@ -141,16 +141,28 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
     Object.fromEntries(Object.values(LORD_ALPHA_SKILL_SEQUENCE_ASSETS)
       .map(({ id, durationMs }) => [id, durationMs])),
     {
-      "web-shot": 520,
-      grapple: 720,
-      "roc-stun": 560,
-      "dimensional-net": 840,
-      "wormhole-step": 720,
-      "shadow-clone": 880,
-      tharthareon: 920,
-      "millennium-dragon": 960,
+      "web-shot": 840,
+      grapple: 960,
+      "roc-stun": 840,
+      "dimensional-net": 1_120,
+      "wormhole-step": 960,
+      "shadow-clone": 1_120,
+      tharthareon: 1_240,
+      "millennium-dragon": 1_280,
     },
   );
+
+  for (const action of LORD_ALPHA_SKILL_PREVIEW_ACTIONS) {
+    if (action.id === "equip") continue;
+    const sequence = resolveLordAlphaSkillSequence(createLordAlphaPresentationEvent(
+      action.presentation.kind,
+      0,
+      { subtype: action.presentation.subtype },
+    ));
+    ok(sequence);
+    ok(sequence.durationMs / sequence.frameCount >= 200);
+    ok(action.presentation.durationMs >= sequence.durationMs + 200);
+  }
 
   const cases = [
     ["web", "web-chain", "web-shot"],

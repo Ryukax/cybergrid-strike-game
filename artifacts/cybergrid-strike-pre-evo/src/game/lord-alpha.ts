@@ -128,7 +128,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 520,
+    durationMs: 840,
   },
   grapple: {
     id: "grapple",
@@ -136,7 +136,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 720,
+    durationMs: 960,
   },
   "roc-stun": {
     id: "roc-stun",
@@ -144,7 +144,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 560,
+    durationMs: 840,
   },
   "dimensional-net": {
     id: "dimensional-net",
@@ -152,7 +152,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 840,
+    durationMs: 1_120,
   },
   "wormhole-step": {
     id: "wormhole-step",
@@ -160,7 +160,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 720,
+    durationMs: 960,
   },
   "shadow-clone": {
     id: "shadow-clone",
@@ -168,7 +168,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 880,
+    durationMs: 1_120,
   },
   tharthareon: {
     id: "tharthareon",
@@ -176,7 +176,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 920,
+    durationMs: 1_240,
   },
   "millennium-dragon": {
     id: "millennium-dragon",
@@ -184,7 +184,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     frameCount: 4,
     frameWidth: 240,
     frameHeight: 160,
-    durationMs: 960,
+    durationMs: 1_280,
   },
 } as const satisfies Record<
   LordAlphaSkillSequenceId,
@@ -205,12 +205,16 @@ export const LORD_ALPHA_COMBO_TIMINGS_MS = {
   finisher: 300,
 } as const satisfies Record<LordAlphaComboBeat, number>;
 
-/** Canonical canvas/attachment animation durations for existing event kinds. */
+/**
+ * Canonical canvas/attachment animation durations for existing event kinds.
+ * Skill events deliberately outlive their four body frames so the authored
+ * recovery pose remains readable at gameplay scale without gating controls.
+ */
 export const LORD_ALPHA_EVENT_TIMINGS_MS = {
   move: 330,
-  web: 760,
-  wormhole: 920,
-  tharthareon: 1_380,
+  web: 1_040,
+  wormhole: 1_160,
+  tharthareon: 1_480,
   dragon: 1_520,
   equip: 820,
   clone: 2_430,
@@ -223,10 +227,10 @@ export const LORD_ALPHA_EVENT_TIMINGS_MS = {
  */
 export const LORD_ALPHA_VFX_TIMINGS_MS = {
   ...LORD_ALPHA_EVENT_TIMINGS_MS,
-  "web-impact": 440,
-  grapple: 720,
-  "roc-stun": 560,
-  "dimensional-net": 980,
+  "web-impact": 1_320,
+  grapple: 1_160,
+  "roc-stun": 1_040,
+  "dimensional-net": 1_320,
 } as const;
 
 export type LordAlphaVfxMode = keyof typeof LORD_ALPHA_VFX_TIMINGS_MS;
