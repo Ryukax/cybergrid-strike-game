@@ -1,3 +1,5 @@
+import type { VersusStatusRuntimePatch } from './versus-status-runtime';
+
 export type GameMode = 'classic' | 'vs';
 export type EnemyNiche =
   | 'scout' | 'bulwark' | 'hunter' | 'swarm'
@@ -38,6 +40,14 @@ export interface EnemyGenome {
   fusionAffinity?: EnemyElement;
 }
 
+/** Visual-only attack-language stages for Lord Alpha's existing projectile. */
+export type LordAlphaProjectileVariant =
+  | 'quick'
+  | 'web'
+  | 'power'
+  | 'roc'
+  | 'finisher';
+
 export interface Bullet {
   colPos: number;
   row: number;
@@ -52,6 +62,25 @@ export interface Bullet {
     | 'swarm' | 'suppression' | 'polarity' | 'orbital';
   /** Skin identity used only for additional projectile animation effects. */
   effectSkin?: string;
+  /**
+   * Visual presentation clock for Lord Alpha. This never participates in
+   * movement, damage, collision, cooldown, or persistence calculations.
+   */
+  presentationBirthMs?: number;
+  /** Visual-only Lord Alpha projectile grammar selected once per attack volley. */
+  presentationVariant?: LordAlphaProjectileVariant;
+  /** Route identity belongs only to the deliberately aimed primary carrier. */
+  routeDirection?: 'last' | 'next';
+  /** Stable enemy identities already resolved by this projectile. */
+  hitEnemySeeds?: number[];
+  /** A piercing player projectile may resolve against the versus boss once. */
+  hitNpc?: boolean;
+  /** A piercing NPC projectile may resolve against the player once. */
+  hitPlayer?: boolean;
+  /** NPC-side authored seeking keeps tracking the player's live lane. */
+  homing?: boolean;
+  /** NPC-only bounded recovery applied after this projectile deals HP damage. */
+  leechOnHit?: number;
 }
 
 export type EnemyAbility =
@@ -78,6 +107,10 @@ export interface Enemy {
   regenerationCharge?: number;
   stasisTriggered?: boolean;
   catalystMarked?: boolean;
+  /** Per-entity locomotion restraint used by specialist counter abilities. */
+  mobilityLockTimer?: number;
+  /** Suppresses phase, regeneration, fusion and constitution casting. */
+  traitSuppressionTimer?: number;
   ability?: EnemyAbility;
   /** Existing player ability translated into this enemy's constitution counterpart. */
   counterpartAbilityId?: string;
@@ -163,6 +196,16 @@ export interface GameState {
   upgradeSelectionOpen: boolean;
   upgradeOptions: string[];
   runUpgrades: Record<string, number>;
+  milestoneDefeatStreak: number;
+  milestoneVanguardDefeats: number;
+  milestoneBonusWaves: number;
+  /** Route-enabled campaigns derive world depth from secured route segments. */
+  milestoneTraversalDriven: boolean;
+  /** Monotonic world steps already converted into long-form traversal rewards. */
+  milestoneWorldSteps: number;
+  /** Fractional synthesis banks let every long-form rank contribute. */
+  milestonePierceProgress: number;
+  milestoneShieldProgress: number;
   shotsFired: number;
   enemyFormationId: number;
   lanePressure: [number, number, number];
@@ -228,6 +271,8 @@ export interface GameState {
   gameMode: GameMode;
   /** Seed advanced by the versioned competitive simulation for replay parity. */
   competitiveSeed: number;
+  /** Persistent, bounded competitive status windows shared by player abilities. */
+  versusStatusRuntime: VersusStatusRuntimePatch;
   npc: NpcAgent;
   npcBullets: Bullet[];
   npcEnemies: Enemy[];     // green enemies moving right, sent by player kills

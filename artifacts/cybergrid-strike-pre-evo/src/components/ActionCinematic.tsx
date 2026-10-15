@@ -1,8 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { drawCampaignSkinProjectile } from '../game/renderer';
 import { resolveCampaignBiome } from '../game/campaign-scenery';
-import { CAMPAIGN_PROVINCES, terrainHeightAt } from '../game/campaign-terrain';
-import { ENCOUNTERS_PER_OPERATION, OPERATIONS_PER_ACT, resolveCampaignProgress } from '../game/campaign-director';
+import {
+  CAMPAIGN_BOSSES_PER_STAGE,
+  CAMPAIGN_PROVINCES,
+  resolveCampaignBossStageIndex,
+  terrainHeightAt,
+} from '../game/campaign-terrain';
+import type {
+  CampaignRouteBossEncounter,
+  CampaignRouteDirection,
+  CampaignRouteLane,
+} from '../game/campaign-route-director';
 
 type Props = {
   work: number;
@@ -15,18 +24,46 @@ type Props = {
   helpers: number;
   scene: number;
   wave: number;
+  routeSegment: number;
+  completedBosses: number;
+  routeTraversal: {
+    fromSegment: number;
+    toSegment: number;
+    direction: CampaignRouteDirection;
+    lane: CampaignRouteLane;
+    revision: number;
+  } | null;
   playerSkin: string;
   npcSkin: string;
   getPlayerFrame: () => HTMLCanvasElement | null;
+  playerOverlay?: ReactNode;
   getNpcFrame: () => HTMLCanvasElement | null;
   getEnemyFrame: () => HTMLCanvasElement | null;
+  getRouteBossFrame: () => HTMLCanvasElement | null;
+  routeBoss: CampaignRouteBossEncounter | null;
   getCombat: () => { versus: boolean; playerCol: number; playerRow: number; npcCol: number; npcRow: number; playerHp: number; npcHp: number; shots: Array<{ x: number; row: number; enemy: boolean; skin?: string }> };
 };
 
 const COST = 2100;
+const ACTION_FIGHTER_COLUMN_STEP = 0.055;
+
+/**
+ * Maps a fighter's local 3-column grid position into the persistent world
+ * view. The center positions stay near the original composition, while the
+ * edge positions are far enough apart to make horizontal tactics readable.
+ */
+export function resolveActionFighterX(
+  side: 'player' | 'npc',
+  column: number,
+): number {
+  const boundedColumn = Math.max(0, Math.min(2, Math.round(column)));
+  const origin = side === 'player' ? 0.23 : 0.66;
+  return origin + boundedColumn * ACTION_FIGHTER_COLUMN_STEP;
+}
 
 export function ActionCinematic(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const playerOverlayRef = useRef<HTMLSpanElement>(null);
   const stateRef = useRef(props);
   stateRef.current = props;
 
@@ -41,12 +78,19 @@ export function ActionCinematic(props: Props) {
     let lastScene = stateRef.current.scene;
     let impactEnergy = 0;
     let observedWave = stateRef.current.wave;
+    let observedRouteRevision = stateRef.current.routeTraversal?.revision ?? 0;
+    let observedRouteSegment = stateRef.current.routeSegment;
+    let observedBossStage = resolveCampaignBossStageIndex(stateRef.current.completedBosses);
     let provinceEnteredAt = performance.now();
     let cameraTravel = 0;
     let waveTravelEnergy = 0;
+    let routeTravelEnergy = 0;
+    let routeTravelDirection: CampaignRouteDirection | null = null;
+    let routeTravelLane: CampaignRouteLane = 'middle';
     const playerCache = document.createElement('canvas');
     const npcCache = document.createElement('canvas');
     const enemyCache = document.createElement('canvas');
+    const routeBossCache = document.createElement('canvas');
     const provincePlates = CAMPAIGN_PROVINCES.map((province) => {
       const image = new Image();
       image.src = `${import.meta.env.BASE_URL}action-window/${province.image}`;
@@ -79,9 +123,11 @@ export function ActionCinematic(props: Props) {
     };
     const draw = (now: number) => {
       const p = stateRef.current;
+      const playerOverlay = playerOverlayRef.current;
       cacheValidFrame(p.getPlayerFrame(), playerCache);
       cacheValidFrame(p.getNpcFrame(), npcCache);
       cacheValidFrame(p.getEnemyFrame(), enemyCache);
+      cacheValidFrame(p.getRouteBossFrame?.() ?? null, routeBossCache);
       if (p.scene !== lastScene) {
         if (p.scene === 1 || p.scene === 2) {
           impactEnergy = 1;
@@ -89,16 +135,25 @@ export function ActionCinematic(props: Props) {
         lastScene = p.scene;
       }
       if (p.wave !== observedWave) {
-        const previousOperation = Math.floor((Math.max(1, observedWave) - 1) / ENCOUNTERS_PER_OPERATION);
-        const nextOperation = Math.floor((Math.max(1, p.wave) - 1) / ENCOUNTERS_PER_OPERATION);
-        if (previousOperation !== nextOperation) {
-          cameraTravel = 0;
-          provinceEnteredAt = performance.now();
-        }
         observedWave = p.wave;
         waveTravelEnergy = 1;
       }
+      const routeRevision = p.routeTraversal?.revision ?? 0;
+      if (routeRevision !== observedRouteRevision || p.routeSegment !== observedRouteSegment) {
+        observedRouteRevision = routeRevision;
+        observedRouteSegment = p.routeSegment;
+        routeTravelDirection = p.routeTraversal?.direction ?? null;
+        routeTravelLane = p.routeTraversal?.lane ?? 'middle';
+        routeTravelEnergy = 1;
+      }
+      const bossStage = resolveCampaignBossStageIndex(p.completedBosses);
+      if (bossStage !== observedBossStage) {
+        observedBossStage = bossStage;
+        cameraTravel = 0;
+        provinceEnteredAt = performance.now();
+      }
       waveTravelEnergy *= .992;
+      routeTravelEnergy *= .986;
       impactEnergy *= .982;
       shownWork += (p.work - shownWork) * .035;
       const rect = canvas.getBoundingClientRect();
@@ -119,21 +174,22 @@ export function ActionCinematic(props: Props) {
       const restoredDepth = restoredStage / 8;
       const frontierX = W * restoredDepth;
       const combat = p.getCombat();
-      const biome = resolveCampaignBiome(p.global, p.wave);
-      const campaign = resolveCampaignProgress(p.wave);
-      const operationAbsolute = campaign.actIndex * OPERATIONS_PER_ACT + campaign.operationIndex;
-      const provinceIndex = operationAbsolute % CAMPAIGN_PROVINCES.length;
+      const provinceIndex = bossStage;
+      const biome = resolveCampaignBiome(p.global, provinceIndex * CAMPAIGN_BOSSES_PER_STAGE + 1);
       const province = CAMPAIGN_PROVINCES[provinceIndex];
       const provincePlate = provincePlates[provinceIndex];
       if (provincePlate.complete && provincePlate.naturalWidth) {
         const elapsed = now - provinceEnteredAt;
         const introLinear = Math.max(0, Math.min(1, (elapsed - 900) / 3600));
         const intro = introLinear * introLinear * (3 - 2 * introLinear);
-        // Every operation owns an entire location and traverses it in ten
-        // readable beats. The next operation cuts to a fresh establishing shot
-        // instead of spending a whole act parked on one cropped screen.
-        const encounterBeat = Math.floor(campaign.encounterIndex / 2) / 10;
-        const operationTravel = encounterBeat + progress * .1;
+        // Every four defeated bosses own one authored province. Each victory
+        // advances the camera by a readable quarter-stage beat, independently
+        // of Last/Next navigation, which is intentionally reversible.
+        const campaignCapacity = CAMPAIGN_PROVINCES.length * CAMPAIGN_BOSSES_PER_STAGE;
+        const bossStageTravel = p.completedBosses >= campaignCapacity
+          ? 1
+          : (p.completedBosses % CAMPAIGN_BOSSES_PER_STAGE) / CAMPAIGN_BOSSES_PER_STAGE;
+        const operationTravel = bossStageTravel + progress * .08;
         const integritySetback = Math.min(.055, (100 - p.node) / 100 * .055);
         const impactRecoil = impactEnergy * .018;
         const provinceProgress = Math.max(0, Math.min(1,
@@ -189,21 +245,48 @@ export function ActionCinematic(props: Props) {
           // transparent padding in animation canvases no longer creates hover.
           ctx.drawImage(source, -fw / 2, -visibleBottom * scale, fw, fighterH); ctx.restore();
         };
-        const playerX = W * (.28 + combat.playerCol / 3 * .035);
-        const npcX = W * (.70 + combat.npcCol / 3 * .035);
+        const playerX = W * resolveActionFighterX('player', combat.playerCol);
+        const npcX = W * resolveActionFighterX('npc', combat.npcCol);
         const screenToWorldX = (screenX: number) => viewX + (screenX / W) * viewW;
         const groundToScreenY = (worldX: number) =>
           ((terrainHeightAt(province, worldX) - viewY) / viewH) * H;
         const playerGround = groundToScreenY(screenToWorldX(playerX));
         const npcGround = groundToScreenY(screenToWorldX(npcX));
         const actorReveal = Math.max(0, Math.min(1, (intro - .58) / .32));
-        ctx.globalAlpha = actorReveal * (1 - waveTravelEnergy * .38);
-        drawFighter(playerCache, playerX, playerGround, false);
-        const opponentFrame = combat.versus ? npcCache : enemyCache;
-        // Both opponent sources already retain their live-battle orientation:
-        // procedural enemies face left, and the Versus NPC canvas is mirrored
-        // before it is cached here. A second flip would make the NPC face away.
-        drawFighter(opponentFrame, npcX, npcGround, false);
+        const actorOpacity = actorReveal * (1 - waveTravelEnergy * .38);
+        ctx.globalAlpha = actorOpacity;
+        if (p.playerOverlay && playerOverlay) {
+          playerOverlay.style.display = 'block';
+          playerOverlay.style.left = `${playerX}px`;
+          playerOverlay.style.top = `${playerGround}px`;
+          playerOverlay.style.width = `${fighterH}px`;
+          playerOverlay.style.height = `${fighterH}px`;
+          playerOverlay.style.opacity = `${actorOpacity}`;
+        } else {
+          if (playerOverlay) playerOverlay.style.display = 'none';
+          drawFighter(playerCache, playerX, playerGround, false);
+        }
+        const opponentFrame = p.routeBoss ? routeBossCache : combat.versus ? npcCache : enemyCache;
+        // Live opponent sources retain their battle orientation. Route bosses
+        // come from player-authored idle art, so mirror that dedicated frame to
+        // make the encountered NPC face back toward the player.
+        drawFighter(opponentFrame, npcX, npcGround, Boolean(p.routeBoss));
+        if (p.routeBoss) {
+          const label = `BOSS CONTACT · ${p.routeBoss.destination.label} · ${p.routeBoss.destination.bearing}`;
+          ctx.save();
+          ctx.globalAlpha = actorReveal;
+          ctx.font = '800 8px system-ui';
+          ctx.textAlign = 'center';
+          const labelWidth = Math.min(W - 20, ctx.measureText(label).width + 18);
+          ctx.fillStyle = 'rgba(3, 12, 28, .86)';
+          ctx.strokeStyle = 'rgba(255, 222, 105, .88)';
+          ctx.lineWidth = 1;
+          ctx.fillRect(W / 2 - labelWidth / 2, 6, labelWidth, 15);
+          ctx.strokeRect(W / 2 - labelWidth / 2, 6, labelWidth, 15);
+          ctx.fillStyle = '#fff0a5';
+          ctx.fillText(label, W / 2, 17);
+          ctx.restore();
+        }
         // Tactical projectiles become spatial action within the persistent shot.
         for (const shot of combat.shots) {
           const sx = shot.enemy ? W * (.5 + shot.x / 6 * .34) : W * (.18 + shot.x / 6 * .34);
@@ -235,13 +318,39 @@ export function ActionCinematic(props: Props) {
           burst.addColorStop(0,lastScene===1?`rgba(117,255,230,${impactEnergy*.8})`:`rgba(255,64,147,${impactEnergy*.82})`);burst.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=burst;ctx.fillRect(0,0,W,H);
         }
         ctx.globalAlpha = 1;
+      } else if (playerOverlay) {
+        playerOverlay.style.display = 'none';
       }
       // First draw the entire campaign as unresolved/corrupted territory, then reveal
       // the fully restored version behind the metric-driven frontier. This makes
       // progression a material world-state change rather than an imperceptible pan.
       if (waveTravelEnergy > .04) {
         ctx.globalAlpha=Math.min(1,waveTravelEnergy*1.8);ctx.fillStyle='rgba(240,255,252,.96)';ctx.font='700 9px system-ui';ctx.textAlign='center';
-        ctx.fillText(`WAVE ${p.wave} · ${biome.label}`,W*.5,H*.22);ctx.globalAlpha=1;
+        ctx.fillText(`WAVE ${p.wave} · ${province.label}`,W*.5,H*.22);ctx.globalAlpha=1;
+      }
+      if (routeTravelEnergy > .03 && routeTravelDirection) {
+        const direction = routeTravelDirection === 'next' ? 1 : -1;
+        const sweepX = direction > 0 ? W * (1 - routeTravelEnergy) : W * routeTravelEnergy;
+        const routeSweep = ctx.createLinearGradient(sweepX - W * .28, 0, sweepX + W * .28, 0);
+        routeSweep.addColorStop(0, 'rgba(37,219,255,0)');
+        routeSweep.addColorStop(.5, `rgba(128,255,226,${routeTravelEnergy * .26})`);
+        routeSweep.addColorStop(1, 'rgba(37,219,255,0)');
+        ctx.fillStyle = routeSweep;
+        ctx.fillRect(0, 0, W, H);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, routeTravelEnergy * 1.7);
+        ctx.fillStyle = 'rgba(2,10,24,.82)';
+        ctx.strokeStyle = 'rgba(128,255,226,.9)';
+        ctx.lineWidth = 1;
+        const routeLabel = `${routeTravelDirection === 'last' ? '\u25c0 LAST' : 'NEXT \u25b6'} · ${routeTravelLane.toUpperCase()} · PATH ${p.routeSegment}`;
+        ctx.font = '800 9px system-ui';
+        ctx.textAlign = 'center';
+        const routeLabelWidth = Math.min(W - 18, ctx.measureText(routeLabel).width + 20);
+        ctx.fillRect(W / 2 - routeLabelWidth / 2, H - 24, routeLabelWidth, 17);
+        ctx.strokeRect(W / 2 - routeLabelWidth / 2, H - 24, routeLabelWidth, 17);
+        ctx.fillStyle = '#c8fff0';
+        ctx.fillText(routeLabel, W / 2, H - 12);
+        ctx.restore();
       }
       // Damage changes the atmosphere without drawing unexplained marks over actors.
       if(damage>1){ctx.fillStyle=`rgba(255,55,101,${.025*damage})`;ctx.fillRect(0,0,W,H);}
@@ -251,5 +360,16 @@ export function ActionCinematic(props: Props) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return <canvas ref={canvasRef} className="actionCinematicCanvas" aria-label="Living System Integrity cinematic" />;
+  return (
+    <>
+      <canvas ref={canvasRef} className="actionCinematicCanvas"
+        data-route-segment={props.routeSegment}
+        aria-label={`Living System Integrity cinematic, route segment ${props.routeSegment}`} />
+      {props.playerOverlay && (
+        <span ref={playerOverlayRef} className="actionCinematicPlayerOverlay" aria-hidden="true">
+          {props.playerOverlay}
+        </span>
+      )}
+    </>
+  );
 }

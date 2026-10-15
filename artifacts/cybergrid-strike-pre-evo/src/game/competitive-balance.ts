@@ -6,15 +6,30 @@ import type { Ability } from './types';
  * verifier, or server can execute the same match contract.
  */
 export const COMPETITIVE_RULESET = Object.freeze({
-  id: 'cgs-versus-1.1.0',
+  id: 'cgs-versus-1.2.0',
   maxHp: 100,
   maxShields: 2,
   playerAutoFireInterval: 0.34,
   playerManualFireInterval: 0.25,
   npcFireInterval: 0.48,
   npcMoveInterval: 0.72,
+  /** Earliest contact window a boss can still answer without teleport-dodging. */
+  npcDodgeReactionMin: 0.1,
+  /** Bosses wait until a projectile is readable instead of reacting at spawn. */
+  npcDodgeReactionMax: 0.24,
+  /** Future lane pressure considered before committing to an adjacent dodge. */
+  npcDodgeLookahead: 0.62,
+  /** One dodge costs enough time for the following autofire shot to punish it. */
+  npcDodgeRecovery: 0.62,
+  /** A dodge briefly commits the body and muzzle to the selected lane. */
+  npcDodgeFireRecovery: 0.18,
   npcAbilityInterval: 12,
+  /** NPC Overdrive converts verified damage into bounded card-tempo recovery. */
+  npcOverdriveCardRecoveryPerDamage: 0.15,
   npcSkillInterval: 20,
+  /** Campaign bosses reveal their authored plan before ordinary duel pacing takes over. */
+  bossOpeningAbilityDelay: 2.5,
+  bossOpeningSignatureDelay: 6,
   signatureSkillCooldown: 14,
   signatureWindow: 7,
   signatureActionInterval: 0.55,

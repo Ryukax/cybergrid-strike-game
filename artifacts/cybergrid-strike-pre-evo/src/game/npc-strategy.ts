@@ -1,3 +1,6 @@
+import { ABILITY_LOOKUP } from './constants';
+import type { VersusAbilityId } from './versus-ability-resolver';
+
 export type NpcDoctrine =
   | 'assault'
   | 'control'
@@ -45,8 +48,12 @@ export interface VersusAbilityPlan {
   doctrine: NpcDoctrine;
   targetRow: number;
   shotPattern: ShotPattern;
+  /** Number of staggered projectiles emitted per selected row. */
+  salvo: number;
   power: number;
   big: boolean;
+  /** Recovery awarded only after one of this plan's projectiles lands. */
+  leechOnHit: number;
   recovery: number;
   shields: number;
   fireDisruption: number;
@@ -54,6 +61,20 @@ export interface VersusAbilityPlan {
   cardPressure: number;
   moveToRow?: number;
   reason: string;
+}
+
+export type BossMovementStyle = 'anchor' | 'cycle' | 'evade' | 'flank' | 'pursue';
+
+/**
+ * A boss's authored combat identity. The tuple order is intentional:
+ * opening tool, pressure tool, desperation/payoff tool.
+ */
+export interface BossStrategyProfile {
+  readonly skillId: string;
+  readonly doctrine: NpcDoctrine;
+  readonly abilities: readonly [VersusAbilityId, VersusAbilityId, VersusAbilityId];
+  readonly movement: BossMovementStyle;
+  readonly strategy: string;
 }
 
 export interface VersusSignaturePlan extends VersusAbilityPlan {
@@ -172,27 +193,65 @@ const SIGNATURE_COMMANDS: Record<string, readonly [SignatureCommandSpec, Signatu
   tidal: [charged(attack('target', 2, true), 1), control(0.45, 0.55), payoff(guard(1), 2)],
 };
 
-const DOCTRINE_BY_SKILL: Record<string, NpcDoctrine> = {
-  override: 'assault', apex: 'assault', phase: 'assault', phoenix: 'assault',
-  arsenal: 'assault', assimilation: 'assault', predator: 'assault', orbital: 'assault',
-  tempest: 'assault', swarm: 'assault',
-  chrono: 'control', singularity: 'control', vector: 'control', gridshift: 'control',
-  resonance: 'control', exchange: 'control', causality: 'control', null: 'control',
-  polarity: 'control', hijack: 'control', echo: 'control',
-  counter: 'guardian', architect: 'guardian', colossus: 'guardian', sovereign: 'guardian',
-  cryo: 'guardian', terra: 'guardian',
-  rift: 'skirmish', mirage: 'skirmish', tidal: 'skirmish',
-  beacon: 'support', bloom: 'support',
+const bossProfile = (
+  skillId: string,
+  doctrine: NpcDoctrine,
+  abilities: readonly [VersusAbilityId, VersusAbilityId, VersusAbilityId],
+  movement: BossMovementStyle,
+  strategy: string,
+): BossStrategyProfile => ({ skillId, doctrine, abilities, movement, strategy });
+
+/**
+ * The campaign's complete advanced-skin boss roster. Abilities are all drawn
+ * from the canonical player ability registry, but their VS effects are bounded
+ * by the duel resolver below. No two bosses share the same loadout.
+ */
+export const BOSS_STRATEGY_PROFILES: Readonly<Record<string, BossStrategyProfile>> = {
+  hijack: bossProfile('hijack', 'control', ['scramble', 'cardflood', 'trafficjam'], 'cycle', 'commandeer the player hand, then congest its escape'),
+  chrono: bossProfile('chrono', 'control', ['time', 'freeze', 'warpback'], 'evade', 'bank time, arrest momentum, then rewind position'),
+  singularity: bossProfile('singularity', 'control', ['gravity', 'magnet', 'anchorfield'], 'anchor', 'collapse movement toward one stable gravity well'),
+  override: bossProfile('override', 'assault', ['traittheft', 'elementswap', 'emp'], 'pursue', 'read the opponent, rewrite the exchange, then disable its channel'),
+  architect: bossProfile('architect', 'guardian', ['turret', 'tanglewire', 'shield'], 'anchor', 'construct covering fire, wire the escape, then defend it'),
+  apex: bossProfile('apex', 'assault', ['forcedmolt', 'shattershot', 'purge'], 'pursue', 'force exposure, break defenses, then purge the weakened form'),
+  counter: bossProfile('counter', 'guardian', ['returnfire', 'mirror', 'shield'], 'anchor', 'invite commitment and answer it symmetrically'),
+  tidal: bossProfile('tidal', 'skirmish', ['undertow', 'depthcharge', 'tailclamp'], 'cycle', 'pull alignment apart, punish depth, then clamp the lane'),
+  mirage: bossProfile('mirage', 'skirmish', ['ghost', 'backdash', 'oilslick'], 'evade', 'vanish from pressure, create distance, then foul pursuit'),
+  phoenix: bossProfile('phoenix', 'assault', ['regen', 'overload', 'overdrive'], 'pursue', 'recover through attrition before risking accelerated output'),
+  rift: bossProfile('rift', 'skirmish', ['voidaperture', 'rearguard', 'warpback'], 'flank', 'open distance on both sides and fold the lane backward'),
+  vector: bossProfile('vector', 'control', ['pierce', 'ricochet', 'stasisgate'], 'flank', 'arm penetration, establish angles, then seal the chosen lane'),
+  gridshift: bossProfile('gridshift', 'control', ['rowshuffle', 'kineticram', 'trafficjam'], 'cycle', 'reindex lanes and punish the route that becomes crowded'),
+  resonance: bossProfile('resonance', 'control', ['pulse', 'sonicnet', 'splitter'], 'cycle', 'build synchronized pressure into a multi-lane release'),
+  exchange: bossProfile('exchange', 'control', ['traittheft', 'separate', 'drain'], 'flank', 'steal a property, split its fusion, then reclaim damage as health'),
+  causality: bossProfile('causality', 'control', ['time', 'devolve', 'returnfire'], 'anchor', 'delay the cause, regress it, then return its consequence'),
+  tempest: bossProfile('tempest', 'assault', ['voltage', 'flak', 'chain'], 'pursue', 'charge the grid, deny flight, and propagate a decisive arc'),
+  arsenal: bossProfile('arsenal', 'assault', ['barrage', 'shotgun', 'overclock'], 'anchor', 'open with ordnance, spread pressure, then accelerate output'),
+  assimilation: bossProfile('assimilation', 'assault', ['acidetch', 'hybridtax', 'adaptive'], 'pursue', 'etch protection, tax hybrid traits, then adapt to the survivor'),
+  null: bossProfile('null', 'control', ['signaljam', 'mutationlock', 'quarantine'], 'anchor', 'strip options until the opponent has no safe evolution'),
+  polarity: bossProfile('polarity', 'control', ['magnet', 'circuitarc', 'kineticram'], 'flank', 'reverse spacing, bridge the charge, then drive the lane'),
+  colossus: bossProfile('colossus', 'guardian', ['bomb', 'nuke', 'megabomb'], 'anchor', 'escalate ordnance until the formation cannot remain intact'),
+  predator: bossProfile('predator', 'assault', ['seeker', 'marksman', 'snipe'], 'pursue', 'acquire the weakest line, mark it, then commit the shot'),
+  orbital: bossProfile('orbital', 'assault', ['cluster', 'surge', 'stasisgate'], 'anchor', 'designate a cluster, saturate the grid, then deny transit'),
+  phase: bossProfile('phase', 'assault', ['ghost', 'seeker', 'crit'], 'flank', 'pass through commitment and strike the exposed lane'),
+  sovereign: bossProfile('sovereign', 'guardian', ['berserk', 'catalyst', 'armor'], 'pursue', 'assert tempo, risk a catalyst, and fortify the advantage'),
+  cryo: bossProfile('cryo', 'guardian', ['freeze', 'blizzard', 'thermalshock'], 'anchor', 'slow motion into brittleness and finish with thermal fracture'),
+  terra: bossProfile('terra', 'guardian', ['shield', 'groundwire', 'kineticram'], 'anchor', 'hold ground, electrify approach, then answer with mass'),
+  echo: bossProfile('echo', 'control', ['echo', 'double', 'rearguard'], 'flank', 'record an attack, double its release, and replay it from behind'),
+  beacon: bossProfile('beacon', 'support', ['turret', 'interceptor', 'radiantmark'], 'anchor', 'establish a sentry, intercept pressure, and mark the target'),
+  swarm: bossProfile('swarm', 'assault', ['multishot', 'clonebreak', 'arcweb'], 'cycle', 'multiply local fire, break decoys, and conduct the formation'),
+  bloom: bossProfile('bloom', 'support', ['heal', 'rootsnare', 'bloombind'], 'evade', 'restore vitality, root pursuit, and bind escape'),
 };
 
-const ABILITY_LOADOUTS: Record<NpcDoctrine, readonly [string, string, string]> = {
-  assault: ['shotgun', 'overclock', 'seeker'],
-  control: ['scramble', 'freeze', 'signaljam'],
-  guardian: ['shield', 'heal', 'armor'],
-  skirmish: ['backdash', 'rowshuffle', 'interceptor'],
-  support: ['heal', 'shield', 'pulse'],
-  adaptive: ['adaptive', 'seeker', 'scramble'],
-};
+const ADAPTIVE_BOSS_PROFILE = bossProfile(
+  'adaptive',
+  'adaptive',
+  ['adaptive', 'seeker', 'scramble'],
+  'cycle',
+  'read the board and answer its strongest signal',
+);
+
+export function bossStrategyProfile(skillId?: string): BossStrategyProfile {
+  return (skillId && BOSS_STRATEGY_PROFILES[skillId]) || ADAPTIVE_BOSS_PROFILE;
+}
 
 function clampLane(row: number): number {
   return Math.max(0, Math.min(2, Math.round(row)));
@@ -214,7 +273,7 @@ function safestLane(incoming: readonly [number, number, number], step = 0): numb
 }
 
 export function doctrineForSkill(skillId?: string): NpcDoctrine {
-  return (skillId && DOCTRINE_BY_SKILL[skillId]) || 'adaptive';
+  return bossStrategyProfile(skillId).doctrine;
 }
 
 function scoreIntent(
@@ -274,104 +333,624 @@ function rowsForPattern(pattern: ShotPattern, targetRow: number): number[] {
   return [];
 }
 
-export function chooseVersusNpcAbility(context: VersusNpcContext): VersusAbilityPlan {
-  const doctrine = doctrineForSkill(context.skillId);
-  const currentThreat = context.incomingByRow[clampLane(context.npcRow)] ?? 0;
-  const totalThreat = context.incomingByRow.reduce((sum, value) => sum + value, 0);
-  const hpRatio = context.npcHp / Math.max(1, context.maxHp);
-  const behind = context.npcHp + context.maxHp * 0.08 < context.playerHp;
-  const loadout = ABILITY_LOADOUTS[doctrine];
-  let abilityId = loadout[0];
+type BossBattlePhase = 'opening' | 'pressure' | 'desperation';
 
-  if ((hpRatio < 0.45 || behind) && loadout.includes('heal')) abilityId = 'heal';
-  else if (currentThreat >= 1 && context.npcShields < context.maxShields
-    && (loadout.includes('shield') || loadout.includes('armor'))) {
-    abilityId = loadout.includes('armor') && totalThreat >= 3 ? 'armor' : 'shield';
-  } else if (doctrine === 'guardian') {
-    abilityId = 'interceptor';
-  } else if (doctrine === 'control') {
-    abilityId = context.cardProgress > 0.65 ? 'signaljam'
-      : context.playerFireCooldown < 0.35 ? 'freeze' : 'scramble';
-  } else if (doctrine === 'skirmish') {
-    abilityId = currentThreat > 0 ? 'backdash'
-      : context.npcRow !== context.playerRow ? 'interceptor' : 'rowshuffle';
-  } else if (doctrine === 'adaptive') {
-    abilityId = totalThreat >= 2 ? 'scramble'
-      : context.npcRow === context.playerRow ? 'seeker' : 'adaptive';
-  } else if (doctrine === 'assault') {
-    abilityId = context.playerHp <= context.maxHp * 0.3 ? 'seeker'
-      : totalThreat === 0 ? 'overclock' : 'shotgun';
-  } else if (doctrine === 'support') {
-    abilityId = context.npcShields < context.maxShields ? 'shield' : 'pulse';
-  }
+function bossBattlePhase(context: VersusNpcContext): BossBattlePhase {
+  const ratio = context.npcHp / Math.max(1, context.maxHp);
+  return ratio > 0.66 ? 'opening' : ratio > 0.33 ? 'pressure' : 'desperation';
+}
 
-  const targetRow = clampLane(context.playerRow);
-  const plan: VersusAbilityPlan = {
-    abilityId,
-    doctrine,
-    targetRow,
-    shotPattern: 'none',
-    power: 1,
-    big: false,
+const REACTIVE_ABILITY_IDS = new Set(['interceptor', 'returnfire']);
+
+function ordinaryPressurePlan(
+  context: VersusNpcContext,
+  rejectedAbilityId?: string,
+): VersusAbilityPlan {
+  return {
+    abilityId: 'shotgun',
+    doctrine: bossStrategyProfile(context.skillId).doctrine,
+    targetRow: clampLane(context.playerRow),
+    shotPattern: 'adjacent',
+    salvo: 1,
+    power: 2,
+    big: true,
+    leechOnHit: 0,
     recovery: 0,
     shields: 0,
     fireDisruption: 0,
     moveDisruption: 0,
     cardPressure: 0,
-    reason: 'tempo',
+    reason: rejectedAbilityId
+      ? `ordinary pressure; rejected unknown ability ${rejectedAbilityId}`
+      : 'ordinary pressure while no authored ability is practical',
   };
-  if (doctrine === 'skirmish' && currentThreat > 0) {
-    plan.moveToRow = safestLane(context.incomingByRow, context.step);
-  }
+}
 
-  if (abilityId === 'heal') {
-    plan.recovery = 4;
-    plan.reason = 'recovering a health deficit';
-  } else if (abilityId === 'shield' || abilityId === 'armor') {
-    plan.shields = abilityId === 'armor' ? 2 : 1;
-    plan.reason = 'answering incoming lane pressure';
-  } else if (abilityId === 'freeze' || abilityId === 'signaljam') {
-    plan.fireDisruption = abilityId === 'freeze' ? 0.95 : 0.72;
-    plan.moveDisruption = abilityId === 'freeze' ? 0.55 : 0.35;
-    plan.cardPressure = abilityId === 'signaljam' ? 0.9 : 0.35;
-    plan.reason = 'denying the player action window';
-  } else if (abilityId === 'scramble' || abilityId === 'rowshuffle' || abilityId === 'backdash') {
-    plan.moveDisruption = 0.42;
-    plan.fireDisruption = 0.45;
-    plan.reason = 'breaking lane alignment';
-  } else if (abilityId === 'overclock') {
-    plan.shotPattern = 'adjacent';
-    plan.power = 1;
-    plan.big = false;
-    plan.reason = 'converting a safe lane into pressure';
-  } else if (abilityId === 'shotgun') {
-    plan.shotPattern = 'adjacent';
-    plan.power = 2;
-    plan.big = true;
-    plan.reason = 'pressuring a pair of adjacent lanes';
-  } else if (abilityId === 'pulse') {
-    plan.fireDisruption = 0.45;
-    plan.moveDisruption = 0.25;
-    plan.reason = 'interrupting the player while resources are stable';
-  } else {
-    plan.shotPattern = abilityId === 'adaptive' ? 'adjacent' : 'target';
-    plan.power = abilityId === 'seeker' || abilityId === 'interceptor' ? 2 : 1;
-    plan.big = true;
-    plan.reason = 'exploiting an exposed lane';
+/**
+ * Converts a canonical ability card into a bounded VS action. This deliberately
+ * preserves the card's combat vocabulary without invoking campaign-only enemy
+ * collections or changing the player's version of the card.
+ */
+export function resolveVersusNpcAbility(
+  abilityId: string,
+  context: VersusNpcContext,
+): VersusAbilityPlan {
+  // Unknown IDs must not masquerade as a working signature. Select a real,
+  // canonical pressure action so the executed effect and announced card agree.
+  if (!ABILITY_LOOKUP[abilityId]) return ordinaryPressurePlan(context, abilityId);
+
+  const profile = bossStrategyProfile(context.skillId);
+  const plan: VersusAbilityPlan = {
+    abilityId,
+    doctrine: profile.doctrine,
+    targetRow: clampLane(context.playerRow),
+    shotPattern: 'none',
+    salvo: 1,
+    power: 1,
+    big: false,
+    leechOnHit: 0,
+    recovery: 0,
+    shields: 0,
+    fireDisruption: 0,
+    moveDisruption: 0,
+    cardPressure: 0,
+    reason: 'maintaining tactical tempo',
+  };
+  const safeRow = safestLane(context.incomingByRow, context.step);
+
+  switch (abilityId) {
+    case 'shotgun':
+      plan.shotPattern = 'adjacent';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'applying ordinary adjacent-lane pressure';
+      break;
+    case 'heal':
+      plan.recovery = 2;
+      plan.reason = 'restoring a measured health deficit';
+      break;
+    case 'regen':
+      plan.recovery = 3;
+      plan.reason = 'converting the quiet interval into recovery';
+      break;
+    case 'drain':
+    case 'traittheft':
+      plan.shotPattern = 'target';
+      plan.leechOnHit = 2;
+      plan.big = true;
+      plan.reason = 'reclaiming vitality through a committed hit';
+      break;
+    case 'shield':
+      plan.shields = 1;
+      plan.reason = 'guarding the next incoming strike';
+      break;
+    case 'armor':
+      plan.shields = 2;
+      plan.reason = 'layering defense against concentrated pressure';
+      break;
+    case 'ghost':
+      plan.shields = 1;
+      plan.moveToRow = safeRow;
+      plan.reason = 'phasing toward the least threatened lane';
+      break;
+    case 'time':
+      plan.fireDisruption = 0.7;
+      plan.moveDisruption = 0.75;
+      plan.cardPressure = 0.35;
+      plan.reason = 'slowing the player action cycle';
+      break;
+    case 'freeze':
+      plan.fireDisruption = 0.9;
+      plan.moveDisruption = 0.85;
+      plan.cardPressure = 0.25;
+      plan.reason = 'arresting movement and fire together';
+      break;
+    case 'blizzard':
+      plan.fireDisruption = 0.5;
+      plan.moveDisruption = 0.8;
+      plan.reason = 'turning the active lane into difficult terrain';
+      break;
+    case 'signaljam':
+    case 'mutationlock':
+      plan.fireDisruption = 0.68;
+      plan.moveDisruption = 0.3;
+      plan.cardPressure = 1;
+      plan.reason = 'suppressing both input tempo and card recovery';
+      break;
+    case 'quarantine':
+      plan.fireDisruption = 0.35;
+      plan.moveDisruption = 0.7;
+      plan.cardPressure = 0.5;
+      plan.reason = 'isolating the player from the intended route';
+      break;
+    case 'scramble':
+      plan.fireDisruption = 0.3;
+      plan.moveDisruption = 0.45;
+      plan.reason = 'breaking the current firing alignment';
+      break;
+    case 'rowshuffle':
+      plan.fireDisruption = 0.2;
+      plan.moveDisruption = 0.65;
+      plan.moveToRow = safeRow;
+      plan.reason = 'reindexing the duel around a safer lane';
+      break;
+    case 'trafficjam':
+      plan.fireDisruption = 0.35;
+      plan.moveDisruption = 0.8;
+      plan.cardPressure = 0.35;
+      plan.reason = 'congesting the route the player is trying to use';
+      break;
+    case 'backdash':
+      plan.moveDisruption = 0.6;
+      plan.moveToRow = safeRow;
+      plan.reason = 'creating distance before the next engagement';
+      break;
+    case 'warpback':
+      plan.shotPattern = 'target';
+      plan.moveDisruption = 0.6;
+      plan.cardPressure = 0.35;
+      plan.big = true;
+      plan.reason = 'folding the player route backward';
+      break;
+    case 'gravity':
+      plan.shotPattern = 'adjacent';
+      plan.moveDisruption = 0.6;
+      plan.reason = 'pulling adjacent lanes toward a common center';
+      break;
+    case 'magnet':
+      plan.fireDisruption = 0.25;
+      plan.moveDisruption = 0.58;
+      plan.reason = 'reversing spacing through polarized force';
+      break;
+    case 'anchorfield':
+      plan.shields = 1;
+      plan.moveDisruption = 0.85;
+      plan.reason = 'anchoring both combatants around a defended position';
+      break;
+    case 'stasisgate':
+      plan.shields = 1;
+      plan.fireDisruption = 0.25;
+      plan.moveDisruption = 0.55;
+      plan.reason = 'guarding a lane boundary with a stasis threshold';
+      break;
+    case 'undertow':
+      plan.shotPattern = 'target';
+      plan.moveDisruption = 0.65;
+      plan.big = true;
+      plan.reason = 'dragging the target back into the contested lane';
+      break;
+    case 'tailclamp':
+    case 'groundwire':
+      plan.shotPattern = 'target';
+      plan.moveDisruption = abilityId === 'tailclamp' ? 0.85 : 0.7;
+      plan.reason = 'pinning movement before the follow-up';
+      break;
+    case 'sonicnet':
+      plan.shotPattern = 'target';
+      plan.fireDisruption = 0.4;
+      plan.moveDisruption = 0.65;
+      plan.reason = 'netting the active lane with a disruptive pulse';
+      break;
+    case 'voidaperture':
+      plan.shotPattern = 'target';
+      plan.moveDisruption = 0.8;
+      plan.cardPressure = 0.6;
+      plan.big = true;
+      plan.reason = 'opening a void fold beneath the committed route';
+      break;
+    case 'elementswap':
+      plan.shotPattern = 'adjacent';
+      plan.cardPressure = 0.8;
+      plan.reason = 'rewriting the present matchup before attacking it';
+      break;
+    case 'bloombind':
+      plan.shotPattern = 'target';
+      plan.fireDisruption = 0.35;
+      plan.moveDisruption = 0.75;
+      plan.reason = 'binding the target lane with a living restraint';
+      break;
+    case 'pulse':
+      plan.shotPattern = 'adjacent';
+      plan.fireDisruption = 0.4;
+      plan.moveDisruption = 0.35;
+      plan.reason = 'radiating pressure across neighboring lanes';
+      break;
+    case 'turret':
+      plan.shotPattern = 'all';
+      plan.reason = 'establishing measured covering fire';
+      break;
+    case 'overclock':
+      plan.shotPattern = 'adjacent';
+      plan.salvo = 2;
+      plan.reason = 'compressing two attack cycles into one opening';
+      break;
+    case 'berserk':
+      plan.shotPattern = 'target';
+      plan.salvo = 3;
+      plan.reason = 'committing a high-tempo burst to one lane';
+      break;
+    case 'overload':
+      plan.shotPattern = 'target';
+      plan.salvo = 2;
+      plan.reason = 'cascading the first impact into a second shot';
+      break;
+    case 'multishot':
+      plan.shotPattern = 'adjacent';
+      plan.salvo = 2;
+      plan.reason = 'multiplying fire across the neighboring lane';
+      break;
+    case 'echo':
+      plan.shotPattern = 'adjacent';
+      plan.salvo = 2;
+      plan.reason = 'replaying the shot as an offset echo';
+      break;
+    case 'voltage':
+      plan.shotPattern = 'adjacent';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'driving a broad charged projectile through alignment';
+      break;
+    case 'adaptive':
+      plan.shotPattern = 'adjacent';
+      plan.power = 2;
+      plan.reason = 'selecting the most useful current firing geometry';
+      break;
+    case 'barrage':
+      plan.shotPattern = 'target';
+      plan.salvo = 3;
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'saturating the selected lane with heavy ordnance';
+      break;
+    case 'mirror':
+      plan.shotPattern = 'all';
+      plan.big = true;
+      plan.reason = 'mirroring one commitment across every lane';
+      break;
+    case 'surge':
+      plan.shotPattern = 'all';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'releasing stored pressure through all lanes';
+      break;
+    case 'splitter':
+      plan.shotPattern = 'all';
+      plan.salvo = 2;
+      plan.big = true;
+      plan.reason = 'splitting one release into a grid-wide pair';
+      break;
+    case 'ricochet':
+      plan.shotPattern = 'all';
+      plan.big = true;
+      plan.reason = 'turning one angle into three lane trajectories';
+      break;
+    case 'arcweb':
+      plan.shotPattern = 'all';
+      plan.big = true;
+      plan.fireDisruption = 0.2;
+      plan.reason = 'conducting an attack through the full grid';
+      break;
+    case 'cluster':
+      plan.shotPattern = 'all';
+      plan.power = 2;
+      plan.reason = 'detonating a bounded multi-lane cluster';
+      break;
+    case 'megabomb':
+      plan.shotPattern = 'all';
+      plan.power = 2;
+      plan.big = true;
+      plan.fireDisruption = 0.35;
+      plan.reason = 'committing a full-grid shockwave';
+      break;
+    case 'returnfire':
+      plan.shotPattern = 'all';
+      plan.big = true;
+      plan.reason = 'answering incoming pressure with synchronized return fire';
+      break;
+    case 'interceptor':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'intercepting live incoming pressure';
+      break;
+    case 'rearguard':
+      plan.shotPattern = 'adjacent';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'covering the opposite angle while maintaining advance';
+      break;
+    case 'kineticram':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.moveDisruption = 0.55;
+      plan.reason = 'driving mass directly through the chosen lane';
+      break;
+    case 'circuitarc':
+      plan.shotPattern = 'adjacent';
+      plan.power = 2;
+      plan.big = true;
+      plan.fireDisruption = 0.2;
+      plan.reason = 'bridging the target lane with a charged arc';
+      break;
+    case 'thermalshock':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.fireDisruption = 0.3;
+      plan.reason = 'fracturing the target through thermal reversal';
+      break;
+    case 'shattershot':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'breaking defense with one concentrated projectile';
+      break;
+    case 'marksman':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'exploiting distance with a precise power shot';
+      break;
+    case 'crit':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'committing the critical strike at the payoff point';
+      break;
+    case 'chain':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.fireDisruption = 0.2;
+      plan.reason = 'propagating the initial hit into the next action cycle';
+      break;
+    case 'seeker':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'acquiring the player regardless of prior lane position';
+      break;
+    case 'cardflood':
+      plan.cardPressure = 1;
+      plan.reason = 'forcing an immediate hand replacement';
+      break;
+    case 'emp':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.fireDisruption = 0.45;
+      plan.cardPressure = 0.5;
+      plan.reason = 'damaging the target while disabling its active channel';
+      break;
+    case 'tanglewire':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.moveDisruption = 0.6;
+      plan.reason = 'binding the occupied lane after impact';
+      break;
+    case 'purge':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'punishing a weakened or highly evolved target';
+      break;
+    case 'forcedmolt':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.moveDisruption = 0.2;
+      plan.reason = 'breaking armor and forcing a risky speed tradeoff';
+      break;
+    case 'depthcharge':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'revealing the route with a high-impact counter';
+      break;
+    case 'oilslick':
+      plan.moveDisruption = 0.5;
+      plan.cardPressure = 0.2;
+      plan.reason = 'forcing a backward skid and interrupting pursuit';
+      break;
+    case 'overdrive':
+      plan.shotPattern = 'target';
+      plan.salvo = 3;
+      plan.big = true;
+      plan.reason = 'accepting exposure to amplify the next integrity exchange';
+      break;
+    case 'pierce':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'arming a strike that passes through one defense';
+      break;
+    case 'separate':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.cardPressure = 0.45;
+      plan.reason = 'separating one fusion layer before the follow-up';
+      break;
+    case 'devolve':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.fireDisruption = 0.25;
+      plan.reason = 'regressing one evolution layer and weakening its form';
+      break;
+    case 'flak':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.moveDisruption = 0.4;
+      plan.reason = 'grounding aerial movement with a light impact';
+      break;
+    case 'acidetch':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'etching through one barrier and exposing armor';
+      break;
+    case 'hybridtax':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.moveDisruption = 0.35;
+      plan.reason = 'taxing fusion complexity with a bounded penalty';
+      break;
+    case 'nuke':
+      plan.shotPattern = 'all';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'applying the competitive damage ceiling across the grid';
+      break;
+    case 'bomb':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'detonating the occupied lane';
+      break;
+    case 'snipe':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'committing one fast precision projectile';
+      break;
+    case 'catalyst':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'granting a risky benefit before a high-value punish';
+      break;
+    case 'double':
+      plan.shotPattern = 'target';
+      plan.power = 2;
+      plan.big = true;
+      plan.reason = 'doubling the next projectile damage window';
+      break;
+    case 'radiantmark':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.big = true;
+      plan.reason = 'revealing phase defenses and marking vulnerability';
+      break;
+    case 'clonebreak':
+      plan.shotPattern = 'target';
+      plan.power = 3;
+      plan.reason = 'damaging the active body and marking related instances';
+      break;
+    case 'rootsnare':
+      plan.shotPattern = 'target';
+      plan.moveDisruption = 0.7;
+      plan.reason = 'rooting the target in its current lane';
+      break;
+    default:
+      // The exhaustive Boss ownership test prevents canonical cards from
+      // reaching this branch through a campaign Boss profile.
+      plan.reason = `${abilityId} has no authored versus effect`;
+      break;
   }
   return plan;
+}
+
+function planChangesBattleState(
+  plan: VersusAbilityPlan,
+  context: VersusNpcContext,
+): boolean {
+  return rowsForPattern(plan.shotPattern, plan.targetRow).length > 0
+    || (plan.recovery > 0 && context.npcHp < context.maxHp)
+    || (plan.shields > 0 && context.npcShields < context.maxShields)
+    || plan.fireDisruption > context.playerFireCooldown
+    || plan.moveDisruption > context.playerMoveCooldown
+    || (plan.cardPressure > 0 && context.cardProgress < 1)
+    || (plan.moveToRow !== undefined && plan.moveToRow !== clampLane(context.npcRow));
+}
+
+/**
+ * Resource and trigger checks are hard eligibility rules. They deliberately
+ * run before phase scoring so an opening/desperation preference can never make
+ * a boss announce and consume an ability that cannot affect the current duel.
+ */
+export function isVersusNpcAbilityPractical(
+  abilityId: string,
+  plan: VersusAbilityPlan,
+  context: VersusNpcContext,
+): boolean {
+  if (!ABILITY_LOOKUP[abilityId] || plan.abilityId !== abilityId) return false;
+  if ((abilityId === 'heal' || abilityId === 'regen') && context.npcHp >= context.maxHp) {
+    return false;
+  }
+  if ((abilityId === 'shield' || abilityId === 'armor')
+    && context.npcShields >= context.maxShields) {
+    return false;
+  }
+  const totalThreat = context.incomingByRow.reduce((sum, count) => sum + count, 0);
+  if (REACTIVE_ABILITY_IDS.has(abilityId) && totalThreat <= 0) return false;
+  return planChangesBattleState(plan, context);
+}
+
+function scoreBossAbility(
+  plan: VersusAbilityPlan,
+  context: VersusNpcContext,
+  slot: number,
+  preferredSlot: number,
+): number {
+  const hpRatio = context.npcHp / Math.max(1, context.maxHp);
+  const playerRatio = context.playerHp / Math.max(1, context.maxHp);
+  const currentThreat = context.incomingByRow[clampLane(context.npcRow)] ?? 0;
+  const totalThreat = context.incomingByRow.reduce((sum, count) => sum + count, 0);
+  const shotWeight = rowsForPattern(plan.shotPattern, plan.targetRow).length
+    * Math.max(1, plan.salvo) * Math.max(1, plan.power);
+  let score = slot === preferredSlot ? 6 : 0;
+  score += (1 - playerRatio) * shotWeight * 0.28;
+  score += currentThreat * (plan.shields * 0.9 + (plan.moveToRow !== undefined ? 0.8 : 0));
+  score += totalThreat * plan.shields * 0.3;
+  score += (1 - hpRatio) * (
+    plan.recovery * 0.8
+    + plan.leechOnHit * 0.55
+    + plan.shields * 0.45
+  );
+  score += (context.playerFireCooldown < 0.3 ? plan.fireDisruption : 0) * 1.4;
+  score += (context.playerMoveCooldown < 0.2 ? plan.moveDisruption : 0) * 1.2;
+  score += context.cardProgress * plan.cardPressure;
+  if (context.signatureCharges > 0 && slot === 1) score += 0.55;
+  if ((context.signatureMode > 0 || context.signaturePlacements.length > 0) && slot === 2) {
+    score += 0.4;
+  }
+  return score + stableNoise(`${context.skillId}:${context.step}:${plan.abilityId}`) * 0.08;
+}
+
+export function chooseVersusNpcAbility(context: VersusNpcContext): VersusAbilityPlan {
+  const profile = bossStrategyProfile(context.skillId);
+  const phase = bossBattlePhase(context);
+  const preferredSlot = phase === 'opening' ? 0 : phase === 'pressure' ? 1 : 2;
+  let selected: VersusAbilityPlan | undefined;
+  let selectedScore = Number.NEGATIVE_INFINITY;
+  profile.abilities.forEach((abilityId, slot) => {
+    const candidate = resolveVersusNpcAbility(abilityId, context);
+    if (!isVersusNpcAbilityPractical(abilityId, candidate, context)) return;
+    const score = scoreBossAbility(candidate, context, slot, preferredSlot);
+    if (score > selectedScore) {
+      selected = candidate;
+      selectedScore = score;
+    }
+  });
+  selected ??= ordinaryPressurePlan(context);
+  selected.reason = `${phase}: ${selected.reason}; ${profile.strategy}`;
+  return selected;
 }
 
 export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSignaturePlan {
   const doctrine = doctrineForSkill(context.skillId);
   const specs: readonly [SignatureCommandSpec, SignatureCommandSpec, SignatureCommandSpec] =
     SIGNATURE_COMMANDS[context.skillId ?? ''] ?? [attack(), control(), guard()];
+  const eligibleCommands = specs
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate }) => (
+      (candidate.requiresCharges ?? 0) <= context.signatureCharges
+      && (candidate.requiresPlacements ?? 0) <= context.signaturePlacements.length
+    ));
   let commandIndex: 0 | 1 | 2 = 0;
   let bestScore = Number.NEGATIVE_INFINITY;
-  for (let index = 0; index < specs.length; index++) {
-    const candidate = specs[index];
-    if ((candidate.requiresCharges ?? 0) > context.signatureCharges) continue;
-    if ((candidate.requiresPlacements ?? 0) > context.signaturePlacements.length) continue;
+  for (const { candidate, index } of eligibleCommands) {
+    // A signature is a sequence, not one optimal command spammed repeatedly.
+    // When another legal command exists, force the boss to advance its plan.
+    if (eligibleCommands.length > 1 && index === context.signatureLastCommand) continue;
     const score = scoreIntent(specs[index], context, index);
     if (score > bestScore) {
       bestScore = score;
@@ -417,8 +996,10 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
     intent: spec.intent,
     targetRow,
     shotPattern: spec.shotPattern ?? 'none',
+    salvo: 1,
     power: Math.min(3, (spec.power ?? 1) + storedPower),
     big: spec.big ?? false,
+    leechOnHit: 0,
     recovery: Math.min(3, (spec.recovery ?? 0) + storedPower),
     shields: Math.min(2, (spec.shields ?? 0) + (storedPower > 0 ? 1 : 0)),
     fireDisruption: spec.fireDisruption ?? 0,
@@ -439,23 +1020,138 @@ export function chooseVersusMovementRow(
   context: VersusNpcContext,
   variation = 0,
 ): number {
-  const doctrine = doctrineForSkill(context.skillId);
+  const profile = bossStrategyProfile(context.skillId);
   const currentRow = clampLane(context.npcRow);
   const currentThreat = context.incomingByRow[currentRow] ?? 0;
-  if (currentThreat > 0) return safestLane(context.incomingByRow, context.step);
-  if (doctrine === 'assault') return clampLane(context.playerRow);
-  if (doctrine === 'control') {
+  if (currentThreat > 0) {
+    const safeRow = safestLane(context.incomingByRow, context.step);
+    // Reactive movement obeys the same one-tile rule as the player. Equal
+    // pressure is not a reason to jitter, and edge bosses cannot teleport
+    // through the middle lane to escape a committed shot.
+    return context.incomingByRow[safeRow] < currentThreat
+      ? clampLane(currentRow + Math.sign(safeRow - currentRow))
+      : currentRow;
+  }
+  if (profile.movement === 'pursue') return clampLane(context.playerRow);
+  if (profile.movement === 'flank') {
     return clampLane(context.playerRow + (context.step % 2 === 0 ? 1 : -1));
   }
-  if (doctrine === 'guardian' || doctrine === 'support') {
-    return safestLane(context.incomingByRow, context.step);
+  if (profile.movement === 'anchor') {
+    return currentRow;
   }
-  if (doctrine === 'skirmish') {
+  if (profile.movement === 'evade') {
+    const farthest = context.playerRow === 0 ? 2 : context.playerRow === 2 ? 0 : currentRow;
+    return clampLane(farthest);
+  }
+  if (profile.movement === 'cycle') {
     return clampLane(currentRow + (variation < 0.5 ? 1 : -1));
   }
   return variation < 0.55
     ? clampLane(context.playerRow)
     : safestLane(context.incomingByRow, context.step);
+}
+
+export interface VersusBasicAttackAim {
+  /** The live player lane this shot is trying to acquire. */
+  targetRow: number;
+  /** The next readable NPC lane; at most one cell from its current lane. */
+  nextRow: number;
+  /** A basic projectile may be emitted only when this is true. */
+  aligned: boolean;
+}
+
+/**
+ * Gives ordinary NPC fire a visible aim step. Abilities retain their authored
+ * multi-lane patterns, while a basic shot waits until its body and muzzle share
+ * the player's live lane instead of materializing remotely in another row.
+ */
+export function chooseVersusBasicAttackAim(
+  context: Pick<VersusNpcContext, 'npcRow' | 'playerRow'>,
+): VersusBasicAttackAim {
+  const currentRow = clampLane(context.npcRow);
+  const targetRow = clampLane(context.playerRow);
+  return {
+    targetRow,
+    nextRow: clampLane(currentRow + Math.sign(targetRow - currentRow)),
+    aligned: currentRow === targetRow,
+  };
+}
+
+/**
+ * Selects the NPC's column within its own 3-column half of the board.
+ *
+ * Column movement is deterministic and tactical: the movement profile, live
+ * lane pressure, health state, and authored strategy step decide the result.
+ * This deliberately avoids cosmetic random jitter and moves at most one cell
+ * per decision so an opponent remains readable while traversing the grid.
+ */
+export function chooseVersusMovementColumn(context: VersusNpcContext): number {
+  const profile = bossStrategyProfile(context.skillId);
+  const currentCol = clampLane(context.npcCol);
+  const currentRow = clampLane(context.npcRow);
+  const underPressure = (context.incomingByRow[currentRow] ?? 0) > 0;
+  const lowIntegrity = context.npcHp <= context.maxHp * 0.35;
+  const stepToward = (target: number): number => {
+    const boundedTarget = clampLane(target);
+    return clampLane(currentCol + Math.sign(boundedTarget - currentCol));
+  };
+
+  if (profile.movement === 'pursue') {
+    // Assault bosses occupy the forward column while healthy, but can yield
+    // when low health and under fire. A measured regroup keeps either state
+    // from becoming one permanent depth column under continuous autofire.
+    return lowIntegrity && underPressure
+      ? stepToward(context.step % 4 === 2 ? 1 : 2)
+      : stepToward(context.step % 4 === 3 ? 1 : 0);
+  }
+  if (profile.movement === 'flank') {
+    // Hold each authored side for two beats so the boss can actually reach
+    // both edges, returning through center instead of teleporting across.
+    const target = Math.floor(context.step / 2) % 2 === 0 ? 0 : 2;
+    return currentCol === target ? 1 : stepToward(target);
+  }
+  if (profile.movement === 'anchor') {
+    // Hold center by default and concede depth under fire. While pressure is
+    // continuous, periodically re-center to brace the firing line; otherwise
+    // an anchor would retreat once and remain a stationary rear-column target.
+    return stepToward(underPressure
+      ? (context.step % 4 === 2 ? 1 : 2)
+      : (context.step % 4 === 3 ? 2 : 1));
+  }
+  if (profile.movement === 'evade') {
+    // Evasive bosses retreat under pressure or while behind, then recover
+    // toward center. Continuous pressure includes an authored center feint so
+    // the boss changes the next intercept angle instead of camping at depth.
+    const retreating = underPressure
+      || context.npcHp < context.playerHp
+      || context.step % 4 === 1;
+    return stepToward(retreating
+      ? (currentCol === 2 && context.step % 3 === 0 ? 1 : 2)
+      : 1);
+  }
+  if (profile.movement === 'cycle') {
+    // Traverse the complete depth circuit instead of oscillating forever
+    // between center and the rear edge: center -> rear -> center -> front.
+    const target = [2, 1, 0, 1][context.step % 4] ?? 1;
+    return stepToward(target);
+  }
+  return stepToward(1);
+}
+
+export interface VersusMovementPosition {
+  row: number;
+  col: number;
+}
+
+/** Resolves both axes from the same immutable tactical snapshot. */
+export function chooseVersusMovementPosition(
+  context: VersusNpcContext,
+  rowVariation = 0,
+): VersusMovementPosition {
+  return {
+    row: chooseVersusMovementRow(context, rowVariation),
+    col: chooseVersusMovementColumn(context),
+  };
 }
 
 export interface CampaignNpcContext {

@@ -212,14 +212,54 @@ canvas#canvas {
 }
 .hudResizeHandle {
   position: absolute;
+  z-index: 6;
   right: -7px;
   bottom: -7px;
   width: 20px;
   height: 20px;
+  margin: 0;
+  padding: 0;
   border: 2px solid #ecfeff;
+  border-radius: 2px;
   background: #0891b2;
   box-shadow: 0 0 12px #22d3ee;
   cursor: nwse-resize;
+  touch-action: none;
+  appearance: none;
+}
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle {
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 0 0 11px 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: .72;
+}
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle::before,
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  border-right: 2px solid rgba(207, 250, 254, .92);
+  border-bottom: 2px solid rgba(103, 232, 249, .92);
+}
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle::before {
+  width: 15px;
+  height: 15px;
+}
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle::after {
+  width: 8px;
+  height: 8px;
+}
+.hudLayoutItem.resizable:not(.editing) > .hudResizeHandle:is(:hover, :focus-visible) {
+  opacity: 1;
+  background: rgba(8, 145, 178, .22);
+  outline: 1px solid rgba(103, 232, 249, .82);
+  outline-offset: -2px;
 }
 #hudLayoutToolbar {
   position: absolute;
@@ -1024,6 +1064,28 @@ canvas#canvas {
   opacity: 0.5;
   background: linear-gradient(180deg, rgba(40, 20, 80, 0.7), rgba(20, 15, 50, 0.8));
   border-color: rgba(139, 92, 246, 0.3);
+}
+
+.card-btn .ability-readiness {
+  display: block;
+  margin: 3px 0 5px;
+  font-size: 8px;
+  line-height: 1;
+  font-style: normal;
+  letter-spacing: 0.08em;
+}
+
+.card-btn .ability-readiness.ready {
+  color: #86efac;
+}
+
+.card-btn.unavailable {
+  opacity: 0.68;
+  border-color: rgba(248, 113, 113, 0.58);
+}
+
+.card-btn .ability-readiness.invalid {
+  color: #fca5a5;
 }
 
 /* Main Menu */
@@ -2047,6 +2109,9 @@ canvas#canvas {
 #upgradeCard {
   position: relative;
   width: min(94vw, 720px);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 14px;
   text-align: center;
   background: linear-gradient(145deg, rgba(8, 20, 40, 0.91), rgba(35, 17, 55, 0.91));
@@ -2134,6 +2199,23 @@ canvas#canvas {
   font-weight: 900;
 }
 
+.upgradeTrack {
+  align-self: center;
+  min-width: 62px;
+  padding: 2px 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.upgradeTrack-score { color: #f9a8d4; }
+.upgradeTrack-wave { color: #7dd3fc; }
+.upgradeTrack-integrity { color: #86efac; }
+
 #upgradeHint {
   margin-top: 9px;
   color: rgba(196, 181, 253, 0.68);
@@ -2142,13 +2224,20 @@ canvas#canvas {
 }
 
 @media (max-width: 620px) {
-  #upgradeOverlay { align-items: flex-end; padding: 8px; }
+  #upgradeOverlay {
+    align-items: flex-end;
+    padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+  }
   #upgradeCard { padding: 10px; }
   #upgradeChoices { grid-template-columns: 1fr; gap: 8px; }
   .upgradeChoice {
     min-height: 70px;
     padding: 7px 12px;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #upgradePrompt { animation: none; }
 }
 
 /* Options */
@@ -2210,7 +2299,7 @@ canvas#canvas {
   font-size: 10px;
 }
 
-/* Versus Action Window: a narrow cinematic strip below the tactical board. */
+/* Action Window: reserves a cinematic route lane above the tactical board. */
 #actionWindowBar {
   position: relative;
   z-index: 11;
@@ -2261,7 +2350,7 @@ canvas#canvas {
 
 .actionWindowDivider {
   position: absolute;
-  left: 50%;
+  left: -85%;
   top: 4px;
   bottom: 0;
   width: 2px;
@@ -2271,6 +2360,458 @@ canvas#canvas {
 .actionIntegritySegment { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; }
 .legacyActionDiagram { display: none; }
 .actionCinematicCanvas { position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%; display: block; }
+.actionCinematicPlayerOverlay {
+  position: absolute;
+  display: none;
+  z-index: 5;
+  pointer-events: none;
+  overflow: visible;
+  transform: translate(-50%, -91.25%);
+  transform-origin: 50% 91.25%;
+  will-change: left, top, opacity;
+}
+
+#actionWindowBar.campaignRouteForkEnabled {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: linear-gradient(180deg, #03101d, #06101e 58%, #070c19);
+}
+
+#actionWindowBar.campaignRouteForkEnabled .actionWindowHeader { flex: 0 0 24px; }
+#actionWindowBar.campaignRouteForkEnabled .actionWindowStage {
+  display: block;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 46px;
+}
+#actionWindowBar.campaignRouteForkEnabled:has(.campaignRouteFork.unlocked),
+#actionWindowBar.campaignRouteForkEnabled:has(.campaignRouteFork.bossActive) {
+  height: 100%;
+  min-height: 0;
+}
+
+.campaignRouteFork {
+  flex: 0 0 94px;
+  min-height: 94px;
+  padding: 2px 6px 4px;
+  display: grid;
+  grid-template-rows: 20px 30px minmax(62px, 1fr);
+  gap: 3px;
+  overflow: hidden;
+  border-top: 1px solid rgba(102, 214, 244, .3);
+  background:
+    linear-gradient(rgba(73, 191, 235, .035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(73, 191, 235, .035) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(8, 27, 45, .96), rgba(5, 12, 27, .98));
+  background-size: 18px 18px, 18px 18px, auto;
+  color: #dff8ff;
+}
+
+.campaignRouteStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: #7fffc5;
+  font-size: 7.5px;
+  letter-spacing: .1em;
+  white-space: nowrap;
+}
+.campaignRouteStatus strong,
+.campaignRouteStatus span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.campaignRouteStatus strong { color: #edfaff; font-size: 9px; }
+.campaignRouteFork:is(.unlocked, .bossActive, .quotaPending) {
+  flex-basis: 128px;
+  min-height: 128px;
+  grid-template-rows: 20px 34px minmax(54px, 1fr);
+}
+.campaignRouteFork.unlocked .campaignRouteStatus {
+  padding: 0 6px;
+  color: #d9faff;
+  background: linear-gradient(90deg, rgba(255, 218, 83, .12), rgba(98, 226, 246, .07));
+  border: 1px solid rgba(255, 225, 108, .38);
+  border-radius: 5px;
+}
+.campaignRouteFork.unlocked .campaignRouteStatus strong {
+  color: #fff0a5;
+  font-size: 9.5px;
+  text-shadow: 0 0 8px rgba(255, 218, 74, .22);
+}
+.campaignRouteFork.bossActive {
+  border-top-color: rgba(255, 222, 105, .82);
+  box-shadow: inset 0 0 18px rgba(255, 207, 72, .08);
+}
+.campaignRouteFork.bossActive .campaignRouteStatus,
+.campaignRouteFork.bossActive .campaignRouteStatus strong { color: #fff0a5; }
+.campaignRouteFork.bossForkReady .campaignRouteStatus,
+.campaignRouteFork.bossForkReady .campaignRouteStatus strong { color: #ffe36d; }
+.campaignRouteFork.locked { grid-template-rows: 20px minmax(66px, 1fr); }
+.campaignRouteFork.locked.quotaPending { grid-template-rows: 20px 34px minmax(54px, 1fr); }
+.campaignRouteFork.locked .campaignRouteContacts {
+  visibility: visible;
+  opacity: 1;
+}
+
+.campaignRouteMap {
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 1px;
+  transition: opacity .2s ease;
+}
+.campaignRouteMap.standardMap {
+  grid-template-rows: 1fr;
+  align-items: center;
+}
+.campaignRouteMap.standardMap .campaignRouteLane.middle { min-height: 22px; }
+
+.campaignRouteLane {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(62px, 1fr) 16px minmax(76px, 1.15fr) 16px minmax(62px, 1fr);
+  align-items: center;
+  color: rgba(171, 222, 239, .66);
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.campaignRouteLane.selectedLane { color: #dffcff; }
+.campaignRouteLane.selectedLane .routeJunction,
+.campaignRouteLane.middle.selected .routeStraight {
+  color: #fff0a5;
+  text-shadow: 0 0 6px rgba(255, 218, 74, .24);
+}
+.campaignRouteLane.middle { color: rgba(141, 240, 217, .72); }
+.routeBranch,.routeLine {
+  height: 1px;
+  background: rgba(126, 157, 174, .34);
+  box-shadow: none;
+}
+.routeBranch.last.available,.routeLine.last.available {
+  background: linear-gradient(90deg, rgba(92, 217, 245, .2), rgba(92, 217, 245, .48));
+}
+.routeBranch.next.available,.routeLine.next.available {
+  background: linear-gradient(90deg, rgba(192, 118, 255, .48), rgba(192, 118, 255, .2));
+}
+.routeBranch.unavailable,.routeLine.unavailable {
+  opacity: .18;
+  box-shadow: none;
+}
+.routeBranch.selected,.routeLine.selected {
+  opacity: 1;
+  background: #ffe369;
+  box-shadow: 0 0 6px rgba(255, 218, 74, .62);
+}
+.routeNpcPlaceholder,.routeEndpointPlaceholder { display: block; min-width: 0; }
+.campaignRouteLane.top .routeBranch.last { transform: rotate(7deg); }
+.campaignRouteLane.top .routeBranch.next { transform: rotate(-7deg); }
+.campaignRouteLane.bottom .routeBranch.last { transform: rotate(-7deg); }
+.campaignRouteLane.bottom .routeBranch.next { transform: rotate(7deg); }
+.routeJunction,.routeStraight { text-align: center; color: #aeeedf; }
+.routeStraight { color: #98f6d1; }
+
+.routeNpc {
+  height: 11px;
+  min-width: 0;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid rgba(75, 162, 202, .22);
+  border-radius: 4px;
+  background: rgba(8, 24, 42, .72);
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  /* The Action Window is normally click-through so the canvas remains
+     playable. Boss destinations are the deliberate exception. */
+  pointer-events: auto;
+}
+.routeNpc:disabled { cursor: default; }
+.routeNpc.next { flex-direction: row-reverse; text-align: right; }
+.routeNpc img { width: 13px; height: 10px; object-fit: contain; image-rendering: auto; }
+.routeNpc small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routeNpc.unavailable,.routeEndpoint.unavailable {
+  opacity: .32;
+  filter: saturate(.25);
+}
+.routeNpc.available,.routeEndpoint.available {
+  opacity: .78;
+  filter: saturate(.78);
+}
+.routeNpc.selected,.routeEndpoint.selected {
+  opacity: 1;
+  filter: none;
+  color: #fff3a2;
+  border-color: rgba(255, 226, 104, .8);
+  box-shadow: inset 0 0 9px rgba(255, 215, 74, .12), 0 0 6px rgba(255, 215, 74, .18);
+}
+.campaignRouteFork.bossForkReady {
+  grid-template-rows: 20px minmax(96px, 1fr);
+}
+.campaignRouteFork.bossForkReady .campaignRouteContacts { display: none; }
+.campaignRouteFork.bossForkReady .routeNpc { height: 28px; }
+.campaignRouteFork.bossForkReady .routeNpc img { width: 34px; height: 26px; }
+.campaignRouteFork.bossForkReady .routeNpc small { font-size: 7px; }
+.routeEndpoint {
+  padding: 0 3px;
+  border: 1px solid rgba(91, 178, 217, .25);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.campaignRouteContacts {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  visibility: visible;
+  opacity: 1;
+}
+.campaignRouteContacts.single { grid-template-columns: 1fr; }
+.campaignRouteContact {
+  --route-accent: 92, 217, 245;
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 58px 52px minmax(0, 1fr);
+  grid-template-areas: "heading portrait identity";
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(var(--route-accent), .46);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(var(--route-accent), .1), transparent 42%),
+    linear-gradient(135deg, rgba(8, 30, 50, .96), rgba(15, 13, 38, .96));
+}
+.campaignRouteContact.next {
+  --route-accent: 192, 118, 255;
+  grid-template-columns: minmax(0, 1fr) 52px 58px;
+  grid-template-areas: "identity portrait heading";
+  background:
+    linear-gradient(270deg, rgba(var(--route-accent), .1), transparent 42%),
+    linear-gradient(225deg, rgba(8, 30, 50, .96), rgba(15, 13, 38, .96));
+}
+.campaignRouteContact::before {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 99px;
+  background: rgb(var(--route-accent));
+  box-shadow: 0 0 8px rgba(var(--route-accent), .7);
+}
+.campaignRouteContact.last::before { left: 2px; }
+.campaignRouteContact.next::before { right: 2px; }
+.campaignRouteContact.unavailable {
+  opacity: 1;
+  filter: none;
+  border-color: rgba(139, 160, 174, .26);
+  border-style: solid;
+  background:
+    linear-gradient(135deg, rgba(8, 24, 38, .96), rgba(13, 13, 28, .96));
+}
+.campaignRouteContact.unavailable::before {
+  opacity: .24;
+  filter: saturate(.3);
+  box-shadow: none;
+}
+.campaignRouteContact.ready {
+  opacity: 1;
+  border-color: rgba(var(--route-accent), .58);
+}
+.campaignRouteContact.tracking {
+  opacity: 1;
+  border-color: rgba(var(--route-accent), .68);
+  box-shadow: inset 0 0 14px rgba(var(--route-accent), .08), 0 0 8px rgba(var(--route-accent), .14);
+}
+.campaignRouteContact.tracking::before {
+  opacity: .92;
+}
+.campaignRouteContact.tracking canvas {
+  opacity: 1;
+  filter: saturate(1.08) contrast(1.08) drop-shadow(0 1px 4px rgba(var(--route-accent), .42));
+}
+.campaignRouteContact.quotaMet {
+  opacity: 1;
+  border-color: rgba(var(--route-accent), .38);
+  box-shadow: none;
+}
+.campaignRouteContact.selected {
+  border-color: #ffe369;
+  box-shadow: inset 0 0 13px rgba(255, 214, 65, .1), 0 0 8px rgba(255, 214, 65, .22);
+}
+.routeContactHeading,.routeContactIdentity { display: flex; flex-direction: column; min-width: 0; }
+.routeContactHeading {
+  grid-area: heading;
+  align-self: stretch;
+  justify-content: center;
+  padding: 0 5px 0 7px;
+  color: rgb(var(--route-accent));
+  font-size: 7px;
+  letter-spacing: .08em;
+  background: rgba(var(--route-accent), .08);
+  border-right: 1px solid rgba(var(--route-accent), .28);
+}
+.campaignRouteContact.next .routeContactHeading {
+  align-items: flex-end;
+  padding: 0 7px 0 5px;
+  border-right: 0;
+  border-left: 1px solid rgba(var(--route-accent), .28);
+  text-align: right;
+}
+.routeContactHeading b {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: rgb(var(--route-accent));
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 0 6px rgba(var(--route-accent), .28);
+}
+.routeContactHeading b i {
+  width: 15px;
+  height: 15px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 15px;
+  border: 1px solid rgba(var(--route-accent), .58);
+  border-radius: 4px;
+  font-size: 8px;
+  font-style: normal;
+}
+.campaignRouteContact.next .routeContactHeading b { flex-direction: row-reverse; }
+.routeContactHeading small { margin-top: 3px; color: #a9c6dc; font-size: 6px; }
+.campaignRouteContact canvas {
+  grid-area: portrait;
+  justify-self: center;
+  width: 48px;
+  height: 44px;
+  image-rendering: pixelated;
+}
+.campaignRouteContact.last canvas { transform: scaleX(-1); }
+.campaignRouteContact.unavailable canvas,
+.campaignRouteContact.unavailable .routeBossPortrait { opacity: .52; filter: grayscale(.35) saturate(.35); }
+.campaignRouteContact .routeBossPortrait {
+  grid-area: portrait;
+  justify-self: center;
+  width: 42px;
+  height: 38px;
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 1px 3px rgba(255, 220, 104, .38));
+}
+.campaignRouteContact.last .routeBossPortrait { transform: scaleX(-1); }
+.routeContactIdentity {
+  grid-area: identity;
+  padding: 0 6px 0 4px;
+}
+.campaignRouteContact.next .routeContactIdentity {
+  align-items: flex-end;
+  padding: 0 4px 0 6px;
+  text-align: right;
+}
+.routeContactIdentity strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #e9fbff;
+  font-size: 10px;
+  line-height: 1.12;
+  letter-spacing: .035em;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.routeContactIdentity small {
+  margin-top: 3px;
+  color: #a8c4d4;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: .025em;
+}
+.campaignRouteContact.ready .routeContactState { color: #9ff5c9; }
+.campaignRouteContact.quotaMet .routeContactState { color: #9fdcba; }
+.campaignRouteContact.unavailable .routeContactHeading b,
+.campaignRouteContact.unavailable .routeContactHeading small,
+.campaignRouteContact.unavailable .routeContactState { color: #8fa2af; text-shadow: none; }
+.campaignRouteContact.unavailable .routeContactIdentity strong { color: #bac7ce; }
+.campaignRouteContact.unavailable .routeContactHeading b i { border-color: rgba(143, 162, 175, .34); }
+.campaignRouteContact.selected .routeContactState { color: #fff0a0; }
+
+@media (max-width: 720px), (pointer: coarse) and (max-width: 900px) {
+  #actionWindowBar.campaignRouteForkEnabled {
+    height: 100%;
+    min-height: 0;
+  }
+  #actionWindowBar.campaignRouteForkEnabled:has(.campaignRouteFork.unlocked),
+  #actionWindowBar.campaignRouteForkEnabled:has(.campaignRouteFork.bossActive) {
+    height: 100%;
+    min-height: 0;
+  }
+  #actionWindowBar.campaignRouteForkEnabled .actionWindowStage { min-height: 50px; }
+  .campaignRouteFork {
+    flex-basis: 112px;
+    min-height: 112px;
+    padding: 3px 4px 5px;
+  }
+  .campaignRouteFork.locked { grid-template-rows: 22px minmax(78px, 1fr); }
+  .campaignRouteFork:is(.unlocked, .bossActive, .quotaPending) {
+    flex-basis: 158px;
+    min-height: 158px;
+    grid-template-rows: 27px 50px minmax(66px, 1fr);
+  }
+  .campaignRouteFork.bossForkReady {
+    grid-template-rows: 27px minmax(120px, 1fr);
+  }
+  .campaignRouteStatus { font-size: 8px; }
+  .campaignRouteStatus strong { font-size: 9.5px; }
+  .campaignRouteFork.unlocked .campaignRouteStatus {
+    justify-content: center;
+    text-align: center;
+  }
+  .campaignRouteFork.unlocked .campaignRouteStatus strong { font-size: 10.5px; }
+  .campaignRouteFork.unlocked .campaignRouteStatus > span { display: none; }
+  .campaignRouteLane {
+    grid-template-columns: minmax(48px,1fr) 11px minmax(62px,1.08fr) 11px minmax(48px,1fr);
+    font-size: 7.5px;
+  }
+  .routeNpc { height: 15px; gap: 2px; padding-inline: 2px; }
+  .routeNpc img { width: 18px; height: 14px; }
+  .routeNpc small { font-size: 7px; }
+  .routeEndpoint { min-height: 15px; display: grid; place-items: center; }
+  .campaignRouteContacts { gap: 4px; }
+  .campaignRouteContact {
+    min-height: 70px;
+    grid-template-columns: 46px 44px minmax(0, 1fr);
+  }
+  .campaignRouteContact.next {
+    grid-template-columns: minmax(0, 1fr) 44px 46px;
+  }
+  .campaignRouteContact canvas,
+  .campaignRouteContact .routeBossPortrait { width: 44px; height: 48px; }
+  .routeContactHeading { padding: 0 3px 0 5px; }
+  .campaignRouteContact.next .routeContactHeading { padding: 0 5px 0 3px; }
+  .routeContactHeading b { gap: 2px; font-size: 9.5px; }
+  .routeContactHeading b i { width: 13px; height: 13px; flex-basis: 13px; font-size: 7px; }
+  .routeContactHeading small { font-size: 7px; }
+  .routeContactIdentity,
+  .campaignRouteContact.next .routeContactIdentity { padding-inline: 3px; }
+  .routeContactIdentity strong { font-size: 9.5px; line-height: 1.15; }
+  .routeContactIdentity small { margin-top: 3px; font-size: 8.5px; line-height: 1.15; }
+}
 .persistentGround { fill: none; stroke: rgba(104,210,214,.5); stroke-width: 1.5; }
 .persistentConstruct { stroke-linejoin: round; stroke-linecap: round; }
 .activeConstruct { animation: activeSiteArrives 1.25s cubic-bezier(.16,.76,.2,1) both; }
@@ -2962,6 +3503,7 @@ canvas#canvas {
 
 /* NPC HP HUD panel */
 #npcHpPanel {
+  position: relative;
   color: #34d399;
   border-color: rgba(52, 211, 153, 0.45);
   text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
@@ -3074,4 +3616,299 @@ canvas#canvas {
   #skillBtn small {
     display: none;
   }
+}
+
+.lordAlphaGameplay {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100% !important;
+  height: 112% !important;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.5));
+}
+/* The opt-in animation lab keeps gameplay coordinates, sprite size, and hitboxes intact. */
+.lordAlphaGameplayPreview[data-motion="skill"] {
+  z-index: 18;
+}
+.lordAlphaGameplayPreview[data-motion="skill"] .lordAlphaSprite__motion {
+  scale: 1;
+  transform-origin: 50% 86%;
+}
+.lordAlphaNpcGameplay {
+  filter:
+    drop-shadow(0 0 3px rgba(253, 230, 138, 0.4))
+    drop-shadow(0 0 5px rgba(96, 165, 250, 0.36));
+}
+.lordAlphaClone {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100% !important;
+  height: 108% !important;
+  transform: translate(-50%, -50%);
+}
+.lordAlphaGlobalVfx {
+  z-index: 16 !important;
+  mix-blend-mode: screen;
+}
+.lordAlphaPreviewVfx {
+  /* Keep authored geometry above gameplay, but never over its preview controls. */
+  z-index: 41 !important;
+}
+#lordAlphaSkillPreview {
+  position: fixed;
+  z-index: 42;
+  right: 50%;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  width: min(310px, calc(100vw - 16px));
+  padding: 7px;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  border-radius: 10px;
+  background: rgba(2, 10, 25, 0.94);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.2);
+  touch-action: manipulation;
+  transform: translateX(50%);
+}
+#lordAlphaSkillPreview > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 3px 7px;
+  cursor: grab;
+  letter-spacing: 0.09em;
+  touch-action: none;
+  user-select: none;
+}
+#lordAlphaSkillPreview > header:active {
+  cursor: grabbing;
+}
+#lordAlphaSkillPreview > header > span {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+#lordAlphaSkillPreview > header strong { font-size: 10px; }
+#lordAlphaSkillPreview > header > span small {
+  color: rgba(186, 230, 253, 0.64);
+  font-size: 8px;
+}
+.lordAlphaSkillMoveHandle {
+  flex: 0 0 auto;
+  min-width: 38px;
+  min-height: 30px;
+  padding: 3px 5px;
+  color: #7dd3fc;
+  border: 1px dashed rgba(125, 211, 252, 0.58);
+  border-radius: 6px;
+  background: rgba(8, 47, 73, 0.72);
+  cursor: grab;
+  font: 800 7px/1 Arial, sans-serif;
+  letter-spacing: 0.08em;
+  touch-action: none;
+}
+.lordAlphaSkillMoveHandle:active { cursor: grabbing; }
+.lordAlphaSkillMoveHandle:focus-visible {
+  outline: 2px solid #fde68a;
+  outline-offset: 1px;
+}
+.lordAlphaSkillModeToggle,
+.lordAlphaSkillBankNav button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 26px;
+  padding: 3px 6px;
+  color: #dff8ff;
+  border: 1px solid rgba(125, 211, 252, 0.48);
+  border-radius: 6px;
+  background: rgba(9, 30, 58, 0.92);
+  font: 700 7px/1 Arial, sans-serif;
+  letter-spacing: 0.04em;
+}
+.lordAlphaSkillModeToggle { cursor: pointer; }
+.lordAlphaSkillModeToggle kbd,
+.lordAlphaSkillBankNav kbd,
+.lordAlphaSkillBinding kbd {
+  color: #07111f;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 4px;
+  background: #dff8ff;
+  box-shadow: inset 0 -1px 0 rgba(2, 6, 23, 0.28);
+  font: 800 8px/1 Arial, sans-serif;
+}
+.lordAlphaSkillModeToggle kbd,
+.lordAlphaSkillBankNav kbd {
+  padding: 3px 4px;
+}
+.lordAlphaSkillModeToggle small,
+.lordAlphaSkillBankNav small {
+  color: #fde68a;
+  font-size: 7px;
+}
+.lordAlphaSkillBankNav {
+  display: grid;
+  grid-template-columns: 58px 1fr 58px;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+.lordAlphaSkillBankNav > strong {
+  color: #fde68a;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-align: center;
+}
+.lordAlphaSkillPreviewGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.lordAlphaSkillPreviewGrid button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 43px;
+  padding: 5px 3px;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.38);
+  border-radius: 7px;
+  background: linear-gradient(145deg, rgba(12, 41, 75, 0.96), rgba(30, 27, 75, 0.9));
+  font: 700 8px/1.15 Arial, sans-serif;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.lordAlphaSkillPreviewGrid button:disabled {
+  opacity: 0.54;
+}
+.lordAlphaSkillBinding {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+.lordAlphaSkillBinding kbd {
+  min-width: 20px;
+  padding: 4px 3px;
+}
+.lordAlphaSkillBinding small {
+  color: #fde68a;
+  font-size: 7px;
+}
+.lordAlphaSkillPreviewGrid button > em {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  color: #fda4af;
+  font-size: 7px;
+  font-style: normal;
+}
+.lordAlphaSkillPreviewGrid button:active {
+  border-color: #fde68a;
+  background: rgba(30, 64, 175, 0.96);
+}
+#lordAlphaSkillPreview > p {
+  margin: 6px 2px 0;
+  color: rgba(186, 230, 253, 0.62);
+  font-size: 8px;
+  line-height: 1.25;
+  text-align: center;
+}
+#lordAlphaSkillPreview[data-presenting] {
+  opacity: 0.16;
+  pointer-events: none;
+  transition: opacity 90ms ease;
+}
+#game:has(#lordAlphaSkillPreview[data-presenting]) .campaignRouteFork {
+  opacity: 0.2;
+  transition: opacity 90ms ease;
+}
+@media (max-height: 500px) {
+  #lordAlphaSkillPreview { width: min(310px, calc(100vw - 16px)); }
+  .lordAlphaSkillPreviewGrid button { min-height: 29px; font-size: 7px; }
+}
+.lordAlphaSkinIcon {
+  position: relative;
+  display: block;
+  width: 62px;
+  height: 58px;
+  margin: 0 auto 2px;
+  overflow: visible;
+  pointer-events: none;
+}
+.lordAlphaFormPanel {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.56), rgba(30, 41, 59, 0.72));
+}
+.lordAlphaFormPicker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.lordAlphaFormBtn {
+  min-width: 0;
+  min-height: 116px;
+  padding: 7px 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  overflow: hidden;
+  color: #e0f2fe;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 10px;
+  background: rgba(2, 6, 23, 0.72);
+  touch-action: manipulation;
+}
+.lordAlphaFormBtn.selected {
+  border-color: #fde68a;
+  box-shadow: 0 0 13px rgba(96, 165, 250, 0.28), inset 0 0 10px rgba(253, 230, 138, 0.1);
+}
+.lordAlphaFormBtn strong {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.lordAlphaFormBtn small {
+  min-height: 20px;
+  color: rgba(219, 234, 254, 0.62);
+  font-size: 7px;
+  line-height: 1.3;
+}
+.lordAlphaFormPreview {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 72px;
+  margin: -7px auto -8px;
+  transform: scale(0.82);
+  transform-origin: 50% 76%;
+  pointer-events: none;
+}
+.lordAlphaFormNote {
+  margin: 8px 2px 0;
+  color: rgba(219, 234, 254, 0.56);
+  font-size: 8px;
+  line-height: 1.4;
+}
+@media (max-width: 520px) {
+  .lordAlphaFormPicker { gap: 5px; }
+  .lordAlphaFormBtn { min-height: 108px; padding-inline: 2px; }
+  .lordAlphaFormPreview { transform: scale(0.72); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lordAlphaGlobalVfx { mix-blend-mode: normal; }
 }

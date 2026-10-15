@@ -1,8 +1,25 @@
-import type { GameState, BoardMetrics, Enemy, EnemyGenome } from './types';
+import type {
+  GameState,
+  Bullet,
+  Enemy,
+  EnemyGenome,
+  LordAlphaProjectileVariant,
+} from './types';
 import { drawVirus } from './virus-morphology';
 import type { EntityDrawContext } from './virus-morphology';
 import { getBaseVisualScale, getEntityMotion, getProceduralVirusSprite } from './procedural-virus';
 import { ENEMY_ABILITY_WINDUP } from './constants';
+import {
+  LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
+  LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE,
+  LORD_ALPHA_SKIN_ID,
+  generateLordAlphaTopology,
+  lordAlphaAssetUrl,
+} from './lord-alpha';
+import { getBoardMetrics } from './board-layout';
+import { getEnemyVisualSeed } from './enemy-identity';
+
+export { getBoardMetrics } from './board-layout';
 
 const NICHE_COLORS: Record<string, string> = {
   scout: '#67e8f9',
@@ -14,15 +31,6 @@ const NICHE_COLORS: Record<string, string> = {
   symbiote: '#f472b6',
   opportunist: '#fb923c',
 };
-
-function getEnemyVisualSeed(enemy: Enemy): number {
-  // Rewind restores structured clones. A specimen seed must live in state,
-  // rather than following the transient JavaScript object that represents it.
-  return enemy.visualSeed
-    ?? (enemy.value ?? 6) * 131
-      + (enemy.formationId ?? 0) * 104729
-      + (enemy.genome?.generation ?? 0) * 8191;
-}
 
 function visualGene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
@@ -761,17 +769,6 @@ function drawPixelBestiary(
   ctx.restore();
 }
 
-export function getBoardMetrics(w: number, h: number): BoardMetrics {
-  const cell = Math.min(w / 6.8, h / 8.2);
-  const boardW = cell * 6;
-  const boardH = cell * 3;
-  const x = (w - boardW) * 0.5;
-  // Portrait needs the grid/card stack high enough to leave a dedicated
-  // control lane for Rotate above Skill. Landscape retains its wider spacing.
-  const y = Math.max(h * (h > w ? 0.18 : 0.24), 90);
-  return { cell, boardW, boardH, x, y };
-}
-
 type Ctx2D = CanvasRenderingContext2D & {
   roundRect: (x: number, y: number, w: number, h: number, r: number) => void;
 };
@@ -812,6 +809,314 @@ const PROJECTILE_EFFECTS: Record<string, { color: string; accent: string; motif:
   tidal: { color: '#06b6d4', accent: '#bae6fd', motif: 0 },
 };
 
+export const LORD_ALPHA_PROJECTILE_VARIANTS = [
+  'quick',
+  'web',
+  'power',
+  'roc',
+  'finisher',
+] as const satisfies readonly LordAlphaProjectileVariant[];
+
+export const LORD_ALPHA_PROJECTILE_DURATION_MS = {
+  quick: 180,
+  web: 260,
+  power: 280,
+  roc: 200,
+  finisher: 320,
+} as const satisfies Record<LordAlphaProjectileVariant, number>;
+
+export interface LordAlphaProjectileFrame {
+  readonly variant: LordAlphaProjectileVariant;
+  readonly ageMs: number;
+  readonly progress: number;
+  readonly nodeReveal: number;
+  readonly edgeReveal: number;
+  readonly impact: number;
+  readonly recovery: number;
+}
+
+const clampUnit = (value: number): number => Math.max(0, Math.min(1, value));
+const smoothUnit = (value: number): number => {
+  const bounded = clampUnit(value);
+  return bounded * bounded * (3 - 2 * bounded);
+};
+
+/**
+ * Resolve presentation from an immutable birth clock. It never reads or writes
+ * projectile physics, so the five grammars cannot affect collision or balance.
+ */
+export function resolveLordAlphaProjectileFrame(
+  nowMs: number,
+  birthMs: number,
+  variant: LordAlphaProjectileVariant,
+): LordAlphaProjectileFrame {
+  const safeNow = Number.isFinite(nowMs) ? nowMs : 0;
+  const safeBirth = Number.isFinite(birthMs) ? birthMs : safeNow;
+  const ageMs = Math.max(0, safeNow - safeBirth);
+  const duration = LORD_ALPHA_PROJECTILE_DURATION_MS[variant];
+  const progress = clampUnit(ageMs / duration);
+  return {
+    variant,
+    ageMs,
+    progress,
+    nodeReveal: smoothUnit(progress / 0.28),
+    edgeReveal: smoothUnit((progress - 0.12) / 0.5),
+    impact: smoothUnit((progress - 0.5) / 0.27),
+    recovery: smoothUnit((progress - 0.78) / 0.22),
+  };
+}
+
+let lordAlphaReducedMotionQuery: MediaQueryList | null = null;
+
+/**
+ * Cache the media-query object rather than querying once per projectile per
+ * frame. MediaQueryList.matches remains live if the OS preference changes.
+ */
+function prefersReducedLordAlphaProjectileMotion(): boolean {
+  if (
+    !lordAlphaReducedMotionQuery
+    && typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+  ) {
+    lordAlphaReducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  }
+  return lordAlphaReducedMotionQuery?.matches ?? false;
+}
+
+// Each graph is generated once and reused by every projectile. No per-frame
+// topology allocation occurs, even during multishot or clone autofire.
+const LORD_ALPHA_PROJECTILE_TOPOLOGIES = {
+  web: generateLordAlphaTopology({
+    kind: 'radial', seed: 'lasi-projectile-web', nodeCount: 12,
+  }),
+  power: generateLordAlphaTopology({
+    kind: 'net', seed: 'lasi-projectile-power', nodeCount: 12,
+  }),
+  finisher: generateLordAlphaTopology({
+    kind: 'radial', seed: 'lasi-projectile-finisher', nodeCount: 18,
+  }),
+} as const;
+
+let lordAlphaShurikenSheet: HTMLImageElement | null = null;
+
+function getLordAlphaShurikenSheet(): HTMLImageElement | null {
+  if (lordAlphaShurikenSheet) return lordAlphaShurikenSheet;
+  if (typeof Image === 'undefined') return null;
+  const sheet = new Image();
+  sheet.decoding = 'async';
+  sheet.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE.suffix,
+  );
+  lordAlphaShurikenSheet = sheet;
+  return sheet;
+}
+
+function drawAuthoredLordAlphaShuriken(
+  ctx: CanvasRenderingContext2D,
+  radius: number,
+  direction: number,
+  ageMs: number,
+): boolean {
+  const sheet = getLordAlphaShurikenSheet();
+  if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
+
+  const source = LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE;
+  const sourceX = source.frameIndex * LORD_ALPHA_ATTACK_SEQUENCE_ASSETS.quick.frameWidth
+    + source.x;
+  const drawSize = Math.max(18, radius * 6.2);
+  const rotation = direction * (ageMs * 0.045);
+  const pulse = 1 + Math.sin(ageMs * 0.055) * 0.045;
+
+  ctx.save();
+  ctx.rotate(rotation);
+  ctx.scale(pulse, pulse);
+  ctx.imageSmoothingEnabled = false;
+  ctx.shadowColor = '#67e8f9';
+  ctx.shadowBlur = Math.max(2, radius * 0.72);
+  ctx.drawImage(
+    sheet,
+    sourceX,
+    source.y,
+    source.width,
+    source.height,
+    -drawSize * 0.5,
+    -drawSize * 0.5,
+    drawSize,
+    drawSize,
+  );
+  ctx.restore();
+  return true;
+}
+
+function drawLordAlphaTopologyCarrier(
+  ctx: CanvasRenderingContext2D,
+  topology: (typeof LORD_ALPHA_PROJECTILE_TOPOLOGIES)[keyof typeof LORD_ALPHA_PROJECTILE_TOPOLOGIES],
+  frame: LordAlphaProjectileFrame,
+  scale: number,
+  radius: number,
+  colors: readonly [string, string],
+  curve = 0,
+): void {
+  const visibleNodes = Math.max(1, Math.ceil(topology.nodes.length * frame.nodeReveal));
+  const visibleEdges = Math.ceil(topology.edges.length * frame.edgeReveal);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(0.8, radius * 0.16);
+  ctx.strokeStyle = colors[0];
+  for (let index = 0; index < visibleEdges; index += 1) {
+    const edge = topology.edges[index];
+    const from = topology.nodes[edge.from];
+    const to = topology.nodes[edge.to];
+    if (!from || !to || from.id >= visibleNodes || to.id >= visibleNodes) continue;
+    const controlY = (from.y + to.y) * scale * 0.5
+      + Math.sin((edge.from + 1) * 1.73 + edge.to * 0.61) * curve * radius;
+    ctx.beginPath();
+    ctx.moveTo(from.x * scale, from.y * scale);
+    ctx.quadraticCurveTo((from.x + to.x) * scale * 0.5, controlY, to.x * scale, to.y * scale);
+    ctx.stroke();
+  }
+  for (let index = 0; index < visibleNodes; index += 1) {
+    const node = topology.nodes[index];
+    ctx.fillStyle = index % 4 === 0 ? colors[1] : '#e0f2fe';
+    ctx.beginPath();
+    ctx.arc(
+      node.x * scale,
+      node.y * scale,
+      Math.max(0.75, radius * (index === 0 ? 0.28 : 0.16)),
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+}
+
+/**
+ * Purely visual replacement for Lord Alpha's existing bullet carrier. Bullet
+ * position, radius, speed, power, pierce, lifetime, and collision remain owned
+ * by the existing simulation.
+ */
+function drawLordAlphaProjectile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  direction: number,
+  now: number,
+  birthMs?: number,
+  requestedVariant?: LordAlphaProjectileVariant,
+): void {
+  const variant = requestedVariant ?? 'quick';
+  // Older or restored bullets without a carrier clock remain readable as a
+  // completed grammar; new bullets always construct from their recorded birth.
+  const effectiveBirth = Number.isFinite(birthMs)
+    ? birthMs as number
+    : now - LORD_ALPHA_PROJECTILE_DURATION_MS[variant];
+  const presentationNow = prefersReducedLordAlphaProjectileMotion()
+    ? effectiveBirth + LORD_ALPHA_PROJECTILE_DURATION_MS[variant]
+    : now;
+  const frame = resolveLordAlphaProjectileFrame(presentationNow, effectiveBirth, variant);
+  const scale = Math.max(2, radius);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(direction, 1);
+  ctx.shadowColor = '#60a5fa';
+  ctx.shadowBlur = Math.max(3, radius * 1.4);
+
+  switch (variant) {
+    case 'quick': {
+      if (drawAuthoredLordAlphaShuriken(ctx, radius, direction, frame.ageMs)) break;
+      const length = scale * (0.2 + frame.nodeReveal * 2.35);
+      ctx.strokeStyle = 'rgba(186, 230, 253, .94)';
+      ctx.lineWidth = Math.max(1, radius * 0.22);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-length, 0);
+      ctx.lineTo(scale * 0.72, 0);
+      ctx.stroke();
+      ctx.fillStyle = '#fff7c2';
+      ctx.beginPath();
+      ctx.arc(scale * 0.72, 0, Math.max(1, radius * 0.3), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case 'web':
+      ctx.rotate(frame.progress * 0.16);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.web,
+        frame,
+        scale * 1.62,
+        radius,
+        ['rgba(125, 211, 252, .92)', '#fde68a'],
+        0.12,
+      );
+      break;
+    case 'power':
+      ctx.transform(1, 0.16, -0.13, 1, 0, 0);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.power,
+        frame,
+        scale * (1.34 + frame.impact * 0.18),
+        radius,
+        ['rgba(224, 242, 254, .96)', '#67e8f9'],
+      );
+      ctx.strokeStyle = `rgba(253, 230, 138, ${0.24 + frame.impact * 0.6})`;
+      ctx.lineWidth = Math.max(1, radius * 0.22);
+      ctx.strokeRect(-scale * 1.05, -scale * 0.72, scale * 2.1, scale * 1.44);
+      break;
+    case 'roc': {
+      const impulse = smoothUnit(frame.progress / 0.38);
+      ctx.lineCap = 'round';
+      for (let feather = 0; feather < 4; feather += 1) {
+        const offset = (feather - 1.5) * radius * 0.55;
+        const reach = scale * (0.62 + impulse * (1.5 + feather * 0.12));
+        ctx.strokeStyle = feather % 2 === 0
+          ? 'rgba(255, 247, 194, .9)'
+          : 'rgba(186, 230, 253, .84)';
+        ctx.lineWidth = Math.max(0.8, radius * (0.12 + feather * 0.025));
+        ctx.beginPath();
+        ctx.moveTo(scale * 0.62, offset * 0.2);
+        ctx.quadraticCurveTo(-reach * 0.35, offset * 1.4, -reach, offset);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = `rgba(255, 253, 242, ${0.35 + (1 - frame.recovery) * 0.5})`;
+      ctx.lineWidth = Math.max(1, radius * 0.2);
+      ctx.beginPath();
+      ctx.arc(0, 0, scale * (0.45 + impulse * 0.78), -0.62, 0.62);
+      ctx.stroke();
+      break;
+    }
+    case 'finisher': {
+      const tighten = smoothUnit((frame.progress - 0.46) / 0.54);
+      const netScale = scale * (2.05 - tighten * 0.72);
+      ctx.rotate(frame.progress * 0.28);
+      drawLordAlphaTopologyCarrier(
+        ctx,
+        LORD_ALPHA_PROJECTILE_TOPOLOGIES.finisher,
+        frame,
+        netScale,
+        radius,
+        ['rgba(224, 242, 254, .94)', '#fde68a'],
+        0.18 * (1 - tighten),
+      );
+      ctx.strokeStyle = `rgba(96, 165, 250, ${0.34 + frame.impact * 0.52})`;
+      ctx.lineWidth = Math.max(1, radius * 0.18);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, netScale * 0.82, netScale * 0.42, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255, 247, 194, ${0.2 + frame.impact * 0.68})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(1, radius * (0.26 + tighten * 0.3)), 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+  }
+  ctx.restore();
+}
+
 const CONCEPT_PROJECTILE_SKINS = new Set([
   'tempest', 'cryo', 'terra', 'echo', 'mirage',
   'beacon', 'swarm', 'bloom', 'tidal',
@@ -824,9 +1129,26 @@ function drawSkinProjectileEffect(
   radius: number,
   direction: number,
   now: number,
-  skin?: string,
+  projectileOrSkin?: Bullet | string,
 ): boolean {
+  const projectile = typeof projectileOrSkin === 'string' ? undefined : projectileOrSkin;
+  const skin = typeof projectileOrSkin === 'string'
+    ? projectileOrSkin
+    : projectile?.effectSkin;
   if (!skin) return false;
+  if (skin === LORD_ALPHA_SKIN_ID) {
+    drawLordAlphaProjectile(
+      ctx,
+      x,
+      y,
+      radius,
+      direction,
+      now,
+      projectile?.presentationBirthMs,
+      projectile?.presentationVariant,
+    );
+    return true;
+  }
   const config = PROJECTILE_EFFECTS[skin];
   if (!config) return false;
   const sheet = getAdvancedProjectileSheet(skin);
@@ -1006,6 +1328,10 @@ function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
 
 /** Begin loading the selected skin's authored projectile before its first shot. */
 export function preloadAdvancedProjectileSheet(skin: string): void {
+  if (skin === LORD_ALPHA_SKIN_ID) {
+    getLordAlphaShurikenSheet();
+    return;
+  }
   if (PROJECTILE_EFFECTS[skin]) getAdvancedProjectileSheet(skin);
 }
 
@@ -1018,6 +1344,14 @@ export function draw(
   hasOverlay?: boolean,
   npcHasOverlay?: boolean,
   renderNow = performance.now(),
+  campaignRoutePrompt: {
+    last: boolean;
+    next: boolean;
+    targetLast?: number;
+    targetNext?: number;
+    boss?: boolean;
+  } | null = null,
+  boardTopFloor = 0,
 ) {
   const nodeIntegrity = state.systemIntegrity?.node ?? 100;
   const corruption = Math.max(0, Math.min(1, (72 - nodeIntegrity) / 72));
@@ -1026,7 +1360,7 @@ export function draw(
   ctx.fillStyle = corruption > 0.55 ? '#090713' : '#06101e';
   ctx.fillRect(0, 0, w, h);
 
-  const m = getBoardMetrics(w, h);
+  const m = getBoardMetrics(w, h, boardTopFloor);
   const splitX = m.x + m.cell * 3;
   const vs = state.gameMode === 'vs';
 
@@ -1060,7 +1394,14 @@ export function draw(
       // NPC movement remains highlighted; Player movement uses only the avatar animation.
       const npcFlash = npcSide && (3 + state.npc.col) === c && state.npc.row === r;
 
-      if (playerSide) {
+      const routeLastCell = campaignRoutePrompt?.last && playerSide && c === 0;
+      const routeNextCell = campaignRoutePrompt?.next && playerSide && c === 2;
+
+      if (routeLastCell) {
+        ctx.fillStyle = 'rgba(92,217,245,0.28)';
+      } else if (routeNextCell) {
+        ctx.fillStyle = 'rgba(192,118,255,0.28)';
+      } else if (playerSide) {
         ctx.fillStyle = 'rgba(59,130,246,0.12)';
       } else if (npcFlash) {
         ctx.fillStyle = 'rgba(52,211,153,0.28)';
@@ -1072,7 +1413,11 @@ export function draw(
 
       ctx.fillRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
 
-      if (playerSide) {
+      if (routeLastCell) {
+        ctx.strokeStyle = 'rgba(92,217,245,0.92)';
+      } else if (routeNextCell) {
+        ctx.strokeStyle = 'rgba(192,118,255,0.92)';
+      } else if (playerSide) {
         ctx.strokeStyle = 'rgba(125,211,252,0.55)';
       } else if (npcSide) {
         ctx.strokeStyle = 'rgba(52,211,153,0.45)';
@@ -1082,6 +1427,50 @@ export function draw(
       ctx.lineWidth = 2;
       ctx.strokeRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
     }
+  }
+
+  if (campaignRoutePrompt?.last || campaignRoutePrompt?.next) {
+    const labelY = m.y + m.cell * 1.5;
+    const pulse = 0.78 + Math.sin(renderNow * 0.008) * 0.18;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.max(9, Math.round(m.cell * 0.13))}px ui-sans-serif, system-ui, sans-serif`;
+    if (campaignRoutePrompt.last) {
+      ctx.globalAlpha = pulse;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#9cecff';
+      ctx.shadowColor = '#5cd9f5';
+      ctx.fillText('◀ LAST', m.x + m.cell * 0.5, labelY);
+    }
+    if (campaignRoutePrompt.next) {
+      ctx.globalAlpha = pulse;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = '#dbb4ff';
+      ctx.shadowColor = '#c076ff';
+      ctx.fillText('NEXT ▶', m.x + m.cell * 2.5, labelY);
+    }
+    if (campaignRoutePrompt.boss) {
+      ctx.font = `900 ${Math.max(7, Math.round(m.cell * 0.1))}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.fillStyle = '#fff0a5';
+      ctx.shadowColor = '#ffd447';
+      for (const row of [0, 2]) {
+        if (campaignRoutePrompt.last) {
+          ctx.fillText('BOSS', m.x + m.cell * 0.5, m.y + m.cell * (row + 0.72));
+        }
+        if (campaignRoutePrompt.next) {
+          ctx.fillText('BOSS', m.x + m.cell * 2.5, m.y + m.cell * (row + 0.72));
+        }
+      }
+      ctx.fillStyle = '#9ff5c9';
+      if (campaignRoutePrompt.last) {
+        ctx.fillText('STRAIGHT', m.x + m.cell * 0.5, m.y + m.cell * 1.72);
+      }
+      if (campaignRoutePrompt.next) {
+        ctx.fillText('STRAIGHT', m.x + m.cell * 2.5, m.y + m.cell * 1.72);
+      }
+    }
+    ctx.restore();
   }
 
   // Center divider
@@ -1205,7 +1594,7 @@ export function draw(
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
     const direction = Math.sign(b.speed) || 1;
     const attackStyle = b.attackStyle ?? 'physical';
-    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b.effectSkin);
+    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b);
     if (!skinProjectileDrawn) {
       ctx.save();
       if (attackStyle === 'melee') {
@@ -1373,7 +1762,7 @@ export function draw(
       const bx = m.x + b.colPos * m.cell;
       const by = m.y + (b.row + 0.5) * m.cell;
       const radius = m.cell * 0.08;
-      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b.effectSkin);
+      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b);
       if (!skinProjectileDrawn) {
         ctx.fillStyle = '#67e8f9';
         ctx.beginPath();
@@ -1419,6 +1808,7 @@ export function draw(
   for (const e of state.enemies) {
     const ex = m.x + (e.colPos + 0.5) * m.cell;
     const ey = m.y + (e.row + 0.5) * m.cell;
+    const enemyVisualSeed = getEnemyVisualSeed(e);
     const ectx: EntityDrawContext = {
       hpFrac: Math.min(1, e.hp / 5),
       row: e.row,
@@ -1433,9 +1823,8 @@ export function draw(
     ctx.save();
     ctx.translate(ex, ey);
     if (genome) {
-      const visualSeed = getEnemyVisualSeed(e);
-      const sprite = getProceduralVirusSprite(visualSeed, genome);
-      const motion = getEntityMotion(genome.baseElement, now, visualSeed);
+      const sprite = getProceduralVirusSprite(enemyVisualSeed, genome);
+      const motion = getEntityMotion(genome.baseElement, now, enemyVisualSeed);
       // Preserve the source's 3:2 aspect ratio while reserving real clearance
       // above the silhouette. At 99% cell height the top contour, motion and
       // HP marker competed for the same boundary and every family read clipped.
@@ -1509,6 +1898,41 @@ export function draw(
       ctx.restore();
     }
     ctx.restore();
+    const routeTarget = campaignRoutePrompt?.targetLast === enemyVisualSeed
+      ? 'LAST'
+      : campaignRoutePrompt?.targetNext === enemyVisualSeed ? 'NEXT' : null;
+    if (routeTarget) {
+      const isLast = routeTarget === 'LAST';
+      const color = isLast ? '#5cd9f5' : '#c076ff';
+      const ready = isLast ? campaignRoutePrompt?.last : campaignRoutePrompt?.next;
+      const markerRadius = drawCell * 0.43;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(1.5, m.cell * 0.025);
+      ctx.globalAlpha = ready ? 1 : 0.82;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = ready ? 9 : 4;
+      ctx.setLineDash([Math.max(3, m.cell * 0.07), Math.max(2, m.cell * 0.045)]);
+      ctx.beginPath();
+      ctx.arc(ex, ey, markerRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.shadowBlur = 0;
+      // Direction is communicated by the card/outline colour. Keep words off
+      // the combat grid until the earned route-choice intermission.
+      const chipX = ex + markerRadius * 0.72;
+      const chipY = ey - markerRadius * 0.72;
+      ctx.beginPath();
+      ctx.arc(chipX, chipY, Math.max(4, m.cell * 0.075), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#06101e';
+      ctx.font = `900 ${Math.max(7, Math.round(m.cell * 0.085))}px ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isLast ? 'L' : 'N', chipX, chipY + 0.5);
+      ctx.restore();
+    }
     if (e.hp > 1) {
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 6, ey - m.cell * 0.43, 12, 3);

@@ -3,6 +3,15 @@ import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
 import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
 import { ActionCinematic } from './ActionCinematic';
+import { CampaignRouteFork, type CampaignRouteEnemyVisual } from './CampaignRouteFork';
+import { LordAlphaSprite, type LordAlphaMotion } from './LordAlphaSprite';
+import { LordAlphaVfx } from './LordAlphaVfx';
+import {
+  normalizeMovablePanelPosition,
+  parseMovablePanelPosition,
+  resolveMovablePanelPosition,
+  type MovablePanelPosition,
+} from '../game/movable-panel';
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -75,21 +84,45 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       style={{ display: 'block', imageRendering: 'pixelated', width: 48, height: 48 }} />
   );
 }
-import type { GameState, GameMode, EnemyGenome, EnemyAbility, Ability, Bullet } from '../game/types';
+import type { GameState, GameMode, Enemy, EnemyGenome, EnemyAbility, Ability, Bullet } from '../game/types';
 import {
   ABILITY_POOL, ABILITY_LOOKUP, CARD_CHARGE_TIME,
   ENEMY_ABILITY_FIRST_CAST_MIN, ENEMY_ABILITY_FIRST_CAST_RANGE, ENEMY_ABILITY_WINDUP,
   NPC_HP,
 } from '../game/constants';
 import {
+  composePracticalAbilityHand,
+  evaluateAbility,
+  isAbilityId,
+  type AbilityBoardContext,
+  type AbilityEnemySnapshot,
+  type AbilityEnemyTag,
+} from '../game/ability-system';
+import {
+  isVersusAbilityId,
+  resolveVersusAbilityEffect,
+  type VersusAbilityContext,
+  type VersusAbilityOutcome,
+} from '../game/versus-ability-resolver';
+import {
+  resolveAbilityCardContext,
+  resolveGeneratedPlayerVersusEffect,
+} from '../game/ability-card-context';
+import {
+  EXISTING_VERSUS_TIMER_FIELDS,
+  advanceVersusStatusRuntime,
+  applyVersusStatusIntents,
+  createEmptyVersusStatusRuntimePatch,
+} from '../game/versus-status-runtime';
+import {
   COMPETITIVE_RULESET,
   boundedRecovery,
   clampCompetitiveResources,
-  competitiveAbilityDamage,
   competitiveProjectileDamage,
   competitiveRandom,
 } from '../game/competitive-balance';
 import { draw, getBoardMetrics, preloadAdvancedProjectileSheet } from '../game/renderer';
+import { ACTION_WINDOW_GRID_GAP, getActionWindowBottomLimit } from '../game/board-layout';
 import {
   ensureAudio, startMusic, stopMusic,
   playShot, playHit, playScore, playGameOver, setSystemIntegrityAudio,
@@ -97,22 +130,180 @@ import {
 } from '../game/audio';
 import { pickDiverseSeed, registerSpawn, getMorphSig } from '../game/virus-morphology';
 import { canFuse, createGenome, fuseGenomes, selectAdaptiveRow } from '../game/evolution';
+import {
+  MILESTONE_FIRST_WAVE,
+  MILESTONE_INTERVAL_WAVES,
+  chooseMilestoneEvolutionOptions,
+  getMilestoneEvolution,
+  milestoneBossEvolutionProfile,
+  milestoneBossWorkMultiplier,
+  milestoneCardRechargeMultiplier,
+  milestoneFireRateMultiplier,
+  milestoneIntegrityBreachMultiplier,
+  milestoneIntegrityRestorationMultiplier,
+  milestoneProjectileDamageMultiplier,
+  milestoneProjectileSpeedMultiplier,
+  resolveMilestoneDefeatProgress,
+  resolveMilestonePressureRecovery,
+  resolveMilestoneWorldStepDelta,
+  resolveMilestoneWorldStepReward,
+} from '../game/milestone-evolution';
 import { getEnemyMovementClass, getProceduralVirusSprite, type EnemyMovementClass } from '../game/procedural-virus';
 import { ELEMENT_DOMAIN } from '../game/element-matrix';
-import { resolveCampaignBiome } from '../game/campaign-scenery';
 import { ENCOUNTERS_PER_OPERATION, resolveCampaignProgress } from '../game/campaign-director';
 import {
-  chooseVersusMovementRow,
-  chooseVersusNpcAbility,
+  CAMPAIGN_PROVINCES,
+  resolveCampaignBossStageIndex,
+} from '../game/campaign-terrain';
+import {
+  CAMPAIGN_ROUTE_FORK_START_WAVE,
+  isCampaignRouteBossForkDue,
+  resolveCampaignRouteBossEncounter,
+  resolveCampaignRouteSelection,
+  resolveCampaignRouteTraversal,
+  type CampaignRouteAvailability,
+  type CampaignRouteBossEncounter,
+  type CampaignRouteDirection,
+  type CampaignRouteTraversal,
+} from '../game/campaign-route-director';
+import {
+  CAMPAIGN_ROUTE_TARGET_HOLD_COL,
+  CAMPAIGN_ROUTE_TARGET_REACQUIRE_DELAY_SECONDS,
+  CAMPAIGN_ROUTE_TARGET_PAIR_SPAWN_DELAY_SECONDS,
+  advanceCampaignRouteTargetColumn,
+  campaignRouteTargetCandidates,
+  findCampaignRouteTarget,
+  getCompleteCampaignRouteTargetPair,
+  isCampaignRouteTarget,
+  pinCampaignRouteTargetLane,
+  reconcileCampaignRouteTarget,
+  selectCampaignRouteTargetCandidate,
+} from '../game/campaign-route-targets';
+import {
+  CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS,
+  createCampaignRouteAutoBusterState,
+  getCampaignRouteAimDirectionAtRow,
+  registerCampaignProjectileEnemyHit,
+  resolveCampaignRouteAutoBuster,
+  resolveCampaignRouteQuotaImpact,
+  resolveCampaignRouteTargetRows,
+  type CampaignRouteAimPair,
+  type CampaignRouteAutoBusterPhase,
+} from '../game/campaign-route-auto-buster';
+import { getEnemyVisualSeed } from '../game/enemy-identity';
+import {
+  bossStrategyProfile,
+  chooseVersusBasicAttackAim,
+  chooseVersusMovementColumn,
+  chooseVersusMovementPosition,
   chooseVersusNpcSignature,
   planCampaignNpc,
-  shotRowsForPlan,
   type VersusAbilityPlan,
   type VersusNpcContext,
   type VersusSignaturePlan,
 } from '../game/npc-strategy';
+import {
+  planVersusBossEvasion,
+  versusBossImpactIsCommitted,
+} from '../game/versus-boss-evasion';
+import { applyVersusNpcCombatPlan } from '../game/npc-combat-runtime';
+import {
+  BOSS_SIGNATURE_COMMANDS as RIVAL_SKILL_COMMANDS,
+  BOSS_SIGNATURE_MOTIFS as SKILL_EXECUTION_MOTIFS,
+  BOSS_SKILL_COLORS as SIGNATURE_SKILL_COLORS,
+  SKILL_VFX_SEQUENCE,
+  resolveNpcAbilityPresentation,
+  resolveNpcSignaturePresentation,
+  type BossSkillId,
+  type NpcSkillPresentation,
+  type NpcSkillPresentationAnchor,
+  type SkillExecutionMotif,
+} from '../game/npc-skill-presentation';
+import {
+  advanceVersusBossAbilityCooldowns,
+  createVersusBossCounterpart,
+  dealVersusBossAbilityHand,
+  selectVersusBossReadyAbility,
+  useVersusBossAbility,
+  versusBossAbilityHandIsExhausted,
+  type VersusBossAbilityCard,
+  type VersusBossCounterpart,
+} from '../game/versus-boss-counterpart';
+import {
+  advanceVersusBossAbilityRuntime,
+  applyVersusBossVerifiedDamageEffects,
+  createEmptyVersusBossAbilityRuntimeState,
+  executeVersusBossAbility,
+  launchVersusBossBasicProjectile,
+  resolveVersusBossProjectileDamage,
+  versusBossPlayerFireRecoveryMultiplier,
+  type VersusBossAbilityRuntimeState,
+} from '../game/versus-boss-ability-runtime';
+import {
+  executeGeneratedVersusBossAbility,
+  selectGeneratedVersusEncounterCard,
+  type GeneratedAbilityDelivery,
+  type GeneratedAbilityFunction,
+  type GeneratedAbilityMedium,
+} from '../game/generated-versus-ability';
+import {
+  advanceVersusBossSignatureTime,
+  consumeVersusBossShadowClone,
+  createVersusBossSignatureRuntimeState,
+  dispatchVersusBossSignature,
+  recordVersusBossSignaturePosition,
+  type VersusBossSignatureRuntimeState,
+} from '../game/versus-boss-signature-dispatch';
+import type { EchoNpcChannelEvent } from '../game/versus-boss-signature';
+import {
+  LORD_ALPHA_FORM_IDS,
+  LORD_ALPHA_FORMS,
+  LORD_ALPHA_ASSET_REVISION,
+  LORD_ALPHA_SKIN_ID,
+  LORD_ALPHA_COMBO_PRESENTATIONS,
+  LORD_ALPHA_EVENT_TIMINGS_MS,
+  LORD_ALPHA_SKILL_BANKS,
+  LORD_ALPHA_SKILL_BINDINGS,
+  LORD_ALPHA_SKILL_PREVIEW_ACTIONS,
+  LORD_ALPHA_VFX_TIMINGS_MS,
+  advanceLordAlphaCombo,
+  createLordAlphaComboState,
+  createLordAlphaPresentationEvent,
+  getLordAlphaCardPresentation,
+  isLordAlphaSkillsPreviewSearch,
+  lordAlphaSignatureUsesCooldown,
+  resolveLordAlphaAttackSequence,
+  resolveLordAlphaSkillAction,
+  wrapLordAlphaSkillBank,
+  type LordAlphaComboBeat,
+  type LordAlphaForm,
+  type LordAlphaPresentationEvent,
+  type LordAlphaPresentationEventKind,
+  type LordAlphaPresentationEventOptions,
+} from '../game/lord-alpha';
 
 const ALL_ABILITY_IDS = new Set(ABILITY_POOL.map((a) => a.id));
+
+interface ActionRouteTargetBinding {
+  enemy: Enemy;
+  visualSeed: number;
+  visual: CampaignRouteEnemyVisual;
+  armedWave: number;
+  confirmedHits: number;
+}
+
+type ActionRouteTargetBindings = Record<CampaignRouteDirection, ActionRouteTargetBinding | null>;
+
+interface CampaignBossSession {
+  encounter: CampaignRouteBossEncounter;
+  campaignState: GameState;
+  previousNpcSkin: string;
+}
+
+interface ActionRouteTraversal extends CampaignRouteTraversal {
+  revision: number;
+}
+
 const ABILITY_PRESETS_KEY = 'cgs_ability_presets_v1';
 const ACTIVE_ABILITY_PRESET_KEY = 'cgs_active_ability_preset_v1';
 const AUTO_ROTATE_PRESETS_KEY = 'cgs_auto_rotate_ability_presets_v1';
@@ -135,13 +326,8 @@ const CONTROL_ABILITY_IDS = new Set([
   'anchorfield', 'tailclamp', 'tanglewire', 'trafficjam', 'bloombind',
   'voidaperture', 'quarantine',
 ]);
-type AbilityCategory = 'offense' | 'control' | 'wildcard';
-const abilityBags: Record<AbilityCategory, string[]> = {
-  offense: [],
-  control: [],
-  wildcard: [],
-};
 let previousAbilityHand: string[] = [];
+let abilityHandSequence = 0;
 const AIR_CLASSES = new Set<EnemyMovementClass>(['flier', 'hover', 'spectral']);
 const FLUID_CLASSES = new Set<EnemyMovementClass>(['aquatic', 'serpentine', 'tentacled']);
 const GROUNDED_CLASSES = new Set<EnemyMovementClass>(['biped', 'quadruped', 'arthropod', 'burrower', 'vehicle', 'fortress']);
@@ -161,6 +347,8 @@ const GENERATED_ABILITIES_KEY = 'cgs_generated_abilities_v1';
 const AVATAR_COMPONENTS_KEY = 'cgs_avatar_components_v1';
 const EQUIPPED_COMPONENTS_KEY = 'cgs_equipped_components_v1';
 const ASSEMBLY_SKILL_KEY = 'cgs_assembly_skill_v1';
+const LORD_ALPHA_FORM_KEY = 'cgs_lord_alpha_form_v1';
+const LORD_ALPHA_SKILL_PANEL_POSITION_KEY = 'cgs_lord_alpha_skill_panel_position_v1';
 const CONSTITUTION_MATRIX_KEY = 'cgs_constitution_matrix_v2';
 const SYNCHRONY_THRESHOLD = 3;
 
@@ -510,9 +698,9 @@ function avatarComponentsRecoveredFromBestiary(): AvatarComponentDrop[] {
 
 interface AbilityBlueprint {
   abilityId: string;
-  delivery: string;
-  function: string;
-  medium: string;
+  delivery: GeneratedAbilityDelivery;
+  function: GeneratedAbilityFunction;
+  medium: GeneratedAbilityMedium;
 }
 
 interface GeneratedAbility extends Ability, AbilityBlueprint {
@@ -572,11 +760,18 @@ interface LearnedAbility {
 const MAX_ABILITY_RANK = 5;
 const ABILITY_RANK_THRESHOLDS = [0, 1, 3, 6, 10, 15];
 const PRESTIGE_RESONANCE_STEP = 4;
-const ESSENTIAL_ABILITY_IDS = new Set(['shotgun', 'heal', 'scramble']);
+const ESSENTIAL_ABILITY_IDS = new Set([
+  'shotgun', 'heal', 'scramble',
+  'pierce', 'shield', 'overclock', 'crit',
+]);
 const FOUNDATION_ABILITIES: LearnedAbility[] = [
   { id: 'shotgun', source: 'foundation', reason: 'Essential spread offense.', learnedAt: 0, resonance: 1, rank: 1 },
   { id: 'heal', source: 'foundation', reason: 'Essential recovery protocol.', learnedAt: 0, resonance: 1, rank: 1 },
   { id: 'scramble', source: 'foundation', reason: 'Essential formation control.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'pierce', source: 'foundation', reason: 'Essential armor answer.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'shield', source: 'foundation', reason: 'Essential reactive defense.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'overclock', source: 'foundation', reason: 'Essential tempo engine.', learnedAt: 0, resonance: 1, rank: 1 },
+  { id: 'crit', source: 'foundation', reason: 'Essential damage setup.', learnedAt: 0, resonance: 1, rank: 1 },
 ];
 
 function abilityRank(resonance: number): number {
@@ -673,47 +868,20 @@ function normalizedGeneratedAbility(ability: GeneratedAbility): GeneratedAbility
     const signal = ability.id.slice('manifest-style-'.length) as PlaystyleSignal;
     if (Object.prototype.hasOwnProperty.call(PLAYSTYLE_MANIFESTATIONS, signal)) {
       const canonical = manifestedPlaystyleAbility(signal);
-      const normalized = { ...ability, name: canonical.name };
+      const normalized = { ...ability, abilityId: ability.id, name: canonical.name };
       return { ...normalized, desc: generatedAbilityDescription(normalized) };
     }
   }
   const words = ability.name.trim().split(/\s+/);
   const deduplicated = words.filter((word, index) =>
     index === 0 || word.toLowerCase() !== words[index - 1].toLowerCase());
-  const normalized = { ...ability, name: deduplicated.join(' ') };
+  const normalized = { ...ability, abilityId: ability.id, name: deduplicated.join(' ') };
   return { ...normalized, desc: generatedAbilityDescription(normalized) };
 }
 
-interface RunUpgrade {
-  id: string;
-  name: string;
-  desc: string;
-  maxLevel: number;
-}
-
-const RUN_UPGRADES: RunUpgrade[] = [
-  { id: 'capacitor', name: 'CAPACITOR', desc: 'Ability hands recharge 15% faster per level.', maxLevel: 3 },
-  { id: 'rapidBuster', name: 'RAPID BUSTER', desc: 'Player fires 10% faster per level.', maxLevel: 3 },
-  { id: 'phaseRounds', name: 'PHASE ROUNDS', desc: 'Every fifth shot pierces; higher levels trigger sooner.', maxLevel: 3 },
-  { id: 'denseCharge', name: 'DENSE CHARGE', desc: 'Every fourth shot gains +1 damage per level.', maxLevel: 3 },
-  { id: 'repairWeave', name: 'REPAIR WEAVE', desc: 'Restore 2 HP now and 1 HP after each recovery window.', maxLevel: 2 },
-  { id: 'barrierArray', name: 'BARRIER ARRAY', desc: 'Gain 2 shield charges immediately.', maxLevel: 3 },
-  { id: 'shockVent', name: 'SHOCK VENT', desc: 'Entering critical pressure pushes every enemy backward.', maxLevel: 2 },
-  { id: 'hybridHunter', name: 'HYBRID HUNTER', desc: 'Shots deal +1 damage to fused enemies per level.', maxLevel: 2 },
-  { id: 'vitalCache', name: 'VITAL CACHE', desc: 'Restore 4 integrity hull points immediately.', maxLevel: 3 },
-  { id: 'shieldFoundry', name: 'SHIELD FOUNDRY', desc: 'Forge 4 shield charges immediately.', maxLevel: 3 },
-  { id: 'phaseReserve', name: 'PHASE RESERVE', desc: 'Load 10 guaranteed piercing shots.', maxLevel: 3 },
-  { id: 'overclockSeed', name: 'OVERCLOCK SEED', desc: 'Gain 8 seconds of accelerated fire control.', maxLevel: 3 },
-];
 const UPGRADE_PROMPT_TIME = 10;
 const UPGRADE_RETRY_WAVES = 2;
-const UPGRADE_INTERVAL_WAVES = 5;
-
-function chooseUpgradeOptions(levels: Record<string, number>): string[] {
-  return shuffleIds(RUN_UPGRADES
-    .filter((upgrade) => (levels[upgrade.id] ?? 0) < upgrade.maxLevel)
-    .map((upgrade) => upgrade.id)).slice(0, 3);
-}
+const UPGRADE_INTERVAL_WAVES = MILESTONE_INTERVAL_WAVES;
 
 function BestiarySprite({ seed, genome }: { seed: number; genome: EnemyGenome }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -2032,6 +2200,131 @@ function isCyberEnemy(enemy: GameState['enemies'][number]): boolean {
   return Boolean(enemy.genome && CYBER_BASES.has(enemy.genome.baseElement));
 }
 
+function abilityEnemySnapshot(enemy: GameState['enemies'][number]): AbilityEnemySnapshot {
+  const tags = new Set<AbilityEnemyTag>();
+  const movement = movementClassOf(enemy);
+  const genome = enemy.genome;
+
+  if (movement && AIR_CLASSES.has(movement)) tags.add('airborne');
+  if (movement && GROUNDED_CLASSES.has(movement)) tags.add('grounded');
+  if (movement && HEAVY_CLASSES.has(movement)) tags.add('heavy');
+  if (movement && !HEAVY_CLASSES.has(movement)) tags.add('light');
+  if (movement && movement !== 'rooted' && movement !== 'fortress') tags.add('mobile');
+  if (movement === 'aquatic') tags.add('aquatic');
+  if (movement === 'burrower') tags.add('burrower');
+  if (movement === 'colony') tags.add('colony');
+  if (movement === 'rooted') tags.add('rooted');
+  if (movement === 'serpentine') tags.add('serpentine');
+  if (movement === 'spectral') tags.add('spectral');
+  if (movement === 'tentacled') tags.add('tentacled');
+  if (movement === 'vehicle') {
+    tags.add('vehicle');
+    tags.add('wheel');
+  }
+  if (enemy.speed >= 1.45 || genome?.mutations.includes('accelerated')) tags.add('fast');
+  if (enemy.colPos <= 3.1) tags.add('inside-center');
+  if (enemy.formationId !== undefined) tags.add('converging');
+
+  if (genome) {
+    if (isCyberEnemy(enemy)) tags.add('cyber');
+    if (genome.entityType === 'mechanical' || genome.entityType === 'synthetic' || isCyberEnemy(enemy)) {
+      tags.add('machine');
+    }
+    if (genome.entityType === 'botanical' || genome.element === 'bloom') tags.add('botanical');
+    if (genome.entityType === 'fluidic') tags.add('fluidic');
+    if (genome.niche === 'phase' || genome.phaseChance > 0) tags.add('phase');
+    if (genome.niche === 'regenerator' || genome.regeneration > 0) tags.add('regenerator');
+    if (genome.fusionLevel > 0) tags.add('fused');
+    if (genome.mutations.length > 0) tags.add('mutated');
+    if (genome.mutations.includes('armored')) tags.add('armored');
+    if (genome.mutations.includes('resilient')) tags.add('resilient');
+    if (genome.element === 'thermal') tags.add('thermal');
+    if (genome.element === 'cryo') tags.add('cryo');
+    if (genome.element === 'voltaic') tags.add('voltaic');
+    if (genome.element === 'void') tags.add('void');
+  }
+  if (enemy.hp <= 1 || enemy.hp <= (enemy.maxHp ?? enemy.hp) * 0.35) tags.add('weakened');
+
+  return {
+    tags: [...tags],
+    hp: enemy.hp,
+    maxHp: enemy.maxHp ?? enemy.hp,
+    row: enemy.row,
+    distance: Math.max(0, Math.min(1, enemy.colPos / 5.8)),
+    species: genome?.baseElement,
+    element: genome?.element,
+    fusionLevel: genome?.fusionLevel ?? 0,
+    mutationCount: genome?.mutations.length ?? 0,
+    generation: genome?.generation ?? 1,
+  };
+}
+
+function abilityBoardContext(state: GameState): AbilityBoardContext {
+  const maxHp = state.gameMode === 'vs'
+    ? COMPETITIVE_RULESET.maxHp
+    : Math.max(5, state.hp);
+  return {
+    mode: state.gameMode,
+    enemies: state.enemies
+      .filter((enemy) => enemy.colPos > -1)
+      .map(abilityEnemySnapshot),
+    playerHp: state.hp,
+    playerMaxHp: maxHp,
+    shieldCharges: state.shieldCharges,
+    maxShieldCharges: state.gameMode === 'vs' ? COMPETITIVE_RULESET.maxShields : 9,
+    pendingThreats: state.gameMode === 'vs'
+      ? state.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.speed < 0).length
+      : 0,
+    canRefreshHand: state.cardsReady && state.currentCardOptions.length > 0,
+    opponent: state.gameMode === 'vs'
+      ? {
+        present: state.npc.hp > 0,
+        hp: state.npc.hp,
+        maxHp: NPC_HP,
+        tags: ['grounded', 'mobile'],
+      }
+      : undefined,
+  };
+}
+
+/** Matches the exact snapshot used when the player resolves a card in Versus. */
+function abilityCardVersusContext(state: GameState): VersusAbilityContext {
+  return {
+    caster: {
+      hp: state.hp,
+      maxHp: COMPETITIVE_RULESET.maxHp,
+      shields: state.shieldCharges,
+      maxShields: COMPETITIVE_RULESET.maxShields,
+      row: state.player.row,
+      column: state.player.col,
+    },
+    opponent: {
+      hp: state.npc.hp,
+      maxHp: NPC_HP,
+      shields: state.npc.shieldCharges,
+      maxShields: COMPETITIVE_RULESET.maxShields,
+      row: state.npc.row,
+      column: 3 + state.npc.col,
+    },
+    opponentTraits: ['mobile', 'grounded'],
+    opponentMovement: 'biped',
+    distance: Math.abs(3 + state.npc.col - state.player.col),
+  };
+}
+
+function generatedAbilityIsPractical(
+  ability: GeneratedAbility,
+  context: AbilityBoardContext,
+): boolean {
+  if (ability.function === 'ward') {
+    return (context.shieldCharges ?? 0) < (context.maxShieldCharges ?? 3);
+  }
+  if (ability.function === 'restore') return context.playerHp < context.playerMaxHp;
+  return context.mode === 'vs'
+    ? Boolean(context.opponent?.present)
+    : context.enemies.length > 0;
+}
+
 function enemyAbilityFor(genome: EnemyGenome): EnemyAbility | undefined {
   const mature = genome.fusionLevel > 0 || (genome.generation >= 2 && genome.mutations.length >= 2);
   if (!mature) return undefined;
@@ -2097,7 +2390,7 @@ function constitutionComponents(genome: EnemyGenome): Omit<AbilityBlueprint, 'ab
           : constitution === 'phaseLeap' || genome.niche === 'phase' ? 'reveal'
             : genome.mutations.includes('resilient') ? 'inhibit'
               : 'rupture';
-  const mediumByElement: Record<string, string> = {
+  const mediumByElement: Record<string, GeneratedAbilityMedium> = {
     voltaic: 'signal',
     thermal: 'thermal',
     cryo: 'thermal',
@@ -2214,34 +2507,6 @@ function shuffleIds(ids: string[]): string[] {
   return shuffled;
 }
 
-function relevantAbilityIds(enemies: GameState['enemies'], hp: number): string[] {
-  const living = enemies.filter((enemy) => enemy.colPos >= -1);
-  const relevant = new Set<string>();
-  const add = (...ids: string[]) => ids.forEach((id) => {
-    if (ABILITY_LOOKUP[id]) relevant.add(id);
-  });
-
-  if (living.length >= 4) add('bomb', 'megabomb', 'nuke', 'surge', 'chain', 'pulse', 'blizzard', 'backdash');
-  if (living.some((enemy) => enemy.colPos <= 2.35)) {
-    add('backdash', 'scramble', 'freeze', 'ghost', 'shield', 'pulse', 'stasisgate', 'returnfire');
-  }
-  if (living.some((enemy) => (enemy.genome?.fusionLevel ?? 0) > 0)) {
-    add('separate', 'hybridtax', 'devolve', 'quarantine');
-  }
-  if (living.some((enemy) =>
-    enemy.genome?.mutations.includes('armored') || enemy.genome?.mutations.includes('resilient'))) {
-    add('shattershot', 'acidetch', 'adaptive', 'mutationlock');
-  }
-  if (living.some((enemy) => {
-    const movement = movementClassOf(enemy);
-    return movement && AIR_CLASSES.has(movement);
-  })) add('time', 'flak', 'sonicnet', 'freeze');
-  if (living.some(isCyberEnemy)) add('signaljam', 'circuitarc', 'trafficjam', 'magnet');
-  if (hp <= 2) add('heal', 'armor', 'shield', 'ghost', 'regen', 'drain');
-  if (relevant.size === 0) add('pierce', 'double', 'time', 'backdash', 'shield');
-  return [...relevant];
-}
-
 function randomAbilityOptions(
   exclude?: string[],
   enabledIds?: Set<string>,
@@ -2249,81 +2514,87 @@ function randomAbilityOptions(
   enemies: GameState['enemies'] = [],
   hp = 5,
   synchronizedIds?: Set<string>,
+  state?: GameState,
 ): string[] {
   const availableAbilities = runtimeAbilityPool();
-  const source = enabledIds
-    ? availableAbilities.filter((a) => enabledIds.has(a.id))
+  const enabled = enabledIds
+    ? availableAbilities.filter((ability) => enabledIds.has(ability.id))
     : availableAbilities;
-  const pool = [...(source.length > 0 ? source : availableAbilities)];
-  const categoryIds: Record<AbilityCategory, string[]> = {
-    offense: pool.filter((ability) => OFFENSE_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
-    control: pool.filter((ability) => CONTROL_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
-    wildcard: pool.filter((ability) =>
-      !OFFENSE_ABILITY_IDS.has(ability.id) && !CONTROL_ABILITY_IDS.has(ability.id)).map((ability) => ability.id),
-  };
-  const used = new Set<string>();
+  const source = enabled.length > 0
+    ? enabled
+    : availableAbilities.filter((ability) => ESSENTIAL_ABILITY_IDS.has(ability.id));
+  const ready = source.filter((ability) => (cooldowns?.[ability.id] ?? 0) <= 0);
   const previous = new Set(exclude ?? previousAbilityHand);
-  const opts: string[] = [];
-
-  const draw = (category: AbilityCategory) => {
-    const eligible = categoryIds[category].length > 0
-      ? categoryIds[category]
-      : pool.map((ability) => ability.id);
-    const eligibleSet = new Set(eligible);
-    abilityBags[category] = abilityBags[category]
-      .filter((id) => eligibleSet.has(id) && !used.has(id));
-    if (abilityBags[category].length === 0) {
-      abilityBags[category] = shuffleIds(eligible.filter((id) => !used.has(id)));
+  const context: AbilityBoardContext = state
+    ? {
+      ...abilityBoardContext(state),
+      // This context evaluates the hand being dealt, not the exhausted hand
+      // that triggered the deal. Card Flood is therefore actionable once the
+      // new choices become ready.
+      canRefreshHand: true,
     }
+    : {
+      mode: 'classic',
+      enemies: enemies.filter((enemy) => enemy.colPos > -1).map(abilityEnemySnapshot),
+      playerHp: hp,
+      playerMaxHp: Math.max(5, hp),
+      shieldCharges: 0,
+      maxShieldCharges: 9,
+      canRefreshHand: true,
+    };
+  abilityHandSequence = (abilityHandSequence + 1) >>> 0;
+  const seed = (abilityHandSequence * 0x9e3779b1)
+    ^ (enemies.length * 0x45d9f3b)
+    ^ Math.round(hp * 97);
+  const canonicalReady = ready.map((ability) => ability.id).filter(isAbilityId);
+  const freshCanonical = canonicalReady.filter((id) => !previous.has(id));
+  const canonicalCandidates = freshCanonical.length >= 3
+    ? freshCanonical
+    : [...new Set([...freshCanonical, ...canonicalReady])];
+  const fallbackAbilityIds = canonicalReady.filter((id) => ESSENTIAL_ABILITY_IDS.has(id));
+  const opts = composePracticalAbilityHand({
+    availableAbilityIds: canonicalCandidates,
+    context,
+    seed,
+    fallbackAbilityIds,
+  }).map((ability) => ability.id);
 
-    const ready = (id: string) => (cooldowns?.[id] ?? 0) <= 0;
-    let index = abilityBags[category].findIndex((id) =>
-      !used.has(id) && !previous.has(id) && ready(id));
-    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id) && ready(id));
-    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id) && !previous.has(id));
-    if (index < 0) index = abilityBags[category].findIndex((id) => !used.has(id));
-    if (index >= 0) {
-      const [selected] = abilityBags[category].splice(index, 1);
-      used.add(selected);
-      opts.push(selected);
+  // Generated constitution manifestations remain part of the architecture,
+  // but only replace a canonical option when they can produce a real outcome.
+  const synchronized = ready
+    .filter((ability): ability is GeneratedAbility => Boolean(
+      generatedAbilityRegistry[ability.id]
+      && synchronizedIds?.has(ability.id)
+      && !previous.has(ability.id)
+      && generatedAbilityIsPractical(generatedAbilityRegistry[ability.id], context),
+    ))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (synchronized.length > 0) {
+    const generated = synchronized[Math.abs(seed) % synchronized.length];
+    if (opts.length < 3) opts.push(generated.id);
+    else opts[opts.length - 1] = generated.id;
+  }
+
+  for (const ability of ready) {
+    if (opts.length >= 3) break;
+    if (opts.includes(ability.id)) continue;
+    if (isAbilityId(ability.id)) {
+      if (!evaluateAbility(ability.id, context).valid) continue;
+    } else {
+      const generated = generatedAbilityRegistry[ability.id];
+      if (!generated || !generatedAbilityIsPractical(generated, context)) continue;
     }
-  };
-
-  draw('offense');
-  draw('control');
-  draw('wildcard');
-  const synchronized = [...(synchronizedIds ?? [])].filter((id) =>
-    pool.some((ability) => ability.id === id)
-    && !used.has(id)
-    && (cooldowns?.[id] ?? 0) <= 0);
-  if (synchronized.length > 0 && opts.length > 0) {
-    const prioritized = synchronized[Math.floor(Math.random() * synchronized.length)];
-    used.delete(opts[opts.length - 1]);
-    opts[opts.length - 1] = prioritized;
-    used.add(prioritized);
-  }
-  while (opts.length < Math.min(3, pool.length)) {
-    const fallback = pool.find((ability) =>
-      !used.has(ability.id) && (cooldowns?.[ability.id] ?? 0) <= 0)
-      ?? pool.find((ability) => !used.has(ability.id));
-    if (!fallback) break;
-    used.add(fallback.id);
-    opts.push(fallback.id);
-  }
-
-  const relevant = relevantAbilityIds(enemies, hp).filter((id) =>
-    pool.some((ability) => ability.id === id) && (cooldowns?.[id] ?? 0) <= 0);
-  if (relevant.length > 0 && !opts.some((id) => relevant.includes(id))) {
-    const replacement = relevant.find((id) => !used.has(id) && !previous.has(id))
-      ?? relevant.find((id) => !used.has(id))
-      ?? relevant[0];
-    if (replacement) opts[Math.min(2, opts.length - 1)] = replacement;
+    opts.push(ability.id);
   }
   previousAbilityHand = [...opts];
   return opts;
 }
 
-function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'): GameState {
+function makeInitialState(
+  enabledIds?: Set<string>,
+  mode: GameMode = 'classic',
+  milestoneTraversalDriven = false,
+): GameState {
   return {
     running: true,
     score: 0,
@@ -2339,13 +2610,20 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     enemySpawnTimer: 0.4,
     directorRecoveryTimer: 0,
     directorCritical: false,
-    nextUpgradeWave: 5,
+    nextUpgradeWave: MILESTONE_FIRST_WAVE,
     upgradePromptOpen: false,
     upgradePromptTimer: 0,
     upgradeRetryWave: 0,
     upgradeSelectionOpen: false,
     upgradeOptions: [],
     runUpgrades: {},
+    milestoneDefeatStreak: 0,
+    milestoneVanguardDefeats: 0,
+    milestoneBonusWaves: 0,
+    milestoneTraversalDriven,
+    milestoneWorldSteps: 0,
+    milestonePierceProgress: 0,
+    milestoneShieldProgress: 0,
     shotsFired: 0,
     enemyFormationId: 0,
     lanePressure: [0, 0, 0],
@@ -2400,6 +2678,7 @@ function makeInitialState(enabledIds?: Set<string>, mode: GameMode = 'classic'):
     // VS mode
     gameMode: mode,
     competitiveSeed: 0x43534731,
+    versusStatusRuntime: createEmptyVersusStatusRuntimePatch(),
     npc: {
       col: 1,
       row: 1,
@@ -2466,6 +2745,56 @@ function clampIntegrity(value: number): number {
 }
 
 /**
+ * Convert irreversible campaign depth into long-form traversal rewards. Route
+ * campaigns count each secured Last/Next fork as one completed journey step;
+ * ordinary campaigns use their score-derived world wave. Reconciliation at an
+ * already-consumed depth remains idempotent in either mode.
+ */
+function applyMilestoneWorldProgress(state: GameState, worldDepth: number): void {
+  const { targetSteps, newSteps } = resolveMilestoneWorldStepDelta(
+    state.milestoneWorldSteps,
+    worldDepth,
+  );
+  if (newSteps <= 0) return;
+
+  const reward = resolveMilestoneWorldStepReward(state.runUpgrades);
+  if (!state.cardsReady && reward.handChargeFraction > 0) {
+    state.cardTimer = Math.min(
+      CARD_CHARGE_TIME,
+      state.cardTimer + CARD_CHARGE_TIME * reward.handChargeFraction * newSteps,
+    );
+  }
+  state.milestonePierceProgress += reward.piercingProgress * newSteps;
+  const piercingShots = Math.floor(state.milestonePierceProgress);
+  if (piercingShots > 0) {
+    state.pierceShots = Math.min(60, state.pierceShots + piercingShots);
+    state.milestonePierceProgress -= piercingShots;
+  }
+  state.overclockTimer = Math.min(
+    24,
+    state.overclockTimer + reward.overclockSeconds * newSteps,
+  );
+
+  state.milestoneShieldProgress += reward.shieldProgress * newSteps;
+  const shieldCharges = Math.floor(state.milestoneShieldProgress);
+  if (shieldCharges > 0) {
+    state.shieldCharges = Math.min(9, state.shieldCharges + shieldCharges);
+    state.milestoneShieldProgress -= shieldCharges;
+  }
+
+  state.systemIntegrity.node = clampIntegrity(
+    state.systemIntegrity.node + reward.nodeRepair * newSteps,
+  );
+  state.systemIntegrity.sector = clampIntegrity(
+    state.systemIntegrity.sector + reward.sectorRepair * newSteps,
+  );
+  state.systemIntegrity.global = clampIntegrity(
+    state.systemIntegrity.global + reward.globalRepair * newSteps,
+  );
+  state.milestoneWorldSteps = targetSteps;
+}
+
+/**
  * Migrates legacy combat pacing into the ecosystem economy. Existing ability
  * code may still increment score internally, but only this reconciliation
  * creates Integrity Work and repairs the three authoritative visual scopes.
@@ -2474,20 +2803,48 @@ function reconcileIntegrityWork(state: GameState): void {
   // Score awards may jump by 100, 200 or 300. Derive progression from the
   // crossed threshold instead of requiring an exact modulo hit; otherwise a
   // bonus kill can skip a boundary and freeze the displayed wave forever.
-  state.wave = Math.max(state.wave, 1 + Math.floor(state.score / 500));
+  state.wave = Math.max(
+    state.wave,
+    1 + Math.floor(state.score / 500) + state.milestoneBonusWaves,
+  );
+  if (!state.milestoneTraversalDriven) {
+    applyMilestoneWorldProgress(state, state.wave);
+  }
   const newlyVerified = Math.max(0, state.score - state.integrityWork);
   if (newlyVerified <= 0) return;
   state.integrityWork += newlyVerified;
-  const restoration = Math.sqrt(newlyVerified);
+  const restoration = Math.sqrt(newlyVerified)
+    * milestoneIntegrityRestorationMultiplier(
+      state.runUpgrades,
+      state.systemIntegrity.node,
+    );
   state.systemIntegrity.node = clampIntegrity(state.systemIntegrity.node + restoration * 0.34);
   state.systemIntegrity.sector = clampIntegrity(state.systemIntegrity.sector + restoration * 0.13);
   state.systemIntegrity.global = clampIntegrity(state.systemIntegrity.global + restoration * 0.045);
 }
 
 function applyIntegrityBreach(state: GameState, severity = 1): void {
-  state.systemIntegrity.node = clampIntegrity(state.systemIntegrity.node - severity * 5);
-  state.systemIntegrity.sector = clampIntegrity(state.systemIntegrity.sector - severity * 1.7);
-  state.systemIntegrity.global = clampIntegrity(state.systemIntegrity.global - severity * 0.45);
+  const resolvedSeverity = severity * milestoneIntegrityBreachMultiplier(
+    state.runUpgrades,
+    state.systemIntegrity.node,
+  );
+  state.systemIntegrity.node = clampIntegrity(state.systemIntegrity.node - resolvedSeverity * 5);
+  state.systemIntegrity.sector = clampIntegrity(state.systemIntegrity.sector - resolvedSeverity * 1.7);
+  state.systemIntegrity.global = clampIntegrity(state.systemIntegrity.global - resolvedSeverity * 0.45);
+  state.milestoneDefeatStreak = 0;
+}
+
+function registerMilestoneDefeat(state: GameState): number {
+  const progress = resolveMilestoneDefeatProgress(
+    state.runUpgrades,
+    state.milestoneDefeatStreak,
+    state.milestoneVanguardDefeats,
+  );
+  state.milestoneDefeatStreak = progress.defeatStreak;
+  state.milestoneVanguardDefeats = progress.vanguardDefeats;
+  state.milestoneBonusWaves += progress.bonusWaves;
+  state.overclockTimer = Math.min(24, state.overclockTimer + progress.overclockSeconds);
+  return progress.bonusIntegrityWork;
 }
 
 type CloneDirection = 'north' | 'south';
@@ -2504,15 +2861,7 @@ interface CloneView {
   cols: Record<CloneDirection, number | null>;
 }
 
-type RivalSkillId =
-  | 'chrono' | 'singularity' | 'override' | 'architect'
-  | 'apex' | 'counter' | 'phase' | 'phoenix'
-  | 'rift' | 'vector' | 'gridshift' | 'resonance'
-  | 'exchange' | 'causality' | 'arsenal'
-  | 'assimilation' | 'null' | 'polarity' | 'colossus'
-  | 'predator' | 'orbital' | 'hijack' | 'sovereign'
-  | 'tempest' | 'cryo' | 'terra' | 'echo' | 'mirage'
-  | 'beacon' | 'swarm' | 'bloom' | 'tidal';
+type RivalSkillId = BossSkillId;
 interface RivalSkillView {
   active: boolean;
   id: RivalSkillId | null;
@@ -2587,40 +2936,6 @@ const CONCEPT_SKIN_IDS = [
   'tempest', 'cryo', 'terra', 'echo', 'mirage',
   'beacon', 'swarm', 'bloom', 'tidal',
 ] as const;
-const RIVAL_SKILL_COMMANDS: Record<RivalSkillId, [string, string, string]> = {
-  chrono: ['QUEUE', 'STEP', 'REWIND'],
-  singularity: ['COLLAPSE', 'POLARITY', 'GUARD'],
-  override: ['NATIVE', 'TRANSFER', 'SACRIFICE'],
-  architect: ['CANNON', 'RELAY', 'BARRIER'],
-  apex: ['TECHNIQUE', 'FORM', 'ADAPT'],
-  counter: ['RETURN', 'REDIRECT', 'CONVERT'],
-  phase: ['STRIKE', 'TARGET', 'BREAK'],
-  phoenix: ['VENT', 'ANCHOR', 'RESTORE'],
-  rift: ['TRAVERSE', 'PORTAL', 'REFLECT'],
-  vector: ['REDIRECT', 'ACCELERATE', 'ARREST'],
-  gridshift: ['SHIFT', 'OPERATION', 'REVERSE'],
-  resonance: ['MARK', 'MOVE MARK', 'ACTIVATE'],
-  exchange: ['PROPERTY', 'EXCHANGE', 'REVERSE'],
-  causality: ['LOCK', 'EVENT', 'REPEAT'],
-  arsenal: ['STRIKE', 'GUARD', 'DRIVE'],
-  assimilation: ['HARVEST', 'ASSEMBLE', 'DEPLOY'],
-  null: ['SUPPRESS', 'FOCUS', 'ANCHOR'],
-  polarity: ['MARK', 'REVERSE', 'COLLIDE'],
-  colossus: ['SIEGE', 'TRAMPLE', 'BULWARK'],
-  predator: ['HUNT', 'TARGET', 'COUNTER'],
-  orbital: ['DESIGNATE', 'ORDNANCE', 'DROP'],
-  hijack: ['ORDER', 'COMMAND', 'BREAK'],
-  sovereign: ['ASSERT', 'GAMBIT', 'ENDURE'],
-  tempest: ['CHARGE', 'CHAIN', 'GROUND'],
-  cryo: ['FREEZE', 'SHATTER', 'PRESERVE'],
-  terra: ['RAISE', 'FAULT', 'HARDEN'],
-  echo: ['TRACE', 'REPLAY', 'DISPLACE'],
-  mirage: ['DECOY', 'VEIL', 'AMBUSH'],
-  beacon: ['SIGNAL', 'ASSIST', 'SYNCHRONIZE'],
-  swarm: ['SEED', 'VOTE', 'OVERRUN'],
-  bloom: ['GRAFT', 'CULTIVATE', 'RECLAIM'],
-  tidal: ['PRESSURE', 'CURRENT', 'BREAKWATER'],
-};
 
 const VS_SKILL_COOLDOWN = COMPETITIVE_RULESET.signatureSkillCooldown;
 const VS_NPC_ABILITY_INTERVAL = COMPETITIVE_RULESET.npcAbilityInterval;
@@ -2629,14 +2944,16 @@ const VS_NPC_MAX_SHIELDS = COMPETITIVE_RULESET.maxShields;
 const RIVAL_SKILL_ANIMATION_DURATION = 1120;
 const NPC_ATTACK_ANIMATION_DURATION = 380;
 const NPC_SKILL_ANIMATION_DURATION = 920;
-const VS_ABILITY_DISRUPT = new Set([
-  'time', 'scramble', 'warpback', 'backdash', 'freeze', 'blizzard', 'gravity',
-  'rowshuffle', 'pulse', 'magnet', 'signaljam', 'stasisgate', 'oilslick',
-  'rootsnare', 'sonicnet', 'anchorfield', 'trafficjam', 'mutationlock',
-  'quarantine',
-]);
-const VS_EXPLICIT_CONTROL = new Set([
-  'scramble', 'warpback', 'freeze', 'blizzard', 'gravity', 'rowshuffle',
+const NPC_ECHO_BRINK_HOLD_SECONDS = 0.72;
+const NPC_ECHO_DRAIN_HOLD_SECONDS = 1.1;
+
+interface NpcEchoChannelClock {
+  remaining: number;
+  next: 'brink' | 'drain';
+}
+
+const VS_NATIVE_PROJECTILE_ABILITIES = new Set([
+  'shotgun', 'mirror', 'barrage', 'surge', 'snipe', 'ricochet', 'rearguard', 'splitter',
 ]);
 const VS_NPC_DEFENSIVE_SKILLS = new Set<RivalSkillId>([
   'counter', 'null', 'colossus', 'sovereign', 'cryo', 'terra', 'beacon', 'bloom',
@@ -2871,92 +3188,6 @@ function SkillGuidePanel({ id }: { id: RivalSkillId }) {
   );
 }
 
-const SIGNATURE_SKILL_COLORS: Record<RivalSkillId, [string, string]> = {
-  chrono: ['#93c5fd', '#e9d5ff'], singularity: ['#a78bfa', '#111827'],
-  override: ['#c084fc', '#22d3ee'], architect: ['#60a5fa', '#f8fafc'],
-  apex: ['#84cc16', '#f0abfc'], counter: ['#f0abfc', '#f8fafc'],
-  phase: ['#818cf8', '#e9d5ff'], phoenix: ['#fb923c', '#fde047'],
-  rift: ['#22d3ee', '#8b5cf6'], vector: ['#5eead4', '#f8fafc'],
-  gridshift: ['#38bdf8', '#a7f3d0'], resonance: ['#f0abfc', '#67e8f9'],
-  exchange: ['#4ade80', '#f472b6'], causality: ['#c4b5fd', '#f8fafc'],
-  arsenal: ['#f59e0b', '#f8fafc'], assimilation: ['#34d399', '#fb923c'],
-  null: ['#6366f1', '#030712'], polarity: ['#38bdf8', '#fb7185'],
-  colossus: ['#fbbf24', '#94a3b8'], predator: ['#fb7185', '#f8fafc'],
-  orbital: ['#fde047', '#60a5fa'], hijack: ['#c084fc', '#2dd4bf'],
-  sovereign: ['#f43f5e', '#fde047'],
-  tempest: ['#38bdf8', '#f8fafc'], cryo: ['#67e8f9', '#dbeafe'],
-  terra: ['#f59e0b', '#57534e'], echo: ['#818cf8', '#22d3ee'],
-  mirage: ['#c084fc', '#22d3ee'], beacon: ['#22d3ee', '#f8fafc'],
-  swarm: ['#38bdf8', '#94a3b8'], bloom: ['#f472b6', '#4ade80'],
-  tidal: ['#06b6d4', '#dbeafe'],
-};
-
-type SkillExecutionMotif =
-  | 'time' | 'gravity' | 'command' | 'construct' | 'morph' | 'reflect'
-  | 'dash' | 'restore' | 'portal' | 'vector' | 'grid' | 'resonance'
-  | 'exchange' | 'lock' | 'weapon' | 'harvest' | 'suppress' | 'polarity'
-  | 'colossus' | 'target' | 'orbital' | 'sovereign';
-
-const SKILL_EXECUTION_MOTIFS: Record<RivalSkillId, [SkillExecutionMotif, SkillExecutionMotif, SkillExecutionMotif]> = {
-  chrono: ['time', 'portal', 'restore'],
-  singularity: ['gravity', 'polarity', 'reflect'],
-  override: ['command', 'portal', 'harvest'],
-  architect: ['construct', 'portal', 'reflect'],
-  apex: ['morph', 'morph', 'morph'],
-  counter: ['reflect', 'vector', 'restore'],
-  phase: ['dash', 'target', 'restore'],
-  phoenix: ['weapon', 'construct', 'restore'],
-  rift: ['portal', 'construct', 'reflect'],
-  vector: ['vector', 'vector', 'lock'],
-  gridshift: ['grid', 'grid', 'grid'],
-  resonance: ['resonance', 'resonance', 'resonance'],
-  exchange: ['target', 'exchange', 'exchange'],
-  causality: ['lock', 'target', 'time'],
-  arsenal: ['weapon', 'reflect', 'dash'],
-  assimilation: ['harvest', 'morph', 'weapon'],
-  null: ['suppress', 'target', 'construct'],
-  polarity: ['polarity', 'polarity', 'gravity'],
-  colossus: ['weapon', 'dash', 'colossus'],
-  predator: ['dash', 'target', 'reflect'],
-  orbital: ['target', 'morph', 'orbital'],
-  hijack: ['command', 'target', 'suppress'],
-  sovereign: ['sovereign', 'exchange', 'restore'],
-  tempest: ['dash', 'resonance', 'reflect'],
-  cryo: ['suppress', 'weapon', 'restore'],
-  terra: ['construct', 'grid', 'reflect'],
-  echo: ['lock', 'time', 'portal'],
-  mirage: ['construct', 'suppress', 'dash'],
-  beacon: ['target', 'resonance', 'restore'],
-  swarm: ['harvest', 'command', 'morph'],
-  bloom: ['construct', 'restore', 'harvest'],
-  tidal: ['weapon', 'vector', 'reflect'],
-};
-
-const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b' | 'c'; row: number }> = {
-  time: { sheet: 'a', row: 0 },
-  gravity: { sheet: 'a', row: 1 },
-  command: { sheet: 'c', row: 1 },
-  construct: { sheet: 'c', row: 3 },
-  grid: { sheet: 'a', row: 3 },
-  resonance: { sheet: 'a', row: 3 },
-  orbital: { sheet: 'a', row: 3 },
-  morph: { sheet: 'c', row: 3 },
-  harvest: { sheet: 'b', row: 0 },
-  suppress: { sheet: 'b', row: 0 },
-  colossus: { sheet: 'c', row: 3 },
-  sovereign: { sheet: 'c', row: 3 },
-  reflect: { sheet: 'c', row: 2 },
-  lock: { sheet: 'c', row: 1 },
-  polarity: { sheet: 'b', row: 1 },
-  dash: { sheet: 'b', row: 2 },
-  weapon: { sheet: 'c', row: 0 },
-  portal: { sheet: 'b', row: 2 },
-  target: { sheet: 'b', row: 2 },
-  vector: { sheet: 'b', row: 2 },
-  exchange: { sheet: 'c', row: 1 },
-  restore: { sheet: 'c', row: 2 },
-};
-
 const signatureVfxImages = new Map<string, HTMLImageElement>();
 
 function signatureVfxAsset(motif: SkillExecutionMotif) {
@@ -2991,22 +3222,53 @@ function SignatureSkillFx({
   stateRef,
   actionTick,
   lastAction,
+  boardTopFloorRef,
+  actorSide = 'player',
+  motifOverride,
+  labelOverride,
+  anchorOverride,
+  targetRows = [],
+  presentationSource,
+  presentationId,
+  presentationCommand,
 }: {
   id: RivalSkillId;
   stateRef: MutableRefObject<GameState>;
   actionTick: number;
   lastAction: RivalSkillView['lastAction'];
+  boardTopFloorRef: MutableRefObject<number>;
+  actorSide?: 'player' | 'npc';
+  motifOverride?: SkillExecutionMotif;
+  labelOverride?: string;
+  anchorOverride?: NpcSkillPresentationAnchor;
+  targetRows?: readonly number[];
+  presentationSource?: NpcSkillPresentation['source'];
+  presentationId?: string;
+  presentationCommand?: number | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const executionRef = useRef({ tick: actionTick, action: lastAction, startedAt: performance.now() });
+  const executionRef = useRef({
+    tick: actionTick,
+    action: lastAction,
+    startedAt: performance.now(),
+    motif: motifOverride,
+    label: labelOverride,
+  });
 
   useEffect(() => {
     preloadSignatureSkillVfx(id);
-  }, [id]);
+    if (motifOverride) getSignatureVfxImage(motifOverride);
+  }, [id, motifOverride]);
 
   useEffect(() => {
-    executionRef.current = { tick: actionTick, action: lastAction, startedAt: performance.now() };
-  }, [actionTick, lastAction]);
+    executionRef.current = {
+      tick: actionTick,
+      action: lastAction,
+      startedAt: performance.now(),
+      motif: motifOverride,
+      label: labelOverride,
+    };
+  }, [actionTick, labelOverride, lastAction, motifOverride]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -3028,14 +3290,26 @@ function SignatureSkillFx({
       ctx.clearRect(0, 0, width, height);
 
       const state = stateRef.current;
-      const board = getBoardMetrics(width, height);
+      const board = getBoardMetrics(width, height, boardTopFloorRef.current);
       const center = (col: number, row: number) => ({
         x: board.x + (col + 0.5) * board.cell,
         y: board.y + (row + 0.5) * board.cell,
       });
-      const player = center(state.player.col, state.player.row);
-      const enemies = state.enemies.map((enemy) => center(enemy.colPos, enemy.row));
-      const [primary, accent] = SIGNATURE_SKILL_COLORS[id];
+      const npcActor = actorSide === 'npc' && state.gameMode === 'vs';
+      const player = npcActor
+        ? center(3 + state.npc.col, state.npc.row)
+        : center(state.player.col, state.player.row);
+      const npcTargetRow = targetRows[0] ?? state.player.row;
+      const enemies = npcActor
+        ? [center(state.player.col, npcTargetRow)]
+        : state.enemies.map((enemy) => center(enemy.colPos, enemy.row));
+      const [primaryValue, accentValue] = SIGNATURE_SKILL_COLORS[id];
+      // Keep the drawing helpers open to every authored boss palette. The
+      // imported palette registry is intentionally literal-typed so invalid
+      // boss ids remain a compile error, but canvas colors are ordinary CSS
+      // strings once selected.
+      const primary: string = primaryValue;
+      const accent: string = accentValue;
       const t = (now - startedAt) / 1000;
       const pulse = (Math.sin(t * 6) + 1) * 0.5;
       const intro = Math.min(1, (now - startedAt) / 420);
@@ -3106,9 +3380,10 @@ function SignatureSkillFx({
       if (executing) {
         const easeOut = 1 - Math.pow(1 - executionProgress, 3);
         const fade = Math.sin(executionProgress * Math.PI);
-        const target = enemies[0] ?? center(4, state.player.row);
+        const target = enemies[0] ?? center(npcActor ? state.player.col : 4, state.player.row);
         const actionIndex = execution.action === 'primary' ? 0 : execution.action === 'alternate' ? 1 : 2;
-        const motif = execution.action === 'activate' ? null : SKILL_EXECUTION_MOTIFS[id][actionIndex];
+        const motif = execution.motif
+          ?? (execution.action === 'activate' ? null : SKILL_EXECUTION_MOTIFS[id][actionIndex]);
         ctx.save();
         ctx.globalAlpha = Math.max(0, fade) * 0.92;
         ctx.shadowBlur = board.cell * 0.18;
@@ -3219,37 +3494,53 @@ function SignatureSkillFx({
           const sequenceFrame = Math.min(3, Math.floor(executionProgress * 4));
           const sourceWidth = sheet.naturalWidth / 4;
           const sourceHeight = sheet.naturalHeight;
-          const vfxTarget = motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
-            ? target
-            : motif === 'dash' || motif === 'weapon'
-              ? {
-                  x: player.x + (target.x - player.x) * Math.min(0.72, easeOut),
-                  y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
-                }
-              : player;
-          const baseSize = board.cell * (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18);
+          const anchoredTarget = anchorOverride === 'self' ? player : target;
+          const resolvedTarget = anchorOverride
+            ? anchoredTarget
+            : motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
+              ? target
+              : motif === 'dash' || motif === 'weapon'
+                ? {
+                    x: player.x + (target.x - player.x) * Math.min(0.72, easeOut),
+                    y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
+                  }
+                : player;
+          // Multi-lane plans must identify the exact projectile lanes. A
+          // single oversized image at board center concealed which rows were
+          // actually threatened and made unrelated plans look equivalent.
+          const vfxTargets = npcActor && anchorOverride === 'all-lanes'
+            ? (targetRows.length > 0 ? targetRows : [0, 1, 2]).map(
+                (row) => center(state.player.col, row),
+              )
+            : [resolvedTarget];
+          const multiLaneScale = vfxTargets.length > 1 ? 0.78 : 1;
+          const baseSize = board.cell
+            * (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18)
+            * multiLaneScale;
           const revealScale = 0.55 + easeOut * 0.55;
           const drawWidth = baseSize * revealScale;
           const drawHeight = drawWidth * (sourceHeight / sourceWidth);
-          ctx.save();
-          ctx.globalCompositeOperation = 'screen';
-          ctx.globalAlpha = Math.min(0.96, fade * 1.35);
-          ctx.imageSmoothingEnabled = false;
-          ctx.translate(vfxTarget.x, vfxTarget.y);
-          if (motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
-          if (motif === 'reflect') ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
-          ctx.drawImage(
-            sheet,
-            sequenceFrame * sourceWidth,
-            0,
-            sourceWidth,
-            sourceHeight,
-            -drawWidth / 2,
-            -drawHeight / 2,
-            drawWidth,
-            drawHeight,
-          );
-          ctx.restore();
+          vfxTargets.forEach((vfxTarget) => {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.globalAlpha = Math.min(0.96, fade * 1.35);
+            ctx.imageSmoothingEnabled = false;
+            ctx.translate(vfxTarget.x, vfxTarget.y);
+            if (motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
+            if (motif === 'reflect') ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
+            ctx.drawImage(
+              sheet,
+              sequenceFrame * sourceWidth,
+              0,
+              sourceWidth,
+              sourceHeight,
+              -drawWidth / 2,
+              -drawHeight / 2,
+              drawWidth,
+              drawHeight,
+            );
+            ctx.restore();
+          });
         }
 
         // The command's constitution is drawn over the body motion. This is
@@ -3434,7 +3725,8 @@ function SignatureSkillFx({
         ctx.textAlign = 'center';
         const commandIndex = execution.action === 'primary' ? 0 : execution.action === 'alternate' ? 1 : 2;
         ctx.fillText(
-          execution.action === 'activate' ? RIVAL_SKILL_LABELS[id] : RIVAL_SKILL_COMMANDS[id][commandIndex],
+          execution.label
+            ?? (execution.action === 'activate' ? RIVAL_SKILL_LABELS[id] : RIVAL_SKILL_COMMANDS[id][commandIndex]),
           player.x,
           player.y - board.cell * (0.5 + easeOut * 0.13),
         );
@@ -3584,9 +3876,21 @@ function SignatureSkillFx({
     };
     frame = requestAnimationFrame(render);
     return () => cancelAnimationFrame(frame);
-  }, [id, stateRef]);
+  }, [actorSide, anchorOverride, boardTopFloorRef, id, stateRef]);
 
-  return <canvas ref={canvasRef} className="signatureSkillFx" aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className={`signatureSkillFx${actorSide === 'npc' ? ' npcSignatureSkillFx' : ''}`}
+      data-npc-skill-source={actorSide === 'npc' ? presentationSource : undefined}
+      data-npc-skill-id={actorSide === 'npc' ? presentationId : undefined}
+      data-npc-skill-command={actorSide === 'npc' && presentationCommand != null
+        ? presentationCommand
+        : undefined}
+      data-npc-skill-motif={actorSide === 'npc' ? motifOverride : undefined}
+      aria-hidden="true"
+    />
+  );
 }
 
 const emptyCloneView = (): CloneView => ({
@@ -3602,12 +3906,33 @@ const emptyCloneView = (): CloneView => ({
 });
 
 export default function Game() {
+  const actionForkParameters = new URLSearchParams(window.location.search);
+  const lordAlphaSkillsPreview = useRef(
+    typeof window !== 'undefined' && isLordAlphaSkillsPreviewSearch(window.location.search),
+  ).current;
+  // The Lord Alpha animation lab must exercise the current campaign build,
+  // rather than silently dropping back to the pre-navigation game. Keep the
+  // explicit actionFork switch for normal testing, but make the character
+  // preview opt into the same route system automatically.
+  const actionForkExperiment = actionForkParameters.get('actionFork') === '1'
+    || lordAlphaSkillsPreview;
+  const requestedActionForkStart = Number(actionForkParameters.get('actionForkStart'));
+  const actionForkStartWave = Number.isFinite(requestedActionForkStart) && requestedActionForkStart > 0
+    ? Math.floor(requestedActionForkStart)
+    : lordAlphaSkillsPreview ? 1 : CAMPAIGN_ROUTE_FORK_START_WAVE;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const boardTopFloorRef = useRef(0);
+  const getActiveBoardMetrics = useCallback(
+    (width: number, height: number) => getBoardMetrics(width, height, boardTopFloorRef.current),
+    [],
+  );
   const pipVideoRef = useRef<HTMLVideoElement>(null);
   const pipStreamRef = useRef<MediaStream | null>(null);
   const pipWindowRef = useRef<Window | null>(null);
   const pipMirrorFrameRef = useRef(0);
-  const stateRef = useRef<GameState>(makeInitialState());
+  const stateRef = useRef<GameState>(
+    makeInitialState(undefined, 'classic', actionForkExperiment),
+  );
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
   const chronoLastHudUpdateRef = useRef(0);
@@ -3772,6 +4097,126 @@ export default function Game() {
   const [actionWindowVisible, setActionWindowVisible] = useState(
     () => localStorage.getItem(ACTION_WINDOW_VISIBLE_KEY) !== 'off',
   );
+  const [actionRoutePromptActive, setActionRoutePromptActive] = useState(false);
+  const actionRoutePromptActiveRef = useRef(false);
+  const actionRouteCursorRef = useRef<number | null>(null);
+  const [actionRouteTraversal, setActionRouteTraversal] = useState<ActionRouteTraversal | null>(null);
+  const actionRouteTraversalRevisionRef = useRef(0);
+  const actionRouteSecuredSegmentsRef = useRef(0);
+  const actionRouteBossesDefeatedRef = useRef(0);
+  const [actionRouteBossesDefeated, setActionRouteBossesDefeatedState] = useState(0);
+  const actionRouteBossPendingRef = useRef(false);
+  const actionRouteBossChoiceRef = useRef(false);
+  const actionRouteTargetArmWaveRef = useRef(actionForkStartWave);
+  const actionRoutePendingOpenWaveRef = useRef<number | null>(null);
+  const actionRouteAwaitNeutralRef = useRef(false);
+  const actionRouteTargetsRef = useRef<ActionRouteTargetBindings>({ last: null, next: null });
+  const actionRouteTargetRowsRef = useRef(resolveCampaignRouteTargetRows(1));
+  const actionRouteAutoBusterStateRef = useRef(createCampaignRouteAutoBusterState(1));
+  const actionRouteTargetReacquireDelayRef = useRef<Record<CampaignRouteDirection, number>>({
+    last: 0,
+    next: 0,
+  });
+  const [actionRouteTargetRevision, setActionRouteTargetRevision] = useState(0);
+  const [actionRouteAvailability, setActionRouteAvailabilityState] = useState<CampaignRouteAvailability>({
+    last: false,
+    next: false,
+  });
+  const actionRouteAvailabilityRef = useRef<CampaignRouteAvailability>({ last: false, next: false });
+  const [actionRouteBossEncounter, setActionRouteBossEncounterState] = useState<CampaignRouteBossEncounter | null>(null);
+  const actionRouteBossEncounterRef = useRef<CampaignRouteBossEncounter | null>(null);
+  const campaignBossSessionRef = useRef<CampaignBossSession | null>(null);
+  const actionRouteBossFrameRef = useRef<HTMLCanvasElement | null>(null);
+  const setActionRoutePrompt = useCallback((active: boolean) => {
+    actionRoutePromptActiveRef.current = active;
+    setActionRoutePromptActive(active);
+  }, []);
+  const setActionRouteAvailability = useCallback((available: CampaignRouteAvailability) => {
+    actionRouteAvailabilityRef.current = available;
+    setActionRouteAvailabilityState(available);
+  }, []);
+  const setActionRouteBossEncounter = useCallback((encounter: CampaignRouteBossEncounter | null) => {
+    actionRouteBossEncounterRef.current = encounter;
+    setActionRouteBossEncounterState(encounter);
+  }, []);
+  const setActionRouteBossesDefeated = useCallback((completedBosses: number) => {
+    const next = Math.max(0, Math.floor(completedBosses));
+    actionRouteBossesDefeatedRef.current = next;
+    setActionRouteBossesDefeatedState(next);
+  }, []);
+  const resetActionRouteProgress = useCallback(() => {
+    actionRouteCursorRef.current = null;
+    actionRouteTraversalRevisionRef.current = 0;
+    setActionRouteTraversal(null);
+    actionRouteSecuredSegmentsRef.current = 0;
+    setActionRouteBossesDefeated(0);
+    actionRouteBossPendingRef.current = false;
+    actionRouteBossChoiceRef.current = false;
+    actionRouteTargetArmWaveRef.current = actionForkStartWave;
+    actionRoutePendingOpenWaveRef.current = null;
+    actionRouteAwaitNeutralRef.current = false;
+    actionRouteTargetsRef.current = { last: null, next: null };
+    actionRouteTargetRowsRef.current = resolveCampaignRouteTargetRows(1);
+    actionRouteAutoBusterStateRef.current = createCampaignRouteAutoBusterState(1);
+    actionRouteTargetReacquireDelayRef.current = { last: 0, next: 0 };
+    campaignBossSessionRef.current = null;
+    setActionRouteTargetRevision((revision) => revision + 1);
+    actionRouteBossFrameRef.current = null;
+    setActionRouteAvailability({ last: false, next: false });
+    setActionRouteBossEncounter(null);
+  }, [actionForkStartWave, setActionRouteAvailability, setActionRouteBossEncounter,
+    setActionRouteBossesDefeated]);
+  useEffect(() => {
+    let cancelled = false;
+    actionRouteBossFrameRef.current = null;
+    const bossId = actionRouteBossEncounter?.destination.id;
+    if (!bossId) return undefined;
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = async () => {
+      try {
+        let bitmap = await createImageBitmap(image);
+        const subjectWindows: Partial<Record<CampaignRouteBossEncounter['destination']['id'], [number, number, number, number]>> = {
+          override: [34, 20, 154, 140],
+          apex: [27, 20, 194, 140],
+          hijack: [4, 24, 188, 120],
+        };
+        const subject = subjectWindows[bossId];
+        if (subject) {
+          const cropped = await createImageBitmap(
+            bitmap,
+            Math.round(bitmap.width * subject[0] / 240),
+            Math.round(bitmap.height * subject[1] / 160),
+            Math.round(bitmap.width * subject[2] / 240),
+            Math.round(bitmap.height * subject[3] / 160),
+          );
+          bitmap.close();
+          bitmap = cropped;
+        }
+        const cleaned = await sanitizeRivalSkinFrame(bitmap);
+        if (cancelled) {
+          cleaned.close();
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = cleaned.width;
+        canvas.height = cleaned.height;
+        const context = canvas.getContext('2d');
+        if (context) {
+          context.imageSmoothingEnabled = false;
+          context.drawImage(cleaned, 0, 0);
+          actionRouteBossFrameRef.current = canvas;
+        }
+        cleaned.close();
+      } catch {
+        actionRouteBossFrameRef.current = null;
+      }
+    };
+    image.src = `${import.meta.env.BASE_URL}skins/skill-${bossId}-idle.png`;
+    return () => {
+      cancelled = true;
+    };
+  }, [actionRouteBossEncounter?.destination.id]);
   const [actionWindowScene, setActionWindowScene] = useState(0);
   const actionWindowMetricsRef = useRef({
     initialized: false,
@@ -4040,6 +4485,17 @@ export default function Game() {
           'constitution',
           `${manifested.medium}/${manifested.function}/${manifested.delivery} enemy components translated.`,
         );
+        // Constitution study must also feed the authored ability architecture.
+        // Previously it could only create another generated manifestation, which
+        // left nearly the entire 80-card canonical pool permanently unreachable
+        // for a fresh profile. Repeated observations now resonate the closest
+        // authored technique as well as the bespoke manifestation.
+        const canonicalAbilityId = linkedPlayerAbility(genome);
+        learnAbility(
+          canonicalAbilityId,
+          'constitution',
+          `${genome.baseElement}/${genome.element} constitution decoded into ${runtimeAbilityById(canonicalAbilityId)?.name ?? canonicalAbilityId}.`,
+        );
       }
     }
     const signature = [
@@ -4080,7 +4536,7 @@ export default function Game() {
 
   // Player skin
   type PlayerSkin =
-    | 'default' | 'rocket' | 'dots' | 'gem' | 'assembly'
+    | 'default' | 'rocket' | 'dots' | 'gem' | 'assembly' | 'lord-alpha'
     | 'chrono' | 'singularity' | 'override' | 'architect'
     | 'apex' | 'counter' | 'phase' | 'phoenix'
     | 'rift' | 'vector' | 'gridshift' | 'resonance'
@@ -4090,18 +4546,262 @@ export default function Game() {
     | 'tempest' | 'cryo' | 'terra' | 'echo' | 'mirage'
     | 'beacon' | 'swarm' | 'bloom' | 'tidal';
   const SKIN_KEY = 'cgs_player_skin';
-  const savedSkin = (localStorage.getItem(SKIN_KEY) ?? 'default') as PlayerSkin;
+  const knownPlayerSkins = new Set<PlayerSkin>([
+    'default', 'rocket', 'dots', 'gem', 'assembly', LORD_ALPHA_SKIN_ID,
+    ...RIVAL_SKILL_IDS,
+    ...CONCEPT_SKIN_IDS,
+  ]);
+  const storedSkin = localStorage.getItem(SKIN_KEY);
+  const savedSkin: PlayerSkin = lordAlphaSkillsPreview
+    ? LORD_ALPHA_SKIN_ID
+    : storedSkin && knownPlayerSkins.has(storedSkin as PlayerSkin)
+      ? storedSkin as PlayerSkin
+      : 'default';
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const storedLordAlphaForm = localStorage.getItem(LORD_ALPHA_FORM_KEY);
+  const savedLordAlphaForm: LordAlphaForm = lordAlphaSkillsPreview
+    ? 'supreme'
+    : LORD_ALPHA_FORM_IDS.includes(storedLordAlphaForm as LordAlphaForm)
+      ? storedLordAlphaForm as LordAlphaForm
+      : 'supreme';
+  const [lordAlphaForm, setLordAlphaForm] = useState<LordAlphaForm>(savedLordAlphaForm);
+  const [lordAlphaMotion, setLordAlphaMotion] = useState<LordAlphaMotion>('idle');
+  const [lordAlphaMotionPulse, setLordAlphaMotionPulse] = useState(0);
+  const [lordAlphaEventPulse, setLordAlphaEventPulse] = useState(0);
+  const [lordAlphaEvent, setLordAlphaEvent] = useState<LordAlphaPresentationEvent | null>(null);
+  const [lordAlphaImpactPulse, setLordAlphaImpactPulse] = useState(0);
+  const [lordAlphaImpactEvent, setLordAlphaImpactEvent] = useState<LordAlphaPresentationEvent | null>(null);
+  const [lordAlphaComboBeat, setLordAlphaComboBeat] = useState<LordAlphaComboBeat | null>(null);
+  const [lordAlphaSkillModeOpen, setLordAlphaSkillModeOpen] = useState(lordAlphaSkillsPreview);
+  const lordAlphaSkillModeOpenRef = useRef(lordAlphaSkillsPreview);
+  const [lordAlphaSkillPanelPosition, setLordAlphaSkillPanelPosition] = useState<MovablePanelPosition | null>(
+    () => parseMovablePanelPosition(localStorage.getItem(LORD_ALPHA_SKILL_PANEL_POSITION_KEY)),
+  );
+  const lordAlphaSkillPanelPositionRef = useRef(lordAlphaSkillPanelPosition);
+  const lordAlphaSkillPanelRef = useRef<HTMLElement | null>(null);
+  const lordAlphaSkillPanelInteractionCleanupRef = useRef<(() => void) | null>(null);
+
+  const applyLordAlphaSkillPanelPosition = useCallback((position: MovablePanelPosition) => {
+    const panel = lordAlphaSkillPanelRef.current;
+    if (!panel) return;
+    const bounds = panel.getBoundingClientRect();
+    const resolved = resolveMovablePanelPosition(
+      position,
+      { width: bounds.width, height: bounds.height },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    panel.style.left = `${resolved.x}px`;
+    panel.style.top = `${resolved.y}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.transform = 'none';
+    panel.dataset.moved = 'true';
+  }, []);
+
+  const commitLordAlphaSkillPanelPosition = useCallback((position: MovablePanelPosition) => {
+    lordAlphaSkillPanelPositionRef.current = position;
+    setLordAlphaSkillPanelPosition(position);
+    localStorage.setItem(LORD_ALPHA_SKILL_PANEL_POSITION_KEY, JSON.stringify(position));
+  }, []);
+
+  const constrainLordAlphaSkillPanelToViewport = useCallback(() => {
+    const panel = lordAlphaSkillPanelRef.current;
+    const savedPosition = lordAlphaSkillPanelPositionRef.current;
+    if (!panel || !savedPosition) return;
+    const bounds = panel.getBoundingClientRect();
+    const panelSize = { width: bounds.width, height: bounds.height };
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const constrained = normalizeMovablePanelPosition(
+      { x: bounds.left, y: bounds.top },
+      panelSize,
+      viewport,
+    );
+    applyLordAlphaSkillPanelPosition(constrained);
+    if (
+      Math.abs(constrained.x - savedPosition.x) > 0.0001
+      || Math.abs(constrained.y - savedPosition.y) > 0.0001
+    ) {
+      commitLordAlphaSkillPanelPosition(constrained);
+    }
+  }, [applyLordAlphaSkillPanelPosition, commitLordAlphaSkillPanelPosition]);
+
+  const beginLordAlphaSkillPanelDrag = useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    const panel = lordAlphaSkillPanelRef.current;
+    if (!panel) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    lordAlphaSkillPanelInteractionCleanupRef.current?.();
+    const bounds = panel.getBoundingClientRect();
+    const panelSize = { width: bounds.width, height: bounds.height };
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const startPointer = { x: event.clientX, y: event.clientY };
+    const startPanel = { x: bounds.left, y: bounds.top };
+    const pointerId = event.pointerId;
+    const captureTarget = event.currentTarget;
+    let latestPosition = normalizeMovablePanelPosition(startPanel, panelSize, viewport);
+    let cleanedUp = false;
+
+    captureTarget.setPointerCapture(pointerId);
+
+    const move = (nextEvent: PointerEvent) => {
+      if (nextEvent.pointerId !== pointerId) return;
+      nextEvent.preventDefault();
+      latestPosition = normalizeMovablePanelPosition(
+        {
+          x: startPanel.x + nextEvent.clientX - startPointer.x,
+          y: startPanel.y + nextEvent.clientY - startPointer.y,
+        },
+        panelSize,
+        viewport,
+      );
+      const resolved = resolveMovablePanelPosition(latestPosition, panelSize, viewport);
+      panel.style.left = `${resolved.x}px`;
+      panel.style.top = `${resolved.y}px`;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.transform = 'none';
+      panel.dataset.moved = 'true';
+    };
+
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      captureTarget.removeEventListener('lostpointercapture', finish);
+      if (captureTarget.hasPointerCapture(pointerId)) captureTarget.releasePointerCapture(pointerId);
+      if (lordAlphaSkillPanelInteractionCleanupRef.current === cleanup) {
+        lordAlphaSkillPanelInteractionCleanupRef.current = null;
+      }
+    };
+
+    function finish(nextEvent: PointerEvent) {
+      if (nextEvent.pointerId !== pointerId) return;
+      commitLordAlphaSkillPanelPosition(latestPosition);
+      cleanup();
+    }
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+    captureTarget.addEventListener('lostpointercapture', finish);
+    lordAlphaSkillPanelInteractionCleanupRef.current = cleanup;
+  }, [commitLordAlphaSkillPanelPosition]);
+
+  const moveLordAlphaSkillPanelWithKeyboard = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const panel = lordAlphaSkillPanelRef.current;
+    if (!panel) return;
+    if (event.key === 'Home') {
+      event.preventDefault();
+      event.stopPropagation();
+      localStorage.removeItem(LORD_ALPHA_SKILL_PANEL_POSITION_KEY);
+      lordAlphaSkillPanelPositionRef.current = null;
+      setLordAlphaSkillPanelPosition(null);
+      panel.style.removeProperty('left');
+      panel.style.removeProperty('top');
+      panel.style.removeProperty('right');
+      panel.style.removeProperty('bottom');
+      panel.style.removeProperty('transform');
+      delete panel.dataset.moved;
+      return;
+    }
+
+    const amount = event.shiftKey ? 32 : 12;
+    const delta = {
+      ArrowLeft: { x: -amount, y: 0 },
+      ArrowRight: { x: amount, y: 0 },
+      ArrowUp: { x: 0, y: -amount },
+      ArrowDown: { x: 0, y: amount },
+    }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const bounds = panel.getBoundingClientRect();
+    const panelSize = { width: bounds.width, height: bounds.height };
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const position = normalizeMovablePanelPosition(
+      { x: bounds.left + delta.x, y: bounds.top + delta.y },
+      panelSize,
+      viewport,
+    );
+    applyLordAlphaSkillPanelPosition(position);
+    commitLordAlphaSkillPanelPosition(position);
+  }, [applyLordAlphaSkillPanelPosition, commitLordAlphaSkillPanelPosition]);
+
+  useLayoutEffect(() => {
+    if (lordAlphaSkillPanelPosition) applyLordAlphaSkillPanelPosition(lordAlphaSkillPanelPosition);
+  }, [
+    applyLordAlphaSkillPanelPosition,
+    lordAlphaSkillPanelPosition,
+    phase,
+  ]);
+
+  useLayoutEffect(() => {
+    constrainLordAlphaSkillPanelToViewport();
+  }, [constrainLordAlphaSkillPanelToViewport, lordAlphaSkillModeOpen, phase]);
+
+  useEffect(() => {
+    const reposition = () => {
+      const position = lordAlphaSkillPanelPositionRef.current;
+      if (position) applyLordAlphaSkillPanelPosition(position);
+    };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('orientationchange', reposition);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('orientationchange', reposition);
+      lordAlphaSkillPanelInteractionCleanupRef.current?.();
+    };
+  }, [applyLordAlphaSkillPanelPosition]);
+
+  useEffect(() => {
+    if (phase !== 'playing') lordAlphaSkillPanelInteractionCleanupRef.current?.();
+  }, [phase]);
+
+  const [lordAlphaSkillBankIndex, setLordAlphaSkillBankIndex] = useState(0);
+  const lordAlphaSkillBankIndexRef = useRef(0);
+  const lordAlphaComboRef = useRef(createLordAlphaComboState());
+  const lordAlphaVolleyPresentationRef = useRef<{
+    variant: LordAlphaComboBeat;
+    birthMs: number;
+  } | null>(null);
+  const lordAlphaPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lordAlphaImpactTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lordAlphaMotionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [npcSkin, setNpcSkin] = useState<PlayerSkin>('default');
   const npcSkinRef = useRef<PlayerSkin>('default');
+  const npcCounterpartRef = useRef<VersusBossCounterpart | null>(null);
+  const npcAbilityRuntimeRef = useRef<VersusBossAbilityRuntimeState | null>(null);
+  const npcSignatureRuntimeRef = useRef<VersusBossSignatureRuntimeState | null>(null);
+  const npcRegenerationTickRef = useRef(0);
   const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
   const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const npcFrameRef = useRef<ImageBitmap | null>(null);
   const npcIdleFramesRef = useRef<ImageBitmap[]>([]);
   const npcAttackFramesRef = useRef<ImageBitmap[]>([]);
+  const npcSkillFramesRef = useRef<ImageBitmap[]>([]);
+  const npcSkillCommandFramesRef = useRef<ImageBitmap[][]>([]);
+  const npcSkillCommandIndexRef = useRef<number | null>(null);
   const npcAttackStartedRef = useRef(-1);
   const npcSkillStartedRef = useRef(-1);
+  const npcSkillPresentationRevisionRef = useRef(0);
+  const npcSkillPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [npcSkillPresentation, setNpcSkillPresentation] = useState<NpcSkillPresentation | null>(null);
+  const [npcLordAlphaMotion, setNpcLordAlphaMotion] = useState<LordAlphaMotion>('idle');
+  const [npcLordAlphaMotionPulse, setNpcLordAlphaMotionPulse] = useState(0);
+  const [npcLordAlphaEventPulse, setNpcLordAlphaEventPulse] = useState(0);
+  const [npcLordAlphaEvent, setNpcLordAlphaEvent] = useState<LordAlphaPresentationEvent | null>(null);
+  const npcLordAlphaPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const npcLordAlphaMotionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const npcEchoChannelClockRef = useRef<NpcEchoChannelClock>({
+    remaining: 0,
+    next: 'brink',
+  });
   const npcVisualPositionRef = useRef({ col: 0, row: 1, at: 0 });
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
@@ -4114,6 +4814,40 @@ export default function Game() {
   const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
   const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
   const [echoChannelView, setEchoChannelView] = useState<'idle' | 'brink' | 'drain'>('idle');
+
+  const clearNpcSkillPresentation = useCallback(() => {
+    if (npcSkillPresentationTimerRef.current) {
+      clearTimeout(npcSkillPresentationTimerRef.current);
+      npcSkillPresentationTimerRef.current = null;
+    }
+    npcSkillCommandIndexRef.current = null;
+    setNpcSkillPresentation(null);
+  }, []);
+
+  const publishNpcSkillPresentation = useCallback((presentation: NpcSkillPresentation) => {
+    if (npcSkillPresentationTimerRef.current) clearTimeout(npcSkillPresentationTimerRef.current);
+    // Set the authored body sequence before React commits the overlay, so the
+    // first rendered skill frame and the plan's visible effect cannot diverge.
+    npcSkillCommandIndexRef.current = presentation.source === 'signature'
+      ? presentation.commandIndex
+      : null;
+    setNpcSkillPresentation(presentation);
+    npcSkillPresentationTimerRef.current = setTimeout(() => {
+      setNpcSkillPresentation((current) => (
+        current?.revision === presentation.revision ? null : current
+      ));
+      npcSkillCommandIndexRef.current = null;
+      npcSkillPresentationTimerRef.current = null;
+    }, presentation.durationMs + 80);
+  }, []);
+
+  useEffect(() => () => {
+    if (npcSkillPresentationTimerRef.current) {
+      clearTimeout(npcSkillPresentationTimerRef.current);
+      npcSkillPresentationTimerRef.current = null;
+    }
+  }, []);
+
   // DOM sprite overlay refs (rocket skin in-game)
   const spriteWrapRef   = useRef<HTMLDivElement | null>(null);
   const spriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -4124,6 +4858,11 @@ export default function Game() {
     { id: 'dots', label: 'Dots', preview: `${import.meta.env.BASE_URL}skins/dots.gif` },
     { id: 'gem', label: 'Elo', preview: `${import.meta.env.BASE_URL}skins/gem_thumb.png` },
     { id: 'assembly', label: 'Assembly', preview: null },
+    {
+      id: LORD_ALPHA_SKIN_ID,
+      label: 'Lord Alpha / Web Slinger',
+      preview: `${import.meta.env.BASE_URL}${LORD_ALPHA_FORMS.supreme.idleSuffix}`,
+    },
     { id: 'chrono', label: 'Chrona', preview: `${import.meta.env.BASE_URL}skins/skill-chrono-idle.png` },
     { id: 'singularity', label: 'Gravitas', preview: `${import.meta.env.BASE_URL}skins/skill-singularity-idle.png` },
     { id: 'override', label: 'Cipher', preview: `${import.meta.env.BASE_URL}skins/skill-override-idle.png` },
@@ -4266,6 +5005,13 @@ export default function Game() {
       preloadSignatureSkillVfx(playerSkin as RivalSkillId);
     }
   }, [playerSkin]);
+
+  useEffect(() => {
+    preloadAdvancedProjectileSheet(npcSkin);
+    if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
+      preloadSignatureSkillVfx(npcSkin as RivalSkillId);
+    }
+  }, [npcSkin]);
 
   useEffect(() => {
     if (assemblySkill !== 'shadow') preloadSignatureSkillVfx(assemblySkill);
@@ -4510,9 +5256,14 @@ export default function Game() {
     npcFrameRef.current = null;
     npcIdleFramesRef.current.forEach((frame) => frame.close());
     npcAttackFramesRef.current.forEach((frame) => frame.close());
+    npcSkillFramesRef.current.forEach((frame) => frame.close());
+    npcSkillCommandFramesRef.current.flat().forEach((frame) => frame.close());
     npcIdleFramesRef.current = [];
     npcAttackFramesRef.current = [];
-    if (npcSkin === 'default' || npcSkin === 'assembly') return;
+    npcSkillFramesRef.current = [];
+    npcSkillCommandFramesRef.current = [];
+    npcSkillCommandIndexRef.current = null;
+    if (npcSkin === 'default' || npcSkin === 'assembly' || npcSkin === LORD_ALPHA_SKIN_ID) return;
     const base = import.meta.env.BASE_URL;
     const loadBitmap = (url: string): Promise<ImageBitmap> => new Promise((resolve, reject) => {
       const img = new Image();
@@ -4520,11 +5271,50 @@ export default function Game() {
       img.onerror = () => reject(new Error(`Failed to load ${url}`));
       img.src = url;
     });
+    const loadSequenceFrames = async (url: string): Promise<ImageBitmap[]> => {
+      const sheet = await loadBitmap(url);
+      const frames: ImageBitmap[] = [];
+      try {
+        const frameSize = sheet.height;
+        const frameCount = Math.max(1, Math.floor(sheet.width / frameSize));
+        for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+          frames.push(await createImageBitmap(
+            sheet,
+            frameIndex * frameSize,
+            0,
+            frameSize,
+            frameSize,
+          ));
+        }
+        return frames;
+      } catch (error) {
+        frames.forEach((frame) => frame.close());
+        throw error;
+      } finally {
+        sheet.close();
+      }
+    };
+    const loadOptionalSequenceFrames = async (
+      url: string,
+      sequenceName: string,
+    ): Promise<ImageBitmap[]> => {
+      try {
+        return await loadSequenceFrames(url);
+      } catch (error) {
+        // The base idle/attack body remains valid if an optional authored
+        // sequence fails to decode. Keep the boss visible and fall back to its
+        // attack bank instead of aborting the entire NPC asset assignment.
+        console.warn(`[${npcSkin} NPC skin] ${sequenceName} sequence unavailable:`, error);
+        return [];
+      }
+    };
     (async () => {
       try {
         const concept = CONCEPT_SKIN_IDS.includes(npcSkin as (typeof CONCEPT_SKIN_IDS)[number]);
         let idleFrames: ImageBitmap[];
         let attackFrames: ImageBitmap[];
+        let skillFrames: ImageBitmap[] = [];
+        let skillCommandFrames: ImageBitmap[][] = [];
         if (concept) {
           [idleFrames, attackFrames] = await Promise.all([
             Promise.all(Array.from({ length: 8 }, (_, i) =>
@@ -4588,32 +5378,41 @@ export default function Game() {
               idle = cleaned.idle;
               attack = cleaned.attack;
             }
-            const attackSheet = await loadBitmap(
-              `${base}skins/advanced-attack-sequences/${npcSkin}.png?v=5`,
-            );
-            const frameSize = attackSheet.height;
-            const frameCount = Math.max(1, Math.floor(attackSheet.width / frameSize));
-            authoredAttackFrames = await Promise.all(
-              Array.from({ length: frameCount }, (_, frameIndex) => createImageBitmap(
-                attackSheet,
-                frameIndex * frameSize,
-                0,
-                frameSize,
-                frameSize,
+            const [attackSequence, skillSequence, ...commandSequences] = await Promise.all([
+              loadOptionalSequenceFrames(
+                `${base}skins/advanced-attack-sequences/${npcSkin}.png?v=5`,
+                'attack',
+              ),
+              loadOptionalSequenceFrames(
+                `${base}skins/advanced-skill-sequences/${npcSkin}.png?v=1`,
+                'skill',
+              ),
+              ...[0, 1, 2].map((command) => loadOptionalSequenceFrames(
+                `${base}skins/advanced-skill-command-sequences/${npcSkin}-${command}.png?v=1`,
+                `command ${command}`,
               )),
-            );
-            attackSheet.close();
+            ]);
+            authoredAttackFrames = attackSequence.length > 0 ? attackSequence : null;
+            skillFrames = skillSequence;
+            skillCommandFrames = commandSequences;
           }
           idleFrames = [idle];
           attackFrames = authoredAttackFrames ?? [attack];
           if (authoredAttackFrames) attack.close();
         }
         if (cancelled) {
-          [...new Set([...idleFrames, ...attackFrames])].forEach((frame) => frame.close());
+          [...new Set([
+            ...idleFrames,
+            ...attackFrames,
+            ...skillFrames,
+            ...skillCommandFrames.flat(),
+          ])].forEach((frame) => frame.close());
           return;
         }
         npcIdleFramesRef.current = idleFrames;
         npcAttackFramesRef.current = attackFrames;
+        npcSkillFramesRef.current = skillFrames;
+        npcSkillCommandFramesRef.current = skillCommandFrames;
         npcFrameRef.current = idleFrames[0] ?? null;
       } catch (error) {
         console.error(`[${npcSkin} NPC skin] animation load error:`, error);
@@ -4622,10 +5421,18 @@ export default function Game() {
     return () => {
       cancelled = true;
       npcFrameRef.current = null;
-      const frames = [...new Set([...npcIdleFramesRef.current, ...npcAttackFramesRef.current])];
+      const frames = [...new Set([
+        ...npcIdleFramesRef.current,
+        ...npcAttackFramesRef.current,
+        ...npcSkillFramesRef.current,
+        ...npcSkillCommandFramesRef.current.flat(),
+      ])];
       frames.forEach((frame) => frame.close());
       npcIdleFramesRef.current = [];
       npcAttackFramesRef.current = [];
+      npcSkillFramesRef.current = [];
+      npcSkillCommandFramesRef.current = [];
+      npcSkillCommandIndexRef.current = null;
     };
   }, [npcSkin]);
 
@@ -4638,12 +5445,13 @@ export default function Game() {
     const unlockedIds = new Set(learnedAbilities
       .filter((entry) => abilityIsUnlocked(entry, learnedAbilities))
       .map((entry) => entry.id));
+    const foundationIds = [...unlockedIds].filter((id) => ESSENTIAL_ABILITY_IDS.has(id));
     try {
       const stored = JSON.parse(localStorage.getItem(ENABLED_ABILITIES_KEY) ?? 'null');
       if (Array.isArray(stored)) {
         const valid = stored.filter((id): id is string =>
           typeof id === 'string' && Boolean(runtimeAbilityById(id)) && unlockedIds.has(id));
-        if (valid.length > 0) return new Set(valid);
+        if (valid.length > 0) return new Set([...foundationIds, ...valid]);
       }
     } catch {
       // Fall through to every ability currently available to this architecture.
@@ -4661,7 +5469,7 @@ export default function Game() {
       .map((entry) => entry.id);
     const merge = (...groups: string[][]) => [...new Set([...essential, ...groups.flat()])];
     const suggested = [
-      [...initialEnabledAbilities],
+      merge([...initialEnabledAbilities]),
       merge(unlocked.filter((id) => OFFENSE_ABILITY_IDS.has(id))),
       merge(unlocked.filter((id) => CONTROL_ABILITY_IDS.has(id))),
       merge(unlocked.filter((id) =>
@@ -4706,6 +5514,72 @@ export default function Game() {
   const [enabledAbilities, setEnabledAbilities] = useState<Set<string>>(initialPresetAbilities);
   const enabledAbilitiesRef = useRef<Set<string>>(initialPresetAbilities);
 
+  /**
+   * Start a fresh, opponent-owned counterpart session. The NPC receives the
+   * boss's authored playable-card loadout as a snapshot; its hand, cooldowns,
+   * statuses, and signature state never alias the player's runtime state.
+   */
+  const resetVersusBossCounterpart = useCallback((
+    skinId: PlayerSkin,
+    state: GameState,
+  ) => {
+    const selectedSkillId = skinId === 'assembly'
+      ? assemblySkillRef.current
+      : skinId;
+    const authoredAbilityPreset = skinId === LORD_ALPHA_SKIN_ID
+      ? LORD_ALPHA_SKILL_PREVIEW_ACTIONS
+        .map(({ mechanicId }) => mechanicId)
+        .filter((mechanicId) => mechanicId !== null)
+      : bossStrategyProfile(selectedSkillId).abilities;
+    const encounterManifestation = selectGeneratedVersusEncounterCard(
+      generatedAbilitiesRef.current,
+      state.wave,
+    );
+    const playableAbilityPreset = encounterManifestation
+      ? [...authoredAbilityPreset, encounterManifestation.id]
+      : authoredAbilityPreset;
+    const counterpart = createVersusBossCounterpart({
+      skinId,
+      playableAbilityPreset,
+      generatedAbilities: generatedAbilitiesRef.current,
+      ...(skinId === 'assembly'
+        ? { assemblySkillId: assemblySkillRef.current }
+        : {}),
+    });
+    npcCounterpartRef.current = counterpart;
+    npcAbilityRuntimeRef.current = createEmptyVersusBossAbilityRuntimeState(
+      {
+        hp: state.npc.hp,
+        maxHp: NPC_HP,
+        shields: state.npc.shieldCharges,
+        maxShields: VS_NPC_MAX_SHIELDS,
+        row: state.npc.row,
+        column: state.npc.col,
+        fireCooldown: state.npc.fireCooldown,
+        moveCooldown: state.npc.moveCooldown,
+        cardCooldown: state.npc.abilityCooldown,
+      },
+      {
+        hp: state.hp,
+        maxHp: COMPETITIVE_RULESET.maxHp,
+        shields: state.shieldCharges,
+        maxShields: COMPETITIVE_RULESET.maxShields,
+        row: state.player.row,
+        column: state.player.col,
+        fireCooldown: state.player.fireCooldown,
+        moveCooldown: state.player.moveCooldown,
+        cardCooldown: state.cardsReady
+          ? 0
+          : Math.max(0, CARD_CHARGE_TIME - state.cardTimer),
+      },
+    );
+    npcSignatureRuntimeRef.current = createVersusBossSignatureRuntimeState(
+      counterpart,
+      { col: state.npc.col, row: state.npc.row },
+    );
+    npcRegenerationTickRef.current = 0;
+  }, []);
+
   const activateAbilityPreset = useCallback((index: number) => {
     const normalized = (index + ABILITY_PRESET_COUNT) % ABILITY_PRESET_COUNT;
     const next = new Set(abilityPresetsRef.current[normalized] ?? []);
@@ -4740,7 +5614,27 @@ export default function Game() {
   const [presence, setPresence] = useState<PresenceSnapshot | null>(null);
 
   useEffect(() => {
-    if (phase !== 'playing' || !actionWindowVisible) {
+    if (!actionForkExperiment || phase !== 'playing' || hud.gameMode !== 'classic') {
+      if (actionRoutePromptActiveRef.current) setActionRoutePrompt(false);
+      if (actionRouteAvailabilityRef.current.last || actionRouteAvailabilityRef.current.next) {
+        setActionRouteAvailability({ last: false, next: false });
+      }
+      actionRouteAwaitNeutralRef.current = false;
+      return;
+    }
+    // Wave score no longer unlocks either route. It only arms the next pair of
+    // real combat targets after the previous route has been deliberately taken.
+    if (hud.wave >= actionRouteTargetArmWaveRef.current
+      && !actionRoutePromptActiveRef.current
+      && !actionRouteTargetsRef.current.last
+      && !actionRouteTargetsRef.current.next) {
+      setActionRouteTargetRevision((revision) => revision + 1);
+    }
+  }, [actionForkExperiment, hud.gameMode, hud.wave, phase,
+    setActionRouteAvailability, setActionRoutePrompt]);
+
+  useEffect(() => {
+    if (phase !== 'playing' || (!actionWindowVisible && !actionRoutePromptActive)) {
       setActionWindowScene(0);
       actionWindowMetricsRef.current.initialized = false;
       if (actionWindowReturnTimerRef.current) clearTimeout(actionWindowReturnTimerRef.current);
@@ -4771,7 +5665,7 @@ export default function Game() {
       setActionWindowScene(0);
       actionWindowReturnTimerRef.current = null;
     }, 6200);
-  }, [phase, actionWindowVisible, hud.integrityWork, hud.systemIntegrity.node,
+  }, [phase, actionWindowVisible, actionRoutePromptActive, hud.integrityWork, hud.systemIntegrity.node,
     hud.ecosystem.species, hud.ecosystem.mutations, hud.ecosystem.fusions,
     presence?.systemIntegrity.node]);
 
@@ -4873,6 +5767,18 @@ export default function Game() {
     }
   }, []);
 
+  const consumeNpcShadowCloneCharge = useCallback(() => {
+    const signatureRuntime = npcSignatureRuntimeRef.current;
+    if (!signatureRuntime || signatureRuntime.shadowCloneCharges <= 0) return false;
+    const nextRuntime = consumeVersusBossShadowClone(signatureRuntime);
+    npcSignatureRuntimeRef.current = nextRuntime;
+    showMessage(
+      `NPC SHADOW CLONE INTERCEPT - ${nextRuntime.shadowCloneCharges} REMAIN`,
+      900,
+    );
+    return true;
+  }, [showMessage]);
+
   const showFrameMessage = useCallback((text: string, duration = 800) => {
     if (msgFadeTimerRef.current) clearTimeout(msgFadeTimerRef.current);
     if (messageRef.current) messageRef.current.textContent = text;
@@ -4884,6 +5790,137 @@ export default function Game() {
           : '';
       }
     }, duration);
+  }, []);
+
+  const resetCloneSkillSession = useCallback(() => {
+    if (skillFxTimerRef.current) {
+      clearTimeout(skillFxTimerRef.current);
+      skillFxTimerRef.current = null;
+    }
+    for (const direction of ['north', 'south'] as const) {
+      const actionTimer = cloneActionTimersRef.current[direction];
+      if (actionTimer) clearTimeout(actionTimer);
+      cloneActionTimersRef.current[direction] = null;
+      const expiryTimer = cloneExpiryTimersRef.current[direction];
+      if (expiryTimer) clearTimeout(expiryTimer);
+      cloneExpiryTimersRef.current[direction] = null;
+      const autoFireTimer = cloneAutoFireTimersRef.current[direction];
+      if (autoFireTimer) clearInterval(autoFireTimer);
+      cloneAutoFireTimersRef.current[direction] = null;
+    }
+    const clearedClones = emptyCloneView();
+    cloneSessionRef.current = clearedClones;
+    cloneOpeningWindowRef.current = 0;
+    setCloneView(clearedClones);
+    setSkillPlayerFxActive(false);
+    setSkillFxActive(false);
+  }, []);
+
+  const triggerLordAlphaPresentation = useCallback((
+    kind: LordAlphaPresentationEventKind,
+    motion: LordAlphaMotion,
+    duration: number = LORD_ALPHA_EVENT_TIMINGS_MS[kind],
+    options: LordAlphaPresentationEventOptions = {},
+  ) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (lordAlphaPresentationTimerRef.current) clearTimeout(lordAlphaPresentationTimerRef.current);
+    if (lordAlphaMotionTimerRef.current) clearTimeout(lordAlphaMotionTimerRef.current);
+    setLordAlphaEvent(createLordAlphaPresentationEvent(kind, 0, options));
+    setLordAlphaMotion(motion);
+    setLordAlphaMotionPulse((pulse) => pulse + 1);
+    setLordAlphaEventPulse((pulse) => pulse + 1);
+    lordAlphaPresentationTimerRef.current = setTimeout(() => {
+      setLordAlphaEvent(null);
+      lordAlphaPresentationTimerRef.current = null;
+    }, duration);
+    lordAlphaMotionTimerRef.current = setTimeout(() => {
+      setLordAlphaMotion('idle');
+      lordAlphaMotionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  const triggerNpcLordAlphaPresentation = useCallback((
+    kind: LordAlphaPresentationEventKind,
+    motion: LordAlphaMotion,
+    duration: number = LORD_ALPHA_EVENT_TIMINGS_MS[kind],
+    options: LordAlphaPresentationEventOptions = {},
+  ) => {
+    if (npcSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (npcLordAlphaPresentationTimerRef.current) {
+      clearTimeout(npcLordAlphaPresentationTimerRef.current);
+    }
+    if (npcLordAlphaMotionTimerRef.current) {
+      clearTimeout(npcLordAlphaMotionTimerRef.current);
+    }
+    setNpcLordAlphaEvent(createLordAlphaPresentationEvent(kind, 0, options));
+    setNpcLordAlphaMotion(motion);
+    setNpcLordAlphaMotionPulse((pulse) => pulse + 1);
+    setNpcLordAlphaEventPulse((pulse) => pulse + 1);
+    npcLordAlphaPresentationTimerRef.current = setTimeout(() => {
+      setNpcLordAlphaEvent(null);
+      npcLordAlphaPresentationTimerRef.current = null;
+    }, duration);
+    npcLordAlphaMotionTimerRef.current = setTimeout(() => {
+      setNpcLordAlphaMotion('idle');
+      npcLordAlphaMotionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  const lordAlphaBoardAnchor = useCallback((col: number, row: number) => {
+    const canvas = canvasRef.current;
+    const width = canvas?.offsetWidth ?? 0;
+    const height = canvas?.offsetHeight ?? 0;
+    if (!canvas || width <= 0 || height <= 0) {
+      return {
+        x: Math.min(1, Math.max(0, (col + 0.5) / 6)),
+        y: Math.min(1, Math.max(0, (row + 0.5) / 3)),
+      };
+    }
+    const metrics = getActiveBoardMetrics(width, height);
+    return {
+      x: Math.min(1, Math.max(0, (metrics.x + (col + 0.5) * metrics.cell) / width)),
+      y: Math.min(1, Math.max(0, (metrics.y + (row + 0.5) * metrics.cell) / height)),
+    };
+  }, []);
+
+  const triggerLordAlphaImpact = useCallback((options: LordAlphaPresentationEventOptions) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (lordAlphaImpactTimerRef.current) clearTimeout(lordAlphaImpactTimerRef.current);
+    setLordAlphaImpactEvent(createLordAlphaPresentationEvent('web', 0, options));
+    setLordAlphaImpactPulse((pulse) => pulse + 1);
+    lordAlphaImpactTimerRef.current = setTimeout(() => {
+      setLordAlphaImpactEvent(null);
+      lordAlphaImpactTimerRef.current = null;
+    }, LORD_ALPHA_VFX_TIMINGS_MS['web-impact']);
+  }, []);
+
+  const triggerLordAlphaMotion = useCallback((
+    motion: LordAlphaMotion,
+    duration: number | false = 260,
+  ) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID) return;
+    if (lordAlphaPresentationTimerRef.current) return;
+    if (lordAlphaMotionTimerRef.current) clearTimeout(lordAlphaMotionTimerRef.current);
+    setLordAlphaMotion(motion);
+    setLordAlphaMotionPulse((pulse) => pulse + 1);
+    if (duration === false) {
+      lordAlphaMotionTimerRef.current = null;
+      return;
+    }
+    lordAlphaMotionTimerRef.current = setTimeout(() => {
+      setLordAlphaMotion('idle');
+      lordAlphaMotionTimerRef.current = null;
+    }, duration);
+  }, []);
+
+  useEffect(() => () => {
+    if (lordAlphaPresentationTimerRef.current) clearTimeout(lordAlphaPresentationTimerRef.current);
+    if (lordAlphaMotionTimerRef.current) clearTimeout(lordAlphaMotionTimerRef.current);
+    if (lordAlphaImpactTimerRef.current) clearTimeout(lordAlphaImpactTimerRef.current);
+    if (npcLordAlphaPresentationTimerRef.current) {
+      clearTimeout(npcLordAlphaPresentationTimerRef.current);
+    }
+    if (npcLordAlphaMotionTimerRef.current) clearTimeout(npcLordAlphaMotionTimerRef.current);
   }, []);
 
   const addParticles = useCallback((x: number, y: number, color: string) => {
@@ -4904,6 +5941,7 @@ export default function Game() {
       dots: 'energy',
       gem: 'energy',
       assembly: 'adaptive',
+      'lord-alpha': 'portal',
       chrono: 'temporal',
       singularity: 'gravity',
       override: 'swarm',
@@ -4967,48 +6005,88 @@ export default function Game() {
     big?: boolean;
     pierce?: boolean;
     originCol?: number;
+    presentationPrimary?: boolean;
+    presentationVariant?: LordAlphaComboBeat;
+    routeDirection?: CampaignRouteDirection;
+    suppressSecondary?: boolean;
   }) => {
     const s = stateRef.current;
     const row = rowOverride !== undefined ? rowOverride : s.player.row;
     let power = opts?.power ?? 1;
     let big = opts?.big ?? false;
     let pierce = opts?.pierce ?? false;
+    const suppressSecondary = opts?.suppressSecondary ?? false;
     s.shotsFired++;
     const phaseLevel = s.runUpgrades.phaseRounds ?? 0;
     const phaseInterval = Math.max(3, 6 - phaseLevel);
-    if (phaseLevel > 0 && s.shotsFired % phaseInterval === 0) pierce = true;
+    if (!suppressSecondary && phaseLevel > 0 && s.shotsFired % phaseInterval === 0) pierce = true;
     const denseLevel = s.runUpgrades.denseCharge ?? 0;
     if (denseLevel > 0 && s.shotsFired % 4 === 0) power += denseLevel;
-    if (s.voltageTimer > 0) { big = true; pierce = true; }
+    if (s.voltageTimer > 0) {
+      big = true;
+      if (!suppressSecondary) pierce = true;
+    }
     if (s.doubleTimer > 0) power *= 2;
-    if (!pierce && s.pierceShots > 0) {
+    if (!suppressSecondary && !pierce && s.pierceShots > 0) {
       pierce = true;
       s.pierceShots = Math.max(0, s.pierceShots - 1);
     }
+    if (suppressSecondary) pierce = false;
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
     const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+    const projectileSpeed = 8.5 * milestoneProjectileSpeedMultiplier(s.runUpgrades);
     const attackStyle = resolveAttackStyle();
+    let presentationVariant = opts?.presentationVariant;
+    let presentationBirthMs: number | undefined;
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && opts?.presentationPrimary) {
+      const presentationNow = performance.now();
+      const advanced = advanceLordAlphaCombo(lordAlphaComboRef.current, presentationNow);
+      lordAlphaComboRef.current = advanced.state;
+      presentationVariant = advanced.beat;
+      presentationBirthMs = presentationNow;
+      lordAlphaVolleyPresentationRef.current = {
+        variant: advanced.beat,
+        birthMs: presentationNow,
+      };
+      setLordAlphaComboBeat(advanced.beat);
+      triggerLordAlphaMotion(
+        'attack',
+        Math.max(
+          LORD_ALPHA_COMBO_PRESENTATIONS[advanced.beat].durationMs,
+          resolveLordAlphaAttackSequence(advanced.beat).durationMs,
+        ),
+      );
+    }
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && presentationVariant && presentationBirthMs === undefined) {
+      const inherited = lordAlphaVolleyPresentationRef.current;
+      presentationBirthMs = inherited?.variant === presentationVariant
+        ? inherited.birthMs
+        : performance.now();
+    }
     s.bullets.push({
       colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
       row,
-      speed: direction * 8.5,
+      speed: direction * projectileSpeed,
       power,
       big,
       pierce,
       attackStyle,
       effectSkin: playerSkinRef.current,
+      ...(opts?.routeDirection ? { routeDirection: opts.routeDirection } : {}),
+      ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
     });
-    if (s.echoTimer > 0) {
+    if (!suppressSecondary && s.echoTimer > 0) {
       const echoRow = (row + 1) % 3;
       s.bullets.push({
         colPos: (opts?.originCol ?? s.player.col) + direction * 0.55,
         row: echoRow,
-        speed: direction * 8.5,
+        speed: direction * projectileSpeed,
         power: Math.max(1, power - 1),
         big: false,
         pierce: false,
         attackStyle,
         effectSkin: playerSkinRef.current,
+        ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
       });
     }
     playShot();
@@ -5025,7 +6103,138 @@ export default function Game() {
         || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number])
       )
     ) rivalShootFlash();
-  }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle]);
+    return presentationVariant ?? null;
+  }, [rocketShootFlash, gemShootFlash, rivalShootFlash, resolveAttackStyle, triggerLordAlphaMotion]);
+
+  const commitActionRoute = useCallback((row: number, routeDirection: CampaignRouteDirection) => {
+    if (!actionForkExperiment || !actionRoutePromptActiveRef.current
+      || !actionRouteAvailabilityRef.current[routeDirection]) return false;
+
+    // Clear the live gate first so a repeated pointer/controller event cannot
+    // commit a second route before React has rendered the first selection.
+    const s = stateRef.current;
+    setActionRouteAvailability({ last: false, next: false });
+    setActionRoutePrompt(false);
+    actionRoutePendingOpenWaveRef.current = null;
+    actionRouteAwaitNeutralRef.current = false;
+
+    const securedSegments = actionRouteSecuredSegmentsRef.current + 1;
+    actionRouteSecuredSegmentsRef.current = securedSegments;
+    const routeLane = resolveCampaignRouteSelection(
+      row,
+      routeDirection === 'last' ? 0 : 2,
+    ).lane;
+    const traversal = resolveCampaignRouteTraversal(
+      actionRouteCursorRef.current,
+      s.wave,
+      routeDirection,
+      routeLane,
+    );
+    actionRouteCursorRef.current = traversal.toSegment;
+    actionRouteTraversalRevisionRef.current += 1;
+    // Secured route segments—not combat score or Last/Next sign—are the
+    // monotonic world-traversal authority in the Action Window campaign.
+    applyMilestoneWorldProgress(s, securedSegments + 1);
+    setActionRouteTraversal({
+      ...traversal,
+      revision: actionRouteTraversalRevisionRef.current,
+    });
+    // Consume the exact boss-gate state that was presented to the player.
+    const bossForkDue = actionRouteBossChoiceRef.current;
+    actionRouteBossChoiceRef.current = false;
+    const bossEncounter = resolveCampaignRouteBossEncounter(
+      row,
+      routeDirection,
+      traversal.toSegment,
+      bossForkDue,
+      actionRouteBossesDefeatedRef.current,
+    );
+    // Middle is deliberately the encounter-free route, but taking it must not
+    // consume the milestone. Keep the boss fork armed for the next choice until
+    // the player deliberately takes a top or bottom route.
+    actionRouteBossPendingRef.current = bossForkDue && bossEncounter === null;
+    setActionRouteBossEncounter(bossEncounter);
+
+    // A route is earned at most once per score-derived wave. Its next real
+    // Last/Next target pair is acquired only after combat reaches a new wave.
+    actionRouteTargetArmWaveRef.current = Math.max(s.wave + 1, actionForkStartWave);
+    actionRouteTargetsRef.current = { last: null, next: null };
+    actionRouteTargetRowsRef.current = resolveCampaignRouteTargetRows(1);
+    actionRouteAutoBusterStateRef.current = createCampaignRouteAutoBusterState(1);
+    actionRouteTargetReacquireDelayRef.current = { last: 0, next: 0 };
+    setActionRouteTargetRevision((revision) => revision + 1);
+    if (bossEncounter) {
+      clearNpcSkillPresentation();
+      resetCloneSkillSession();
+      const campaignState = structuredClone(s);
+      campaignState.player.col = 1;
+      campaignState.player.row = 1;
+      campaignBossSessionRef.current = {
+        encounter: bossEncounter,
+        campaignState,
+        previousNpcSkin: npcSkinRef.current,
+      };
+
+      const duelState = makeInitialState(
+        enabledAbilitiesRef.current,
+        'vs',
+        s.milestoneTraversalDriven,
+      );
+      // Keep the campaign identity visible during the temporary duel while all
+      // combat entities, projectiles, status timers and NPC tactics start clean.
+      duelState.score = s.score;
+      duelState.integrityWork = s.integrityWork;
+      duelState.systemIntegrity = { ...s.systemIntegrity };
+      duelState.wave = s.wave;
+      duelState.runUpgrades = { ...s.runUpgrades };
+      duelState.milestoneDefeatStreak = s.milestoneDefeatStreak;
+      duelState.milestoneVanguardDefeats = s.milestoneVanguardDefeats;
+      duelState.milestoneBonusWaves = s.milestoneBonusWaves;
+      duelState.milestoneWorldSteps = s.milestoneWorldSteps;
+      duelState.milestonePierceProgress = s.milestonePierceProgress;
+      duelState.milestoneShieldProgress = s.milestoneShieldProgress;
+      duelState.ecosystemStats = structuredClone(s.ecosystemStats);
+      duelState.autoBuster = s.autoBuster;
+      // A route boss should demonstrate its authored loadout during the
+      // encounter, even when the player enters with a highly efficient build.
+      // Only the opening cast is accelerated; all subsequent actions retain
+      // the shared competitive cooldowns below.
+      duelState.npc.abilityCooldown = COMPETITIVE_RULESET.bossOpeningAbilityDelay;
+      duelState.npc.signatureCooldown = COMPETITIVE_RULESET.bossOpeningSignatureDelay;
+      stateRef.current = duelState;
+
+      npcSkinRef.current = bossEncounter.destination.id;
+      setNpcSkin(bossEncounter.destination.id);
+      resetVersusBossCounterpart(bossEncounter.destination.id, duelState);
+      npcAttackStartedRef.current = -1;
+      npcSkillStartedRef.current = -1;
+      npcVisualPositionRef.current = { col: duelState.npc.col, row: duelState.npc.row, at: 0 };
+      rivalSkillCooldownRef.current = 0;
+      npcInterceptCountRef.current = 0;
+      const clearedRivalSkill = emptyRivalSkillView();
+      rivalSkillRef.current = clearedRivalSkill;
+      setRivalSkillView(clearedRivalSkill);
+      echoReplayQueueRef.current = [];
+      echoBrinkStrikesRef.current = [];
+      chronoHistoryRef.current = [];
+      lastTimeRef.current = 0;
+      updateHud();
+      showMessage(
+        `BOSS ENCOUNTER · ${bossEncounter.destination.label} · ${bossEncounter.destination.bearing}`,
+        2200,
+      );
+    } else {
+      showMessage(
+        bossForkDue
+          ? `MIDDLE STRAIGHT SECURED \u2014 BOSS FORK REMAINS ACTIVE`
+          : `${routeDirection.toUpperCase()} ROUTE SECURED`,
+        bossForkDue ? 1500 : 900,
+      );
+    }
+    return true;
+  }, [actionForkExperiment, actionForkStartWave, resetCloneSkillSession,
+    resetVersusBossCounterpart, setActionRouteAvailability,
+    setActionRouteBossEncounter, setActionRoutePrompt, showMessage, updateHud]);
 
   const tryMoveTo = useCallback((col: number, row: number) => {
     const s = stateRef.current;
@@ -5055,34 +6264,161 @@ export default function Game() {
     playMove();
     if (!(s.gameMode === 'vs' && chrono.active && chrono.id === 'chrono')) updateHud();
     if (playerSkinRef.current === 'gem') gemMoveFlash();
-  }, [updateHud, gemMoveFlash, registerPlaystyle]);
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) triggerLordAlphaMotion('move', 330);
+  }, [updateHud, gemMoveFlash, registerPlaystyle, triggerLordAlphaMotion]);
 
   const manualBuster = useCallback(() => {
     const s = stateRef.current;
-    if (!s.running) return;
+    if (!s.running || s.upgradeSelectionOpen) return;
     if (echoBrinkRef.current.held || echoBrinkRef.current.drainHeld
       || echoBrinkStrikesRef.current.length > 0) return;
     if (s.player.fireCooldown <= 0) {
       registerPlaystyle('manualFire');
       if (!s.autoBuster) registerPlaystyle('autoOffFire');
-      fireBullet();
-      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
-      if (s.turretTimer > 0) {
-        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+      const routeTargetPair = getCompleteCampaignRouteTargetPair(actionRouteTargetsRef.current);
+      const routeAimPair: CampaignRouteAimPair | null = routeTargetPair
+        ? {
+          last: { visualSeed: routeTargetPair.last.visualSeed, row: routeTargetPair.last.enemy.row },
+          next: { visualSeed: routeTargetPair.next.visualSeed, row: routeTargetPair.next.enemy.row },
+        }
+        : null;
+      const routeDirection = routeAimPair
+        ? getCampaignRouteAimDirectionAtRow(routeAimPair, s.player.row)
+        : null;
+      const presentationVariant = fireBullet(undefined, {
+        presentationPrimary: true,
+        ...(routeDirection ? { routeDirection } : {}),
+      });
+      if (s.multishotTimer > 0) {
+        fireBullet((s.player.row + 1) % 3, { presentationVariant: presentationVariant ?? undefined });
       }
-      const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
+      if (s.turretTimer > 0) {
+        for (let r = 0; r < 3; r++) {
+          if (r !== s.player.row) fireBullet(r, { presentationVariant: presentationVariant ?? undefined });
+        }
+      }
+      const rapidScale = (1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1)
+        * milestoneFireRateMultiplier(s.runUpgrades);
       const baseManualInterval = s.gameMode === 'vs'
         ? COMPETITIVE_RULESET.playerManualFireInterval
         : 0.25;
       s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : baseManualInterval) / rapidScale;
     }
-  }, [fireBullet, registerPlaystyle]);
+  }, [actionForkExperiment, actionForkStartWave, clearNpcSkillPresentation, fireBullet, registerPlaystyle, resetCloneSkillSession, setActionRouteAvailability, setActionRoutePrompt]);
+
+  /**
+   * Resolve every campaign enemy defeat through one accounting path. Timed
+   * fields and direct abilities both call this so score, Integrity Work,
+   * progression rewards, leech and overload cannot drift apart.
+   */
+  const resolveCampaignEnemyDefeat = useCallback((
+    state: GameState,
+    enemy: Enemy,
+    baseIntegrityWork = 100,
+  ) => {
+    if (enemy.colPos <= -1) return false;
+    const enemySeed = getEnemyVisualSeed(enemy);
+    const routeBinding = actionRouteTargetsRef.current.last?.visualSeed === enemySeed
+      ? actionRouteTargetsRef.current.last
+      : actionRouteTargetsRef.current.next?.visualSeed === enemySeed
+        ? actionRouteTargetsRef.current.next
+        : null;
+    // Route objectives use confirmed directional contacts rather than raw HP
+    // as their engagement budget. A high-damage card, field, or timed effect
+    // may soften one, but cannot bypass the advertised Last/Next quota.
+    if (routeBinding
+      && routeBinding.confirmedHits < CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS) {
+      enemy.hp = Math.max(1, enemy.hp);
+      enemy.flash = 0.16;
+      return false;
+    }
+    enemy.hp = 0;
+    enemy.colPos = -9;
+    state.lanePressure[enemy.row] = Math.min(6, state.lanePressure[enemy.row] + 1);
+    const rewardMultiplier = state.overdriveTimer > 0 || enemy.catalystMarked ? 3 : 1;
+    state.score += baseIntegrityWork * rewardMultiplier + registerMilestoneDefeat(state);
+    reconcileIntegrityWork(state);
+    if (state.drainTimer > 0) state.hp++;
+    if (state.overloadTimer > 0) {
+      state.bullets.push({
+        colPos: state.player.col + 0.55,
+        row: enemy.row,
+        speed: 8.5 * milestoneProjectileSpeedMultiplier(state.runUpgrades),
+        power: 1,
+        big: false,
+        pierce: false,
+        attackStyle: resolveAttackStyle(),
+        effectSkin: playerSkinRef.current,
+      });
+    }
+    rewardAccRef.current.recordKill(enemy.value ?? 1);
+    setSessionCGRD(rewardAccRef.current.totalCGRD);
+    playScore();
+    return true;
+  }, [resolveAttackStyle]);
 
   const endGame = useCallback((won = false) => {
     const s = stateRef.current;
     if (!s.running) return;
+    clearNpcSkillPresentation();
+    resetCloneSkillSession();
+    const bossSession = campaignBossSessionRef.current;
+    if (won && bossSession) {
+      const restored = structuredClone(bossSession.campaignState);
+      // Boss hits earn real campaign Work. Merge only the verified score delta
+      // into the snapshot, then let the normal campaign economy reconcile it;
+      // temporary duel damage/status state remains isolated as before.
+      restored.score += Math.max(0, s.score - bossSession.campaignState.score);
+      reconcileIntegrityWork(restored);
+      restored.running = true;
+      restored.playerWon = false;
+      restored.gameMode = 'classic';
+      restored.player.col = 1;
+      restored.player.row = 1;
+      stateRef.current = restored;
+      campaignBossSessionRef.current = null;
+      npcCounterpartRef.current = null;
+      npcAbilityRuntimeRef.current = null;
+      npcSignatureRuntimeRef.current = null;
+      setActionRouteBossEncounter(null);
+      setActionRouteBossesDefeated(actionRouteBossesDefeatedRef.current + 1);
+
+      const restoredNpcSkin = bossSession.previousNpcSkin as PlayerSkin;
+      npcSkinRef.current = restoredNpcSkin;
+      setNpcSkin(restoredNpcSkin);
+      npcAttackStartedRef.current = -1;
+      npcSkillStartedRef.current = -1;
+      npcVisualPositionRef.current = { col: restored.npc.col, row: restored.npc.row, at: 0 };
+      rivalSkillCooldownRef.current = 0;
+      npcInterceptCountRef.current = 0;
+      const clearedRivalSkill = emptyRivalSkillView();
+      rivalSkillRef.current = clearedRivalSkill;
+      setRivalSkillView(clearedRivalSkill);
+      echoReplayQueueRef.current = [];
+      echoBrinkStrikesRef.current = [];
+      chronoHistoryRef.current = [];
+      lastTimeRef.current = 0;
+
+      updateHud();
+      showMessage(
+        `${bossSession.encounter.destination.label} DEFEATED · CAMPAIGN ROUTE RESTORED`,
+        2200,
+      );
+      return;
+    }
     s.running = false;
+    npcCounterpartRef.current = null;
+    npcAbilityRuntimeRef.current = null;
+    npcSignatureRuntimeRef.current = null;
     s.playerWon = won;
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      if (lordAlphaPresentationTimerRef.current) {
+        clearTimeout(lordAlphaPresentationTimerRef.current);
+        lordAlphaPresentationTimerRef.current = null;
+      }
+      setLordAlphaEvent(null);
+    }
+    triggerLordAlphaMotion(won ? 'victory' : 'death', false);
     stopMusic();
     if (won) {
       showMessage('SYSTEM OVERRIDE — NPC neutralised!', false);
@@ -5093,22 +6429,85 @@ export default function Game() {
     // Capture final kills for blockchain claim
     setGameKills([...rewardAccRef.current.killList]);
     updateHud();
-  }, [showMessage, updateHud]);
+  }, [showMessage, updateHud, triggerLordAlphaMotion, clearNpcSkillPresentation, resetCloneSkillSession, setActionRouteBossEncounter,
+    setActionRouteBossesDefeated]);
 
-  const useCard = useCallback((type: string) => {
+  const useCard = useCallback((
+    type: string,
+    options: { lordAlphaPreview?: boolean; lordAlphaSignature?: boolean } = {},
+  ) => {
     const s = stateRef.current;
-    if (!s.running || !s.cardsReady) return;
+    if (s.upgradeSelectionOpen) return;
+    const lordAlphaPreviewInvocation = Boolean(
+      options.lordAlphaPreview
+      && lordAlphaSkillsPreview
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+    );
+    const lordAlphaSignatureInvocation = Boolean(
+      options.lordAlphaSignature
+      && !lordAlphaSkillsPreview
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+    );
+    const lordAlphaDirectInvocation = lordAlphaPreviewInvocation || lordAlphaSignatureInvocation;
+    const lordAlphaCooldownFreeInvocation = lordAlphaPreviewInvocation
+      || (lordAlphaSignatureInvocation
+        && !lordAlphaSignatureUsesCooldown(
+          s.gameMode,
+          lordAlphaSkillsPreview,
+          Boolean(campaignBossSessionRef.current),
+        ));
+    if (!s.running || (!s.cardsReady && !lordAlphaDirectInvocation)) return;
     const ability = runtimeAbilityById(type);
     const generated = generatedAbilityRegistry[type];
     if (!ability) return;
     // Already used this hand or on cooldown — do nothing
-    if (s.usedInHand.includes(type)) return;
-    if ((s.abilityCooldowns[type] ?? 0) > 0) return;
-    registerPlaystyle('abilityUse');
+    if (!lordAlphaDirectInvocation && s.usedInHand.includes(type)) return;
+    if (!lordAlphaCooldownFreeInvocation && (s.abilityCooldowns[type] ?? 0) > 0) return;
+    if (!lordAlphaDirectInvocation) {
+      const context = abilityBoardContext(s);
+      const evaluation = generated ? null : evaluateAbility(type, context);
+      const practical = generated
+        ? generatedAbilityIsPractical(generated, context)
+        : Boolean(evaluation?.valid);
+      if (!practical) {
+        const reason = generated
+          ? 'no compatible target or missing resource'
+          : evaluation?.reasons[0] ?? 'no valid target';
+        showMessage(`${ability.name}: ${reason.toUpperCase()} — CARD RETAINED`, 1500);
+        return;
+      }
+      registerPlaystyle('abilityUse');
+    } else if (lordAlphaSignatureInvocation) {
+      registerPlaystyle('abilityUse');
+    }
+
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      const presentation = getLordAlphaCardPresentation(type);
+      if (presentation) {
+        const closestEnemy = [...s.enemies]
+          .filter((enemy) => enemy.colPos > -1)
+          .sort((left, right) => left.colPos - right.colPos)[0];
+        const target = s.gameMode === 'vs'
+          ? lordAlphaBoardAnchor(3 + s.npc.col, s.npc.row)
+          : lordAlphaBoardAnchor(closestEnemy?.colPos ?? 4, closestEnemy?.row ?? s.player.row);
+        triggerLordAlphaPresentation(
+          presentation.kind,
+          'skill',
+          presentation.durationMs,
+          {
+            subtype: presentation.subtype,
+            origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+            target,
+          },
+        );
+      }
+    }
 
     const canvas = canvasRef.current;
-    const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
+    const m = canvas ? getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     const living = () => s.enemies.filter((enemy) => enemy.colPos > -1);
+    const resolveAbilityDefeat = (enemy: Enemy, baseIntegrityWork = 100) =>
+      resolveCampaignEnemyDefeat(s, enemy, baseIntegrityWork);
     const strike = (
       predicate: (enemy: GameState['enemies'][number]) => boolean,
       damage: number,
@@ -5121,10 +6520,7 @@ export default function Game() {
         enemy.colPos = Math.min(5.8, enemy.colPos + push);
         enemy.flash = 0.16;
         hits++;
-        if (enemy.hp <= 0) {
-          enemy.colPos = -9;
-          s.score += 100;
-        }
+        if (enemy.hp <= 0) resolveAbilityDefeat(enemy);
       }
       return hits;
     };
@@ -5154,7 +6550,11 @@ export default function Game() {
       if (generated.function === 'rupture') {
         strike((enemy) => targets.includes(enemy), 1 + rank);
       } else if (generated.function === 'inhibit') {
-        for (const enemy of targets) { enemy.speed *= Math.max(0.28, 0.72 - rank * 0.06); enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 2 + rank); enemy.flash = 0.16; }
+        for (const enemy of targets) {
+          enemy.speed = Math.max(0.35, enemy.speed * Math.max(0.28, 0.72 - rank * 0.06));
+          enemy.abilityCooldown = Math.max(enemy.abilityCooldown ?? 0, 2 + rank);
+          enemy.flash = 0.16;
+        }
       } else if (generated.function === 'impulse') {
         for (const enemy of targets) { enemy.colPos = Math.min(5.8, enemy.colPos + 0.65 + rank * 0.28); enemy.flash = 0.16; }
       } else if (generated.function === 'ward') {
@@ -5170,7 +6570,7 @@ export default function Game() {
       } else {
         for (const enemy of targets) {
           enemy.row = (enemy.row + 1 + (rank % 2)) % 3;
-          enemy.speed *= 0.8;
+          enemy.speed = Math.max(0.35, enemy.speed * 0.8);
           enemy.flash = 0.16;
         }
       }
@@ -5195,14 +6595,14 @@ export default function Game() {
       const targetRow = s.player.row;
       let hits = 0;
       for (const enemy of s.enemies) {
+        if (enemy.colPos <= -1) continue;
         if (enemy.row === targetRow) {
           enemy.hp -= 2;
           enemy.flash = 0.12;
           if (enemy.hp <= 0 && m) {
             addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fde047');
-            enemy.colPos = -9;
-            s.score += 100;
-            if (s.drainTimer > 0) s.hp++;
+            if (resolveAbilityDefeat(enemy)) hits++;
+          } else if (enemy.hp <= 0 && resolveAbilityDefeat(enemy)) {
             hits++;
           }
         }
@@ -5210,7 +6610,7 @@ export default function Game() {
       if (hits > 0) { reconcileIntegrityWork(s); playScore(); }
       showMessage('Grid Bomb detonated your row!', 1500);
     } else if (type === 'shield') {
-      s.shieldCharges = Math.min(3, s.shieldCharges + 1);
+      s.shieldCharges = Math.min(9, s.shieldCharges + 1);
       showMessage('Shield charged — next hit blocked!', 1500);
     } else if (type === 'overclock') {
       s.overclockTimer = 6;
@@ -5231,12 +6631,9 @@ export default function Game() {
     // ── Instant / no new state ──────────────────────────────────────────────
     } else if (type === 'nuke') {
       let kills = 0;
-      for (const enemy of s.enemies) {
+      for (const enemy of living()) {
         if (m) addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#f87171');
-        enemy.colPos = -9;
-        s.score += 100;
-        if (s.drainTimer > 0) s.hp++;
-        kills++;
+        if (resolveAbilityDefeat(enemy)) kills++;
       }
       if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage('NUKE — all viruses wiped!', 1500);
@@ -5248,13 +6645,10 @@ export default function Game() {
       showMessage('Warp Back — all viruses sent to the edge!', 1500);
     } else if (type === 'purge') {
       let kills = 0;
-      for (const enemy of s.enemies) {
+      for (const enemy of living()) {
         if (enemy.hp <= 1 || (enemy.genome?.fusionLevel ?? 0) > 0 || (enemy.genome?.mutations.length ?? 0) >= 4) {
           if (m) addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#c4b5fd');
-          enemy.colPos = -9;
-          s.score += 100;
-          if (s.drainTimer > 0) s.hp++;
-          kills++;
+          if (resolveAbilityDefeat(enemy)) kills++;
         }
       }
       if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
@@ -5270,15 +6664,12 @@ export default function Game() {
       showMessage('Backdash pushed viruses back 2 cells!', 1500);
     } else if (type === 'megabomb') {
       let kills = 0;
-      for (const enemy of s.enemies) {
+      for (const enemy of living()) {
         if (m) {
           addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fde047');
           addParticles(m.x + (enemy.colPos + 0.5) * m.cell, m.y + (enemy.row + 0.5) * m.cell, '#fb923c');
         }
-        enemy.colPos = -9;
-        s.score += 200;
-        if (s.drainTimer > 0) s.hp++;
-        kills++;
+        if (resolveAbilityDefeat(enemy, 200)) kills++;
       }
       if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage(`MEGABOMB — ${kills} virus${kills !== 1 ? 'es' : ''} neutralized, double Integrity Work!`, 1800);
@@ -5291,6 +6682,7 @@ export default function Game() {
         s.enemies,
         s.hp,
         synchronizedAbilityIdsRef.current,
+        s,
       );
       for (let g = 0; g < 12 && nextOptions.every((id) => (s.abilityCooldowns[id] ?? 0) > 0); g++) {
         nextOptions = randomAbilityOptions(
@@ -5300,6 +6692,7 @@ export default function Game() {
           s.enemies,
           s.hp,
           synchronizedAbilityIdsRef.current,
+          s,
         );
       }
       s.currentCardOptions = nextOptions;
@@ -5309,7 +6702,7 @@ export default function Game() {
       s.rotateUsedThisHand = false;
       s.cardTimer = CARD_CHARGE_TIME;
       playAbility(type);
-      s.abilityCooldowns[type] = ability.cooldown;
+      if (!lordAlphaCooldownFreeInvocation) s.abilityCooldowns[type] = ability.cooldown;
       updateHud();
       showMessage('Card Flood — new hand dealt instantly!', 1500);
       return; // skip standard mark-used below
@@ -5344,6 +6737,7 @@ export default function Game() {
       for (const e of s.enemies) {
         if (isCyberEnemy(e)) {
           e.hp = Math.max(1, e.hp - 3);
+          e.traitSuppressionTimer = Math.max(e.traitSuppressionTimer ?? 0, 4);
           e.flash = 0.12;
           hit++;
         }
@@ -5355,7 +6749,7 @@ export default function Game() {
       s.bullets.push({
         colPos: s.player.col + 0.55,
         row: s.player.row,
-        speed: 16,
+        speed: 16 * milestoneProjectileSpeedMultiplier(s.runUpgrades),
         power: 5,
         big: true,
         pierce: true,
@@ -5382,10 +6776,7 @@ export default function Game() {
         for (const e of s.enemies) {
           if (e.hp === chainHp && e.colPos > -1) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#fde047');
-            e.colPos = -9;
-            s.score += 100;
-            if (s.drainTimer > 0) s.hp++;
-            kills++;
+            if (resolveAbilityDefeat(e)) kills++;
           }
         }
         if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
@@ -5399,10 +6790,7 @@ export default function Game() {
       let kills = 0;
       for (const e of targets) {
         if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#fb923c');
-        e.colPos = -9;
-        s.score += 100;
-        if (s.drainTimer > 0) s.hp++;
-        kills++;
+        if (resolveAbilityDefeat(e)) kills++;
       }
       if (kills > 0) { reconcileIntegrityWork(s); playScore(); updateHud(); }
       showMessage(`Cluster — ${kills} most-advanced virus${kills !== 1 ? 'es' : ''} eliminated!`, 1500);
@@ -5458,8 +6846,12 @@ export default function Game() {
       for (const e of s.enemies) {
         const movement = movementClassOf(e);
         if (movement && AIR_CLASSES.has(movement)) {
-          e.hp -= 2; e.colPos = Math.min(5.8, e.colPos + 0.75); e.flash = 0.14; hits++;
-          if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+          e.hp -= 2;
+          e.colPos = Math.min(5.8, e.colPos + 0.75);
+          e.mobilityLockTimer = Math.max(e.mobilityLockTimer ?? 0, 3);
+          e.flash = 0.14;
+          hits++;
+          if (e.hp <= 0) resolveAbilityDefeat(e);
         }
       }
       showMessage(`Flak Grid grounded ${hits} airborne entit${hits === 1 ? 'y' : 'ies'}!`, 1500);
@@ -5470,13 +6862,22 @@ export default function Game() {
         if (movement && GROUNDED_CLASSES.has(movement)) {
           e.hp -= HEAVY_CLASSES.has(movement) ? 1 : 2;
           e.colPos = Math.min(5.8, e.colPos + (HEAVY_CLASSES.has(movement) ? 0.35 : 0.7));
+          e.mobilityLockTimer = Math.max(
+            e.mobilityLockTimer ?? 0,
+            HEAVY_CLASSES.has(movement) ? 1.25 : 2.25,
+          );
           e.flash = 0.14; hits++;
-          if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+          if (e.hp <= 0) resolveAbilityDefeat(e);
         }
       }
       showMessage(`Groundwire shocked ${hits} grounded entit${hits === 1 ? 'y' : 'ies'}!`, 1500);
     } else if (type === 'signaljam') {
       s.signalJamTimer = 6;
+      for (const enemy of living()) {
+        if (isCyberEnemy(enemy)) {
+          enemy.traitSuppressionTimer = Math.max(enemy.traitSuppressionTimer ?? 0, 6);
+        }
+      }
       showMessage('Signal Jam disabled cyber traits and fusion for 6s!', 1500);
     } else if (type === 'undertow') {
       let hits = 0;
@@ -5509,7 +6910,9 @@ export default function Game() {
         .sort((a, b) => (a.colPos - b.colPos) || (b.speed - a.speed))[0];
       if (target) {
         target.hp -= 6; target.flash = 0.18;
-        if (target.hp <= 0) { target.colPos = -9; s.score += 100; playScore(); }
+        if (target.hp <= 0) {
+          resolveAbilityDefeat(target);
+        }
         showMessage('Interceptor struck the leading threat!', 1500);
       } else {
         showMessage('Interceptor found no target.', 1000);
@@ -5535,7 +6938,7 @@ export default function Game() {
         s.bullets.push({
           colPos: s.player.col - 0.55,
           row: s.player.row,
-          speed: -8.5,
+          speed: -8.5 * milestoneProjectileSpeedMultiplier(s.runUpgrades),
           power: 3,
           big: false,
           pierce: true,
@@ -5548,7 +6951,7 @@ export default function Game() {
       const targets = living().sort((a, b) => a.colPos - b.colPos).slice(0, 4);
       targets.forEach((enemy, index) => {
         enemy.hp -= Math.max(1, 4 - index); enemy.flash = 0.16;
-        if (enemy.hp <= 0) { enemy.colPos = -9; s.score += 100; }
+        if (enemy.hp <= 0) resolveAbilityDefeat(enemy);
       });
       showMessage(`Arc Web chained through ${targets.length} targets!`, 1200);
     } else if (type === 'splitter') {
@@ -5577,29 +6980,59 @@ export default function Game() {
       const hits = strike((enemy) => movementClassOf(enemy) === 'vehicle', 1, 1.8);
       showMessage(`Oil Slick sent ${hits} vehicles skidding!`, 1200);
     } else if (type === 'rootsnare') {
-      const hits = strike((enemy) => {
+      const rootedTargets = living().filter((enemy) => {
         const movement = movementClassOf(enemy);
         return Boolean(movement && GROUNDED_CLASSES.has(movement));
-      }, 1, 0.9);
+      });
+      for (const enemy of rootedTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 4);
+      }
+      const hits = strike((enemy) => rootedTargets.includes(enemy), 1, 0.9);
       showMessage(`Root Snare trapped ${hits} grounded movers!`, 1200);
     } else if (type === 'sonicnet') {
-      const hits = strike((enemy) => Boolean(movementClassOf(enemy) && AIR_CLASSES.has(movementClassOf(enemy)!)), 3, 0.6);
+      const airborneTargets = living().filter((enemy) =>
+        Boolean(movementClassOf(enemy) && AIR_CLASSES.has(movementClassOf(enemy)!)));
+      for (const enemy of airborneTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 3.5);
+      }
+      const hits = strike((enemy) => airborneTargets.includes(enemy), 3, 0.6);
       showMessage(`Sonic Net grounded ${hits} targets!`, 1200);
     } else if (type === 'depthcharge') {
-      const hits = strike((enemy) => movementClassOf(enemy) === 'burrower', 5, 0.4);
+      const burrowers = living().filter((enemy) => movementClassOf(enemy) === 'burrower');
+      for (const enemy of burrowers) {
+        enemy.traitSuppressionTimer = Math.max(enemy.traitSuppressionTimer ?? 0, 4);
+      }
+      const hits = strike((enemy) => burrowers.includes(enemy), 5, 0.4);
       showMessage(`Depth Charge exposed ${hits} burrowers!`, 1200);
     } else if (type === 'anchorfield') {
-      const hits = strike((enemy) => Boolean(movementClassOf(enemy) && HEAVY_CLASSES.has(movementClassOf(enemy)!)), 2, 0.25);
+      const heavyTargets = living().filter((enemy) =>
+        Boolean(movementClassOf(enemy) && HEAVY_CLASSES.has(movementClassOf(enemy)!)));
+      for (const enemy of heavyTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 3.5);
+      }
+      const hits = strike((enemy) => heavyTargets.includes(enemy), 2, 0.25);
       for (const enemy of living()) if (!HEAVY_CLASSES.has(movementClassOf(enemy)!)) enemy.colPos = Math.min(5.8, enemy.colPos + 0.75);
       showMessage(`Anchor Field locked ${hits} heavy bodies!`, 1200);
     } else if (type === 'tailclamp') {
-      const hits = strike((enemy) => ['serpentine', 'aquatic'].includes(movementClassOf(enemy) ?? ''), 3, 1);
+      const tailTargets = living().filter((enemy) =>
+        ['serpentine', 'aquatic'].includes(movementClassOf(enemy) ?? ''));
+      for (const enemy of tailTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 4);
+      }
+      const hits = strike((enemy) => tailTargets.includes(enemy), 3, 1);
       showMessage(`Tail Clamp crippled ${hits} movers!`, 1200);
     } else if (type === 'tanglewire') {
-      const hits = strike((enemy) => ['rooted', 'tentacled'].includes(movementClassOf(enemy) ?? ''), 4, 0.4);
+      const tangledTargets = living().filter((enemy) =>
+        ['rooted', 'tentacled'].includes(movementClassOf(enemy) ?? ''));
+      for (const enemy of tangledTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 4.5);
+      }
+      const hits = strike((enemy) => tangledTargets.includes(enemy), 4, 0.4);
       showMessage(`Tanglewire caught ${hits} entities!`, 1200);
     } else if (type === 'trafficjam') {
-      const hits = strike((enemy) => movementClassOf(enemy) === 'vehicle' || isCyberEnemy(enemy), 2, 1.15);
+      const hits = strike((enemy) =>
+        abilityEnemySnapshot(enemy).tags.some((tag) => tag === 'vehicle' || tag === 'machine'),
+      2, 1.15);
       showMessage(`Traffic Jam staggered ${hits} machines!`, 1200);
     } else if (type === 'thermalshock') {
       const hits = strike((enemy) => ['thermal', 'cryo'].includes(enemy.genome?.element ?? ''), 4, 0.5);
@@ -5621,12 +7054,21 @@ export default function Game() {
       }
       showMessage(`Acid Etch stripped ${hits} targets!`, 1200);
     } else if (type === 'bloombind') {
-      const hits = strike((enemy) => enemy.genome?.entityType === 'botanical', 3, 0.8);
+      const botanicalTargets = living().filter((enemy) =>
+        abilityEnemySnapshot(enemy).tags.includes('botanical'));
+      for (const enemy of botanicalTargets) {
+        enemy.mobilityLockTimer = Math.max(enemy.mobilityLockTimer ?? 0, 4);
+      }
+      const hits = strike((enemy) => botanicalTargets.includes(enemy), 3, 0.8);
       showMessage(`Bloom Bind linked ${hits} botanical forms!`, 1200);
     } else if (type === 'radiantmark') {
-      const hits = strike((enemy) =>
-        enemy.genome?.element === 'void' || enemy.genome?.entityType === 'spectral',
-      4, 0.4);
+      const phaseTargets = living().filter((enemy) =>
+        abilityEnemySnapshot(enemy).tags.some((tag) =>
+          tag === 'phase' || tag === 'void' || tag === 'spectral'));
+      for (const enemy of phaseTargets) {
+        enemy.traitSuppressionTimer = Math.max(enemy.traitSuppressionTimer ?? 0, 5);
+      }
+      const hits = strike((enemy) => phaseTargets.includes(enemy), 4, 0.4);
       showMessage(`Radiant Mark revealed ${hits} phase forms!`, 1200);
     } else if (type === 'voidaperture') {
       const target = living().sort((a, b) => a.colPos - b.colPos)[0];
@@ -5654,6 +7096,9 @@ export default function Game() {
       showMessage(`Devolve regressed ${hits} entities!`, 1200);
     } else if (type === 'mutationlock') {
       s.signalJamTimer = Math.max(s.signalJamTimer, 8);
+      for (const enemy of living()) {
+        enemy.traitSuppressionTimer = Math.max(enemy.traitSuppressionTimer ?? 0, 8);
+      }
       showMessage('Mutation Lock suppressed adaptive traits for 8s!', 1200);
     } else if (type === 'traittheft') {
       const target = living().sort((a, b) =>
@@ -5688,7 +7133,7 @@ export default function Game() {
       for (const enemy of living()) if ((enemy.genome?.fusionLevel ?? 0) > 0) {
         const level = enemy.genome!.fusionLevel;
         enemy.hp -= level * 2; enemy.speed *= 0.72; enemy.flash = 0.16; hits++;
-        if (enemy.hp <= 0) { enemy.colPos = -9; s.score += 100; }
+        if (enemy.hp <= 0) resolveAbilityDefeat(enemy);
       }
       showMessage(`Hybrid Tax penalized ${hits} fusions!`, 1200);
     } else if (type === 'forcedmolt') {
@@ -5709,82 +7154,185 @@ export default function Game() {
       showMessage(`Catalyst empowered ${marked} fusions for greater rewards!`, 1200);
     }
 
-    // In VS, ecosystem-targeted abilities also need a bounded duel expression.
-    // Direct projectile cards keep their normal collision damage; control cards
-    // delay the NPC instead of inflicting arbitrary bonus damage.
+    // One canonical resolver gives every authored card a concrete, bounded VS
+    // expression. Campaign execution above remains responsible for its native
+    // projectiles and timers; this adapter applies the duel-facing portion.
     if (s.gameMode === 'vs') {
-      const duelDamage = competitiveAbilityDamage(ability, !!generated);
-      if (duelDamage > 0) {
-        if (s.npc.shieldCharges > 0) {
-          s.npc.shieldCharges--;
+      let duelMessage = '';
+      if (isVersusAbilityId(type)) {
+        const outcome: VersusAbilityOutcome = resolveVersusAbilityEffect(
+          type,
+          abilityCardVersusContext(s),
+        );
+
+        if (type !== 'heal' && outcome.casterHpDelta !== 0) {
+          s.hp = outcome.casterHpDelta > 0
+            ? boundedRecovery(s.hp, outcome.casterHpDelta)
+            : Math.max(1, s.hp + outcome.casterHpDelta);
+        }
+        if (type !== 'shield' && type !== 'armor') {
+          s.shieldCharges += outcome.casterShieldDelta;
+        }
+        const npcInvulnerable = Boolean(
+          npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.invulnerability,
+        );
+        const npcShadowCloneIntercepted = !npcInvulnerable
+          && outcome.opponentHpDelta < 0
+          && consumeNpcShadowCloneCharge();
+        if ((!npcInvulnerable && !npcShadowCloneIntercepted)
+          || outcome.opponentShieldDelta > 0) {
+          s.npc.shieldCharges = Math.max(
+            0,
+            Math.min(
+              COMPETITIVE_RULESET.maxShields,
+              s.npc.shieldCharges + outcome.opponentShieldDelta,
+            ),
+          );
+        }
+
+        const activeRuntime = s.versusStatusRuntime ?? createEmptyVersusStatusRuntimePatch();
+        const vulnerability = activeRuntime.opponent.windows.vulnerability?.magnitude ?? 1;
+        const rewardWindow = activeRuntime.opponent.windows.rewardMultiplier?.magnitude ?? 1;
+        const directDamage = Math.min(
+          COMPETITIVE_RULESET.maxAbilityDamage,
+          Math.ceil(Math.max(0, -outcome.opponentHpDelta) * Math.max(1, vulnerability)),
+        );
+        let appliedDamage = 0;
+        if (directDamage > 0 && !npcInvulnerable && !npcShadowCloneIntercepted) {
+          if (s.npc.shieldCharges > 0) {
+            s.npc.shieldCharges--;
+          } else {
+            appliedDamage = Math.min(directDamage, s.npc.hp);
+            s.npc.hp = Math.max(0, s.npc.hp - directDamage);
+            s.score += appliedDamage * 100 * Math.max(outcome.integrityMultiplier, rewardWindow);
+            reconcileIntegrityWork(s);
+          }
+        } else if (outcome.opponentHpDelta > 0) {
+          s.npc.hp = Math.min(NPC_HP, s.npc.hp + outcome.opponentHpDelta);
+        }
+
+        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, outcome.opponentFireDelay);
+        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, outcome.opponentMoveDelay);
+        s.npc.abilityCooldown = Math.min(
+          VS_NPC_ABILITY_INTERVAL,
+          s.npc.abilityCooldown + outcome.opponentCardDelay,
+        );
+        s.player.col = Math.max(0, Math.min(2, s.player.col + outcome.casterColumnDelta));
+        s.npc.col = Math.max(0, Math.min(2, s.npc.col + outcome.opponentColumnDelta));
+        if (outcome.casterRow !== undefined) s.player.row = outcome.casterRow;
+        if (outcome.opponentRow !== undefined) s.npc.row = outcome.opponentRow;
+
+        if (!VS_NATIVE_PROJECTILE_ABILITIES.has(type)) {
+          for (const intent of outcome.projectiles) {
+            const rows = intent.pattern === 'all'
+              ? [0, 1, 2]
+              : intent.pattern === 'adjacent'
+                ? [s.npc.row - 1, s.npc.row, s.npc.row + 1].filter((row) => row >= 0 && row <= 2)
+                : [s.npc.row];
+            for (const row of rows) {
+              for (let count = 0; count < intent.countPerLane; count++) {
+                fireBullet(row, {
+                  power: intent.power,
+                  pierce: intent.piercing,
+                  big: intent.big,
+                });
+              }
+            }
+          }
+        }
+
+        const freshStatusPatch = applyVersusStatusIntents(outcome.statuses);
+        for (const field of EXISTING_VERSUS_TIMER_FIELDS) {
+          const duration = freshStatusPatch.timers[field];
+          if (duration !== undefined) s[field] = Math.max(s[field], duration);
+        }
+        // Charges and hand refresh already execute through their native card
+        // branches. Persist only windows/traits so a later card cannot replay
+        // an earlier one-shot resource grant.
+        const mergedStatusPatch = applyVersusStatusIntents(outcome.statuses, activeRuntime);
+        s.versusStatusRuntime = {
+          ...mergedStatusPatch,
+          timers: {},
+          caster: {
+            ...mergedStatusPatch.caster,
+            barrierCharges: 0,
+            pierceCharges: 0,
+            refreshHand: false,
+          },
+        };
+        const opponentFireRate = freshStatusPatch.opponent.windows.fireRateMultiplier;
+        if (opponentFireRate && opponentFireRate.magnitude > 1) {
+          s.npc.fireCooldown = Math.min(s.npc.fireCooldown, 0.08);
+        }
+        duelMessage = directDamage > 0 && npcInvulnerable
+          ? 'rival phased through the direct impact'
+          : outcome.summary;
+      } else if (generated) {
+        const rank = learnedAbilitiesRef.current.find((entry) => entry.id === type)?.rank ?? 1;
+        const generatedEffect = resolveGeneratedPlayerVersusEffect(generated.function, rank);
+        if (generatedEffect.function === 'rupture') {
+          const damage = generatedEffect.damage;
+          const npcInvulnerable = Boolean(
+            npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.invulnerability,
+          );
+          const npcShadowCloneIntercepted = !npcInvulnerable
+            && consumeNpcShadowCloneCharge();
+          if (!npcInvulnerable && !npcShadowCloneIntercepted) {
+            if (s.npc.shieldCharges > 0) {
+              s.npc.shieldCharges--;
+            }
+            else {
+              s.npc.hp = Math.max(0, s.npc.hp - damage);
+              s.score += damage * 100;
+            }
+          }
+          duelMessage = npcInvulnerable
+            ? 'rival phased through the rupture'
+            : npcShadowCloneIntercepted
+              ? 'rival shadow clone intercepted the rupture'
+              : `${damage} synchronized damage`;
+        } else if (generatedEffect.function === 'inhibit' || generatedEffect.function === 'reveal') {
+          s.npc.fireCooldown = Math.max(s.npc.fireCooldown, generatedEffect.minimumFireDelay);
+          s.npc.moveCooldown = Math.max(s.npc.moveCooldown, generatedEffect.minimumMoveDelay);
+          duelMessage = 'rival timing suppressed';
+        } else if (generatedEffect.function === 'impulse') {
+          s.npc.col = Math.min(2, s.npc.col + generatedEffect.opponentColumnDelta);
+          s.npc.moveCooldown = Math.max(s.npc.moveCooldown, generatedEffect.minimumMoveDelay);
+          duelMessage = 'rival displaced';
+        } else if (generatedEffect.function === 'adapt') {
+          s.npc.row = (s.npc.row + generatedEffect.opponentRowDelta) % 3;
+          s.npc.moveCooldown = Math.max(s.npc.moveCooldown, generatedEffect.minimumMoveDelay);
+          duelMessage = 'rival lane re-indexed';
         } else {
-          s.npc.hp = Math.max(0, s.npc.hp - duelDamage);
-          s.score += duelDamage * 100;
-        }
-        if (s.npc.hp <= 0) {
-          updateHud();
-          endGame(true);
-          return;
+          // Ward/Restore resources were already applied by the native generated
+          // card branch above; the Versus adapter must not grant them twice.
+          duelMessage = generatedEffect.function === 'ward'
+            ? 'defensive shell synchronized'
+            : 'vitality weave synchronized';
         }
       }
-      let duelMessage = duelDamage > 0
-        ? `${ability.name} · ${duelDamage} duel damage`
-        : '';
-      if (type === 'scramble') {
-        // One rival has no formation object to clear, so SCRAMBLE breaks its
-        // position and firing rhythm instead. The row choice is deterministic
-        // for replay/server parity.
-        s.npc.col = Math.min(2, s.npc.col + 1);
-        s.npc.row = (s.npc.row + (s.npc.row === s.player.row ? 1 : 2)) % 3;
-        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption);
-        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
-        duelMessage = 'SCRAMBLE · rival displaced and firing interrupted';
-      } else if (type === 'warpback') {
-        s.npc.col = 2;
-        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
-        duelMessage = 'WARP BACK · rival returned to its rear column';
-      } else if (type === 'gravity') {
-        s.npc.row = s.player.row;
-        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
-        duelMessage = 'GRAVITY · rival pulled into your lane';
-      } else if (type === 'rowshuffle') {
-        const shuffled = competitiveRandom(s.competitiveSeed);
-        s.competitiveSeed = shuffled.seed;
-        s.npc.row = Math.min(2, Math.floor(shuffled.value * 3));
-        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption * 0.6);
-        duelMessage = 'ROW CHAOS · rival lane deterministically shuffled';
-      } else if (type === 'freeze' || type === 'blizzard') {
-        const intensity = type === 'blizzard' ? 1 : 0.72;
-        s.npc.fireCooldown = Math.max(
-          s.npc.fireCooldown,
-          COMPETITIVE_RULESET.maxFireDisruption * intensity,
-        );
-        s.npc.moveCooldown = Math.max(
-          s.npc.moveCooldown,
-          COMPETITIVE_RULESET.maxMoveDisruption * intensity,
-        );
-        duelMessage = `${type === 'blizzard' ? 'BLIZZARD' : 'FREEZE'} · rival tempo reduced`;
-      }
-      if (VS_ABILITY_DISRUPT.has(type) && !VS_EXPLICIT_CONTROL.has(type)) {
-        // Control never stacks into a permanent lock; each use refreshes a
-        // bounded disruption window defined by the shared competitive rules.
-        s.npc.fireCooldown = Math.max(s.npc.fireCooldown, COMPETITIVE_RULESET.maxFireDisruption);
-        s.npc.moveCooldown = Math.max(s.npc.moveCooldown, COMPETITIVE_RULESET.maxMoveDisruption);
-        if (!duelMessage) duelMessage = `${ability.name} · rival tempo disrupted`;
-      }
+
       const normalized = clampCompetitiveResources(s.hp, s.shieldCharges);
       s.hp = normalized.hp;
       s.shieldCharges = normalized.shields;
+      if (duelMessage) showMessage(`${ability.name} · ${duelMessage}`, 1500);
+      if (s.npc.hp <= 0) {
+        updateHud();
+        endGame(true);
+        return;
+      }
     }
 
     playAbility(type);
-    s.abilityCooldowns[type] = ability.cooldown;
+    if (!lordAlphaCooldownFreeInvocation) s.abilityCooldowns[type] = ability.cooldown;
 
     // Mark this card as used in the current hand (cards stay visible, dimmed)
-    s.usedInHand = [...s.usedInHand, type];
+    if (!lordAlphaDirectInvocation) s.usedInHand = [...s.usedInHand, type];
 
     updateHud();
-  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle, endGame]);
+  }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle,
+    endGame, lordAlphaSkillsPreview, triggerLordAlphaPresentation, lordAlphaBoardAnchor,
+    resolveCampaignEnemyDefeat, consumeNpcShadowCloneCharge]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -5810,16 +7358,16 @@ export default function Game() {
   const chooseRunUpgrade = useCallback((id: string) => {
     const s = stateRef.current;
     if (!s.upgradeSelectionOpen || !s.upgradeOptions.includes(id)) return;
-    const upgrade = RUN_UPGRADES.find((candidate) => candidate.id === id);
+    const upgrade = getMilestoneEvolution(id);
     if (!upgrade) return;
     const nextLevel = Math.min(upgrade.maxLevel, (s.runUpgrades[id] ?? 0) + 1);
     s.runUpgrades[id] = nextLevel;
     if (id === 'repairWeave') s.hp += 2;
-    if (id === 'barrierArray') s.shieldCharges += 2;
+    if (id === 'barrierArray') s.shieldCharges = Math.min(9, s.shieldCharges + 2);
     if (id === 'vitalCache') s.hp += 4;
-    if (id === 'shieldFoundry') s.shieldCharges += 4;
+    if (id === 'shieldFoundry') s.shieldCharges = Math.min(9, s.shieldCharges + 4);
     if (id === 'phaseReserve') s.pierceShots += 10;
-    if (id === 'overclockSeed') s.overclockTimer = Math.max(s.overclockTimer, 8);
+    if (id === 'overclockSeed') s.overclockTimer = Math.min(24, s.overclockTimer + 8);
     if (id === 'shockVent') {
       const knockback = 1.25 + (nextLevel - 1) * 0.65;
       for (const enemy of s.enemies.filter((candidate) => candidate.colPos >= -1)) {
@@ -5827,14 +7375,24 @@ export default function Game() {
         enemy.flash = 0.3;
       }
     }
+    // Installing an evolution is permanent run progression. Start Chrona's
+    // rewind history after the transaction so neither the rank nor its
+    // immediate grant can be erased or duplicated.
+    chronoHistoryRef.current = [];
+    chronoLastCaptureRef.current = 0;
     s.upgradePromptOpen = false;
     s.upgradePromptTimer = 0;
     s.upgradeRetryWave = 0;
-    s.nextUpgradeWave = Math.max(s.nextUpgradeWave, s.wave + UPGRADE_INTERVAL_WAVES);
     s.upgradeSelectionOpen = false;
     s.upgradeOptions = [];
     upgradeSelectionRef.current = 0;
     setUpgradeSelection(0);
+    // Installing a milestone is a committed run transaction. Chrona may
+    // rewind combat that happens afterward, but never erase an installed
+    // evolution while leaving its milestone consumed.
+    const committedAt = performance.now();
+    chronoHistoryRef.current = [{ at: committedAt, state: structuredClone(s) }];
+    chronoLastCaptureRef.current = committedAt;
     showMessage(`${upgrade.name} level ${nextLevel} installed!`, 1800);
     updateHud();
   }, [showMessage, updateHud]);
@@ -6304,9 +7862,10 @@ export default function Game() {
         }
       } else if (active.id === 'phase') {
         const marked = [...s.enemies].sort((a, b) => b.hp - a.hp).slice(0, 3 + active.charges);
-        const markedSet = new Set(marked);
-        s.enemies = s.enemies.filter((enemy) => !markedSet.has(enemy));
-        s.score += marked.length * 100;
+        for (const enemy of marked) {
+          enemy.hp = 0;
+          resolveCampaignEnemyDefeat(s, enemy);
+        }
       } else if (active.id === 'phoenix') {
         const heat = Math.max(1, active.charges);
         for (let row = 0; row < 3; row++) {
@@ -6319,9 +7878,9 @@ export default function Game() {
           if (rows.includes(enemy.row)) {
             enemy.hp -= 3;
             enemy.colPos = Math.min(5.8, enemy.colPos + 0.8);
+            if (enemy.hp <= 0) resolveCampaignEnemyDefeat(s, enemy);
           }
         }
-        s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
       } else if (active.id === 'vector') {
         for (const enemy of s.enemies) {
           enemy.colPos = Math.min(5.8, enemy.colPos + 0.7 + active.charges * 0.18);
@@ -6394,8 +7953,8 @@ export default function Game() {
       } else if (active.id === 'predator') {
         const prey = [...s.enemies].sort((a, b) => b.hp - a.hp)[0];
         if (prey) {
-          s.score += 150;
-          s.enemies = s.enemies.filter((enemy) => enemy !== prey);
+          prey.hp = 0;
+          resolveCampaignEnemyDefeat(s, prey, 150);
         }
         s.pierceShots += 3 + active.charges;
       } else if (active.id === 'orbital') {
@@ -6424,14 +7983,32 @@ export default function Game() {
       // Signature outcomes preserve role identity. Assault converts its finish
       // into damage, control trades damage for tempo, and defense restores a
       // bounded resource instead of receiving arbitrary universal damage.
+      const npcInvulnerable = Boolean(
+        npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.invulnerability,
+      );
+      const offensiveFinish = VS_NPC_ASSAULT_SKILLS.has(active.id)
+        || VS_NPC_CONTROL_SKILLS.has(active.id);
+      const npcShadowCloneIntercepted = offensiveFinish
+        && !npcInvulnerable
+        && consumeNpcShadowCloneCharge();
       if (VS_NPC_ASSAULT_SKILLS.has(active.id)) {
-        if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
-        else s.npc.hp = Math.max(0, s.npc.hp - COMPETITIVE_RULESET.maxSignatureDamage);
+        if (!npcInvulnerable && !npcShadowCloneIntercepted) {
+          if (s.npc.shieldCharges > 0) {
+            s.npc.shieldCharges--;
+          } else {
+            s.npc.hp = Math.max(0, s.npc.hp - COMPETITIVE_RULESET.maxSignatureDamage);
+          }
+        }
       } else if (VS_NPC_CONTROL_SKILLS.has(active.id)) {
-        if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
-        else s.npc.hp = Math.max(0, s.npc.hp - 1);
-        s.npc.fireCooldown += COMPETITIVE_RULESET.maxFireDisruption * 0.55;
-        s.npc.moveCooldown += COMPETITIVE_RULESET.maxMoveDisruption * 0.55;
+        if (!npcInvulnerable && !npcShadowCloneIntercepted) {
+          if (s.npc.shieldCharges > 0) {
+            s.npc.shieldCharges--;
+          } else {
+            s.npc.hp = Math.max(0, s.npc.hp - 1);
+          }
+          s.npc.fireCooldown += COMPETITIVE_RULESET.maxFireDisruption * 0.55;
+          s.npc.moveCooldown += COMPETITIVE_RULESET.maxMoveDisruption * 0.55;
+        }
       } else {
         s.hp = boundedRecovery(s.hp, 2);
         s.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, s.shieldCharges + 1);
@@ -6450,7 +8027,8 @@ export default function Game() {
     setRivalSkillView(cleared);
     showMessage(`${RIVAL_SKILL_LABELS[active.id]} complete.`, 900);
     updateHud();
-  }, [fireBullet, showMessage, updateHud, endGame]);
+  }, [fireBullet, showMessage, updateHud, endGame, consumeNpcShadowCloneCharge,
+    resolveCampaignEnemyDefeat]);
 
   const cancelEchoDrive = useCallback(() => {
     const active = rivalSkillRef.current;
@@ -6481,7 +8059,7 @@ export default function Game() {
     rivalSkillAnimationStartedRef.current = -1;
     showMessage('ECHO DRIVE CANCELLED', 700);
     updateHud();
-  }, [showMessage, updateHud]);
+  }, [setActionRouteBossEncounter, showMessage, updateHud]);
 
   const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
     const active = rivalSkillRef.current;
@@ -7433,6 +9011,17 @@ export default function Game() {
       showMessage('Clone autofiring · control switched.', 1200);
       return;
     }
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      triggerLordAlphaPresentation(
+        'clone',
+        'skill',
+        LORD_ALPHA_EVENT_TIMINGS_MS.clone,
+        {
+          subtype: 'clone-symmetry',
+          origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+        },
+      );
+    }
     ensureAudio();
     const clockwiseOffsets = [
       { col: 0, row: -1 }, { col: 1, row: -1 },
@@ -7460,12 +9049,16 @@ export default function Game() {
     };
     const northSpawn = findClockwiseSpawn(0);
     const southSpawn = findClockwiseSpawn(4);
+    if (!northSpawn && !southSpawn) {
+      showMessage('Skill blocked — clear an adjacent panel first.', 1200);
+      return;
+    }
     const controlled: CloneDirection = northSpawn ? 'north' : 'south';
     const clones: CloneView = {
       visible: true,
       revealed: false,
       inputActive: false,
-      playerLocked: true,
+      playerLocked: false,
       controlled,
       turn: 0,
       statuses: {
@@ -7501,7 +9094,11 @@ export default function Game() {
         setSkillFxActive(false);
         const materialized = cloneSessionRef.current;
         if (materialized.visible) {
-          const activated: CloneView = { ...materialized, inputActive: true };
+          const activated: CloneView = {
+            ...materialized,
+            inputActive: true,
+            playerLocked: true,
+          };
           cloneSessionRef.current = activated;
           setCloneView(activated);
           cloneOpeningWindowRef.current = performance.now() + 2000;
@@ -7510,9 +9107,95 @@ export default function Game() {
         skillFxTimerRef.current = null;
       }, 1530);
     }, 900);
-  }, [activateRivalSkill, fireBullet, showMessage, registerPlaystyle]);
+  }, [activateRivalSkill, fireBullet, showMessage, registerPlaystyle,
+    triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
+
+  const cycleLordAlphaSkillBank = useCallback((direction: number) => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID || !stateRef.current.running) return;
+    const next = wrapLordAlphaSkillBank(lordAlphaSkillBankIndexRef.current + direction);
+    lordAlphaSkillBankIndexRef.current = next;
+    setLordAlphaSkillBankIndex(next);
+    showMessage(`${LORD_ALPHA_SKILL_BANKS[next].label} · X / Y / B`, 900);
+  }, [showMessage]);
+
+  const toggleLordAlphaSkillMode = useCallback(() => {
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID || !stateRef.current.running) return false;
+    const next = !lordAlphaSkillModeOpenRef.current;
+    lordAlphaSkillModeOpenRef.current = next;
+    setLordAlphaSkillModeOpen(next);
+    showMessage(next ? 'LORD ALPHA SKILLS · X / Y / B' : 'LORD ALPHA SKILLS CLOSED', 900);
+    return true;
+  }, [showMessage]);
+
+  const executeLordAlphaSkill = useCallback((
+    action: (typeof LORD_ALPHA_SKILL_PREVIEW_ACTIONS)[number],
+  ) => {
+    const s = stateRef.current;
+    if (playerSkinRef.current !== LORD_ALPHA_SKIN_ID
+      || phaseRef.current !== 'playing'
+      || !s.running
+      || pausedRef.current) return;
+    if (action.mechanicId) {
+      useCard(action.mechanicId, lordAlphaSkillsPreview
+        ? { lordAlphaPreview: true }
+        : { lordAlphaSignature: true });
+      return;
+    }
+    if (action.id === 'shadow-clone') {
+      if (cloneSessionRef.current.visible) {
+        triggerLordAlphaPresentation(
+          action.presentation.kind,
+          'skill',
+          action.presentation.durationMs,
+          {
+            subtype: action.presentation.subtype,
+            origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+          },
+        );
+      }
+      playSkillAnimation();
+      return;
+    }
+    const closestEnemy = [...s.enemies]
+      .filter((enemy) => enemy.colPos > -1)
+      .sort((left, right) => left.colPos - right.colPos)[0];
+    const target = s.gameMode === 'vs'
+      ? lordAlphaBoardAnchor(3 + s.npc.col, s.npc.row)
+      : lordAlphaBoardAnchor(
+        closestEnemy?.colPos ?? 4,
+        closestEnemy?.row ?? s.player.row,
+      );
+    // Equip Latency has no balance mechanic; it remains a presentation-only
+    // transition. Every mapped skill above executes its real gameplay effect.
+    triggerLordAlphaPresentation(
+      action.presentation.kind,
+      'skill',
+      action.presentation.durationMs,
+      {
+        subtype: action.presentation.subtype,
+        origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
+        target,
+      },
+    );
+    showMessage(action.label.toUpperCase(), action.presentation.durationMs);
+  }, [
+    lordAlphaSkillsPreview,
+    lordAlphaBoardAnchor,
+    playSkillAnimation,
+    showMessage,
+    triggerLordAlphaPresentation,
+    useCard,
+  ]);
+
+  const triggerLordAlphaSkillSlot = useCallback((slotIndex: number) => {
+    if (!lordAlphaSkillModeOpenRef.current) return;
+    const action = resolveLordAlphaSkillAction(lordAlphaSkillBankIndexRef.current, slotIndex);
+    if (action) executeLordAlphaSkill(action);
+  }, [executeLordAlphaSkill]);
 
   const queueSkillTap = useCallback(() => {
+    if (stateRef.current.upgradeSelectionOpen) return;
+    if (toggleLordAlphaSkillMode()) return;
     if (skillTapTimerRef.current) {
       clearTimeout(skillTapTimerRef.current);
       skillTapTimerRef.current = null;
@@ -7524,7 +9207,7 @@ export default function Game() {
       skillTapTimerRef.current = null;
       playSkillAnimation();
     }, 260);
-  }, [cycleActiveControl, finishRivalSkill, playSkillAnimation]);
+  }, [cycleActiveControl, finishRivalSkill, playSkillAnimation, toggleLordAlphaSkillMode]);
 
   const performSkillButtonR2Tap = useCallback(() => {
     if (rivalSkillRef.current.active && rivalSkillRef.current.id === 'chrono') {
@@ -7636,8 +9319,70 @@ export default function Game() {
     const s = stateRef.current;
     if (!s.running) return;
 
+    if (actionForkExperiment && s.gameMode === 'classic') {
+      const directions: CampaignRouteDirection[] = ['last', 'next'];
+      for (const direction of directions) {
+        actionRouteTargetReacquireDelayRef.current[direction] = Math.max(
+          0,
+          actionRouteTargetReacquireDelayRef.current[direction] - dt,
+        );
+        const binding = actionRouteTargetsRef.current[direction];
+        if (!binding) continue;
+        // Rewind replaces the GameState with a structured clone. Reattach the
+        // objective before input or combat can remove the cloned specimen so a
+        // real target kill cannot be mistaken for an escape.
+        const liveMatch = findCampaignRouteTarget(s.enemies, binding);
+        if (liveMatch) binding.enemy = liveMatch;
+      }
+    }
+
     handleGamepad();
+    const evolutionSelectionActive = s.upgradeSelectionOpen;
     s.player.moveCooldown = Math.max(0, (s.player.moveCooldown ?? 0) - dt);
+
+    // Route selection is a post-wave intermission rather than live combat.
+    // Freeze the simulation while retaining pause and directional route input.
+    // A combat direction held across the wave boundary must return to neutral
+    // before it can choose either route.
+    if (actionRoutePromptActiveRef.current && !evolutionSelectionActive) {
+      const routeGp = gamepadRef.current;
+      if (routeGp.start && !routeGp.prevStart) {
+        togglePause();
+        return;
+      }
+      controllerCooldownRef.current = Math.max(0, controllerCooldownRef.current - dt);
+      const routeKeyboard = keyboardRef.current;
+      const routeTouch = touchDpadRef.current;
+      let routeDx = 0;
+      let routeDy = 0;
+      if (routeKeyboard.left || routeTouch.left) routeDx = -1;
+      else if (routeKeyboard.right || routeTouch.right) routeDx = 1;
+      if (routeKeyboard.up || routeTouch.up) routeDy = -1;
+      else if (routeKeyboard.down || routeTouch.down) routeDy = 1;
+      if (Math.abs(routeGp.moveX) > 0.15) routeDx = routeGp.moveX > 0 ? 1 : -1;
+      if (Math.abs(routeGp.moveY) > 0.15) routeDy = routeGp.moveY > 0 ? 1 : -1;
+
+      if (routeDx === 0 && routeDy === 0 && actionRouteAwaitNeutralRef.current) {
+        actionRouteAwaitNeutralRef.current = false;
+      }
+      if ((routeDx !== 0 || routeDy !== 0)
+        && !actionRouteAwaitNeutralRef.current
+        && controllerCooldownRef.current <= 0) {
+        const routeCol = Math.max(0, Math.min(2, s.player.col + routeDx));
+        const routeRow = Math.max(0, Math.min(2, s.player.row + routeDy));
+        if (routeCol !== s.player.col || routeRow !== s.player.row) {
+          tryMoveTo(routeCol, routeRow);
+        }
+        const routeDirection: CampaignRouteDirection | null = routeDx < 0 && routeCol === 0
+          ? 'last'
+          : routeDx > 0 && routeCol === 2 ? 'next' : null;
+        if (routeDirection && actionRouteAvailabilityRef.current[routeDirection]) {
+          commitActionRoute(routeRow, routeDirection);
+        }
+        controllerCooldownRef.current = 0.16;
+      }
+      return;
+    }
 
     // Chrona uses R2 and the on-screen Skill control as equivalent dual inputs:
     // a short tap resolves Step on release, while a hold dilates the complete
@@ -7649,7 +9394,7 @@ export default function Game() {
       && rivalSkillRef.current.id === 'chrono';
     const r2Input = gamepadRef.current;
     const skillHold = chronoSkillHoldRef.current;
-    const dilationInputHeld = r2Input.r2 || skillHold;
+    const dilationInputHeld = !evolutionSelectionActive && (r2Input.r2 || skillHold);
     const dilationInputPressed = (r2Input.r2 && !r2Input.prevR2)
       || (skillHold && !chronoSkillHoldPrevRef.current);
     const now = performance.now();
@@ -7670,7 +9415,8 @@ export default function Game() {
       r2Dilation.startedAt = 0;
       r2Dilation.exhausted = false;
     } else if (!dilationInputHeld) {
-      if (r2Dilation.held && now - r2Dilation.startedAt <= 260) {
+      if (!evolutionSelectionActive
+        && r2Dilation.held && now - r2Dilation.startedAt <= 260) {
         resolveRivalSkillAction('alternate');
       }
       r2Dilation.held = false;
@@ -7707,7 +9453,7 @@ export default function Game() {
       echoL2Press.tracking = false;
       echoL2Press.startedAt = 0;
       echoL2Press.holdCommitted = false;
-    } else {
+    } else if (!evolutionSelectionActive) {
       if (r2Input.skill && !echoL2Press.tracking) {
         echoL2Press.tracking = true;
         echoL2Press.startedAt = now;
@@ -7885,8 +9631,18 @@ export default function Game() {
         strike.damageApplied = true;
         playHit();
         if (strike.npc) {
-          if (s.npc.shieldCharges > 0) s.npc.shieldCharges--;
-          else s.npc.hp = Math.max(0, s.npc.hp - 1);
+          const npcInvulnerable = Boolean(
+            npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.invulnerability,
+          );
+          const npcShadowCloneIntercepted = !npcInvulnerable
+            && consumeNpcShadowCloneCharge();
+          if (!npcInvulnerable && !npcShadowCloneIntercepted) {
+            if (s.npc.shieldCharges > 0) {
+              s.npc.shieldCharges--;
+            } else {
+              s.npc.hp = Math.max(0, s.npc.hp - 1);
+            }
+          }
           updateHud();
           if (s.npc.hp <= 0) {
             endGame(true);
@@ -7897,7 +9653,7 @@ export default function Game() {
           target.flash = 0.22;
           if (target.hp <= 0) {
             target.colPos = -9;
-            s.score += 100;
+            s.score += 100 + registerMilestoneDefeat(s);
             reconcileIntegrityWork(s);
           }
           updateHud();
@@ -7921,11 +9677,19 @@ export default function Game() {
       updateHud();
     } else if (s.gameMode !== 'vs' && !s.upgradePromptOpen && !s.upgradeSelectionOpen
       && s.upgradeOptions.length === 0 && s.wave >= s.nextUpgradeWave) {
-      s.upgradeOptions = chooseUpgradeOptions(s.runUpgrades);
-      s.nextUpgradeWave = Math.max(
-        s.nextUpgradeWave + UPGRADE_INTERVAL_WAVES,
-        s.wave + UPGRADE_INTERVAL_WAVES,
+      s.upgradeOptions = chooseMilestoneEvolutionOptions(
+        s.runUpgrades,
+        s.nextUpgradeWave,
+        3,
+        {
+          worldDepth: s.milestoneTraversalDriven
+            ? s.milestoneWorldSteps + 1
+            : s.wave,
+        },
       );
+      // Advance one earned milestone at a time. A large score jump can no
+      // longer discard the intermediate evolution credits.
+      s.nextUpgradeWave += UPGRADE_INTERVAL_WAVES;
       if (s.upgradeOptions.length > 0) {
         s.upgradePromptOpen = true;
         s.upgradePromptTimer = UPGRADE_PROMPT_TIME;
@@ -7946,9 +9710,14 @@ export default function Game() {
     }
 
     const upgradeGamepad = gamepadRef.current;
-    // R1 is ignored by Evolution while a signature skill or Chrona's rewind
-    // owns combat input. A pending milestone may remain visible, but Reverse
-    // can never promote that same press into a menu-open action.
+    const lordAlphaSkillModeAtFrameStart = playerSkinRef.current === LORD_ALPHA_SKIN_ID
+      && lordAlphaSkillModeOpenRef.current;
+    if (!evolutionSelectionActive
+      && lordAlphaSkillModeAtFrameStart && upgradeGamepad.l1 && !upgradeGamepad.prevL1) {
+      cycleLordAlphaSkillBank(-1);
+    }
+    // A visible milestone owns R1 before Lord Alpha's skill-bank cycling.
+    // Chrona's active command/rewind still keeps priority over Evolution.
     if (s.upgradePromptOpen
       && !rivalSkillRef.current.active
       && !chronoRewindRef.current.held
@@ -7957,8 +9726,12 @@ export default function Game() {
       openUpgradeSelection();
       return;
     }
+    if (!evolutionSelectionActive
+      && lordAlphaSkillModeAtFrameStart && upgradeGamepad.r1 && !upgradeGamepad.prevR1) {
+      cycleLordAlphaSkillBank(1);
+    }
 
-    const slowMotionActive = s.upgradeSelectionOpen;
+    const slowMotionActive = evolutionSelectionActive;
     if (s.upgradeSelectionOpen) {
       if (upgradeGamepad.cardB && !upgradeGamepad.prevCardB) {
         closeUpgradeSelection();
@@ -7977,6 +9750,7 @@ export default function Game() {
       }
       if (upgradeGamepad.fire && !upgradeGamepad.prevFire) {
         chooseRunUpgrade(s.upgradeOptions[upgradeSelectionRef.current]);
+        return;
       }
       upgradeGamepad.moveX = 0;
       upgradeGamepad.moveY = 0;
@@ -7994,8 +9768,17 @@ export default function Game() {
     const td = touchDpadRef.current;
     const gp = gamepadRef.current;
     const echoTriggerInput = rivalSkillRef.current.active && rivalSkillRef.current.id === 'echo';
-    if (gp.skill && !gp.prevSkill && !echoTriggerInput) queueSkillTap();
-    const rivalInputActive = rivalSkillRef.current.active;
+    if (!slowMotionActive && gp.skill && !gp.prevSkill && !echoTriggerInput) queueSkillTap();
+    const lordAlphaSkillInputActive = !slowMotionActive
+      && playerSkinRef.current === LORD_ALPHA_SKIN_ID
+      && lordAlphaSkillModeOpenRef.current;
+    if (lordAlphaSkillInputActive) {
+      if (gp.cardX && !gp.prevCardX) triggerLordAlphaSkillSlot(0);
+      else if (gp.cardY && !gp.prevCardY) triggerLordAlphaSkillSlot(1);
+      else if (gp.cardB && !gp.prevCardB) triggerLordAlphaSkillSlot(2);
+    }
+    const rivalInputActive = !slowMotionActive
+      && !lordAlphaSkillInputActive && rivalSkillRef.current.active;
     const chronoBreakActive = rivalInputActive && rivalSkillRef.current.id === 'chrono';
     // R2 normally cycles active control. During Chrono Break it becomes a
     // second Step input while Y remains unchanged as the documented command.
@@ -8008,14 +9791,16 @@ export default function Game() {
         else stopChronoRewind();
       } else if (gp.cardB && !gp.prevCardB) resolveRivalSkillAction('defend');
     }
-    const cloneInputActive = cloneSessionRef.current.inputActive;
+    const cloneInputActive = !slowMotionActive
+      && !lordAlphaSkillInputActive && cloneSessionRef.current.inputActive;
     const cloneControlActive = cloneSessionRef.current.playerLocked;
     if (cloneInputActive) {
       if (gp.cardX && !gp.prevCardX) resolveCloneAction('attack');
       else if (gp.cardY && !gp.prevCardY) switchCloneControl();
       else if (gp.cardB && !gp.prevCardB) resolveCloneAction('defend');
     }
-    const eloFlipCombo = !cloneControlActive
+    const eloFlipCombo = !slowMotionActive
+      && !cloneControlActive
       && playerSkinRef.current === 'gem'
       && gp.moveX < -0.15
       && ((gp.prevMoveX >= -0.15 && gp.l1) || (gp.l1 && !gp.prevL1));
@@ -8028,27 +9813,42 @@ export default function Game() {
       );
     }
     let dx = 0, dy = 0;
-    if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
-    if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
-    if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
-    if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
+    if (!slowMotionActive) {
+      if (kb.left || td.left) dx = -1; else if (kb.right || td.right) dx = 1;
+      if (kb.up || td.up) dy = -1; else if (kb.down || td.down) dy = 1;
+      if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
+      if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
+    }
+
+    // A target can die while a movement key/stick is already held. Require a
+    // neutral sample before accepting a route decision so that held combat
+    // movement cannot spontaneously travel Last or Next.
+    if (dx === 0 && dy === 0 && actionRouteAwaitNeutralRef.current) {
+      actionRouteAwaitNeutralRef.current = false;
+    }
 
     if ((dx !== 0 || dy !== 0) && controllerCooldownRef.current <= 0) {
       if (cloneInputActive) {
         moveControlledClone(dx, dy);
         controllerCooldownRef.current = 0.16;
-      } else if (!cloneControlActive) {
+      } else if (!cloneControlActive && !actionRouteAwaitNeutralRef.current) {
         const nc = Math.max(0, Math.min(2, s.player.col + dx));
         const nr = Math.max(0, Math.min(2, s.player.row + dy));
         if (nc !== s.player.col || nr !== s.player.row) {
           tryMoveTo(nc, nr);
-          controllerCooldownRef.current = 0.16;
         }
+        const routeDirection: CampaignRouteDirection | null = dx < 0 && nc === 0
+          ? 'last'
+          : dx > 0 && nc === 2 ? 'next' : null;
+        if (routeDirection && actionRouteAvailabilityRef.current[routeDirection]) {
+          commitActionRoute(nr, routeDirection);
+        }
+        controllerCooldownRef.current = 0.16;
       }
     }
-    if (!cloneControlActive && gp.fire && !fireHeldRef.current) manualBuster();
+    if (!slowMotionActive && !cloneControlActive && gp.fire && !fireHeldRef.current) manualBuster();
     fireHeldRef.current = gp.fire;
-    if (!cloneControlActive && gp.rotate && !gp.prevRotate) {
+    if (!slowMotionActive && !cloneControlActive && gp.rotate && !gp.prevRotate) {
       if (gp.l1) {
         if (rotateTapTimerRef.current) {
           clearTimeout(rotateTapTimerRef.current);
@@ -8076,7 +9876,8 @@ export default function Game() {
     }
 
     // Gamepad X/Y/B → ability card slots 0/1/2 (rising edge only)
-    if (!cloneControlActive && !rivalInputActive && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
+    if (!lordAlphaSkillInputActive && !cloneControlActive && !rivalInputActive
+      && !slowMotionActive && s.cardsReady && s.cardSelectionOpen) {
       if (gp.cardX && !gp.prevCardX && s.currentCardOptions[0]) useCard(s.currentCardOptions[0]);
       if (gp.cardY && !gp.prevCardY && s.currentCardOptions[1]) useCard(s.currentCardOptions[1]);
       if (gp.cardB && !gp.prevCardB && s.currentCardOptions[2]) useCard(s.currentCardOptions[2]);
@@ -8184,7 +9985,8 @@ export default function Game() {
     // ── Card system ──────────────────────────────────────────────────────────
     if (!s.cardsReady) {
       // Bar is filling — tick toward next hand
-      const capacitorMultiplier = 1 + (s.runUpgrades.capacitor ?? 0) * 0.15;
+      const capacitorMultiplier = (1 + (s.runUpgrades.capacitor ?? 0) * 0.15)
+        * milestoneCardRechargeMultiplier(s.runUpgrades);
       const assistedRecharge = (s.hp <= 2 || s.directorCritical ? 1.55 : 1) * capacitorMultiplier;
       s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt * assistedRecharge);
       const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
@@ -8206,6 +10008,7 @@ export default function Game() {
           s.enemies,
           s.hp,
           synchronizedAbilityIdsRef.current,
+          s,
         );
         s.cardsReady = true;
         s.cardSelectionOpen = true;
@@ -8244,19 +10047,79 @@ export default function Game() {
       }
     }
 
-    s.player.fireCooldown -= dt;
-    if (s.autoBuster && s.player.fireCooldown <= 0
-      && !echoBrinkRef.current.held && !echoBrinkRef.current.drainHeld
-      && echoBrinkStrikesRef.current.length === 0) {
-      const rapidScale = 1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1;
+    const npcGrantedPlayerFireRate = s.gameMode === 'vs'
+      ? versusBossPlayerFireRecoveryMultiplier(npcAbilityRuntimeRef.current)
+      : 1;
+    s.player.fireCooldown -= dt * npcGrantedPlayerFireRate;
+    const autoBlockedByEcho = echoBrinkRef.current.held || echoBrinkRef.current.drainHeld
+      || echoBrinkStrikesRef.current.length > 0;
+    if (!s.autoBuster) {
+      // Turning Auto back on begins a fresh, visible aim window rather than
+      // inheriting a hidden commitment made while the player was firing by hand.
+      actionRouteAutoBusterStateRef.current = createCampaignRouteAutoBusterState(s.player.row);
+    } else {
+      const rapidScale = (1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1)
+        * milestoneFireRateMultiplier(s.runUpgrades);
       const baseAutoInterval = s.gameMode === 'vs'
         ? COMPETITIVE_RULESET.playerAutoFireInterval
         : 0.34;
-      s.player.fireCooldown = (s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : baseAutoInterval) / rapidScale;
-      fireBullet();
-      if (s.multishotTimer > 0) fireBullet((s.player.row + 1) % 3);
-      if (s.turretTimer > 0) {
-        for (let r = 0; r < 3; r++) { if (r !== s.player.row) fireBullet(r); }
+      const requestedAutoInterval = (
+        s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : baseAutoInterval
+      ) / rapidScale;
+      const routeTargetPair = getCompleteCampaignRouteTargetPair(actionRouteTargetsRef.current);
+      const routeAimPair: CampaignRouteAimPair | null = routeTargetPair
+        ? {
+          last: { visualSeed: routeTargetPair.last.visualSeed, row: routeTargetPair.last.enemy.row },
+          next: { visualSeed: routeTargetPair.next.visualSeed, row: routeTargetPair.next.enemy.row },
+        }
+        : null;
+      let routeAutoPhase: CampaignRouteAutoBusterPhase = 'inactive';
+      if (actionForkExperiment && s.gameMode === 'classic'
+        && s.wave >= actionForkStartWave
+        && s.wave >= actionRouteTargetArmWaveRef.current) {
+        routeAutoPhase = actionRoutePromptActiveRef.current
+          ? 'choosing'
+          : actionRouteAvailabilityRef.current.last || actionRouteAvailabilityRef.current.next
+            ? 'secured'
+            : routeAimPair ? 'aiming' : 'acquiring';
+      }
+      const routeAutoDecision = resolveCampaignRouteAutoBuster(
+        actionRouteAutoBusterStateRef.current,
+        {
+          phase: routeAutoPhase,
+          pair: routeAimPair,
+          dt,
+          playerRow: s.player.row,
+          cooldownAfterTick: s.player.fireCooldown,
+          requestedInterval: requestedAutoInterval,
+          activeProjectileCount: s.bullets.length,
+        },
+      );
+      actionRouteAutoBusterStateRef.current = routeAutoDecision.state;
+
+      if (routeAutoDecision.governed) {
+        s.player.fireCooldown = routeAutoDecision.nextCooldown;
+        if (routeAutoDecision.emission && !autoBlockedByEcho) {
+          fireBullet(routeAutoDecision.emission.row, {
+            presentationPrimary: true,
+            routeDirection: routeAutoDecision.emission.routeDirection ?? undefined,
+            suppressSecondary: routeAutoDecision.emission.suppressSecondary,
+          });
+        } else if (routeAutoDecision.emission) {
+          // Do not spend the governed shot while Brink/Drain owns the player.
+          s.player.fireCooldown = 0;
+        }
+      } else if (s.player.fireCooldown <= 0 && !autoBlockedByEcho) {
+        s.player.fireCooldown = requestedAutoInterval;
+        const presentationVariant = fireBullet(undefined, { presentationPrimary: true });
+        if (s.multishotTimer > 0) {
+          fireBullet((s.player.row + 1) % 3, { presentationVariant: presentationVariant ?? undefined });
+        }
+        if (s.turretTimer > 0) {
+          for (let r = 0; r < 3; r++) {
+            if (r !== s.player.row) fireBullet(r, { presentationVariant: presentationVariant ?? undefined });
+          }
+        }
       }
     }
 
@@ -8275,7 +10138,17 @@ export default function Game() {
       || (s.hp <= 2 && directorLiving.length >= 4);
     if (s.directorCritical && !directorCritical) {
       s.directorRecoveryTimer = Math.max(s.directorRecoveryTimer, 3.5);
-      if ((s.runUpgrades.repairWeave ?? 0) > 0) s.hp++;
+      if ((s.runUpgrades.repairWeave ?? 0) > 0) s.hp += s.runUpgrades.repairWeave;
+      const tidalRecovery = resolveMilestonePressureRecovery(s.runUpgrades);
+      s.systemIntegrity.node = clampIntegrity(
+        s.systemIntegrity.node + tidalRecovery.nodeRepair,
+      );
+      s.systemIntegrity.sector = clampIntegrity(
+        s.systemIntegrity.sector + tidalRecovery.sectorRepair,
+      );
+      s.systemIntegrity.global = clampIntegrity(
+        s.systemIntegrity.global + tidalRecovery.globalRepair,
+      );
       showMessage('Pressure cleared — reinforcement pause!', 1400);
     }
     if (!s.directorCritical && directorCritical && (s.runUpgrades.shockVent ?? 0) > 0) {
@@ -8408,7 +10281,7 @@ export default function Game() {
 
     // Move enemies
     const canvas = canvasRef.current;
-    const m = canvas ? getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
+    const m = canvas ? getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight) : null;
     const campaignAlliesByRow: [number, number, number] = [0, 0, 0];
     const campaignInjuredByRow: [number, number, number] = [0, 0, 0];
     for (const enemy of s.enemies) {
@@ -8418,10 +10291,18 @@ export default function Game() {
     }
     for (const e of s.enemies) {
       if (!Number.isFinite(e.speed) || e.speed < 0.15) e.speed = 0.85;
+      e.mobilityLockTimer = Math.max(0, (e.mobilityLockTimer ?? 0) - dt);
+      e.traitSuppressionTimer = Math.max(0, (e.traitSuppressionTimer ?? 0) - dt);
+      const routeTargetPinned = isCampaignRouteTarget(
+        e,
+        Object.values(actionRouteTargetsRef.current),
+      );
       const movement = movementClassOf(e);
       const isFastMover = movement === 'flier' || movement === 'hover' || movement === 'quadruped'
         || movement === 'arthropod' || movement === 'aquatic';
-      const abilitySuppressed = s.freezeTimer > 0 || (s.signalJamTimer > 0 && isCyberEnemy(e));
+      const abilitySuppressed = s.freezeTimer > 0
+        || (e.traitSuppressionTimer ?? 0) > 0
+        || (s.signalJamTimer > 0 && isCyberEnemy(e));
       if (e.ability && !abilitySuppressed && (e.abilityWindup ?? 0) <= 0) {
         e.abilityCooldown = Math.max(0, (e.abilityCooldown ?? 0) - dt);
       }
@@ -8462,7 +10343,8 @@ export default function Game() {
           alliesByRow: campaignAlliesByRow,
           injuredAlliesByRow: campaignInjuredByRow,
           nearbyInjuredAllies,
-          canReposition: (!movement || !HEAVY_CLASSES.has(movement))
+          canReposition: !routeTargetPinned
+            && (!movement || !HEAVY_CLASSES.has(movement))
             && (e.strategyLaneChangeCooldown ?? 0) <= 0
             && (e.abilityWindup ?? 0) <= 0,
           abilityReady: Boolean(
@@ -8472,12 +10354,13 @@ export default function Game() {
             && (e.abilityWindup ?? 0) <= 0
           ),
         });
-        e.strategyTargetRow = plan.targetRow;
+        e.strategyTargetRow = routeTargetPinned ? e.row : plan.targetRow;
         e.strategyCastReady = plan.shouldCast;
         e.strategySpeedMultiplier = plan.speedMultiplier;
         e.strategyCooldownScale = plan.cooldownScale;
         e.strategyDecisionCooldown = plan.retryDelay;
-        if ((!movement || !HEAVY_CLASSES.has(movement))
+        if (!routeTargetPinned
+          && (!movement || !HEAVY_CLASSES.has(movement))
           && (e.strategyLaneChangeCooldown ?? 0) <= 0
           && (e.abilityWindup ?? 0) <= 0
           && plan.targetRow !== e.row) {
@@ -8495,6 +10378,7 @@ export default function Game() {
       }
       if (s.freezeTimer > 0) speedScale = 0.08;
       if (s.signalJamTimer > 0 && isCyberEnemy(e)) speedScale *= 0.32;
+      if ((e.mobilityLockTimer ?? 0) > 0) speedScale = Math.min(speedScale, 0.08);
       speedScale *= Math.max(0.72, Math.min(1.12, e.strategySpeedMultiplier ?? 1));
 
       if (e.ability && !abilitySuppressed) {
@@ -8516,13 +10400,15 @@ export default function Game() {
                 ally.flash = 0.08;
               }
             } else if (counterpartFunction === 'adapt') {
-              const plannedRow = e.strategyAbilityTargetRow;
-              if (plannedRow !== undefined && plannedRow >= 0 && plannedRow <= 2) {
-                e.row = plannedRow;
-              } else {
-                const laneCounts = [0, 1, 2].map((row) =>
-                  s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
-                e.row = laneCounts.indexOf(Math.min(...laneCounts));
+              if (!routeTargetPinned) {
+                const plannedRow = e.strategyAbilityTargetRow;
+                if (plannedRow !== undefined && plannedRow >= 0 && plannedRow <= 2) {
+                  e.row = plannedRow;
+                } else {
+                  const laneCounts = [0, 1, 2].map((row) =>
+                    s.enemies.filter((ally) => ally.colPos >= -1 && ally.row === row).length);
+                  e.row = laneCounts.indexOf(Math.min(...laneCounts));
+                }
               }
             } else if (counterpartFunction === 'ward') {
               e.maxHp = Math.min(9, (e.maxHp ?? e.hp) + 1);
@@ -8553,16 +10439,26 @@ export default function Game() {
           e.strategyCastReady = false;
         }
       }
-      e.colPos -= e.speed * speedScale * dt;
+      e.colPos = advanceCampaignRouteTargetColumn(
+        e.colPos,
+        e.speed * speedScale * dt,
+        routeTargetPinned,
+      );
       if (s.stasisGateTimer > 0 && !e.stasisTriggered && e.colPos <= 3.1) {
         e.stasisTriggered = true;
         e.hp -= e.speed >= 1.55 ? 3 : 1;
         e.colPos = Math.min(5.8, e.colPos + (e.speed >= 1.55 ? 0.9 : 0.35));
         e.flash = 0.16;
-        if (e.hp <= 0) { e.colPos = -9; s.score += 100; }
+        if (e.hp <= 0) {
+          resolveCampaignEnemyDefeat(s, e);
+        }
       }
       e.flash = Math.max(0, e.flash - dt);
-      if (e.genome?.regeneration && s.freezeTimer <= 0 && !(s.signalJamTimer > 0 && isCyberEnemy(e)) && e.hp < (e.maxHp ?? e.hp)) {
+      if (e.genome?.regeneration
+        && s.freezeTimer <= 0
+        && (e.traitSuppressionTimer ?? 0) <= 0
+        && !(s.signalJamTimer > 0 && isCyberEnemy(e))
+        && e.hp < (e.maxHp ?? e.hp)) {
         e.regenerationCharge = (e.regenerationCharge ?? 0) + e.genome.regeneration * dt;
         if (e.regenerationCharge >= 1) {
           e.hp++;
@@ -8609,6 +10505,15 @@ export default function Game() {
           showMessage('Shield absorbed a hit!', 1200);
         } else if (s.ghostTimer > 0) {
           // Ghost mode: enemy passes clean through, keep moving (don't remove it)
+        } else if (lordAlphaSkillsPreview) {
+          // The opt-in animation lab is a durable presentation surface. Hits
+          // still resolve and enemies still clear the occupied cell, but the
+          // preview cannot collapse into GAME OVER before a skill is examined.
+          s.hp = Math.max(1, s.hp);
+          e.colPos = -9;
+          playHit();
+          triggerLordAlphaMotion('hit');
+          updateHud();
         } else {
           s.hp--;
           applyIntegrityBreach(
@@ -8640,13 +10545,20 @@ export default function Game() {
     }
 
     // Compatible species that converge in one lane can fuse into a stronger hybrid.
+    const protectedRouteTargets = Object.values(actionRouteTargetsRef.current);
     for (let i = 0; i < s.enemies.length; i++) {
       const a = s.enemies[i];
       if (a.colPos < -1 || !a.genome) continue;
       for (let j = i + 1; j < s.enemies.length; j++) {
         const b = s.enemies[j];
         if (b.colPos < -1 || !b.genome || a.row !== b.row) continue;
+        // A displayed route objective is a specific specimen. Letting either
+        // participant fuse would change or absorb the entity while its cached
+        // Last/Next portrait still identifies the original target.
+        if (isCampaignRouteTarget(a, protectedRouteTargets)
+          || isCampaignRouteTarget(b, protectedRouteTargets)) continue;
         if (Math.abs(a.colPos - b.colPos) > 0.28) continue;
+        if ((a.traitSuppressionTimer ?? 0) > 0 || (b.traitSuppressionTimer ?? 0) > 0) continue;
         if (s.signalJamTimer > 0 && (isCyberEnemy(a) || isCyberEnemy(b))) continue;
         if (!canFuse(a.genome, b.genome, a.value + b.value + s.wave)) continue;
         a.genome = fuseGenomes(a.genome, b.genome);
@@ -8686,7 +10598,15 @@ export default function Game() {
     for (const b of s.bullets) {
       for (const e of s.enemies) {
         if (Math.abs(b.colPos - e.colPos) < (b.big ? 0.52 : 0.38) && b.row === e.row) {
-          if (!b.pierce) b.colPos = 99;
+          const enemySeed = getEnemyVisualSeed(e);
+          const hitRegistration = registerCampaignProjectileEnemyHit(
+            b.hitEnemySeeds,
+            enemySeed,
+          );
+          if (hitRegistration.alreadyHit) continue;
+          b.hitEnemySeeds = hitRegistration.hitEnemySeeds;
+          const stopsAtFirstCollision = !b.pierce;
+          if (stopsAtFirstCollision) b.colPos = 99;
           const movement = movementClassOf(e);
           let damage = b.power ?? 1;
           if ((e.genome?.fusionLevel ?? 0) > 0) damage += s.runUpgrades.hybridHunter ?? 0;
@@ -8694,28 +10614,70 @@ export default function Game() {
             if (movement === 'fortress' || e.genome?.mutations.includes('armored')) damage += 2;
             else if (movement === 'spectral' || movement === 'colony' || isCyberEnemy(e)) damage += 1;
           }
-          e.hp -= damage;
+          damage *= milestoneProjectileDamageMultiplier(s.runUpgrades, {
+            injured: e.hp < (e.maxHp ?? e.hp),
+            evolved: (e.genome?.fusionLevel ?? 0) > 0
+              || (e.genome?.mutations.length ?? 0) > 0
+              || Boolean(movement && HEAVY_CLASSES.has(movement)),
+            big: b.big,
+            piercing: b.pierce,
+          });
+          const routeTargetBinding = actionRouteTargetsRef.current.last?.visualSeed === enemySeed
+            ? actionRouteTargetsRef.current.last
+            : actionRouteTargetsRef.current.next?.visualSeed === enemySeed
+              ? actionRouteTargetsRef.current.next
+              : null;
+          const routeTargetDirection: CampaignRouteDirection | null = routeTargetBinding
+            ? actionRouteTargetsRef.current.last === routeTargetBinding ? 'last' : 'next'
+            : null;
+          const hpBeforeDamage = e.hp;
+          const routeImpact = resolveCampaignRouteQuotaImpact(
+            e.hp,
+            damage,
+            routeTargetDirection,
+            b.routeDirection ?? null,
+            routeTargetBinding?.confirmedHits ?? 0,
+          );
+          e.hp = routeImpact.hp;
           const phaseSuppressed = s.freezeTimer > 0
+            || (e.traitSuppressionTimer ?? 0) > 0
             || (s.signalJamTimer > 0 && isCyberEnemy(e))
             || (s.adaptiveAmmoTimer > 0 && movement === 'spectral');
           if (!phaseSuppressed && e.genome?.phaseChance && Math.random() < e.genome.phaseChance) {
-            e.hp += damage;
+            e.hp = hpBeforeDamage;
             e.flash = 0.04;
+            if (stopsAtFirstCollision) break;
             continue;
           }
+          if (routeTargetBinding && routeImpact.confirmedHit) {
+            routeTargetBinding.confirmedHits = routeImpact.confirmedHits;
+            routeTargetBinding.visual.confirmedHits = Math.min(
+              routeImpact.confirmedHits,
+              CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS,
+            );
+            setActionRouteTargetRevision((revision) => revision + 1);
+          }
           e.flash = 0.08;
+          if (b.effectSkin === LORD_ALPHA_SKIN_ID && b.presentationVariant === 'web') {
+            triggerLordAlphaImpact({
+              subtype: 'web-restraint',
+              origin: lordAlphaBoardAnchor(b.colPos, b.row),
+              target: lordAlphaBoardAnchor(e.colPos, e.row),
+            });
+          }
           if (e.hp <= 0) {
             if (m) addParticles(m.x + (e.colPos + 0.5) * m.cell, m.y + (e.row + 0.5) * m.cell, '#7dd3fc');
             e.colPos = -9;
             s.lanePressure[e.row] = Math.min(6, s.lanePressure[e.row] + 1);
-            s.score += s.overdriveTimer > 0 || e.catalystMarked ? 300 : 100;
+            s.score += (s.overdriveTimer > 0 || e.catalystMarked ? 300 : 100)
+              + registerMilestoneDefeat(s);
             reconcileIntegrityWork(s);
             if (s.drainTimer > 0) { s.hp++; }
             if (s.overloadTimer > 0) {
               s.bullets.push({
                 colPos: s.player.col + 0.55,
                 row: e.row,
-                speed: 8.5,
+                speed: 8.5 * milestoneProjectileSpeedMultiplier(s.runUpgrades),
                 power: 1,
                 big: false,
                 pierce: false,
@@ -8731,6 +10693,7 @@ export default function Game() {
           } else {
             playHit();
           }
+          if (stopsAtFirstCollision) break;
         }
       }
     }
@@ -8744,6 +10707,189 @@ export default function Game() {
       }
     }
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
+
+    if (actionForkExperiment
+      && s.gameMode === 'classic'
+      && s.wave >= actionForkStartWave
+      && s.wave >= actionRouteTargetArmWaveRef.current) {
+      const directions: CampaignRouteDirection[] = ['last', 'next'];
+      let targetsChanged = false;
+      const newlyUnlocked: CampaignRouteDirection[] = [];
+      let nextAvailability = actionRouteAvailabilityRef.current;
+      // One combat fork can secure exactly one direction. Once either target
+      // wins the quota, subsequent deaths (including piercing/AOE kills in the
+      // same update) cannot activate the opposite lane before the choice opens.
+      let claimedDirection: CampaignRouteDirection | null = nextAvailability.last
+        ? 'last'
+        : nextAvailability.next ? 'next' : null;
+      const targetPairWasReady = Boolean(
+        actionRouteTargetsRef.current.last && actionRouteTargetsRef.current.next,
+      );
+
+      // Chrona replaces the whole GameState with a structured clone. Reattach
+      // bindings by the enemy's stable visual seed before evaluating defeat.
+      for (const direction of directions) {
+        const binding = actionRouteTargetsRef.current[direction];
+        if (!binding) continue;
+        const presence = reconcileCampaignRouteTarget(s.enemies, binding);
+        if (presence.status === 'live') {
+          // Chrona restores an earlier enemy clone. Reassert the route lane on
+          // both gameplay and its displayed contact so rewind cannot split the
+          // advertised lane from the lane Auto actually aims at.
+          const pinnedRow = pinCampaignRouteTargetLane(
+            presence.enemy,
+            actionRouteTargetRowsRef.current[direction],
+          );
+          binding.enemy = presence.enemy;
+          binding.visual.row = pinnedRow;
+        }
+
+        if (presence.status === 'defeated') {
+          const quotaSatisfied = binding.confirmedHits
+            >= CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS;
+          if (!targetPairWasReady) {
+            // A single target is not a Last/Next choice. Retire it without
+            // awarding a direction and stage a complete pair immediately.
+            actionRouteTargetsRef.current[direction] = null;
+            actionRouteTargetReacquireDelayRef.current[direction] =
+              CAMPAIGN_ROUTE_TARGET_REACQUIRE_DELAY_SECONDS;
+            targetsChanged = true;
+          } else if (!quotaSatisfied) {
+            // Some authored skills remove enemies directly rather than using
+            // the canonical defeat helper. Preserve the advertised objective
+            // instead of letting that bypass (or visually erase) its quota.
+            const restoredEnemy = presence.enemy;
+            restoredEnemy.hp = 1;
+            restoredEnemy.colPos = Math.max(
+              CAMPAIGN_ROUTE_TARGET_HOLD_COL,
+              restoredEnemy.colPos,
+            );
+            pinCampaignRouteTargetLane(
+              restoredEnemy,
+              actionRouteTargetRowsRef.current[direction],
+            );
+            if (!findCampaignRouteTarget(s.enemies, binding)) {
+              s.enemies.push(restoredEnemy);
+            }
+            binding.enemy = restoredEnemy;
+            binding.visual.row = restoredEnemy.row;
+            targetsChanged = true;
+          } else if (!claimedDirection) {
+            claimedDirection = direction;
+            newlyUnlocked.push(direction);
+          }
+        } else if (presence.status === 'missing') {
+          // Escapes, shields, clone absorption and fusion are not defeats.
+          // Show an honest reacquisition state instead of silently swapping to
+          // an arbitrary enemy during the same frame.
+          actionRouteTargetsRef.current[direction] = null;
+          actionRouteTargetReacquireDelayRef.current[direction] =
+            CAMPAIGN_ROUTE_TARGET_REACQUIRE_DELAY_SECONDS;
+          targetsChanged = true;
+        }
+      }
+
+      if (newlyUnlocked.length > 0) {
+        nextAvailability = { ...actionRouteAvailabilityRef.current };
+        for (const direction of newlyUnlocked) nextAvailability[direction] = true;
+        setActionRouteAvailability(nextAvailability);
+        for (const direction of newlyUnlocked) {
+          const eligibleWave = (actionRouteTargetsRef.current[direction]?.armedWave ?? s.wave) + 1;
+          actionRoutePendingOpenWaveRef.current = actionRoutePendingOpenWaveRef.current === null
+            ? eligibleWave
+            : Math.min(actionRoutePendingOpenWaveRef.current, eligibleWave);
+        }
+        showMessage(
+          `${newlyUnlocked.map((direction) => direction.toUpperCase()).join(' + ')} TARGET DEFEATED — route quota secured for the wave boundary.`,
+          1600,
+        );
+        targetsChanged = true;
+      }
+
+      const routeOpenWave = actionRoutePendingOpenWaveRef.current;
+      if (!actionRoutePromptActiveRef.current
+        && routeOpenWave !== null
+        && s.wave >= routeOpenWave
+        && (nextAvailability.last || nextAvailability.next)) {
+        actionRouteBossChoiceRef.current = isCampaignRouteBossForkDue(
+          actionRouteSecuredSegmentsRef.current,
+          actionRouteBossPendingRef.current,
+        );
+        setActionRoutePrompt(true);
+        actionRouteAwaitNeutralRef.current = true;
+        s.player.col = 1;
+        s.player.row = 1;
+        showMessage('WAVE COMPLETE — release movement, then choose a highlighted route.', 1800);
+      }
+
+      const livingTargets = campaignRouteTargetCandidates(s.enemies);
+      const bindings = actionRouteTargetsRef.current;
+      if (!bindings.last && !bindings.next) {
+        actionRouteTargetRowsRef.current = resolveCampaignRouteTargetRows(s.player.row);
+      }
+      // Do not replace or arm the opposite objective after this fork already
+      // has a winning direction. Bind internally as candidates become
+      // available, but publish only a complete pair. The first direction
+      // alternates by route segment.
+      if (!claimedDirection && livingTargets.length > 0 && s.bullets.length === 0) {
+        const usedSeeds = new Set<number>();
+        for (const direction of directions) {
+          const binding = bindings[direction];
+          if (binding) usedSeeds.add(binding.visualSeed);
+        }
+        const acquisitionOrder: CampaignRouteDirection[] =
+          actionRouteSecuredSegmentsRef.current % 2 === 0
+            ? directions
+            : ['next', 'last'];
+        for (const direction of acquisitionOrder) {
+          if (bindings[direction]
+            || actionRouteAvailabilityRef.current[direction]
+            || actionRouteTargetReacquireDelayRef.current[direction] > 0) continue;
+          const oppositeDirection: CampaignRouteDirection = direction === 'last' ? 'next' : 'last';
+          const enemy = selectCampaignRouteTargetCandidate(
+            livingTargets,
+            direction,
+            usedSeeds,
+            bindings[oppositeDirection]?.enemy.row,
+          );
+          if (!enemy?.genome) continue;
+          // A pair always occupies the two lanes away from the player. This
+          // turns navigation into the explicit Last/Next commitment and keeps
+          // stacked Auto modifiers from deciding the fork on publication.
+          pinCampaignRouteTargetLane(enemy, actionRouteTargetRowsRef.current[direction]);
+          const visualSeed = getEnemyVisualSeed(enemy);
+          bindings[direction] = {
+            enemy,
+            visualSeed,
+            visual: {
+              id: `${direction}-${visualSeed}`,
+              label: `${enemy.genome.baseElement} ${enemy.genome.enemyClass}`.toUpperCase(),
+              sprite: getProceduralVirusSprite(visualSeed, enemy.genome),
+              row: enemy.row,
+              confirmedHits: 0,
+              requiredHits: CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS,
+            },
+            armedWave: s.wave,
+            confirmedHits: 0,
+          };
+          usedSeeds.add(visualSeed);
+          targetsChanged = true;
+        }
+      }
+      const activeTargetCount = Number(Boolean(bindings.last)) + Number(Boolean(bindings.next));
+      if (!claimedDirection && activeTargetCount < 2) {
+        // Route objectives are a paired aiming decision. Pull the next normal
+        // spawn into the next simulation tick, including the first member of a
+        // newly armed pair. Neither objective is exposed until both exist.
+        // Population and enemy balance are otherwise intact.
+        s.enemySpawnTimer = Math.min(
+          s.enemySpawnTimer,
+          CAMPAIGN_ROUTE_TARGET_PAIR_SPAWN_DELAY_SECONDS,
+        );
+      }
+      if (targetsChanged) setActionRouteTargetRevision((revision) => revision + 1);
+    }
+
     for (let row = 0; row < 3; row++) {
       s.lanePressure[row] = Math.max(0, s.lanePressure[row] - dt * 0.09);
     }
@@ -8760,43 +10906,144 @@ export default function Game() {
     // ── VS mode: NPC AI ───────────────────────────────────────────────────────
     if (s.gameMode === 'vs') {
       const npc = s.npc;
-      const npcCol = 3 + npc.col;
+      s.versusStatusRuntime = advanceVersusStatusRuntime(
+        s.versusStatusRuntime ?? createEmptyVersusStatusRuntimePatch(),
+        dt,
+      );
+      const opponentStatusWindows = s.versusStatusRuntime.opponent.windows;
+      const fireRateMagnitude = opponentStatusWindows.fireRateMultiplier?.magnitude ?? 1;
+      const fireDisruption = opponentStatusWindows.fireDisruption?.magnitude ?? 0;
+      const moveDisruption = opponentStatusWindows.moveDisruption?.magnitude ?? 0;
+      const cardDisruption = opponentStatusWindows.cardDisruption?.magnitude ?? 0;
+      let npcAbilityRuntime = npcAbilityRuntimeRef.current;
+      if (!npcAbilityRuntime || npcCounterpartRef.current?.skinId !== npcSkinRef.current) {
+        resetVersusBossCounterpart(npcSkinRef.current, s);
+        npcAbilityRuntime = npcAbilityRuntimeRef.current;
+      }
+      if (npcAbilityRuntime) {
+        npcAbilityRuntime = advanceVersusBossAbilityRuntime(npcAbilityRuntime, dt);
+        npcAbilityRuntimeRef.current = npcAbilityRuntime;
+      }
+      const npcCasterWindows = npcAbilityRuntime?.npcStatusRuntime.caster.windows ?? {};
+      const npcOpponentWindows = npcAbilityRuntime?.npcStatusRuntime.opponent.windows ?? {};
+      const npcIsInvulnerable = () => Boolean(
+        npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.invulnerability,
+      );
+      const npcFireRateMultiplier = npcCasterWindows.fireRateMultiplier?.magnitude ?? 1;
+      const npcFireRecoveryRate = Math.max(
+        0.15,
+        Math.min(
+          4,
+          fireRateMagnitude * npcFireRateMultiplier * (1 - fireDisruption * 0.8),
+        ),
+      );
+      const npcMoveRecoveryRate = Math.max(0.15, 1 - moveDisruption * 0.8);
+      const npcCardRecoveryRate = Math.max(0.15, 1 - cardDisruption * 0.8);
       const nextNpcRandom = () => {
         const next = competitiveRandom(s.competitiveSeed);
         s.competitiveSeed = next.seed;
         return next.value;
       };
       rivalSkillCooldownRef.current = Math.max(0, rivalSkillCooldownRef.current - dt);
-      npc.abilityCooldown = Math.max(0, npc.abilityCooldown - dt);
+      if (npcSignatureRuntimeRef.current) {
+        npcSignatureRuntimeRef.current = advanceVersusBossSignatureTime(
+          npcSignatureRuntimeRef.current,
+          dt * 1000,
+        );
+      }
+      if (npcCounterpartRef.current) {
+        npcCounterpartRef.current = advanceVersusBossAbilityCooldowns(
+          npcCounterpartRef.current,
+          dt * npcCardRecoveryRate,
+        );
+      }
+      npc.abilityCooldown = Math.max(0, npc.abilityCooldown - dt * npcCardRecoveryRate);
       npc.signatureCooldown = Math.max(0, npc.signatureCooldown - dt);
       npc.signatureWindow = Math.max(0, npc.signatureWindow - dt);
       npc.signatureActionCooldown = Math.max(0, npc.signatureActionCooldown - dt);
       npc.decisionLock = Math.max(0, npc.decisionLock - dt);
 
-      const launchNpcShot = (row: number, power = 1, big = false) => {
+      const npcRegeneration = npcCasterWindows.regeneration;
+      if (npcRegeneration && npc.hp < NPC_HP) {
+        npcRegenerationTickRef.current += dt;
+        if (npcRegenerationTickRef.current >= 3) {
+          npcRegenerationTickRef.current %= 3;
+          npc.hp = boundedRecovery(
+            npc.hp,
+            Math.max(1, Math.round(npcRegeneration.magnitude)),
+          );
+          if (npcAbilityRuntimeRef.current) {
+            npcAbilityRuntimeRef.current.npc.hp = npc.hp;
+          }
+          updateHud();
+        }
+      } else {
+        npcRegenerationTickRef.current = 0;
+      }
+
+      // NPC-origin disruption has the same persistent meaning as its playable
+      // counterpart. Direct cast delays are applied below; these windows keep
+      // the player from instantly recovering while the authored effect lives.
+      const playerFireDisruption = npcOpponentWindows.fireDisruption?.magnitude ?? 0;
+      const playerMoveDisruption = npcOpponentWindows.moveDisruption?.magnitude ?? 0;
+      const playerCardDisruption = npcOpponentWindows.cardDisruption?.magnitude ?? 0;
+      if (playerFireDisruption > 0) {
+        s.player.fireCooldown = Math.max(s.player.fireCooldown, playerFireDisruption * 0.18);
+      }
+      if (playerMoveDisruption > 0) {
+        s.player.moveCooldown = Math.max(s.player.moveCooldown, playerMoveDisruption * 0.16);
+      }
+      if (playerCardDisruption > 0 && !s.cardsReady) {
+        s.cardTimer = Math.max(0, s.cardTimer - dt * playerCardDisruption * 0.7);
+      }
+
+      const launchNpcShot = (
+        row: number,
+        power = 1,
+        big = false,
+        salvoIndex = 0,
+        leechOnHit = 0,
+        pierce = false,
+        originCol = npc.col,
+        homing = false,
+        direction: -1 | 1 = -1,
+      ) => {
         const animationNow = performance.now();
         // Do not let rapid autofire continually restart an authored skill or
         // attack before its anticipation/strike/recovery arc completes.
         if (animationNow - npcSkillStartedRef.current >= NPC_SKILL_ANIMATION_DURATION) {
           npcAttackStartedRef.current = animationNow;
         }
+        const originOffset = 0.55 - salvoIndex * 0.18;
         s.npcBullets.push({
-          colPos: 3 + npc.col - 0.55,
+          colPos: 3 + originCol + direction * originOffset,
           row,
-          speed: big ? -5.7 : -6.4,
+          speed: direction * (big ? 5.7 : 6.4),
           power,
           big,
-          pierce: false,
+          pierce,
+          homing,
           attackStyle: resolveAttackStyle(npcSkinRef.current),
           effectSkin: npcSkinRef.current,
+          ...(leechOnHit > 0 ? { leechOnHit } : {}),
         });
       };
 
-      const npcRivalSkill = RIVAL_SKILL_IDS.find((id) => id === npcSkinRef.current);
+      const npcCounterpart = npcCounterpartRef.current;
+      const npcRivalSkill = npcCounterpart?.signature.kind === 'boss-skill'
+        ? npcCounterpart.signature.id
+        : undefined;
+      const npcHasSignatureCounterpart = !!npcCounterpart
+        && npcCounterpart.signature.kind !== 'none'
+        && npcCounterpart.signature.kind !== 'unsupported';
       const buildNpcContext = (step: number): VersusNpcContext => {
+        const npcBoardCol = 3 + npc.col;
         const incomingByRow: [number, number, number] = [0, 0, 0];
         for (const bullet of s.bullets) {
-          if (bullet.colPos <= 2.2 || bullet.colPos > npcCol + 0.75) continue;
+          if (bullet.speed <= 0 || bullet.hitNpc) continue;
+          const collisionRadius = bullet.big ? 0.52 : 0.38;
+          const impactEta = (npcBoardCol - bullet.colPos - collisionRadius) / bullet.speed;
+          if (impactEta < 0 || impactEta > COMPETITIVE_RULESET.npcDodgeLookahead) continue;
           incomingByRow[bullet.row] += Math.max(1, bullet.power ?? 1);
         }
         return {
@@ -8823,51 +11070,376 @@ export default function Game() {
         };
       };
       const applyNpcPlan = (plan: VersusAbilityPlan | VersusSignaturePlan) => {
-        if (plan.moveToRow !== undefined) {
-          npc.row = Math.max(0, Math.min(2, plan.moveToRow));
-        }
-        if ('columnDelta' in plan && plan.columnDelta !== 0) {
-          npc.col = Math.max(0, Math.min(2, npc.col + plan.columnDelta));
-        }
-        if ('nextCharges' in plan) {
-          npc.signatureMode = plan.nextMode;
-          npc.signatureCharges = plan.nextCharges;
-          npc.signaturePlacements = [...plan.nextPlacements];
-          npc.signatureOriginRow = plan.nextOriginRow;
-          npc.signatureOriginCol = plan.nextOriginCol;
-        }
-        if (plan.recovery > 0) npc.hp = boundedRecovery(npc.hp, plan.recovery);
-        if (plan.shields > 0) {
-          npc.shieldCharges = Math.min(VS_NPC_MAX_SHIELDS, npc.shieldCharges + plan.shields);
-        }
-        if (plan.fireDisruption > 0) {
-          s.player.fireCooldown = Math.max(
-            s.player.fireCooldown,
-            Math.min(COMPETITIVE_RULESET.maxFireDisruption, plan.fireDisruption),
+        const applied = applyVersusNpcCombatPlan(plan, {
+          npc: {
+            row: npc.row,
+            col: npc.col,
+            hp: npc.hp,
+            shieldCharges: npc.shieldCharges,
+            signatureMode: npc.signatureMode,
+            signatureCharges: npc.signatureCharges,
+            signaturePlacements: npc.signaturePlacements,
+            signatureOriginRow: npc.signatureOriginRow,
+            signatureOriginCol: npc.signatureOriginCol,
+          },
+          player: {
+            fireCooldown: s.player.fireCooldown,
+            moveCooldown: s.player.moveCooldown,
+          },
+          cardsReady: s.cardsReady,
+          cardTimer: s.cardTimer,
+        });
+
+        npc.row = applied.npc.row;
+        npc.col = applied.npc.col;
+        npc.hp = applied.npc.hp;
+        npc.shieldCharges = applied.npc.shieldCharges;
+        npc.signatureMode = applied.npc.signatureMode;
+        npc.signatureCharges = applied.npc.signatureCharges;
+        npc.signaturePlacements = [...applied.npc.signaturePlacements];
+        npc.signatureOriginRow = applied.npc.signatureOriginRow;
+        npc.signatureOriginCol = applied.npc.signatureOriginCol;
+        s.player.fireCooldown = applied.player.fireCooldown;
+        s.player.moveCooldown = applied.player.moveCooldown;
+        s.cardTimer = applied.cardTimer;
+
+        for (const projectile of applied.projectiles) {
+          launchNpcShot(
+            projectile.row,
+            projectile.power,
+            projectile.big,
+            projectile.salvoIndex,
+            projectile.leechOnHit,
           );
         }
-        if (plan.moveDisruption > 0) {
-          s.player.moveCooldown = Math.max(
-            s.player.moveCooldown,
-            Math.min(COMPETITIVE_RULESET.maxMoveDisruption, plan.moveDisruption),
-          );
-        }
-        if (plan.cardPressure > 0 && !s.cardsReady) {
-          s.cardTimer = Math.max(0, s.cardTimer - Math.min(2, plan.cardPressure));
-        }
-        for (const row of shotRowsForPlan(plan)) {
-          launchNpcShot(row, plan.power, plan.big);
-        }
-        const normalized = clampCompetitiveResources(npc.hp, npc.shieldCharges);
-        npc.hp = normalized.hp;
-        npc.shieldCharges = normalized.shields;
+        return applied;
       };
 
-      let npcHighLevelActed = false;
+      const buildNpcAbilityBoardContext = (): AbilityBoardContext => {
+        const npcBoardCol = 3 + npc.col;
+        const pendingThreats = s.bullets.filter((bullet) => (
+          bullet.colPos >= 2.2 && bullet.colPos <= npcBoardCol + 0.75
+        )).length;
+        const distance = Math.max(0, Math.min(1,
+          Math.abs(npcBoardCol - s.player.col) / 5));
+        const playerTags: AbilityEnemyTag[] = ['mobile', 'grounded', 'cyber'];
+        if (pendingThreats > 0) playerTags.push('inside-center');
+        return {
+          mode: 'vs',
+          enemies: [{
+            tags: playerTags,
+            hp: s.hp,
+            maxHp: COMPETITIVE_RULESET.maxHp,
+            row: s.player.row,
+            distance,
+          }],
+          playerHp: npc.hp,
+          playerMaxHp: NPC_HP,
+          shieldCharges: npc.shieldCharges,
+          maxShieldCharges: VS_NPC_MAX_SHIELDS,
+          pendingThreats,
+          canRefreshHand: true,
+          opponent: {
+            present: s.hp > 0,
+            hp: s.hp,
+            maxHp: COMPETITIVE_RULESET.maxHp,
+            tags: playerTags,
+          },
+        };
+      };
 
-      if (npcRivalSkill
+      const synchronizeNpcAbilityRuntime = (): VersusBossAbilityRuntimeState => {
+        const previous = npcAbilityRuntimeRef.current
+          ?? createEmptyVersusBossAbilityRuntimeState(
+            {
+              hp: npc.hp,
+              maxHp: NPC_HP,
+              shields: npc.shieldCharges,
+              maxShields: VS_NPC_MAX_SHIELDS,
+              row: npc.row,
+              column: npc.col,
+              fireCooldown: npc.fireCooldown,
+              moveCooldown: npc.moveCooldown,
+              cardCooldown: npc.abilityCooldown,
+            },
+            {
+              hp: s.hp,
+              maxHp: COMPETITIVE_RULESET.maxHp,
+              shields: s.shieldCharges,
+              maxShields: COMPETITIVE_RULESET.maxShields,
+              row: s.player.row,
+              column: s.player.col,
+              fireCooldown: s.player.fireCooldown,
+              moveCooldown: s.player.moveCooldown,
+              cardCooldown: s.cardsReady
+                ? 0
+                : Math.max(0, CARD_CHARGE_TIME - s.cardTimer),
+            },
+          );
+        return {
+          ...previous,
+          npc: {
+            ...previous.npc,
+            hp: npc.hp,
+            shields: npc.shieldCharges,
+            row: npc.row,
+            column: npc.col,
+            fireCooldown: npc.fireCooldown,
+            moveCooldown: npc.moveCooldown,
+            cardCooldown: npc.abilityCooldown,
+          },
+          player: {
+            ...previous.player,
+            hp: s.hp,
+            shields: s.shieldCharges,
+            row: s.player.row,
+            column: s.player.col,
+            fireCooldown: s.player.fireCooldown,
+            moveCooldown: s.player.moveCooldown,
+            cardCooldown: s.cardsReady
+              ? 0
+              : Math.max(0, CARD_CHARGE_TIME - s.cardTimer),
+          },
+        };
+      };
+
+      const executeNpcAbilityCounterpart = (card: VersusBossAbilityCard) => {
+        const abilityId = card.id;
+        const playerHpBeforeCast = s.hp;
+        const playerEvolutionProfile = milestoneBossEvolutionProfile(s.runUpgrades);
+        const metadata = {
+          playerTraits: ['mobile', 'grounded', 'cyber'],
+          playerMovement: 'biped',
+          playerEntityType: 'synthetic',
+          // Milestone upgrades are the player's live evolutionary state in
+          // campaign Boss encounters. Specialist NPC cards therefore scale
+          // from actual progression instead of permanent placeholder zeros.
+          playerFusionLevel: playerEvolutionProfile.fusionLevel,
+          playerMutationCount: playerEvolutionProfile.mutationCount,
+          distance: Math.abs(3 + npc.col - s.player.col),
+          // Critical is a live projectile decision in the playable system.
+          // Supply session-seeded rolls so NPC counterparts stay deterministic.
+          criticalRolls: npcAbilityRuntimeRef.current?.npcStatusRuntime.caster.windows.criticalChance
+            ? Array.from({ length: 12 }, () => nextNpcRandom())
+            : [],
+        };
+        const execution = card.kind === 'generated'
+          ? executeGeneratedVersusBossAbility(
+              card.definition,
+              synchronizeNpcAbilityRuntime(),
+              metadata,
+              learnedAbilitiesRef.current.find(({ id }) => id === card.id)?.rank ?? 1,
+            )
+          : executeVersusBossAbility(
+              card.id,
+              synchronizeNpcAbilityRuntime(),
+              metadata,
+            );
+        // Playable Ghost protects HP from an NPC's direct card effect just as
+        // it protects against the resulting projectile collision. Shield
+        // removal/disruption still resolve, preserving the authored card.
+        if ((s.ghostTimer > 0 || lordAlphaSkillsPreview)
+          && execution.state.player.hp < playerHpBeforeCast) {
+          execution.state.player.hp = playerHpBeforeCast;
+        }
+        npcAbilityRuntimeRef.current = execution.state;
+        npc.hp = execution.state.npc.hp;
+        npc.shieldCharges = execution.state.npc.shields;
+        npc.row = execution.state.npc.row;
+        npc.col = execution.state.npc.column;
+        npc.fireCooldown = Math.max(npc.fireCooldown, execution.state.npc.fireCooldown);
+        npc.moveCooldown = Math.max(npc.moveCooldown, execution.state.npc.moveCooldown);
+        s.hp = execution.state.player.hp;
+        s.shieldCharges = execution.state.player.shields;
+        s.player.row = execution.state.player.row;
+        s.player.col = execution.state.player.column;
+        s.player.fireCooldown = Math.max(
+          s.player.fireCooldown,
+          execution.state.player.fireCooldown,
+        );
+        s.player.moveCooldown = Math.max(
+          s.player.moveCooldown,
+          execution.state.player.moveCooldown,
+        );
+        if (execution.outcome.opponentCardDelay > 0 && !s.cardsReady) {
+          s.cardTimer = Math.max(0, s.cardTimer - execution.outcome.opponentCardDelay);
+        }
+        for (const projectile of execution.projectiles) {
+          launchNpcShot(
+            projectile.row,
+            projectile.power,
+            projectile.big,
+            projectile.salvoIndex,
+            0,
+            projectile.piercing,
+            npc.col,
+            projectile.homing,
+            projectile.direction,
+          );
+        }
+        return execution;
+      };
+
+      const abilityPresentationPlan = (
+        abilityId: string,
+        outcome: VersusAbilityOutcome
+          | ReturnType<typeof executeGeneratedVersusBossAbility>['outcome'],
+      ): VersusAbilityPlan => {
+        const projectile = outcome.projectiles[0];
+        const pattern = projectile?.pattern === 'all'
+          || projectile?.pattern === 'both-directions'
+          ? 'all'
+          : projectile?.pattern === 'adjacent' ? 'adjacent'
+            : projectile ? 'target' : 'none';
+        return {
+          abilityId,
+          doctrine: npcRivalSkill
+            ? (VS_NPC_ASSAULT_SKILLS.has(npcRivalSkill) ? 'assault'
+              : VS_NPC_CONTROL_SKILLS.has(npcRivalSkill) ? 'control'
+                : VS_NPC_DEFENSIVE_SKILLS.has(npcRivalSkill) ? 'guardian' : 'adaptive')
+            : 'adaptive',
+          targetRow: s.player.row,
+          shotPattern: pattern,
+          salvo: projectile?.countPerLane ?? 1,
+          power: projectile?.power ?? 1,
+          big: projectile?.big ?? false,
+          leechOnHit: 0,
+          recovery: Math.max(0, outcome.casterHpDelta),
+          shields: Math.max(0, outcome.casterShieldDelta),
+          fireDisruption: outcome.opponentFireDelay,
+          moveDisruption: outcome.opponentMoveDelay,
+          cardPressure: outcome.opponentCardDelay,
+          ...(outcome.casterRow === undefined ? {} : { moveToRow: outcome.casterRow }),
+          reason: outcome.summary,
+        };
+      };
+
+      const showNpcTacticCue = (plan: VersusAbilityPlan | VersusSignaturePlan) => {
+        if (!m) return;
+        const color = plan.doctrine === 'assault' ? '#fb7185'
+          : plan.doctrine === 'control' ? '#c084fc'
+            : plan.doctrine === 'guardian' ? '#67e8f9'
+              : plan.doctrine === 'skirmish' ? '#facc15'
+                : plan.doctrine === 'support' ? '#86efac'
+                  : '#a5b4fc';
+        addParticles(
+          m.x + (3 + npc.col + 0.5) * m.cell,
+          m.y + (npc.row + 0.5) * m.cell,
+          color,
+        );
+      };
+
+      const dispatchNpcEchoChannelEvent = (event: EchoNpcChannelEvent) => {
+        const counterpart = npcCounterpartRef.current;
+        if (!counterpart) return null;
+        const runtime = npcSignatureRuntimeRef.current
+          ?? createVersusBossSignatureRuntimeState(
+            counterpart,
+            { col: npc.col, row: npc.row },
+          );
+        const result = dispatchVersusBossSignature({
+          counterpart,
+          state: runtime,
+          commandIndex: 0,
+          currentPosition: { col: npc.col, row: npc.row },
+          echoEvent: event,
+        });
+        npcSignatureRuntimeRef.current = result.state;
+        return result.kind === 'echo-channel' ? result : null;
+      };
+
+      const activeEchoChannel = npcSignatureRuntimeRef.current?.echo?.channel ?? 'idle';
+      if (activeEchoChannel !== 'idle') {
+        npcEchoChannelClockRef.current.remaining = Math.max(
+          0,
+          npcEchoChannelClockRef.current.remaining - dt,
+        );
+        if (npcEchoChannelClockRef.current.remaining <= 0) {
+          const release = dispatchNpcEchoChannelEvent(
+            activeEchoChannel === 'brink'
+              ? { kind: 'release-brink' }
+              : { kind: 'release-drain' },
+          );
+          if (release?.effect.kind === 'brink-release') {
+            let hitCount = 0;
+            for (const strike of release.effect.strikes) {
+              // Brink owns a fixed intercept. The target is sampled during the
+              // hold and never follows the player after that lock.
+              if (strike.target.col !== s.player.col || strike.target.row !== s.player.row) {
+                continue;
+              }
+              hitCount++;
+              const resolvedDamage = competitiveProjectileDamage(1);
+              if (s.shieldCharges > 0) s.shieldCharges--;
+              else if (s.ghostTimer <= 0 && !lordAlphaSkillsPreview) s.hp -= resolvedDamage;
+              if (npcAbilityRuntimeRef.current) {
+                npcAbilityRuntimeRef.current.player.hp = s.hp;
+                npcAbilityRuntimeRef.current.player.shields = s.shieldCharges;
+              }
+              if (m) addParticles(
+                m.x + (s.player.col + 0.5) * m.cell,
+                m.y + (s.player.row + 0.5) * m.cell,
+                '#c4b5fd',
+              );
+            }
+            showMessage(
+              hitCount > 0 ? 'NPC ECHO - BRINK RELEASE HIT' : 'NPC ECHO - BRINK EVADED',
+              900,
+            );
+            updateHud();
+            if (s.hp <= 0) { endGame(false); return; }
+          } else if (release?.effect.kind === 'drain-release') {
+            showMessage('NPC ECHO - DRAIN RELEASE', 700);
+          }
+        }
+      }
+      const npcEchoBracing = (npcSignatureRuntimeRef.current?.echo?.channel ?? 'idle') !== 'idle';
+
+      let npcHighLevelActed = false;
+      let npcHighLevelColumnActed = false;
+      let npcHighLevelMovementContext: VersusNpcContext | null = null;
+
+      // A visible projectile has defensive priority, just as it does for a
+      // human opponent. The ETA window prevents spawn-reading; the recovery
+      // leaves the chosen destination open to the following predicted shot.
+      npc.moveCooldown -= dt * npcMoveRecoveryRate;
+      const npcBoardColBeforeMovement = 3 + npc.col;
+      const evasionContext = {
+        npcRow: npc.row,
+        npcCol: npc.col,
+        playerRow: s.player.row,
+        npcBoardCol: npcBoardColBeforeMovement,
+        preferredColumn: chooseVersusMovementColumn(
+          buildNpcContext(npc.strategyStep),
+        ),
+        step: npc.strategyStep,
+        moveReady: npc.moveCooldown <= 0,
+        decisionUnlocked: npc.decisionLock <= 0,
+        projectiles: s.bullets,
+      };
+      const committedImpact = versusBossImpactIsCommitted(evasionContext);
+      const evasionPlan = npcEchoBracing ? null : planVersusBossEvasion(evasionContext);
+      let npcEvadedThisFrame = false;
+      if (evasionPlan) {
+        npc.row = evasionPlan.nextRow;
+        npc.col = evasionPlan.nextColumn;
+        npc.moveCooldown = evasionPlan.moveRecovery;
+        npc.fireCooldown = Math.max(npc.fireCooldown, evasionPlan.fireRecovery);
+        npc.decisionLock = Math.max(npc.decisionLock, evasionPlan.fireRecovery);
+        npc.strategyStep++;
+        npcEvadedThisFrame = true;
+        if (m) addParticles(
+          m.x + (npcBoardColBeforeMovement + 0.5) * m.cell,
+          m.y + (npc.row + 0.5) * m.cell,
+          '#67e8f9',
+        );
+      }
+
+      if (npcHasSignatureCounterpart
+        && !npcEchoBracing
         && npc.signatureWindow <= 0
         && npc.signatureCooldown <= 0
+        && !committedImpact
         && npc.decisionLock <= 0) {
         npc.signatureWindow = COMPETITIVE_RULESET.signatureWindow;
         npc.signatureActionCooldown = 0;
@@ -8882,40 +11454,275 @@ export default function Game() {
       }
 
       if (npc.abilityCooldown <= 0
+        && !npcEchoBracing
         && npc.signatureWindow <= 0
+        && !committedImpact
         && npc.decisionLock <= 0) {
-        npcSkillStartedRef.current = performance.now();
-        const step = npc.strategyStep++;
-        const plan = chooseVersusNpcAbility(buildNpcContext(step));
-        applyNpcPlan(plan);
-        const selectedAbility = runtimeAbilityById(plan.abilityId);
-        const abilityName = selectedAbility?.name
-          ?? plan.abilityId.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
-        showMessage(`NPC ability · ${abilityName}`, 850);
-        npc.abilityCooldown = Math.max(
-          VS_NPC_ABILITY_INTERVAL,
-          selectedAbility?.cooldown ?? VS_NPC_ABILITY_INTERVAL,
-        ) + nextNpcRandom();
-        npc.decisionLock = NPC_SKILL_ANIMATION_DURATION / 1000;
-        npcHighLevelActed = true;
-        updateHud();
+        let activeCounterpart = npcCounterpartRef.current;
+        const refreshRequested = npcAbilityRuntimeRef.current?.npcHandRefreshRequested ?? false;
+        if (activeCounterpart && (
+          activeCounterpart.abilities.hand.length === 0
+          || versusBossAbilityHandIsExhausted(activeCounterpart)
+          || refreshRequested
+        )) {
+          activeCounterpart = dealVersusBossAbilityHand(activeCounterpart, {
+            context: buildNpcAbilityBoardContext(),
+            seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
+          });
+          npcCounterpartRef.current = activeCounterpart;
+          if (npcAbilityRuntimeRef.current) {
+            npcAbilityRuntimeRef.current.npcHandRefreshRequested = false;
+          }
+        }
+
+        const readyAbilityId = activeCounterpart
+          ? selectVersusBossReadyAbility(activeCounterpart, {
+            context: buildNpcAbilityBoardContext(),
+            seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
+          })
+          : null;
+        const abilityUse = activeCounterpart && readyAbilityId
+          ? useVersusBossAbility(activeCounterpart, readyAbilityId)
+          : null;
+
+        if (abilityUse) {
+          npcCounterpartRef.current = abilityUse.counterpart;
+          npcSkillStartedRef.current = performance.now();
+          const step = npc.strategyStep++;
+          const context = buildNpcContext(step);
+          const execution = executeNpcAbilityCounterpart(abilityUse.card);
+          if (npcSkinRef.current === LORD_ALPHA_SKIN_ID) {
+            const lordAlphaPresentation = getLordAlphaCardPresentation(abilityUse.abilityId);
+            if (lordAlphaPresentation) {
+              triggerNpcLordAlphaPresentation(
+                lordAlphaPresentation.kind,
+                'skill',
+                lordAlphaPresentation.durationMs,
+                {
+                  subtype: lordAlphaPresentation.subtype,
+                  origin: lordAlphaBoardAnchor(3 + npc.col, npc.row),
+                  target: lordAlphaBoardAnchor(s.player.col, s.player.row),
+                },
+              );
+            }
+          }
+          const plan = abilityPresentationPlan(abilityUse.abilityId, execution.outcome);
+          npcHighLevelMovementContext = context;
+          if (npcRivalSkill) {
+            publishNpcSkillPresentation(resolveNpcAbilityPresentation(
+              plan,
+              npcRivalSkill,
+              ++npcSkillPresentationRevisionRef.current,
+            ));
+          }
+          showNpcTacticCue(plan);
+          const selectedAbility = runtimeAbilityById(abilityUse.abilityId);
+          const abilityName = selectedAbility?.name
+            ?? abilityUse.abilityId.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+          showMessage(`NPC ABILITY · ${abilityName} · ${execution.outcome.summary}`, 1200);
+          // Each card keeps its authored cooldown in the NPC-owned counterpart.
+          // This short global interval only spaces decisions so a full hand is
+          // readable instead of executing all three cards on the same frame.
+          npc.abilityCooldown = VS_NPC_ABILITY_INTERVAL + nextNpcRandom();
+          npc.decisionLock = NPC_SKILL_ANIMATION_DURATION / 1000;
+          npcHighLevelActed = true;
+          updateHud();
+          if (s.hp <= 0) { endGame(false); return; }
+        } else {
+          // A fully cooling hand is not replaced with a fabricated fallback.
+          // Retry shortly while ordinary movement/fire remains available.
+          npc.abilityCooldown = Math.min(VS_NPC_ABILITY_INTERVAL, 0.35);
+        }
       }
 
       if (!npcHighLevelActed
-        && npcRivalSkill
+        && !npcEchoBracing
+        && npcHasSignatureCounterpart
+        && npcCounterpart
         && npc.signatureWindow > 0
         && npc.signatureActionCooldown <= 0
-        && npc.signatureActions < Math.min(4, COMPETITIVE_RULESET.signatureMaxActions)
+        && npc.signatureActions < COMPETITIVE_RULESET.signatureMaxActions
+        && !committedImpact
         && npc.decisionLock <= 0) {
         npcSkillStartedRef.current = performance.now();
         const step = npc.strategyStep++;
-        const plan = chooseVersusNpcSignature(buildNpcContext(step));
-        applyNpcPlan(plan);
-        npc.signatureLastCommand = plan.commandIndex;
+        const context = buildNpcContext(step);
+        const plan = npcRivalSkill ? chooseVersusNpcSignature(context) : null;
+        const signatureRuntime = npcSignatureRuntimeRef.current
+          ?? createVersusBossSignatureRuntimeState(
+            npcCounterpart,
+            { col: npc.col, row: npc.row },
+          );
+        let exactSignature = dispatchVersusBossSignature({
+          counterpart: npcCounterpart,
+          state: signatureRuntime,
+          commandIndex: plan?.commandIndex ?? 0,
+          currentPosition: { col: npc.col, row: npc.row },
+          ...(npcRivalSkill === 'echo' && npc.signatureActions === 0
+            ? {
+                echoEvent: npcEchoChannelClockRef.current.next === 'brink'
+                  ? { kind: 'begin-brink' as const }
+                  : { kind: 'begin-drain' as const },
+              }
+            : {}),
+        });
+        if (exactSignature.kind === 'echo-channel'
+          && exactSignature.effect.kind === 'brink-hold') {
+          exactSignature = dispatchVersusBossSignature({
+            counterpart: npcCounterpart,
+            state: exactSignature.state,
+            commandIndex: plan?.commandIndex ?? 0,
+            currentPosition: { col: npc.col, row: npc.row },
+            echoEvent: {
+              kind: 'lock-brink-target',
+              target: { id: 'player', col: s.player.col, row: s.player.row },
+              currentHp: npc.hp,
+            },
+          });
+        }
+        npcSignatureRuntimeRef.current = exactSignature.state;
+        if (plan && npcRivalSkill && exactSignature.kind === 'rival-command') {
+          applyNpcPlan(plan);
+          npcHighLevelMovementContext = context;
+          npcHighLevelColumnActed = plan.columnDelta !== 0;
+          const authoredEffect = exactSignature.authoredEffect;
+          if (authoredEffect?.kind === 'step' || authoredEffect?.kind === 'displace') {
+            npc.col = authoredEffect.destination.col;
+            npc.row = authoredEffect.destination.row;
+            npcHighLevelColumnActed = true;
+          } else if (authoredEffect?.kind === 'rewind' && authoredEffect.phase === 'begin') {
+            const destination = exactSignature.state.chrona?.recordedPositions[0];
+            if (destination) {
+              npc.col = destination.col;
+              npc.row = destination.row;
+              npcHighLevelColumnActed = true;
+            }
+          }
+        publishNpcSkillPresentation(resolveNpcSignaturePresentation(
+          plan,
+          npcRivalSkill,
+          ++npcSkillPresentationRevisionRef.current,
+        ));
+        showNpcTacticCue(plan);
+        npc.signatureLastCommand = exactSignature.command.commandIndex;
         showMessage(
-          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][plan.commandIndex]}`,
-          1100,
+          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${plan.intent.toUpperCase()} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][plan.commandIndex]}`,
+          1350,
         );
+        } else if (exactSignature.kind === 'echo-channel') {
+          if (plan && npcRivalSkill) {
+            publishNpcSkillPresentation(resolveNpcSignaturePresentation(
+              plan,
+              npcRivalSkill,
+              ++npcSkillPresentationRevisionRef.current,
+            ));
+            showNpcTacticCue(plan);
+          }
+          if (exactSignature.effect.kind === 'brink-lock') {
+            npc.hp = exactSignature.effect.hpAfter;
+            if (npcAbilityRuntimeRef.current) npcAbilityRuntimeRef.current.npc.hp = npc.hp;
+            npcEchoChannelClockRef.current = {
+              remaining: NPC_ECHO_BRINK_HOLD_SECONDS,
+              next: 'drain',
+            };
+            showMessage(
+              exactSignature.effect.accepted
+                ? 'NPC ECHO - BRINK LOCKED - MOVE TO EVADE'
+                : `NPC ECHO - ${exactSignature.effect.reason ?? 'BRINK HELD'}`,
+              1100,
+            );
+          } else if (exactSignature.effect.kind === 'drain-hold') {
+            npcEchoChannelClockRef.current = {
+              remaining: NPC_ECHO_DRAIN_HOLD_SECONDS,
+              next: 'brink',
+            };
+            showMessage('NPC ECHO - DRAIN HELD - FIRE ABSORBS', 1100);
+          }
+          npc.signatureLastCommand = plan?.commandIndex ?? 0;
+        } else if (exactSignature.kind === 'canonical-ability') {
+          const presentationAction = LORD_ALPHA_SKILL_PREVIEW_ACTIONS.find(
+            ({ id }) => id === exactSignature.action.actionId,
+          );
+          if (presentationAction) {
+            triggerNpcLordAlphaPresentation(
+              presentationAction.presentation.kind,
+              'skill',
+              presentationAction.presentation.durationMs,
+              {
+                subtype: presentationAction.presentation.subtype,
+                origin: lordAlphaBoardAnchor(3 + npc.col, npc.row),
+                target: lordAlphaBoardAnchor(s.player.col, s.player.row),
+              },
+            );
+          }
+          const execution = executeNpcAbilityCounterpart({
+            kind: 'canonical',
+            id: exactSignature.action.abilityId,
+          });
+          const abilityPlan = abilityPresentationPlan(
+            exactSignature.action.abilityId,
+            execution.outcome,
+          );
+          npcHighLevelMovementContext = context;
+          npcHighLevelColumnActed = execution.outcome.casterColumnDelta !== 0;
+          showNpcTacticCue(abilityPlan);
+          showMessage(`NPC LORD ALPHA - ${exactSignature.action.label}`, 1350);
+          if (s.hp <= 0) { updateHud(); endGame(false); return; }
+        } else if (exactSignature.kind === 'shadow-clone') {
+          const ownerLabel = exactSignature.command.ownerSkinId === 'assembly'
+            ? 'ASSEMBLY'
+            : 'LORD ALPHA';
+          showMessage(
+            `NPC ${ownerLabel} - SHADOW CLONE x${exactSignature.grantedCharges}`,
+            1350,
+          );
+          if (m) addParticles(
+            m.x + (3 + npc.col + 0.5) * m.cell,
+            m.y + (npc.row + 0.5) * m.cell,
+            '#93c5fd',
+          );
+          if (exactSignature.command.ownerSkinId === 'lord-alpha') {
+            const shadowClone = LORD_ALPHA_SKILL_PREVIEW_ACTIONS.find(
+              ({ id }) => id === 'shadow-clone',
+            );
+            if (shadowClone) {
+              triggerNpcLordAlphaPresentation(
+                shadowClone.presentation.kind,
+                'skill',
+                shadowClone.presentation.durationMs,
+                {
+                  subtype: shadowClone.presentation.subtype,
+                  origin: lordAlphaBoardAnchor(3 + npc.col, npc.row),
+                  target: lordAlphaBoardAnchor(s.player.col, s.player.row),
+                },
+              );
+            }
+          }
+          // One cast creates the north/south pair; it is not refreshed three
+          // times inside the same signature window.
+          npc.signatureWindow = 0;
+        } else if (exactSignature.kind === 'equip-latency'
+          || exactSignature.kind === 'presentation-only') {
+          showMessage(`NPC LORD ALPHA - ${exactSignature.action.label}`, 1350);
+          triggerNpcLordAlphaPresentation(
+            'equip',
+            'skill',
+            exactSignature.action.durationMs,
+            {
+              subtype: 'equip-assembly',
+              origin: lordAlphaBoardAnchor(3 + npc.col, npc.row),
+            },
+          );
+          if (m) addParticles(
+            m.x + (3 + npc.col + 0.5) * m.cell,
+            m.y + (npc.row + 0.5) * m.cell,
+            '#fde68a',
+          );
+        } else if (exactSignature.kind === 'unavailable') {
+          // Invalid persisted selections remain visible in configuration but
+          // never execute a fabricated replacement skill.
+          npc.signatureWindow = 0;
+        }
         npc.signatureActions++;
         npc.signatureActionCooldown = Math.max(
           COMPETITIVE_RULESET.signatureActionInterval,
@@ -8925,32 +11732,93 @@ export default function Game() {
           COMPETITIVE_RULESET.signatureActionInterval,
           NPC_SKILL_ANIMATION_DURATION / 1000,
         );
-        if (npc.signatureActions >= Math.min(4, COMPETITIVE_RULESET.signatureMaxActions)) {
+        if (npc.signatureActions >= COMPETITIVE_RULESET.signatureMaxActions) {
           npc.signatureWindow = 0;
         }
         npcHighLevelActed = true;
         updateHud();
       }
 
-      // Reposition according to the selected skin's doctrine and live lane threat.
-      npc.moveCooldown -= dt;
-      if (!npcHighLevelActed && npc.moveCooldown <= 0) {
+      // Reposition according to the selected skin's doctrine when no reactive
+      // dodge occurred. A shot inside the no-reflex window resolves first, so
+      // ordinary roaming cannot become a last-frame teleport out of collision.
+      if (!npcEchoBracing
+        && !npcEvadedThisFrame && !committedImpact && npc.moveCooldown <= 0 && npcHighLevelActed) {
         npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
-        const context = buildNpcContext(npc.strategyStep);
-        npc.row = chooseVersusMovementRow(context, nextNpcRandom());
+        // High-level skill chains can occupy every unlocked decision frame.
+        // Supply their missing horizontal doctrine without overwriting the
+        // row selected by the skill or double-applying signature maneuvers.
+        if (!npcHighLevelColumnActed && npcHighLevelMovementContext) {
+          npc.col = chooseVersusMovementColumn(npcHighLevelMovementContext);
+        }
+      } else if (!npcEchoBracing
+        && !npcEvadedThisFrame
+        && !committedImpact
+        && !npcHighLevelActed
+        && npc.decisionLock <= 0
+        && npc.moveCooldown <= 0) {
+        npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
+        const context = buildNpcContext(npc.strategyStep++);
+        const position = chooseVersusMovementPosition(context, nextNpcRandom());
+        npc.row = position.row;
+        npc.col = position.col;
+      }
+      if (npcSignatureRuntimeRef.current) {
+        npcSignatureRuntimeRef.current = recordVersusBossSignaturePosition(
+          npcSignatureRuntimeRef.current,
+          { col: npc.col, row: npc.row },
+        );
       }
 
-      // Fire a left-moving bullet only when a green attack is in the NPC's row
-      npc.fireCooldown -= dt;
-      if (!npcHighLevelActed && npc.fireCooldown <= 0) {
-        launchNpcShot(npc.row);
-        const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
-        npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
+      // Basic fire first acquires the player's live lane, then releases from
+      // that same row. Authored ability/signature patterns remain independent.
+      npc.fireCooldown -= dt * npcFireRecoveryRate;
+      if (!npcEvadedThisFrame
+        && !npcEchoBracing
+        && !committedImpact
+        && !npcHighLevelActed
+        && npc.decisionLock <= 0
+        && npc.fireCooldown <= 0) {
+        const aim = chooseVersusBasicAttackAim({
+          npcRow: npc.row,
+          playerRow: s.player.row,
+        });
+        if (!aim.aligned) {
+          // Acquiring a lane is a readable combat action. Withhold the shot
+          // until the boss body and muzzle actually occupy the player's lane.
+          npc.row = aim.nextRow;
+          npc.fireCooldown = 0.14;
+          npc.moveCooldown = Math.max(npc.moveCooldown, 0.14);
+        } else {
+          const basicLaunch = launchVersusBossBasicProjectile(
+            synchronizeNpcAbilityRuntime(),
+            { criticalRoll: nextNpcRandom() },
+          );
+          npcAbilityRuntimeRef.current = basicLaunch.state;
+          for (const projectile of basicLaunch.projectiles) {
+            launchNpcShot(
+              projectile.row,
+              projectile.power,
+              projectile.big,
+              projectile.salvoIndex,
+              0,
+              projectile.piercing,
+              npc.col,
+              projectile.homing,
+              projectile.direction,
+            );
+          }
+          const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
+          npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
+        }
       }
 
       // Move NPC bullets left; remove when they exit the active zone
-      for (const b of s.npcBullets) b.colPos += b.speed * dt;
-      s.npcBullets = s.npcBullets.filter((b) => b.colPos > -1);
+      for (const b of s.npcBullets) {
+        b.colPos += b.speed * dt;
+        if (b.homing && !b.hitPlayer) b.row = s.player.row;
+      }
+      s.npcBullets = s.npcBullets.filter((b) => b.colPos > -1 && b.colPos < 7);
 
       // Move green attacks right; score against NPC when they reach the right wall
       for (const e of s.npcEnemies) {
@@ -8958,7 +11826,12 @@ export default function Game() {
         e.flash = Math.max(0, e.flash - dt);
         if (e.colPos >= 5.55) {
           e.colPos = -9; // remove
-          if (npc.shieldCharges > 0) {
+          if (npcIsInvulnerable()) {
+            showMessage('NPC phased through the attack!', 700);
+            updateHud();
+          } else if (consumeNpcShadowCloneCharge()) {
+            updateHud();
+          } else if (npc.shieldCharges > 0) {
             npc.shieldCharges--;
             showMessage('NPC shield blocked an attack!', 1000);
             updateHud();
@@ -9005,32 +11878,137 @@ export default function Game() {
       // NPC, while the NPC's return fire crosses back into the Player grid.
       for (const bullet of s.bullets) {
         if (bullet.colPos > 20 || bullet.row !== npc.row) continue;
-        if (Math.abs(bullet.colPos - npcCol) < (bullet.big ? 0.52 : 0.38)) {
+        const npcBoardCol = 3 + npc.col;
+        if (Math.abs(bullet.colPos - npcBoardCol) < (bullet.big ? 0.52 : 0.38)) {
+          // A piercing carrier may continue through the body, but it may not
+          // repeatedly damage the same boss during successive overlap frames.
+          if (bullet.hitNpc) continue;
+          bullet.hitNpc = true;
           if (!bullet.pierce) bullet.colPos = 99;
-          if (npc.shieldCharges > 0) {
+          const baseDamage = Math.min(
+            COMPETITIVE_RULESET.maxProjectileDamage,
+            competitiveProjectileDamage(bullet.power) + (s.adaptiveAmmoTimer > 0 ? 1 : 0),
+          );
+          const vulnerability = opponentStatusWindows.vulnerability?.magnitude ?? 1;
+          const resolvedDamage = Math.min(
+            COMPETITIVE_RULESET.maxProjectileDamage,
+            Math.max(1, Math.ceil(baseDamage * Math.max(1, vulnerability))),
+          );
+          const npcEchoDrainHeld = npcSignatureRuntimeRef.current?.echo?.channel === 'drain';
+          if (npcEchoDrainHeld) {
+            // Drain absorbs the verified carrier, including Pierce, so the same
+            // collision cannot be converted into healing and later damage.
+            bullet.colPos = 99;
+            const drain = dispatchNpcEchoChannelEvent({
+              kind: 'drain-collision',
+              damageDealt: resolvedDamage,
+              currentHp: npc.hp,
+              maxHp: NPC_HP,
+            });
+            if (drain?.effect.kind === 'drain-collision') {
+              npc.hp = drain.effect.hpAfter;
+              if (npcAbilityRuntimeRef.current) npcAbilityRuntimeRef.current.npc.hp = npc.hp;
+              if (m) addParticles(
+                m.x + (npcBoardCol + 0.5) * m.cell,
+                m.y + (npc.row + 0.5) * m.cell,
+                '#86efac',
+              );
+              showMessage(`NPC ECHO - DRAIN +${drain.effect.appliedHealing}`, 650);
+            }
+          } else if (npcIsInvulnerable()) {
+            // Ghost is the NPC-side equivalent of playable collision immunity:
+            // no clone, shield, or HP resource is consumed by this impact.
+          } else if (consumeNpcShadowCloneCharge()) {
+            // The cloned body takes this verified hit before armor or HP.
+            bullet.colPos = 99;
+          } else if (npc.shieldCharges > 0) {
             npc.shieldCharges--;
           } else {
-            const resolvedDamage = competitiveProjectileDamage(bullet.power);
             npc.hp -= resolvedDamage;
-            s.score += 100;
+            const rewardMultiplier = Math.max(
+              s.overdriveTimer > 0 ? 3 : 1,
+              opponentStatusWindows.rewardMultiplier?.magnitude ?? 1,
+            );
+            const bossWorkMultiplier = campaignBossSessionRef.current
+              ? milestoneBossWorkMultiplier(s.runUpgrades)
+              : 1;
+            s.score += Math.round(100 * rewardMultiplier * bossWorkMultiplier);
+            reconcileIntegrityWork(s);
+            if (s.drainTimer > 0) s.hp = boundedRecovery(s.hp, resolvedDamage);
+            if (s.overloadTimer > 0) {
+              s.overloadTimer = 0;
+              fireBullet(npc.row, { power: 1, big: false, pierce: false });
+            }
             if (npc.hp <= 0) { updateHud(); endGame(true); return; }
+          }
+          if (bullet.effectSkin === LORD_ALPHA_SKIN_ID && bullet.presentationVariant === 'web') {
+            triggerLordAlphaImpact({
+              subtype: 'web-restraint',
+              origin: lordAlphaBoardAnchor(bullet.colPos, bullet.row),
+              target: lordAlphaBoardAnchor(npcBoardCol, npc.row),
+            });
           }
           playHit();
           updateHud();
         }
       }
       for (const bullet of s.npcBullets) {
+        if (bullet.hitPlayer) continue;
         if (bullet.row !== s.player.row) continue;
         if (Math.abs(bullet.colPos - s.player.col) < (bullet.big ? 0.52 : 0.38)) {
-          bullet.colPos = -9;
-          const resolvedDamage = competitiveProjectileDamage(bullet.power);
+          bullet.hitPlayer = true;
+          if (!bullet.pierce) bullet.colPos = -9;
+          const baseDamage = competitiveProjectileDamage(bullet.power);
+          const resolvedDamage = resolveVersusBossProjectileDamage(
+            npcAbilityRuntimeRef.current,
+            baseDamage,
+          );
+          const playerHpBeforeImpact = s.hp;
           if (echoBrinkRef.current.drainHeld) {
             s.hp += resolvedDamage;
           } else if (s.shieldCharges > 0) {
             s.shieldCharges--;
           } else if (s.ghostTimer <= 0) {
-            s.hp -= resolvedDamage;
-            if (s.hp <= 0) { updateHud(); endGame(false); return; }
+            if (lordAlphaSkillsPreview) {
+              s.hp = Math.max(1, s.hp);
+              triggerLordAlphaMotion('hit');
+            } else {
+              s.hp -= resolvedDamage;
+              if ((bullet.leechOnHit ?? 0) > 0) {
+                npc.hp = boundedRecovery(
+                  npc.hp,
+                  Math.min(resolvedDamage, bullet.leechOnHit ?? 0),
+                );
+              }
+              if (s.hp <= 0) { updateHud(); endGame(false); return; }
+            }
+          }
+          const verifiedHpDamage = Math.max(0, playerHpBeforeImpact - s.hp);
+          if (verifiedHpDamage > 0 && npcAbilityRuntimeRef.current) {
+            const verifiedEffects = applyVersusBossVerifiedDamageEffects(
+              synchronizeNpcAbilityRuntime(),
+              verifiedHpDamage,
+              s.player.row,
+            );
+            npcAbilityRuntimeRef.current = verifiedEffects.state;
+            npc.hp = verifiedEffects.state.npc.hp;
+            npc.abilityCooldown = Math.min(
+              npc.abilityCooldown,
+              verifiedEffects.state.npc.cardCooldown,
+            );
+            for (const projectile of verifiedEffects.projectiles) {
+              launchNpcShot(
+                projectile.row,
+                projectile.power,
+                projectile.big,
+                projectile.salvoIndex,
+                0,
+                projectile.piercing,
+                npc.col,
+                projectile.homing,
+                projectile.direction,
+              );
+            }
           }
           playHit();
           updateHud();
@@ -9038,7 +12016,7 @@ export default function Game() {
       }
       s.npcBullets = s.npcBullets.filter((bullet) => bullet.colPos > -1 && bullet.colPos < 7);
     }
-  }, [handleGamepad, tryMoveTo, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind]);
+  }, [actionForkExperiment, actionForkStartWave, handleGamepad, tryMoveTo, commitActionRoute, moveControlledClone, manualBuster, queueSkillTap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, setActionRouteAvailability, setActionRoutePrompt, triggerLordAlphaMotion, triggerLordAlphaImpact, triggerNpcLordAlphaPresentation, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, lordAlphaSkillsPreview, resolveCampaignEnemyDefeat, publishNpcSkillPresentation, resetVersusBossCounterpart, consumeNpcShadowCloneCharge]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -9056,10 +12034,18 @@ export default function Game() {
           const elapsed = Math.min(3000, ts - rewind.startedAt);
           const targetAt = rewind.sourceAt - elapsed;
           const history = chronoHistoryRef.current;
-          let snapshot = history[0];
-          for (let index = history.length - 1; index >= 0; index--) {
-            if (history[index].at <= targetAt) {
-              snapshot = history[index];
+          // A secured world step is a progression transaction boundary. Limit
+          // Reverse to snapshots on the current side of that boundary so the
+          // traversal reward cannot be erased or replayed, while ordinary HP,
+          // shields, hand charge, and ability resources still rewind normally.
+          const currentWorldSteps = stateRef.current.milestoneWorldSteps;
+          const eligibleHistory = history.filter(
+            (entry) => entry.state.milestoneWorldSteps === currentWorldSteps,
+          );
+          let snapshot = eligibleHistory[0];
+          for (let index = eligibleHistory.length - 1; index >= 0; index--) {
+            if (eligibleHistory[index].at <= targetAt) {
+              snapshot = eligibleHistory[index];
               break;
             }
           }
@@ -9075,6 +12061,13 @@ export default function Game() {
             restored.upgradeOptions = current.upgradeOptions;
             restored.upgradeRetryWave = current.upgradeRetryWave;
             restored.nextUpgradeWave = current.nextUpgradeWave;
+            restored.runUpgrades = { ...current.runUpgrades };
+            // Traversal rewards are monotonic run progression, not battlefield
+            // state. Reverse may not replay old world steps to duplicate them.
+            restored.milestoneTraversalDriven = current.milestoneTraversalDriven;
+            restored.milestoneWorldSteps = current.milestoneWorldSteps;
+            restored.milestonePierceProgress = current.milestonePierceProgress;
+            restored.milestoneShieldProgress = current.milestoneShieldProgress;
             stateRef.current = restored;
             rewind.cursorAt = targetAt;
             if (ts - chronoLastHudUpdateRef.current >= 100) {
@@ -9099,7 +12092,10 @@ export default function Game() {
           chronoLastCaptureRef.current = 0;
         }
         update(dt);
-        reconcileIntegrityWork(stateRef.current);
+        // Boss duels are temporary campaign encounters. Their combat score may
+        // move, but the campaign wave/work display remains at the selected fork
+        // until victory restores the exact saved campaign state.
+        if (!campaignBossSessionRef.current) reconcileIntegrityWork(stateRef.current);
       }
       setSystemIntegrityAudio(stateRef.current.systemIntegrity.node);
     } else if (phaseRef.current === 'menu') {
@@ -9254,6 +12250,7 @@ export default function Game() {
         || playerSkinRef.current === 'dots'
         || playerSkinRef.current === 'gem'
         || playerSkinRef.current === 'assembly'
+        || playerSkinRef.current === LORD_ALPHA_SKIN_ID
         || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
         || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
       const npcHasOverlay = stateRef.current.gameMode === 'vs' && npcSkinRef.current !== 'default';
@@ -9265,6 +12262,19 @@ export default function Game() {
         skinHasOverlay,
         npcHasOverlay,
         chronoRewindRef.current.held ? chronoRewindRef.current.cursorAt : ts,
+        actionForkExperiment && stateRef.current.gameMode === 'classic'
+          ? (() => {
+            const targetPair = getCompleteCampaignRouteTargetPair(actionRouteTargetsRef.current);
+            return {
+              last: actionRoutePromptActiveRef.current && actionRouteAvailabilityRef.current.last,
+              next: actionRoutePromptActiveRef.current && actionRouteAvailabilityRef.current.next,
+              targetLast: targetPair?.last.visualSeed,
+              targetNext: targetPair?.next.visualSeed,
+              boss: actionRouteBossChoiceRef.current,
+            };
+          })()
+          : null,
+        boardTopFloorRef.current,
       );
 
       // Update DOM sprite overlay — position wrap, then blit pre-processed frame
@@ -9276,7 +12286,7 @@ export default function Game() {
         // Ordinary attacks are suppressed through the execution/recovery window,
         // preventing their terminal pose from appearing appended to this strip.
         if (brinkFrames.length === 3) {
-          const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          const m = getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           for (const strike of echoBrinkStrikesRef.current) {
             const progress = Math.max(0, Math.min(0.999,
               (performance.now() - strike.startedAt) / RIVAL_ATTACK_DURATION));
@@ -9299,12 +12309,15 @@ export default function Game() {
         const wrap    = spriteWrapRef.current;
         const sCanvas = spriteCanvasRef.current;
         if (wrap && sCanvas) {
-          const m  = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          const m  = getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const px = m.x + (stateRef.current.player.col + 0.5) * m.cell;
           const py = m.y + (stateRef.current.player.row + 0.5) * m.cell;
           const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
             || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
-          const szScale = playerSkinRef.current === 'dots' ? 1.0 : playerSkinRef.current === 'gem' ? 0.85 : rivalSkin ? 1.08 : 0.72;
+          const szScale = playerSkinRef.current === 'dots' ? 1.0
+            : playerSkinRef.current === 'gem' ? 0.85
+              : playerSkinRef.current === LORD_ALPHA_SKIN_ID ? 1.12
+                : rivalSkin ? 1.08 : 0.72;
           const sz = Math.round(m.cell * szScale);
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
@@ -9530,7 +12543,7 @@ export default function Game() {
         const wrap = npcSpriteWrapRef.current;
         const npcCanvas = npcSpriteCanvasRef.current;
         if (wrap && npcCanvas) {
-          const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+          const m = getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
           const npc = stateRef.current.npc;
           const visual = npcVisualPositionRef.current;
           if (visual.at <= 0) {
@@ -9546,6 +12559,7 @@ export default function Game() {
           const px = m.x + (3 + visual.col + 0.5) * m.cell;
           const py = m.y + (visual.row + 0.5) * m.cell;
           const sz = Math.round(m.cell * 1.08);
+          const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
           wrap.style.left = `${px}px`;
           wrap.style.top = `${py}px`;
           wrap.style.width = `${sz}px`;
@@ -9558,14 +12572,37 @@ export default function Game() {
           npcCtx?.clearRect(0, 0, sz, sz);
           const idleFrames = npcIdleFramesRef.current;
           const attackFrames = npcAttackFramesRef.current;
+          const skillCommandIndex = npcSkillCommandIndexRef.current;
+          const commandSkillFrames = skillCommandIndex === null
+            ? []
+            : npcSkillCommandFramesRef.current[skillCommandIndex] ?? [];
+          const skillFrames = commandSkillFrames.length > 0
+            ? commandSkillFrames
+            : npcSkillFramesRef.current;
           const attackElapsed = ts - npcAttackStartedRef.current;
           const skillElapsed = ts - npcSkillStartedRef.current;
-          const usingSkill = npcSkillStartedRef.current >= 0
-            && skillElapsed < NPC_SKILL_ANIMATION_DURATION;
+          const npcEchoChannel = npcSignatureRuntimeRef.current?.echo?.channel ?? 'idle';
+          const usingEchoHold = npcEchoChannel !== 'idle';
+          const usingSkill = usingEchoHold || (
+            npcSkillStartedRef.current >= 0
+            && skillElapsed < NPC_SKILL_ANIMATION_DURATION
+          );
           const attacking = !usingSkill && npcAttackStartedRef.current >= 0
             && attackElapsed < NPC_ATTACK_ANIMATION_DURATION;
-          const activeFrames = attacking || usingSkill ? attackFrames : idleFrames;
-          const animationElapsed = attacking ? attackElapsed : usingSkill ? skillElapsed : ts;
+          const activeFrames = usingSkill
+            ? (skillFrames.length > 0 ? skillFrames : attackFrames)
+            : attacking
+              ? attackFrames
+              : idleFrames;
+          const animationElapsed = attacking
+            ? attackElapsed
+            : usingEchoHold
+              ? npcEchoChannel === 'drain'
+                // Drain visibly holds the authored terminal skill frame while
+                // collision authority remains active.
+                ? NPC_SKILL_ANIMATION_DURATION * 0.999
+                : NPC_SKILL_ANIMATION_DURATION * 0.42
+              : usingSkill ? skillElapsed : ts;
           const animationDuration = attacking
             ? NPC_ATTACK_ANIMATION_DURATION
             : usingSkill
@@ -9593,6 +12630,9 @@ export default function Game() {
             npcCtx.save();
             npcCtx.translate(sz, 0);
             npcCtx.scale(-1, 1);
+            if (usingEchoHold && npcEchoChannel === 'brink' && !reducedMotion) {
+              npcCtx.translate(Math.sin(ts * 0.085) * sz * 0.018, 0);
+            }
             // Single-pose legacy skins still breathe and react; multi-frame
             // skins use their authored idle and attack animation banks.
             if (!attacking && !usingSkill && activeFrames.length === 1) {
@@ -9601,7 +12641,7 @@ export default function Game() {
               npcCtx.translate(sz * 0.5 + sway, sz * 0.5);
               npcCtx.scale(1 - breathe * 0.45, 1 + breathe);
               npcCtx.translate(-sz * 0.5, -sz * 0.5);
-            } else if (usingSkill) {
+            } else if (usingSkill && skillFrames.length === 0) {
               const charge = Math.sin(Math.min(1, animationProgress) * Math.PI);
               npcCtx.translate(sz * 0.5, sz * 0.5);
               npcCtx.scale(1 + charge * 0.065, 1 - charge * 0.025);
@@ -9618,7 +12658,7 @@ export default function Game() {
         }
       }
 
-      const metrics = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+      const metrics = getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
       const positionSkillEffect = (wrap: HTMLDivElement | null, direction: CloneDirection) => {
         if (!wrap) return;
         const targetRow = cloneSessionRef.current.rows[direction];
@@ -9708,7 +12748,7 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [update, updateHud, handleGamepad, stopChronoRewind, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
+  }, [actionForkExperiment, update, updateHud, handleGamepad, stopChronoRewind, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
@@ -9721,11 +12761,15 @@ export default function Game() {
     canvas.style.height = window.innerHeight + 'px';
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const m = getBoardMetrics(window.innerWidth, window.innerHeight);
+    const m = getActiveBoardMetrics(window.innerWidth, window.innerHeight);
     setBoardBottom(m.y + m.boardH);
   }, []);
 
-  const startGame = useCallback((mode: GameMode = 'classic') => {
+  const startGame = useCallback((
+    mode: GameMode = 'classic',
+    options: { startAudio?: boolean } = {},
+  ) => {
+    clearNpcSkillPresentation();
     for (const direction of ['north', 'south'] as const) {
       const timer = cloneActionTimersRef.current[direction];
       if (timer) clearTimeout(timer);
@@ -9743,9 +12787,32 @@ export default function Game() {
     const clearedRivalSkill = emptyRivalSkillView();
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
-    stateRef.current = makeInitialState(enabledAbilitiesRef.current, mode);
+    stateRef.current = makeInitialState(
+      enabledAbilitiesRef.current,
+      mode,
+      mode === 'classic' && actionForkExperiment,
+    );
+    if (mode === 'vs') {
+      resetVersusBossCounterpart(npcSkinRef.current, stateRef.current);
+    } else {
+      npcCounterpartRef.current = null;
+      npcAbilityRuntimeRef.current = null;
+      npcSignatureRuntimeRef.current = null;
+    }
+    if (lordAlphaSkillsPreview) stateRef.current.autoBuster = false;
     npcAttackStartedRef.current = -1;
     npcSkillStartedRef.current = -1;
+    npcEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    if (npcLordAlphaPresentationTimerRef.current) {
+      clearTimeout(npcLordAlphaPresentationTimerRef.current);
+      npcLordAlphaPresentationTimerRef.current = null;
+    }
+    if (npcLordAlphaMotionTimerRef.current) {
+      clearTimeout(npcLordAlphaMotionTimerRef.current);
+      npcLordAlphaMotionTimerRef.current = null;
+    }
+    setNpcLordAlphaEvent(null);
+    setNpcLordAlphaMotion('idle');
     npcVisualPositionRef.current = {
       col: stateRef.current.npc.col,
       row: stateRef.current.npc.row,
@@ -9785,18 +12852,61 @@ export default function Game() {
     gemMoveMirrorRef.current = true;
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
+    resetActionRouteProgress();
+    setActionRoutePrompt(false);
     phaseRef.current = 'playing';
     menuSelectionRef.current = 0;
     setMenuSelection(0);
     setPhase('playing');
+    if (lordAlphaImpactTimerRef.current) {
+      clearTimeout(lordAlphaImpactTimerRef.current);
+      lordAlphaImpactTimerRef.current = null;
+    }
+    setLordAlphaImpactEvent(null);
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+      lordAlphaSkillModeOpenRef.current = true;
+      setLordAlphaSkillModeOpen(true);
+      lordAlphaSkillBankIndexRef.current = 0;
+      setLordAlphaSkillBankIndex(0);
+    } else {
+      lordAlphaSkillModeOpenRef.current = false;
+      setLordAlphaSkillModeOpen(false);
+    }
+    lordAlphaComboRef.current = createLordAlphaComboState();
+    lordAlphaVolleyPresentationRef.current = null;
+    setLordAlphaComboBeat(null);
+    if (playerSkinRef.current === LORD_ALPHA_SKIN_ID && lordAlphaForm === 'supreme') {
+      triggerLordAlphaPresentation(
+        'equip',
+        'skill',
+        LORD_ALPHA_EVENT_TIMINGS_MS.equip,
+        {
+          subtype: 'equip-assembly',
+          origin: lordAlphaBoardAnchor(stateRef.current.player.col, stateRef.current.player.row),
+        },
+      );
+    } else {
+      if (lordAlphaPresentationTimerRef.current) {
+        clearTimeout(lordAlphaPresentationTimerRef.current);
+        lordAlphaPresentationTimerRef.current = null;
+      }
+      if (lordAlphaMotionTimerRef.current) {
+        clearTimeout(lordAlphaMotionTimerRef.current);
+        lordAlphaMotionTimerRef.current = null;
+      }
+      setLordAlphaEvent(null);
+      setLordAlphaMotion('idle');
+    }
     updateHud();
     if (mode === 'vs') {
       showMessage('DIRECT DUEL — move, fire, and reduce the opposing NPC to 0 HP!', 3000);
     } else {
       showMessage('Tap blue panels to move. Use BUSTER button to fire manually.', 2500);
     }
-    startMusic(() => stateRef.current.running);
-  }, [updateHud, showMessage]);
+    if (options.startAudio !== false) startMusic(() => stateRef.current.running);
+  }, [actionForkExperiment, updateHud, showMessage, resetActionRouteProgress, resetVersusBossCounterpart,
+    setActionRoutePrompt, clearNpcSkillPresentation,
+    lordAlphaSkillsPreview, lordAlphaForm, triggerLordAlphaPresentation, lordAlphaBoardAnchor]);
 
   const togglePause = useCallback(() => {
     if (phaseRef.current !== 'playing') return;
@@ -9819,6 +12929,36 @@ export default function Game() {
 
   const restart = useCallback(() => {
     stopMusic();
+    clearNpcSkillPresentation();
+    if (lordAlphaPresentationTimerRef.current) {
+      clearTimeout(lordAlphaPresentationTimerRef.current);
+      lordAlphaPresentationTimerRef.current = null;
+    }
+    if (lordAlphaMotionTimerRef.current) {
+      clearTimeout(lordAlphaMotionTimerRef.current);
+      lordAlphaMotionTimerRef.current = null;
+    }
+    if (lordAlphaImpactTimerRef.current) {
+      clearTimeout(lordAlphaImpactTimerRef.current);
+      lordAlphaImpactTimerRef.current = null;
+    }
+    if (npcLordAlphaPresentationTimerRef.current) {
+      clearTimeout(npcLordAlphaPresentationTimerRef.current);
+      npcLordAlphaPresentationTimerRef.current = null;
+    }
+    if (npcLordAlphaMotionTimerRef.current) {
+      clearTimeout(npcLordAlphaMotionTimerRef.current);
+      npcLordAlphaMotionTimerRef.current = null;
+    }
+    npcEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    lordAlphaComboRef.current = createLordAlphaComboState();
+    lordAlphaVolleyPresentationRef.current = null;
+    setLordAlphaComboBeat(null);
+    setLordAlphaEvent(null);
+    setLordAlphaImpactEvent(null);
+    setLordAlphaMotion('idle');
+    setNpcLordAlphaEvent(null);
+    setNpcLordAlphaMotion('idle');
     for (const direction of ['north', 'south'] as const) {
       const timer = cloneActionTimersRef.current[direction];
       if (timer) clearTimeout(timer);
@@ -9836,7 +12976,11 @@ export default function Game() {
     const clearedRivalSkill = emptyRivalSkillView();
     rivalSkillRef.current = clearedRivalSkill;
     setRivalSkillView(clearedRivalSkill);
-    stateRef.current = makeInitialState(enabledAbilitiesRef.current);
+    stateRef.current = makeInitialState(
+      enabledAbilitiesRef.current,
+      'classic',
+      actionForkExperiment,
+    );
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
     chronoLastHudUpdateRef.current = 0;
@@ -9848,6 +12992,8 @@ export default function Game() {
     }
     lastTimeRef.current = 0;
     hudTickRef.current = 0;
+    resetActionRouteProgress();
+    setActionRoutePrompt(false);
     phaseRef.current = 'menu';
     menuScreenRef.current = 'main';
     menuSelectionRef.current = 0;
@@ -9867,7 +13013,8 @@ export default function Game() {
     setPauseSelection(0);
     setPhase('menu');
     updateHud();
-  }, [updateHud]);
+  }, [actionForkExperiment, updateHud, resetActionRouteProgress, setActionRoutePrompt,
+    clearNpcSkillPresentation]);
 
   // Pointer tap on board to move player
   const handleCanvasPointer = useCallback((ev: React.PointerEvent<HTMLCanvasElement>) => {
@@ -9877,7 +13024,7 @@ export default function Game() {
     const rect = canvas.getBoundingClientRect();
     const x = ev.clientX - rect.left;
     const y = ev.clientY - rect.top;
-    const m = getBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
+    const m = getActiveBoardMetrics(canvas.offsetWidth, canvas.offsetHeight);
     if (x < m.x || x > m.x + m.boardW || y < m.y || y > m.y + m.boardH) return;
     const col = Math.floor((x - m.x) / m.cell);
     const row = Math.floor((y - m.y) / m.cell);
@@ -9886,8 +13033,16 @@ export default function Game() {
       moveControlledCloneTo(col, row);
     } else {
       tryMoveTo(col, row);
+      const routeDirection: CampaignRouteDirection | null = col === 0
+        ? 'last'
+        : col === 2 ? 'next' : null;
+      if (routeDirection && actionRoutePromptActiveRef.current
+        && actionRouteAvailabilityRef.current[routeDirection]) {
+        actionRouteAwaitNeutralRef.current = false;
+        commitActionRoute(row, routeDirection);
+      }
     }
-  }, [moveControlledCloneTo, tryMoveTo]);
+  }, [commitActionRoute, moveControlledCloneTo, tryMoveTo]);
 
   // Dpad touch setup — stable handler refs so cleanup matches the originals
   const setupDpad = useCallback((dir: keyof typeof touchDpadRef.current, el: HTMLElement) => {
@@ -10003,7 +13158,24 @@ export default function Game() {
         return;
       }
       const k = keyboardRef.current;
-      if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
+      const lordAlphaSkillInputActive = playerSkinRef.current === LORD_ALPHA_SKIN_ID
+        && lordAlphaSkillModeOpenRef.current;
+      if (lordAlphaSkillInputActive && ev.code === 'BracketLeft') {
+        ev.preventDefault();
+        cycleLordAlphaSkillBank(-1);
+      } else if (lordAlphaSkillInputActive && ev.code === 'BracketRight') {
+        ev.preventDefault();
+        cycleLordAlphaSkillBank(1);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'z' || ev.key === 'Z')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(0);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'x' || ev.key === 'X')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(1);
+      } else if (lordAlphaSkillInputActive && (ev.key === 'c' || ev.key === 'C')) {
+        ev.preventDefault();
+        triggerLordAlphaSkillSlot(2);
+      } else if (ev.key === 'ArrowUp' || ev.key === 'w') k.up = true;
       else if (ev.key === 'ArrowDown' || ev.key === 's') k.down = true;
       else if (ev.key === 'ArrowLeft' || ev.key === 'a') k.left = true;
       else if (ev.key === 'ArrowRight' || ev.key === 'd') k.right = true;
@@ -10077,7 +13249,8 @@ export default function Game() {
       cleanups.forEach((c) => c());
     };
   }, [resizeCanvas, loop, manualBuster, openUpgradeSelection, closeUpgradeSelection, chooseRunUpgrade, queueSkillTap,
-    resolveCloneAction, resolveRivalSkillAction, startChronoRewind, stopChronoRewind, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard]);
+    resolveCloneAction, resolveRivalSkillAction, startChronoRewind, stopChronoRewind, setupDpad, startGame, switchCloneControl, togglePause, rotateHand, useCard,
+    cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, lordAlphaSkillsPreview]);
 
   const toggleAuto = () => {
     ensureAudio();
@@ -10433,7 +13606,81 @@ export default function Game() {
   const integrityClass = displayedIntegrity.node < 25
     ? 'integrity-critical'
     : displayedIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
-  const actionWindowActive = phase === 'playing' && actionWindowVisible;
+  const actionRoutePreviewVisible = actionForkExperiment && hud.gameMode === 'classic';
+  const actionRouteBossForkReady = actionRoutePromptActive
+    && actionRouteBossChoiceRef.current;
+  const actionWindowActive = phase === 'playing'
+    && (actionWindowVisible || actionRoutePreviewVisible || actionRoutePromptActive);
+  const actionWindowCompactLayout = window.matchMedia(
+    '(max-width: 720px), (pointer: coarse) and (max-width: 900px)',
+  ).matches;
+  const actionWindowRouteExpanded = actionRouteAvailability.last
+    || actionRouteAvailability.next
+    || actionRouteBossEncounter !== null;
+  const actionWindowMinHeight = actionRoutePreviewVisible
+    ? actionWindowRouteExpanded
+      ? actionWindowCompactLayout ? 232 : 205
+      : actionWindowCompactLayout ? 194 : 172
+    : 82;
+  const actionWindowMaxWidth = Math.max(1, window.innerWidth - 12);
+  const actionWindowBottomLimit = getActionWindowBottomLimit(window.innerHeight);
+  const actionWindowMaxHeight = Math.max(1, actionWindowBottomLimit);
+  const actionWindowMinWidth = Math.min(280, actionWindowMaxWidth);
+  const boundedActionWindowMinHeight = Math.min(actionWindowMinHeight, actionWindowMaxHeight);
+  const constrainActionWindowRect = (rect: HudLayoutRect): HudLayoutRect => {
+    const width = Math.max(actionWindowMinWidth, Math.min(actionWindowMaxWidth, rect.width));
+    const height = Math.max(
+      boundedActionWindowMinHeight,
+      Math.min(actionWindowMaxHeight, rect.height),
+    );
+    const maxYPixels = Math.max(0, actionWindowBottomLimit - height);
+    const yPixels = Math.max(0, Math.min(maxYPixels, rect.y * window.innerHeight));
+    return {
+      ...rect,
+      x: Math.max(0, Math.min(1 - width / window.innerWidth, rect.x)),
+      y: yPixels / window.innerHeight,
+      width,
+      height,
+    };
+  };
+  const actionWindowRect = constrainActionWindowRect(hudLayout.action);
+  const actionWindowBoardTopFloor = actionWindowActive
+    ? actionWindowRect.y * window.innerHeight + actionWindowRect.height + ACTION_WINDOW_GRID_GAP
+    : 0;
+  boardTopFloorRef.current = actionWindowBoardTopFloor;
+  const actionWindowBoardMetrics = getBoardMetrics(
+    window.innerWidth,
+    window.innerHeight,
+    actionWindowBoardTopFloor,
+  );
+  const actionWindowBoardBottom = actionWindowBoardMetrics.y + actionWindowBoardMetrics.boardH;
+  useLayoutEffect(() => {
+    setBoardBottom((current) => Math.abs(current - actionWindowBoardBottom) < 0.5
+      ? current
+      : actionWindowBoardBottom);
+  }, [actionWindowBoardBottom]);
+  const getActionForkPlayerPosition = useCallback(() => ({
+    row: stateRef.current.player.row,
+    col: stateRef.current.player.col,
+  }), []);
+  const getActionForkRouteEnemies = useCallback((): Record<CampaignRouteDirection, CampaignRouteEnemyVisual> => {
+    const targetPair = getCompleteCampaignRouteTargetPair(actionRouteTargetsRef.current);
+    if (targetPair) {
+      return { last: targetPair.last.visual, next: targetPair.next.visual };
+    }
+    return {
+      last: {
+        id: `last-acquiring-${actionRouteTargetRevision}`,
+        label: 'ACQUIRING TARGET',
+        sprite: null,
+      },
+      next: {
+        id: `next-acquiring-${actionRouteTargetRevision}`,
+        label: 'ACQUIRING TARGET',
+        sprite: null,
+      },
+    };
+  }, [actionRouteTargetRevision]);
   const actionGlobalIntegrity = Math.round(displayedIntegrity.global);
   const actionSectorIntegrity = Math.round(displayedIntegrity.sector);
   const actionNodeIntegrity = Math.round(displayedIntegrity.node);
@@ -10443,9 +13690,11 @@ export default function Game() {
     ?? Math.round((actionNodeIntegrity * .52 + actionSectorIntegrity * .3 + actionGlobalIntegrity * .18) * 10)));
   const actionBoundaryRadius = 132 + actionGlobalIntegrity * 0.32;
   const actionSectorLinkOpacity = 0.22 + actionSectorIntegrity / 145;
-  const governedCampaignBiome = resolveCampaignBiome(actionGlobalIntegrity, hud.wave);
-  const actionBiome = governedCampaignBiome.id;
-  const actionBiomeLabel = governedCampaignBiome.label;
+  const actionCampaignSegment = actionRouteTraversal?.toSegment ?? hud.wave;
+  const actionCampaignStage = resolveCampaignBossStageIndex(actionRouteBossesDefeated);
+  const actionCampaignProvince = CAMPAIGN_PROVINCES[actionCampaignStage];
+  const actionBiome = actionCampaignProvince.id;
+  const actionBiomeLabel = actionCampaignProvince.label;
   const actionConstraint = actionSectorIntegrity < 34 ? 'fractured'
     : actionSectorIntegrity < 67 ? 'constrained' : 'permissive';
   const actionConstraintLabel = actionConstraint === 'fractured' ? 'FRACTURED LOAD'
@@ -10506,7 +13755,7 @@ export default function Game() {
     { x: 88, y: 56 }, { x: 472, y: 55 }, { x: 128, y: 39 },
     { x: 432, y: 38 }, { x: 171, y: 59 }, { x: 389, y: 58 },
   ];
-  const campaignProgress = resolveCampaignProgress(hud.wave);
+  const campaignProgress = resolveCampaignProgress(actionCampaignSegment);
   const actionStoryChapter = campaignProgress.act.title;
   const actionStructureCost = 2100;
   const actionCompletedCount = Math.floor(hud.integrityWork / actionStructureCost);
@@ -10560,6 +13809,7 @@ export default function Game() {
       {/* Sprite overlay — canvas only; no background so pixel-removed areas are
           transparent and reveal the game canvas beneath */}
       {phase === 'playing' && (playerSkin === 'rocket' || playerSkin === 'dots' || playerSkin === 'gem' || playerSkin === 'assembly'
+        || playerSkin === LORD_ALPHA_SKIN_ID
         || RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)
         || CONCEPT_SKIN_IDS.includes(playerSkin as (typeof CONCEPT_SKIN_IDS)[number])) && (
         <div
@@ -10572,16 +13822,21 @@ export default function Game() {
             position: 'absolute',
             pointerEvents: 'none',
             transform: 'translate(-50%,-50%)',
-            opacity: skillPlayerFxActive ? 0 : playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
+            opacity: skillPlayerFxActive && playerSkin !== LORD_ALPHA_SKIN_ID
+              ? 0
+              : playerSkin === 'gem' && !hud.autoBuster ? 0.52 : 1,
             filter: playerSkin === 'gem' && !hud.autoBuster ? 'drop-shadow(0 0 8px #a78bfa)' : 'none',
             transition: 'opacity 150ms ease, filter 150ms ease',
+            zIndex: playerSkin === LORD_ALPHA_SKIN_ID
+              ? lordAlphaEvent ? 56 : 36
+              : undefined,
           }}
         >
           <canvas
             ref={spriteCanvasRef}
             style={{
               position: 'relative',
-              display: playerSkin === 'assembly' ? 'none' : 'block',
+              display: playerSkin === 'assembly' || playerSkin === LORD_ALPHA_SKIN_ID ? 'none' : 'block',
               imageRendering: 'pixelated',
             }}
           />
@@ -10594,7 +13849,146 @@ export default function Game() {
               attackPulse={assemblyAttackPulse}
             />
           )}
+          {playerSkin === LORD_ALPHA_SKIN_ID && (
+            <LordAlphaSprite
+              form={lordAlphaForm}
+              facing="right"
+              motion={lordAlphaMotion}
+              pulse={lordAlphaMotionPulse}
+              eventPulse={lordAlphaEventPulse}
+              event={lordAlphaEvent}
+              comboBeat={lordAlphaComboBeat}
+              equipSourceForm={lordAlphaForm === 'supreme' ? 'relaxed' : lordAlphaForm}
+              forceMotion={lordAlphaSkillsPreview}
+              className={`lordAlphaGameplay${lordAlphaSkillsPreview ? ' lordAlphaGameplayPreview' : ''}`}
+            />
+          )}
         </div>
+      )}
+
+      {phase === 'playing'
+        && playerSkin === LORD_ALPHA_SKIN_ID && (
+        <LordAlphaVfx
+          event={lordAlphaEvent}
+          pulse={lordAlphaEventPulse}
+          className={`lordAlphaGlobalVfx${lordAlphaSkillsPreview ? ' lordAlphaPreviewVfx' : ''}`}
+        />
+      )}
+
+      {phase === 'playing' && playerSkin === LORD_ALPHA_SKIN_ID && lordAlphaImpactEvent && (
+        <LordAlphaVfx
+          event={lordAlphaImpactEvent}
+          pulse={lordAlphaImpactPulse}
+          className="lordAlphaGlobalVfx lordAlphaImpactVfx"
+        />
+      )}
+
+      {phase === 'playing' && playerSkin === LORD_ALPHA_SKIN_ID && (
+        <section
+          ref={lordAlphaSkillPanelRef}
+          id="lordAlphaSkillPreview"
+          data-open={lordAlphaSkillModeOpen || undefined}
+          data-presenting={lordAlphaEvent ? true : undefined}
+          data-moved={lordAlphaSkillPanelPosition ? true : undefined}
+        >
+          <header onPointerDown={beginLordAlphaSkillPanelDrag}>
+            <span>
+              <strong>LORD ALPHA SKILLS</strong>
+              <small>
+                ImageGen skill animation {LORD_ALPHA_ASSET_REVISION.split('-').at(-1)} &middot;{' '}
+                {lordAlphaSkillsPreview
+                  ? 'isolated visual pass'
+                  : hud.gameMode === 'classic' || campaignBossSessionRef.current
+                    ? 'campaign free-cast'
+                    : 'competitive cooldowns'}
+              </small>
+            </span>
+            <button
+              type="button"
+              className="lordAlphaSkillMoveHandle"
+              aria-label="Move Lord Alpha skills"
+              title="Drag to move · Arrow keys to nudge · Home to reset"
+              onKeyDown={moveLordAlphaSkillPanelWithKeyboard}
+            >
+              MOVE
+            </button>
+            <button
+              type="button"
+              className="lordAlphaSkillModeToggle"
+              aria-pressed={lordAlphaSkillModeOpen}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                toggleLordAlphaSkillMode();
+              }}
+            >
+              <kbd>V</kbd><small>L2</small>{lordAlphaSkillModeOpen ? 'CLOSE' : 'OPEN'}
+            </button>
+          </header>
+          {lordAlphaSkillModeOpen && (
+            <>
+              <nav className="lordAlphaSkillBankNav" aria-label="Lord Alpha skill bank">
+                <button
+                  type="button"
+                  aria-label="Previous Lord Alpha skill bank"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    cycleLordAlphaSkillBank(-1);
+                  }}
+                >
+                  <kbd>L1</kbd><small>[</small>
+                </button>
+                <strong>{LORD_ALPHA_SKILL_BANKS[lordAlphaSkillBankIndex].label}</strong>
+                <button
+                  type="button"
+                  aria-label="Next Lord Alpha skill bank"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    cycleLordAlphaSkillBank(1);
+                  }}
+                >
+                  <kbd>R1</kbd><small>]</small>
+                </button>
+              </nav>
+              <div className="lordAlphaSkillPreviewGrid">
+                {LORD_ALPHA_SKILL_BINDINGS.map((binding, slotIndex) => {
+                  const action = resolveLordAlphaSkillAction(lordAlphaSkillBankIndex, slotIndex);
+                  if (!action) return null;
+                  const cooldown = action.mechanicId
+                    && lordAlphaSignatureUsesCooldown(
+                      hud.gameMode,
+                      lordAlphaSkillsPreview,
+                      Boolean(campaignBossSessionRef.current),
+                    )
+                    ? Math.ceil(hud.abilityCooldowns[action.mechanicId] ?? 0)
+                    : 0;
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      data-preview-action={action.id}
+                      disabled={cooldown > 0}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        executeLordAlphaSkill(action);
+                      }}
+                    >
+                      <span className="lordAlphaSkillBinding">
+                        <kbd>{binding.gamepad}</kbd>
+                        <small>{binding.keyboard}</small>
+                      </span>
+                      <span>{action.label}</span>
+                      {cooldown > 0 && <em>{cooldown}s</em>}
+                    </button>
+                  );
+                })}
+              </div>
+              <p>
+                <b>A / SPACE</b> Buster combo &middot; <b>R2</b> active control<br />
+                Equip Latency &middot; {LORD_ALPHA_EVENT_TIMINGS_MS.equip} ms &middot; controls remain live
+              </p>
+            </>
+          )}
+        </section>
       )}
 
       {phase === 'playing' && hud.gameMode === 'vs' && npcSkin !== 'default' && (
@@ -10610,7 +14004,7 @@ export default function Game() {
           <canvas
             ref={npcSpriteCanvasRef}
             style={{
-              display: npcSkin === 'assembly' ? 'none' : 'block',
+              display: npcSkin === 'assembly' || npcSkin === LORD_ALPHA_SKIN_ID ? 'none' : 'block',
               imageRendering: 'pixelated',
             }}
           />
@@ -10622,10 +14016,33 @@ export default function Game() {
               animation="idle"
             />
           )}
+          {npcSkin === LORD_ALPHA_SKIN_ID && (
+            <LordAlphaSprite
+              form="supreme"
+              // The component keeps the Roc Wing as an anatomical-left
+              // attachment while independently orienting the body toward P1.
+              facing="left"
+              motion={npcLordAlphaMotion}
+              pulse={npcLordAlphaMotionPulse}
+              eventPulse={npcLordAlphaEventPulse}
+              event={npcLordAlphaEvent}
+              equipSourceForm="relaxed"
+              className="lordAlphaGameplay lordAlphaNpcGameplay"
+            />
+          )}
         </div>
       )}
 
-      {phase === 'playing' && skillPlayerFxActive && (
+      {phase === 'playing' && hud.gameMode === 'vs'
+        && npcSkin === LORD_ALPHA_SKIN_ID && (
+        <LordAlphaVfx
+          event={npcLordAlphaEvent}
+          pulse={npcLordAlphaEventPulse}
+          className="lordAlphaGlobalVfx lordAlphaNpcVfx"
+        />
+      )}
+
+      {phase === 'playing' && skillPlayerFxActive && playerSkin !== LORD_ALPHA_SKIN_ID && (
           <div
             key={`player-${skillFxRun}`}
             ref={skillPlayerFxRef}
@@ -10682,7 +14099,18 @@ export default function Game() {
                 ].filter(Boolean).join(' ')}
                 data-direction={direction}
               >
-                {!attacking && !autofiring && (
+                {playerSkin === LORD_ALPHA_SKIN_ID && (
+                  <LordAlphaSprite
+                    form={lordAlphaForm}
+                    facing="right"
+                    motion={attacking || autofiring ? 'attack' : defending ? 'hit' : 'idle'}
+                    pulse={lordAlphaMotionPulse + (attacking ? 1 : 0)}
+                    eventPulse={lordAlphaEventPulse}
+                    event={createLordAlphaPresentationEvent('clone', 0)}
+                    className="lordAlphaClone"
+                  />
+                )}
+                {playerSkin !== LORD_ALPHA_SKIN_ID && !attacking && !autofiring && (
                   <img
                     className="cloneBaseFrame"
                     src={`${import.meta.env.BASE_URL}effects/${
@@ -10693,7 +14121,7 @@ export default function Game() {
                     alt=""
                   />
                 )}
-                {(attacking || autofiring) && (
+                {playerSkin !== LORD_ALPHA_SKIN_ID && (attacking || autofiring) && (
                   <span className={`cloneAttackFrames${autofiring ? ' sustained' : ''}`} aria-hidden="true">
                     {[0, 1, 2].map((frame) => (
                       <img
@@ -10717,6 +14145,26 @@ export default function Game() {
           stateRef={stateRef}
           actionTick={rivalSkillView.actionTick}
           lastAction={rivalSkillView.lastAction}
+          boardTopFloorRef={boardTopFloorRef}
+        />
+      )}
+
+      {phase === 'playing' && hud.gameMode === 'vs' && npcSkillPresentation && (
+        <SignatureSkillFx
+          key={npcSkillPresentation.presentationKey}
+          id={npcSkillPresentation.bossSkillId}
+          stateRef={stateRef}
+          actionTick={npcSkillPresentation.revision}
+          lastAction={npcSkillPresentation.action}
+          boardTopFloorRef={boardTopFloorRef}
+          actorSide="npc"
+          motifOverride={npcSkillPresentation.motif}
+          labelOverride={npcSkillPresentation.label}
+          anchorOverride={npcSkillPresentation.anchor}
+          targetRows={npcSkillPresentation.targetRows}
+          presentationSource={npcSkillPresentation.source}
+          presentationId={npcSkillPresentation.abilityId}
+          presentationCommand={npcSkillPresentation.commandIndex}
         />
       )}
 
@@ -10889,21 +14337,22 @@ export default function Game() {
       {actionWindowActive && (
         <HudLayoutItem
           label="ACTION WINDOW"
-          rect={hudLayout.action}
+          rect={actionWindowRect}
           editing={hudLayoutEditing}
-          onChange={(rect) => updateHudLayout('action', rect)}
-          minWidth={280}
-          minHeight={82}
+          onChange={(rect) => updateHudLayout('action', constrainActionWindowRect(rect))}
+          minWidth={actionWindowMinWidth}
+          minHeight={boundedActionWindowMinHeight}
+          resizable
         >
           <div
             id="actionWindowBar"
-            className={`actionScene-${actionWindowScene} actionIntegrity-${actionIntegrityState} biome-${actionBiome} constraint-${actionConstraint}`}
+            className={`${actionRoutePreviewVisible ? 'campaignRouteForkEnabled ' : ''}actionScene-${actionWindowScene} actionIntegrity-${actionIntegrityState} biome-${actionBiome} constraint-${actionConstraint}`}
             aria-label={`Living sector Action Window at ${actionNodeIntegrity} percent Node Integrity`}
           >
             <div className="actionWindowHeader">
               <span>{actionStoryChapter} // {actionStoryBeat}</span>
               <span className="campaignOperationProgress" title={campaignProgress.operation.briefing}>OP {campaignProgress.operationIndex + 1}/6 · {campaignProgress.operation.objective.toUpperCase()} · {campaignProgress.encounterIndex + 1}/{ENCOUNTERS_PER_OPERATION}</span>
-              <span className="actionWindowLive">W{hud.wave} · {actionBiomeLabel} · N{actionNodeIntegrity}</span>
+              <span className="actionWindowLive">W{hud.wave} · PATH {actionCampaignSegment} · STAGE {actionCampaignStage + 1}/{CAMPAIGN_PROVINCES.length} · {actionBiomeLabel} · N{actionNodeIntegrity}</span>
             </div>
             <div className="actionWindowStage">
               <div className="actionWindowGrid" />
@@ -10911,13 +14360,33 @@ export default function Game() {
               <ActionCinematic work={hud.integrityWork} global={actionGlobalIntegrity} sector={actionSectorIntegrity}
                 node={actionNodeIntegrity} species={hud.ecosystem.species} mutations={hud.ecosystem.mutations}
                 fusions={hud.ecosystem.fusions} helpers={actionHelperCount} scene={actionWindowScene} wave={hud.wave}
+                routeSegment={actionCampaignSegment}
+                completedBosses={actionRouteBossesDefeated}
+                routeTraversal={actionRouteTraversal}
                 playerSkin={playerSkin} npcSkin={npcSkin}
                 getPlayerFrame={() => spriteCanvasRef.current}
+                playerOverlay={playerSkin === LORD_ALPHA_SKIN_ID ? (
+                  <LordAlphaSprite
+                    form={lordAlphaForm}
+                    facing="right"
+                    motion={lordAlphaMotion}
+                    pulse={lordAlphaMotionPulse}
+                    eventPulse={lordAlphaEventPulse}
+                    event={lordAlphaEvent}
+                    comboBeat={lordAlphaComboBeat}
+                    equipSourceForm={lordAlphaForm === 'supreme' ? 'relaxed' : lordAlphaForm}
+                    forceMotion={lordAlphaSkillsPreview}
+                    compact
+                    className="lordAlphaActionCinematic"
+                  />
+                ) : undefined}
                 getNpcFrame={() => npcSpriteCanvasRef.current}
                 getEnemyFrame={() => {
                   const living = stateRef.current.enemies.find((enemy) => enemy.colPos > -1 && enemy.genome);
                   return living?.genome ? getProceduralVirusSprite(living.visualSeed ?? living.value, living.genome) : null;
                 }}
+                getRouteBossFrame={() => actionRouteBossFrameRef.current}
+                routeBoss={actionRouteBossEncounter}
                 getCombat={() => {
                   const current = stateRef.current;
                   const nearestEnemy = current.enemies.filter((enemy) => enemy.colPos > -1)
@@ -11002,10 +14471,35 @@ export default function Game() {
                 <text className="constructStateLabel" x="326" y="76">{actionDamageSteps ? `${actionNodeIntegrity}% · SITE ${actionCompletedCount + 1} DAMAGED` : `SITE ${actionCompletedCount + 1} · BUILD ${actionBuildSteps}/6`}</text>
               </svg>
             </div>
+            <CampaignRouteFork
+              enabled={actionRoutePreviewVisible}
+              selectable={actionRoutePromptActive}
+              available={actionRouteAvailability}
+              wave={hud.wave}
+              startWave={actionForkStartWave}
+              securedSegments={actionRouteSecuredSegmentsRef.current}
+              completedBosses={actionRouteBossesDefeated}
+              bossForkReady={actionRouteBossForkReady}
+              bossEncounter={actionRouteBossEncounter}
+              routeSegment={actionCampaignSegment}
+              lastTraversal={actionRouteTraversal}
+              onSelect={(row, direction) => commitActionRoute(row, direction)}
+              getPlayerPosition={getActionForkPlayerPosition}
+              getRouteEnemies={getActionForkRouteEnemies}
+            />
           </div>
         </HudLayoutItem>
       )}
-      <div id="cardUiWrapper" style={{ top: boardBottom > 0 ? boardBottom + 12 : undefined }}>
+      <div
+        id="cardUiWrapper"
+        aria-hidden={playerSkin === LORD_ALPHA_SKIN_ID
+          && lordAlphaSkillModeOpen || undefined}
+        style={{
+          top: boardBottom > 0 ? boardBottom + 12 : undefined,
+          display: playerSkin === LORD_ALPHA_SKIN_ID
+            && lordAlphaSkillModeOpen ? 'none' : undefined,
+        }}
+      >
         <div id="cardUi">
           <div id="cardCharge">
             <div id="cardChargeLabel" ref={cardLabelRef}>
@@ -11023,16 +14517,36 @@ export default function Game() {
                 if (!ability) return null;
                 const generated = generatedAbilityRegistry[id];
                 const rank = learnedAbilities.find((entry) => entry.id === id)?.rank ?? 1;
-                const description = generated
+                const regularDescription = generated
                   ? generatedAbilityDescription(generated, rank)
                   : ability.desc;
+                const bossVersus = hud.gameMode === 'vs' || actionRouteBossEncounter !== null;
+                const cardContext = resolveAbilityCardContext({
+                  ability: { ...ability, desc: regularDescription },
+                  gameplay: bossVersus ? 'versus-boss-npc' : 'regular-enemies',
+                  ...(bossVersus ? { versusContext: abilityCardVersusContext(stateRef.current) } : {}),
+                  generatedAbility: generated,
+                  rank,
+                });
                 const cd = Math.ceil(hud.abilityCooldowns[id] ?? 0);
                 const used = hud.usedInHand.includes(id);
-                const disabled = used || cd > 0;
+                const context = abilityBoardContext(stateRef.current);
+                const evaluation = generated ? null : evaluateAbility(id, context);
+                const practical = generated
+                  ? generatedAbilityIsPractical(generated, context)
+                  : Boolean(evaluation?.valid);
+                const readiness = practical
+                  ? evaluation?.readiness === 'setup'
+                    ? 'SETUP READY'
+                    : evaluation && evaluation.matchingEnemyCount > 0
+                      ? `${evaluation.matchingEnemyCount} MATCHING TARGET${evaluation.matchingEnemyCount === 1 ? '' : 'S'}`
+                      : 'READY'
+                  : 'NO VALID TARGET';
+                const disabled = used || cd > 0 || !practical;
                 return (
                   <button
                     key={id}
-                    className={`card-btn${used ? ' used' : ''}`}
+                    className={`card-btn${used ? ' used' : ''}${!practical ? ' unavailable' : ''}`}
                     disabled={disabled}
                     onPointerDown={(ev) => {
                       ev.stopPropagation();
@@ -11041,8 +14555,12 @@ export default function Game() {
                     }}
                   >
                     {ability.name}<br />
+                    <small>{cardContext.label}</small><br />
+                    <em className={`ability-readiness ${practical ? 'ready' : 'invalid'}`}>
+                      {readiness}
+                    </em>
                     <span>
-                      {cd > 0 ? `Cooldown ${cd}s` : used ? 'Used' : description}
+                      {cd > 0 ? `Cooldown ${cd}s` : used ? 'Used' : cardContext.description}
                     </span>
                   </button>
                 );
@@ -11106,6 +14624,10 @@ export default function Game() {
             className="control-btn"
             onPointerDown={(event) => {
               event.stopPropagation();
+              if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+                toggleLordAlphaSkillMode();
+                return;
+              }
               event.currentTarget.setPointerCapture(event.pointerId);
               chronoSkillHoldRef.current = false;
               echoSkillDrainHoldRef.current = false;
@@ -11139,6 +14661,9 @@ export default function Game() {
             }}
             onPointerUp={(event) => {
               event.stopPropagation();
+              if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+                return;
+              }
               if (skillButtonHoldTimerRef.current) {
                 clearTimeout(skillButtonHoldTimerRef.current);
                 skillButtonHoldTimerRef.current = null;
@@ -11178,7 +14703,9 @@ export default function Game() {
               echoSkillDrainHoldRef.current = false;
             }}
           >
-            SKILL
+            {playerSkin === LORD_ALPHA_SKIN_ID
+              ? lordAlphaSkillModeOpen ? 'SKILLS OPEN' : 'LORD ALPHA SKILLS'
+              : 'SKILL'}
             <small>V · L2</small>
           </button>
         )}
@@ -11197,6 +14724,9 @@ export default function Game() {
           onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); }}
         >
           BUSTER
+          {playerSkin === LORD_ALPHA_SKIN_ID && (
+            <small>SPACE · A</small>
+          )}
         </button>
       </div>
 
@@ -11298,7 +14828,17 @@ export default function Game() {
                       startGame('vs');
                     }}
                   >
-                    {skin.id === 'assembly'
+                    {skin.id === LORD_ALPHA_SKIN_ID
+                      ? <span className="lordAlphaSkinIcon">
+                          <LordAlphaSprite
+                            form="supreme"
+                            facing="left"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                      : skin.id === 'assembly'
                       ? <AvatarAssembly
                           components={avatarComponents}
                           equipped={equippedAvatarComponents}
@@ -11363,7 +14903,17 @@ export default function Game() {
                       localStorage.setItem(SKIN_KEY, skin.id);
                     }}
                   >
-                    {skin.id === 'assembly'
+                    {skin.id === LORD_ALPHA_SKIN_ID
+                      ? <span className="lordAlphaSkinIcon">
+                          <LordAlphaSprite
+                            form={lordAlphaForm}
+                            facing="right"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                      : skin.id === 'assembly'
                       ? <AvatarAssembly
                           components={avatarComponents}
                           equipped={equippedAvatarComponents}
@@ -11381,6 +14931,46 @@ export default function Game() {
                   </button>
                 ))}
               </div>
+
+              {playerSkin === LORD_ALPHA_SKIN_ID && (
+                <section className="lordAlphaFormPanel" aria-label="Lord Alpha presentation">
+                  <div id="customSubtitle">Presentation state</div>
+                  <div className="lordAlphaFormPicker">
+                    {LORD_ALPHA_FORM_IDS.map((form) => (
+                      <button
+                        key={form}
+                        type="button"
+                        className={`lordAlphaFormBtn ${lordAlphaForm === form ? 'selected' : ''}`}
+                        aria-pressed={lordAlphaForm === form}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setLordAlphaForm(form);
+                          localStorage.setItem(LORD_ALPHA_FORM_KEY, form);
+                        }}
+                      >
+                        <span className="lordAlphaFormPreview">
+                          <LordAlphaSprite
+                            form={form}
+                            facing="right"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                        <strong>{LORD_ALPHA_FORMS[form].label}</strong>
+                        <small>{form === 'relaxed'
+                          ? 'Relaxed hair · tactical base'
+                          : form === 'afro'
+                            ? 'Afro · tactical base'
+                            : 'Lord Alpha Supreme I · equipped'}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="lordAlphaFormNote">
+                    Advanced skin only · original hitbox, movement, damage, controls, and Shadow Clone timing retained.
+                  </p>
+                </section>
+              )}
 
               {RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId) && (
                 <SkillGuidePanel id={playerSkin as RivalSkillId} />
@@ -11560,9 +15150,17 @@ export default function Game() {
                     const on = enabledAbilities.has(ability.id);
                     const rank = learned?.rank ?? 0;
                     const generated = generatedAbilityRegistry[ability.id];
-                    const description = generated
+                    const regularDescription = generated
                       ? generatedAbilityDescription(generated, Math.max(1, rank))
                       : ability.desc;
+                    const bossVersus = hud.gameMode === 'vs' || actionRouteBossEncounter !== null;
+                    const cardContext = resolveAbilityCardContext({
+                      ability: { ...ability, desc: regularDescription },
+                      gameplay: bossVersus ? 'versus-boss-npc' : 'regular-enemies',
+                      ...(bossVersus ? { versusContext: abilityCardVersusContext(stateRef.current) } : {}),
+                      generatedAbility: generated,
+                      rank: Math.max(1, rank),
+                    });
                     const nextRankAt = rank > 0 && rank < MAX_ABILITY_RANK
                       ? ABILITY_RANK_THRESHOLDS[rank + 1]
                       : null;
@@ -11593,7 +15191,8 @@ export default function Game() {
                       >
                         <span className="learned-ability-source">{learned?.source ?? 'unmanifested'}</span>
                         <strong>{ability.name}</strong>
-                        <span>{description}</span>
+                        <span>{cardContext.label}</span>
+                        <span>{cardContext.description}</span>
                         {learned?.reason && (
                           <span className="ability-origin">{learned.reason}</span>
                         )}
@@ -11646,7 +15245,13 @@ export default function Game() {
       )}
 
       {phase === 'playing' && hud.upgradeSelectionOpen && (
-        <div id="upgradeOverlay">
+        <div
+          id="upgradeOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="upgradeTitle"
+          aria-describedby="upgradeSubtitle"
+        >
           <div id="upgradeCard">
             <button
               id="upgradeClose"
@@ -11660,10 +15265,10 @@ export default function Game() {
             </button>
             <div id="upgradeEyebrow">WAVE {hud.wave} MILESTONE</div>
             <div id="upgradeTitle">EVOLVE</div>
-            <div id="upgradeSubtitle">Combat remains active at 8% speed</div>
+            <div id="upgradeSubtitle">Combat continues in reduced time while you evolve</div>
             <div id="upgradeChoices">
               {hud.upgradeOptions.map((id, index) => {
-                const upgrade = RUN_UPGRADES.find((candidate) => candidate.id === id);
+                const upgrade = getMilestoneEvolution(id);
                 if (!upgrade) return null;
                 const currentLevel = hud.runUpgrades[id] ?? 0;
                 return (
@@ -11676,7 +15281,13 @@ export default function Game() {
                       chooseRunUpgrade(id);
                     }}
                   >
-                    <span className="upgradeLevel">LV {currentLevel} → {currentLevel + 1}</span>
+                    <span className="upgradeLevel">
+                      {upgrade.longForm ? 'RANK' : 'LV'} {currentLevel} → {currentLevel + 1}
+                      {' / '}{upgrade.maxLevel}
+                    </span>
+                    <span className={`upgradeTrack upgradeTrack-${upgrade.track}`}>
+                      ACT {upgrade.unlockAct + 1} · {upgrade.track}
+                    </span>
                     <strong>{upgrade.name}</strong>
                     <span>{upgrade.desc}</span>
                   </button>
