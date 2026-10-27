@@ -11,6 +11,7 @@ import {
   LORD_ALPHA_COMBO_ASSET_SUFFIXES,
   LORD_ALPHA_FORM_IDS,
   LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE,
+  LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET,
   lordAlphaAssetUrl,
 } from "./lord-alpha";
 import {
@@ -111,6 +112,18 @@ test("the quick projectile samples the authored shuriken from its attack strip",
   ok(source.y + source.height <= quick.frameHeight);
 });
 
+test("Tharthareon Fireball uses one fixed-scale authored projectile", () => {
+  const asset = LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET;
+  const path = join(publicRoot, ...asset.suffix.split("/"));
+
+  equal(
+    asset.suffix,
+    "effects/lord-alpha/sequences/tharthareon-tap-fireball-projectile-v2.png",
+  );
+  deepStrictEqual(readPngDimensions(path), { width: 320, height: 160 });
+  equal(asset.displayWidthCells, 1.18);
+});
+
 test("all five Lord Alpha combo pose assets are valid 240x160 PNGs", () => {
   deepStrictEqual(Object.keys(LORD_ALPHA_COMBO_ASSET_SUFFIXES), [
     "quick",
@@ -140,6 +153,7 @@ test("resolving projectile presentation cannot mutate projectile physics", () =>
     effectSkin: "lord-alpha",
     presentationBirthMs: 125,
     presentationVariant: "power",
+    visualKind: "tharthareon-fireball",
     hitEnemySeeds: [7, 11],
     hitNpc: false,
   };

@@ -380,6 +380,13 @@ export function LordAlphaSprite({
     ? resolveLordAlphaAttackSequence(activeComboBeat)
     : null;
   const frameSequence = skillSequence ?? attackSequence;
+  const actorScale = frameSequence?.actorScale ?? 1;
+  const actorRootY = frameSequence?.actorRootY ?? 148;
+  const calibratedActor = actorScale !== 1 || actorRootY !== 148;
+  const actorViewportBottom = calibratedActor && frameSequence
+    ? (1 - 148 / frameSequence.frameHeight) * 100
+      - actorScale * (1 - actorRootY / frameSequence.frameHeight) * 100
+    : 0;
   const skillSpriteId = skillSequence?.id ?? null;
   const attackSpriteId = attackSequence?.id ?? null;
   const comboSuffix = form === 'supreme' && activeComboBeat && !attackSequence
@@ -570,7 +577,21 @@ export function LordAlphaSprite({
             data-frame-count={frameSequence.frameCount}
             data-frame-width={frameSequence.frameWidth}
             data-frame-height={frameSequence.frameHeight}
-            style={{ transform: facing === 'left' ? 'scaleX(-1)' : undefined }}
+            data-actor-scale={actorScale}
+            data-actor-root-y={actorRootY}
+            style={calibratedActor
+              ? {
+                left: '50%',
+                top: 'auto',
+                bottom: `${formatCssNumber(actorViewportBottom)}%`,
+                width: 'auto',
+                height: `${formatCssNumber(actorScale * 100)}%`,
+                aspectRatio: '3 / 2',
+                transform: facing === 'left'
+                  ? 'translateX(-50%) scaleX(-1)'
+                  : 'translateX(-50%)',
+              }
+              : { transform: facing === 'left' ? 'scaleX(-1)' : undefined }}
           >
             <img
               className="lordAlphaSprite__skillSequenceSheet"

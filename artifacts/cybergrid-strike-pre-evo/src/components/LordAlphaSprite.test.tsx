@@ -54,6 +54,7 @@ test('every declared binary Lord Alpha asset exists in public', () => {
     ...Object.values(LORD_ALPHA_ASSETS.attackSequences).map(({ suffix }) => suffix),
     ...Object.values(LORD_ALPHA_ASSETS.skillSequences).map(({ suffix }) => suffix),
     ...Object.values(LORD_ALPHA_ASSETS.effectSequences).map(({ suffix }) => suffix),
+    LORD_ALPHA_ASSETS.tharthareonFireballProjectile.suffix,
     ...Object.values(LORD_ALPHA_ASSETS.effects),
   ];
 
@@ -153,11 +154,13 @@ test('semantic skill events select distinct generated frame sequences', () => {
     ['wormhole', 'wormhole-cast', 'wormhole-step', 760, -62.5, 'rudder'],
     ['clone', 'clone-symmetry', 'shadow-clone', 960, -75, 'latent'],
     ['tharthareon', 'tharthareon-emerge', 'tharthareon', 980, -75, 'latent'],
+    ['tharthareon', 'tharthareon-fireball', 'tharthareon-fireball', 2_020, -42.857142857142854, 'latent'],
     ['dragon', 'ultimate-landing', 'millennium-dragon', 1_100, -75, 'latent'],
     ['equip', 'equip-assembly', 'equip', 720, -87.5, 'latent'],
   ] as const;
 
   for (const [kind, subtype, assetId, durationMs, reducedOffset, wingMode] of cases) {
+    const sequenceAsset = LORD_ALPHA_ASSETS.skillSequences[assetId];
     const markup = renderToStaticMarkup(
       <LordAlphaSprite
         baseUrl="/"
@@ -175,11 +178,11 @@ test('semantic skill events select distinct generated frame sequences', () => {
     ok(markup.includes(LORD_ALPHA_ASSETS.skillSequences[assetId].suffix));
     ok(markup.includes('data-part="skill-sequence"'));
     ok(markup.includes('data-part="skill-sequence-sheet"'));
-    ok(markup.includes('data-frame-count="8"'));
+    ok(markup.includes(`data-frame-count="${sequenceAsset.frameCount}"`));
     ok(markup.includes('data-frame-width="240"'));
     ok(markup.includes('data-frame-height="160"'));
     ok(markup.includes(`--lord-alpha-skill-sequence-duration:${durationMs}ms`));
-    ok(markup.includes('--lord-alpha-skill-sequence-sheet-width:800%'));
+    ok(markup.includes(`--lord-alpha-skill-sequence-sheet-width:${sequenceAsset.frameCount * 100}%`));
     ok(markup.includes(`--lord-alpha-skill-sequence-reduced-offset:${reducedOffset}%`));
     ok(markup.includes(`animation-name:lord-alpha-skill-sequence-frames-${assetId}`));
     ok(markup.includes('data-imagegen-skill-sequence="true"'));
@@ -189,6 +192,12 @@ test('semantic skill events select distinct generated frame sequences', () => {
     ok(!markup.includes('data-part="web-slinger"'));
     ok(markup.includes(`data-wing-mode="${wingMode}"`));
     ok(markup.includes('data-force-motion="true"'));
+    if (assetId === 'tharthareon-fireball') {
+      ok(markup.includes('data-actor-scale="1.39"'));
+      ok(markup.includes('data-actor-root-y="153"'));
+      ok(markup.includes('height:139%'));
+      ok(markup.includes('translateX(-50%)'));
+    }
   }
 });
 

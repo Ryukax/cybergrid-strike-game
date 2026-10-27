@@ -265,6 +265,7 @@ import {
   LORD_ALPHA_SKILL_BANKS,
   LORD_ALPHA_SKILL_BINDINGS,
   LORD_ALPHA_SKILL_PREVIEW_ACTIONS,
+  LORD_ALPHA_SKILL_SEQUENCE_ASSETS,
   LORD_ALPHA_VFX_TIMINGS_MS,
   advanceLordAlphaCombo,
   createLordAlphaComboState,
@@ -277,6 +278,7 @@ import {
   wrapLordAlphaSkillBank,
   type LordAlphaComboBeat,
   type LordAlphaForm,
+  type LordAlphaSkillActionId,
   type LordAlphaPresentationEvent,
   type LordAlphaPresentationEventKind,
   type LordAlphaPresentationEventOptions,
@@ -6009,6 +6011,7 @@ export default function Game() {
     presentationVariant?: LordAlphaComboBeat;
     routeDirection?: CampaignRouteDirection;
     suppressSecondary?: boolean;
+    visualKind?: 'tharthareon-fireball';
   }) => {
     const s = stateRef.current;
     const row = rowOverride !== undefined ? rowOverride : s.player.row;
@@ -6072,6 +6075,7 @@ export default function Game() {
       pierce,
       attackStyle,
       effectSkin: playerSkinRef.current,
+      ...(opts?.visualKind ? { visualKind: opts.visualKind } : {}),
       ...(opts?.routeDirection ? { routeDirection: opts.routeDirection } : {}),
       ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
     });
@@ -6434,7 +6438,11 @@ export default function Game() {
 
   const useCard = useCallback((
     type: string,
-    options: { lordAlphaPreview?: boolean; lordAlphaSignature?: boolean } = {},
+    options: {
+      lordAlphaPreview?: boolean;
+      lordAlphaSignature?: boolean;
+      lordAlphaActionId?: LordAlphaSkillActionId;
+    } = {},
   ) => {
     const s = stateRef.current;
     if (s.upgradeSelectionOpen) return;
@@ -6449,6 +6457,8 @@ export default function Game() {
       && playerSkinRef.current === LORD_ALPHA_SKIN_ID,
     );
     const lordAlphaDirectInvocation = lordAlphaPreviewInvocation || lordAlphaSignatureInvocation;
+    const lordAlphaTharthareonFireballInvocation = lordAlphaDirectInvocation
+      && options.lordAlphaActionId === 'tharthareon';
     const lordAlphaCooldownFreeInvocation = lordAlphaPreviewInvocation
       || (lordAlphaSignatureInvocation
         && !lordAlphaSignatureUsesCooldown(
@@ -6487,15 +6497,21 @@ export default function Game() {
         const closestEnemy = [...s.enemies]
           .filter((enemy) => enemy.colPos > -1)
           .sort((left, right) => left.colPos - right.colPos)[0];
-        const target = s.gameMode === 'vs'
-          ? lordAlphaBoardAnchor(3 + s.npc.col, s.npc.row)
-          : lordAlphaBoardAnchor(closestEnemy?.colPos ?? 4, closestEnemy?.row ?? s.player.row);
+        const target = lordAlphaTharthareonFireballInvocation
+          ? lordAlphaBoardAnchor(5, s.player.row)
+          : s.gameMode === 'vs'
+            ? lordAlphaBoardAnchor(3 + s.npc.col, s.npc.row)
+            : lordAlphaBoardAnchor(closestEnemy?.colPos ?? 4, closestEnemy?.row ?? s.player.row);
         triggerLordAlphaPresentation(
           presentation.kind,
           'skill',
-          presentation.durationMs,
+          lordAlphaTharthareonFireballInvocation
+            ? LORD_ALPHA_SKILL_SEQUENCE_ASSETS['tharthareon-fireball'].durationMs
+            : presentation.durationMs,
           {
-            subtype: presentation.subtype,
+            subtype: lordAlphaTharthareonFireballInvocation
+              ? 'tharthareon-fireball'
+              : presentation.subtype,
             origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
             target,
           },
@@ -6629,6 +6645,15 @@ export default function Game() {
       showMessage('Scramble knocked viruses back!', 1500);
 
     // ── Instant / no new state ──────────────────────────────────────────────
+    } else if (type === 'nuke' && lordAlphaTharthareonFireballInvocation) {
+      fireBullet(s.player.row, {
+        power: 1,
+        big: false,
+        pierce: false,
+        suppressSecondary: true,
+        visualKind: 'tharthareon-fireball',
+      });
+      showMessage('THARTHAREON · FIREBALL', 1200);
     } else if (type === 'nuke') {
       let kills = 0;
       for (const enemy of living()) {
@@ -7157,7 +7182,7 @@ export default function Game() {
     // One canonical resolver gives every authored card a concrete, bounded VS
     // expression. Campaign execution above remains responsible for its native
     // projectiles and timers; this adapter applies the duel-facing portion.
-    if (s.gameMode === 'vs') {
+    if (s.gameMode === 'vs' && !lordAlphaTharthareonFireballInvocation) {
       let duelMessage = '';
       if (isVersusAbilityId(type)) {
         const outcome: VersusAbilityOutcome = resolveVersusAbilityEffect(
@@ -9137,8 +9162,8 @@ export default function Game() {
       || pausedRef.current) return;
     if (action.mechanicId) {
       useCard(action.mechanicId, lordAlphaSkillsPreview
-        ? { lordAlphaPreview: true }
-        : { lordAlphaSignature: true });
+        ? { lordAlphaPreview: true, lordAlphaActionId: action.id }
+        : { lordAlphaSignature: true, lordAlphaActionId: action.id });
       return;
     }
     if (action.id === 'shadow-clone') {

@@ -90,6 +90,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_IDS = [
   "wormhole-step",
   "shadow-clone",
   "tharthareon",
+  "tharthareon-fireball",
   "millennium-dragon",
   "equip",
 ] as const;
@@ -97,7 +98,9 @@ export const LORD_ALPHA_SKILL_SEQUENCE_IDS = [
 export type LordAlphaSkillSequenceId =
   (typeof LORD_ALPHA_SKILL_SEQUENCE_IDS)[number];
 
-export type LordAlphaSkillActionId = LordAlphaSkillSequenceId | "equip";
+export type LordAlphaSkillActionId =
+  | Exclude<LordAlphaSkillSequenceId, "tharthareon-fireball">
+  | "equip";
 
 export type LordAlphaSkillSequenceAssetSuffix =
   `skins/lord-alpha/skill-sequences/${LordAlphaSkillSequenceId}${"" | `-v${number}`}.png`;
@@ -119,6 +122,10 @@ export interface LordAlphaFrameSequenceAssetManifest {
   readonly reducedMotionFrame: number;
   /** Body animation only; the event and its VFX retain their canonical lifetime. */
   readonly durationMs: number;
+  /** Optional sequence-wide scale; never changes between authored frames. */
+  readonly actorScale?: number;
+  /** Optional source-space foot root used to keep the scaled actor grounded. */
+  readonly actorRootY?: number;
 }
 
 export interface LordAlphaSkillSequenceAssetManifest
@@ -205,6 +212,18 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
     reducedMotionFrame: 6,
     durationMs: 980,
   },
+  "tharthareon-fireball": {
+    id: "tharthareon-fireball",
+    suffix: "skins/lord-alpha/skill-sequences/tharthareon-fireball-v15.png",
+    frameCount: 7,
+    frameWidth: 240,
+    frameHeight: 160,
+    frameHoldMs: [550, 160, 180, 240, 180, 160, 550],
+    reducedMotionFrame: 3,
+    durationMs: 2_020,
+    actorScale: 1.39,
+    actorRootY: 153,
+  },
   "millennium-dragon": {
     id: "millennium-dragon",
     suffix: "skins/lord-alpha/skill-sequences/millennium-dragon-v14.png",
@@ -230,6 +249,14 @@ export const LORD_ALPHA_SKILL_SEQUENCE_ASSETS = {
   LordAlphaSkillSequenceAssetManifest
 >;
 
+/** Portal-fired visual for the ordinary simulation-owned Fireball carrier. */
+export const LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET = {
+  suffix: "effects/lord-alpha/sequences/tharthareon-tap-fireball-projectile-v2.png",
+  frameWidth: 320,
+  frameHeight: 160,
+  displayWidthCells: 1.18,
+} as const;
+
 export const LORD_ALPHA_EFFECT_SEQUENCE_IDS = [
   "web-shot",
   "grapple",
@@ -238,6 +265,7 @@ export const LORD_ALPHA_EFFECT_SEQUENCE_IDS = [
   "wormhole-step",
   "shadow-clone",
   "tharthareon",
+  "tharthareon-fireball",
   "millennium-dragon",
   "equip-latency",
 ] as const;
@@ -338,6 +366,16 @@ export const LORD_ALPHA_EFFECT_SEQUENCE_ASSETS = {
     reducedMotionFrame: 6,
     placement: "board",
     spanScale: 0.82,
+  },
+  "tharthareon-fireball": {
+    id: "tharthareon-fireball",
+    suffix: "effects/lord-alpha/sequences/tharthareon-fireball-v19.png",
+    frameCount: 8,
+    frameWidth: 240,
+    frameHeight: 160,
+    reducedMotionFrame: 4,
+    placement: "origin",
+    spanScale: 0.52,
   },
   "millennium-dragon": {
     id: "millennium-dragon",
@@ -488,6 +526,7 @@ export const LORD_ALPHA_VFX_TIMINGS_MS = {
   grapple: 1_160,
   "roc-stun": 1_040,
   "dimensional-net": 1_320,
+  "tharthareon-fireball": 2_020,
 } as const;
 
 export type LordAlphaVfxMode = keyof typeof LORD_ALPHA_VFX_TIMINGS_MS;
@@ -588,6 +627,7 @@ export const LORD_ALPHA_PRESENTATION_SUBTYPES = [
   "clone-symmetry",
   "equip-assembly",
   "tharthareon-emerge",
+  "tharthareon-fireball",
   "ultimate-landing",
   "combo-quick",
   "combo-web",
@@ -619,6 +659,7 @@ export const LORD_ALPHA_SKILL_SEQUENCE_BY_SUBTYPE = {
   "dagger-node": "wormhole-step",
   "clone-symmetry": "shadow-clone",
   "tharthareon-emerge": "tharthareon",
+  "tharthareon-fireball": "tharthareon-fireball",
   "ultimate-landing": "millennium-dragon",
   "equip-assembly": "equip",
 } as const satisfies Partial<
@@ -738,6 +779,8 @@ export function resolveLordAlphaVfxMode(
       return "wormhole";
     case "clone-symmetry":
       return "clone";
+    case "tharthareon-fireball":
+      return "tharthareon-fireball";
     case "equip-assembly":
       return "equip";
     case "tharthareon-emerge":
@@ -760,6 +803,7 @@ const LORD_ALPHA_EFFECT_SEQUENCE_BY_VFX_MODE: Partial<
   wormhole: "wormhole-step",
   clone: "shadow-clone",
   tharthareon: "tharthareon",
+  "tharthareon-fireball": "tharthareon-fireball",
   dragon: "millennium-dragon",
   equip: "equip-latency",
 };
@@ -782,13 +826,14 @@ export const LORD_ALPHA_ASSETS = {
   attackSequences: LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
   skillSequences: LORD_ALPHA_SKILL_SEQUENCE_ASSETS,
   effectSequences: LORD_ALPHA_EFFECT_SEQUENCE_ASSETS,
+  tharthareonFireballProjectile: LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET,
   effects: {
     tharthareon: "effects/lord-alpha/tharthareon.png",
   },
 } as const;
 
 /** Bump whenever a Lord Alpha bitmap changes so long-lived mobile tabs reload it. */
-export const LORD_ALPHA_ASSET_REVISION = "2026-10-08-v16-arena-imagegen";
+export const LORD_ALPHA_ASSET_REVISION = "2026-10-26-tharthareon-fireball-v1";
 
 /** Effects that remain entirely procedural rather than using an authored strip. */
 export const LORD_ALPHA_PROCEDURAL_EFFECTS = [

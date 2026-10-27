@@ -1290,6 +1290,21 @@ export function LordAlphaVfx({
           drawTharthareonEmergence(context, size, bounded, creature);
           return;
         }
+        case 'tharthareon-fireball': {
+          const portalBuild = segment(bounded, 0, 0.16);
+          const portalCollapse = segment(bounded, 0.86, 1);
+          drawPortalStructure(
+            context,
+            size,
+            portal,
+            resolveAnchor(eventData.origin, size, { x: 0.36, y: 0.54 }),
+            portalBuild,
+            portalCollapse,
+            bounded * 0.8,
+            eventEnvelope(bounded),
+          );
+          return;
+        }
         case 'dragon':
           drawMillenniumDragon(context, size, bounded, net, fold, portal);
           return;

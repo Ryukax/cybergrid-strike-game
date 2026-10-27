@@ -13,6 +13,7 @@ import {
   LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
   LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE,
   LORD_ALPHA_SKIN_ID,
+  LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET,
   generateLordAlphaTopology,
   lordAlphaAssetUrl,
 } from './lord-alpha';
@@ -1117,6 +1118,57 @@ function drawLordAlphaProjectile(
   ctx.restore();
 }
 
+let tharthareonFireballProjectileImage: HTMLImageElement | null = null;
+
+function getTharthareonFireballProjectileImage(): HTMLImageElement | null {
+  if (tharthareonFireballProjectileImage) return tharthareonFireballProjectileImage;
+  if (typeof Image === 'undefined') return null;
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET.suffix,
+  );
+  tharthareonFireballProjectileImage = image;
+  return image;
+}
+
+/** Draw at one fixed gameplay scale; travel and collision remain simulation-owned. */
+function drawTharthareonFireballProjectile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  direction: number,
+): void {
+  const asset = LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET;
+  const cellSize = Math.max(1, radius / 0.08);
+  const width = cellSize * asset.displayWidthCells;
+  const height = width * asset.frameHeight / asset.frameWidth;
+  const image = getTharthareonFireballProjectileImage();
+
+  ctx.save();
+  ctx.translate(x, y);
+  if (direction < 0) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = 'rgba(239, 68, 68, .88)';
+  ctx.shadowBlur = Math.max(3, cellSize * 0.15);
+  if (image?.complete && image.naturalWidth > 0) {
+    ctx.drawImage(image, -width * 0.5, -height * 0.5, width, height);
+  } else {
+    const gradient = ctx.createRadialGradient(width * 0.12, 0, 0, 0, 0, width * 0.45);
+    gradient.addColorStop(0, '#fff7c2');
+    gradient.addColorStop(0.34, '#ef4444');
+    gradient.addColorStop(1, '#07162f');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, width * 0.42, height * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 const CONCEPT_PROJECTILE_SKINS = new Set([
   'tempest', 'cryo', 'terra', 'echo', 'mirage',
   'beacon', 'swarm', 'bloom', 'tidal',
@@ -1135,6 +1187,10 @@ function drawSkinProjectileEffect(
   const skin = typeof projectileOrSkin === 'string'
     ? projectileOrSkin
     : projectile?.effectSkin;
+  if (projectile?.visualKind === 'tharthareon-fireball') {
+    drawTharthareonFireballProjectile(ctx, x, y, radius, direction);
+    return true;
+  }
   if (!skin) return false;
   if (skin === LORD_ALPHA_SKIN_ID) {
     drawLordAlphaProjectile(

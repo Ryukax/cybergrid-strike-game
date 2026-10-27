@@ -143,10 +143,16 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
   for (const asset of Object.values(LORD_ALPHA_SKILL_SEQUENCE_ASSETS)) {
     ok(asset.suffix.startsWith("skins/lord-alpha/skill-sequences/"));
     ok(asset.suffix.endsWith(".png"));
-    equal(asset.frameCount, LORD_ALPHA_SKILL_SEQUENCE_FRAME_COUNT);
+    equal(
+      asset.frameCount,
+      asset.id === "tharthareon-fireball" ? 7 : LORD_ALPHA_SKILL_SEQUENCE_FRAME_COUNT,
+    );
     equal(asset.frameWidth, LORD_ALPHA_SKILL_SEQUENCE_FRAME_WIDTH);
     equal(asset.frameHeight, LORD_ALPHA_SKILL_SEQUENCE_FRAME_HEIGHT);
-    equal(asset.frameWidth * asset.frameCount, 1_920);
+    equal(
+      asset.frameWidth * asset.frameCount,
+      asset.id === "tharthareon-fireball" ? 1_680 : 1_920,
+    );
     equal(asset.frameHoldMs.length, asset.frameCount);
     ok(asset.frameHoldMs.every((hold) => Number.isFinite(hold) && hold > 0));
     equal(asset.frameHoldMs.reduce((sum, hold) => sum + hold, 0), asset.durationMs);
@@ -169,6 +175,7 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
       "wormhole-step": 760,
       "shadow-clone": 960,
       tharthareon: 980,
+      "tharthareon-fireball": 2_020,
       "millennium-dragon": 1_100,
       equip: 720,
     },
@@ -208,6 +215,10 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
         frameHoldMs: [100, 100, 110, 130, 160, 170, 100, 110],
         reducedMotionFrame: 6,
       },
+      "tharthareon-fireball": {
+        frameHoldMs: [550, 160, 180, 240, 180, 160, 550],
+        reducedMotionFrame: 3,
+      },
       "millennium-dragon": {
         frameHoldMs: [110, 120, 130, 150, 170, 180, 110, 130],
         reducedMotionFrame: 6,
@@ -237,6 +248,7 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
     ["wormhole", "wormhole-cast", "wormhole-step"],
     ["clone", "clone-symmetry", "shadow-clone"],
     ["tharthareon", "tharthareon-emerge", "tharthareon"],
+    ["tharthareon", "tharthareon-fireball", "tharthareon-fireball"],
     ["dragon", "ultimate-landing", "millennium-dragon"],
     ["equip", "equip-assembly", "equip"],
   ] as const;
@@ -291,6 +303,7 @@ test("each active Lord Alpha skill resolves to an independent board-space effect
     ["wormhole", "wormhole-cast", "wormhole-step", "dual"],
     ["clone", "clone-symmetry", "shadow-clone", "origin"],
     ["tharthareon", "tharthareon-emerge", "tharthareon", "board"],
+    ["tharthareon", "tharthareon-fireball", "tharthareon-fireball", "origin"],
     ["dragon", "ultimate-landing", "millennium-dragon", "board"],
     ["equip", "equip-assembly", "equip-latency", "origin"],
   ] as const;
@@ -351,6 +364,10 @@ test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => 
   deepStrictEqual(LORD_ALPHA_ASSETS.attackSequences, LORD_ALPHA_ATTACK_SEQUENCE_ASSETS);
   deepStrictEqual(LORD_ALPHA_ASSETS.skillSequences, LORD_ALPHA_SKILL_SEQUENCE_ASSETS);
   deepStrictEqual(LORD_ALPHA_ASSETS.effectSequences, LORD_ALPHA_EFFECT_SEQUENCE_ASSETS);
+  equal(
+    LORD_ALPHA_ASSETS.tharthareonFireballProjectile.suffix,
+    "effects/lord-alpha/sequences/tharthareon-tap-fireball-projectile-v2.png",
+  );
   deepStrictEqual(LORD_ALPHA_COMBO_ASSET_SUFFIXES, {
     quick: "skins/lord-alpha/supreme-combo-quick.png",
     web: "skins/lord-alpha/supreme-combo-web.png",
@@ -365,7 +382,7 @@ test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => 
   deepStrictEqual(LORD_ALPHA_PROCEDURAL_EFFECTS, [
     "move",
   ]);
-  equal(LORD_ALPHA_ASSET_REVISION, "2026-10-08-v16-arena-imagegen");
+  equal(LORD_ALPHA_ASSET_REVISION, "2026-10-26-tharthareon-fireball-v1");
   equal(LORD_ALPHA_GAMEPLAY_BALANCE_CHANGES, false);
   equal(LORD_ALPHA_HITBOX_CHANGES, false);
 });

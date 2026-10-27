@@ -81,6 +81,8 @@ export interface Bullet {
   homing?: boolean;
   /** NPC-only bounded recovery applied after this projectile deals HP damage. */
   leechOnHit?: number;
+  /** Dedicated single-tap Tharthareon carrier; collision remains bullet-owned. */
+  visualKind?: 'tharthareon-fireball';
 }
 
 export type EnemyAbility =
