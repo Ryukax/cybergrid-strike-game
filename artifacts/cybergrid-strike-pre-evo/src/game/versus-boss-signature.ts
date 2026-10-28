@@ -289,7 +289,7 @@ export function recordChronaNpcPosition(
   position: BossSignatureCell,
 ): ChronaNpcSignatureState {
   const next = boundedCell(position);
-  const previous = state.recordedPositions.at(-1);
+  const previous = state.recordedPositions[state.recordedPositions.length - 1];
   if (previous && sameCell(previous, next)) return state;
   const recordedPositions = [...state.recordedPositions, next]
     .slice(-COMPETITIVE_RULESET.signatureMaxPlacements);
@@ -390,7 +390,7 @@ export function executeEchoNpcCommand(
     const origins = state.traces.length > 0 ? state.traces : [current];
     return { state, command, effect: { kind: 'replay', origins } };
   }
-  const destination = state.traces.at(-1);
+  const destination = state.traces[state.traces.length - 1];
   if (!destination) {
     return {
       state,

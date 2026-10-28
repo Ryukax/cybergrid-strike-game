@@ -14,9 +14,10 @@ export function advanceCampaignRouteTargetColumn(
   currentCol: number,
   travelDistance: number,
   pinned: boolean,
+  holdColumn = CAMPAIGN_ROUTE_TARGET_HOLD_COL,
 ): number {
   const advanced = currentCol - travelDistance;
-  return pinned ? Math.max(CAMPAIGN_ROUTE_TARGET_HOLD_COL, advanced) : advanced;
+  return pinned ? Math.max(holdColumn, advanced) : advanced;
 }
 
 /** Reapply a route lane after state replacement, including Chrona rewind. */

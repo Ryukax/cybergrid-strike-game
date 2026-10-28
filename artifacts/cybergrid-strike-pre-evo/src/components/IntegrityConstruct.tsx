@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ConstructTimelineEvent } from '../ecosystem/presence';
 
 interface IntegrityConstructProps {
@@ -56,7 +56,36 @@ const CELLS = (() => {
   }));
 })();
 
-export function IntegrityConstruct({
+type ConstructCell = (typeof CELLS)[number];
+
+// At gameplay scale a thousand independently animated SVG groups are visually
+// indistinguishable from batched faces, but they are extremely expensive to
+// reconcile and composite over the moving game canvas. Keep only the frontier
+// cells independent so construction/deconstruction remains legible.
+const MAX_ANIMATED_FRONTIER_CELLS = 24;
+
+function cellPosition(cell: ConstructCell, chemistry: number) {
+  const disorder = 1 - chemistry;
+  return {
+    x: Math.round((cell.coreX + Math.sin(cell.id * 12.9898) * 34 * disorder) * 10) / 10,
+    y: Math.round((cell.coreY + Math.cos(cell.id * 7.233) * 25 * disorder) * 10) / 10,
+  };
+}
+
+function buildBatchedCellFaces(cells: readonly ConstructCell[], chemistry: number) {
+  const top: string[] = [];
+  const left: string[] = [];
+  const right: string[] = [];
+  for (const cell of cells) {
+    const { x, y } = cellPosition(cell, chemistry);
+    top.push(`M${x} ${y - 3}L${x + 4} ${y - 1}L${x} ${y + 1}L${x - 4} ${y - 1}Z`);
+    left.push(`M${x - 4} ${y - 1}L${x} ${y + 1}L${x} ${y + 5}L${x - 4} ${y + 3}Z`);
+    right.push(`M${x} ${y + 1}L${x + 4} ${y - 1}L${x + 4} ${y + 3}L${x} ${y + 5}Z`);
+  }
+  return { top: top.join(''), left: left.join(''), right: right.join('') };
+}
+
+function IntegrityConstructComponent({
   integrityWork,
   integrity,
   discoveries,
@@ -88,13 +117,15 @@ export function IntegrityConstruct({
   useEffect(() => {
     if (!timeline.length) return;
     const finalEvent = timeline[timeline.length - 1];
+    let timer = 0;
     const tick = () => {
-      setTimelineNow(Date.now());
+      const now = Date.now();
+      setTimelineNow(now);
+      const remaining = finalEvent.startsAtMs + finalEvent.durationMs - (now + clockOffset);
+      if (remaining > 0) timer = window.setTimeout(tick, Math.min(100, remaining));
     };
     tick();
-    if (Date.now() + clockOffset >= finalEvent.startsAtMs + finalEvent.durationMs) return;
-    const timer = window.setInterval(tick, 40);
-    return () => window.clearInterval(timer);
+    return () => window.clearTimeout(timer);
   }, [timeline, clockOffset]);
   const authoritativeNow = timelineNow + clockOffset;
   const currentEvent = [...timeline].reverse().find((event) => authoritativeNow >= event.startsAtMs);
@@ -151,6 +182,24 @@ export function IntegrityConstruct({
     previousActiveRef.current = activated;
   }, [activated]);
 
+  const frontierCells = useMemo(() => {
+    const changed = CELLS.filter((cell) => {
+      const cellId = String(cell.id);
+      const active = activated.has(cellId);
+      const wasActive = previousActive.has(cellId) || retiringCells.has(cellId);
+      return active !== wasActive;
+    });
+    return changed.slice(-MAX_ANIMATED_FRONTIER_CELLS);
+  }, [activated, previousActive, retiringCells]);
+  const frontierIds = useMemo(
+    () => new Set(frontierCells.map((cell) => String(cell.id))),
+    [frontierCells],
+  );
+  const batchedFaces = useMemo(() => buildBatchedCellFaces(
+    CELLS.slice(0, activeCells).filter((cell) => !frontierIds.has(String(cell.id))),
+    chemistry,
+  ), [activeCells, chemistry, frontierIds]);
+
   return (
     <aside
       id="integrityConstruct"
@@ -182,18 +231,20 @@ export function IntegrityConstruct({
         </defs>
 
         <g className="matrixCells">
-          {CELLS.map((cell, index) => {
+          <g className="cell active constructCellBatch">
+            <path className="blockTop" d={batchedFaces.top} />
+            <path className="blockLeft" d={batchedFaces.left} />
+            <path className="blockRight" d={batchedFaces.right} />
+          </g>
+          {frontierCells.map((cell, index) => {
             const cellId = String(cell.id);
             const active = activated.has(cellId);
             const wasActive = previousActive.has(cellId) || retiringCells.has(cellId);
-            if (!active && !wasActive) return null;
             const transition = active && !wasActive ? 'adding' : !active && wasActive ? 'subtracting' : '';
-            const disorder = 1 - chemistry;
-            const positionX = cell.coreX + Math.sin(cell.id * 12.9898) * 34 * disorder;
-            const positionY = cell.coreY + Math.cos(cell.id * 7.233) * 25 * disorder;
+            const { x: positionX, y: positionY } = cellPosition(cell, chemistry);
             return (
               <g
-                key={index}
+                key={cell.id}
                 className="constructBlockPosition"
                 style={{
                   transform: `translate(${positionX}px, ${positionY}px)`,
@@ -229,3 +280,37 @@ export function IntegrityConstruct({
     </aside>
   );
 }
+
+function sameTimeline(a: readonly ConstructTimelineEvent[], b: readonly ConstructTimelineEvent[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((event, index) => {
+    const other = b[index];
+    return event.sequence === other.sequence
+      && event.startsAtMs === other.startsAtMs
+      && event.durationMs === other.durationMs
+      && event.fromUnits === other.fromUnits
+      && event.toUnits === other.toUnits
+      && event.delta === other.delta;
+  });
+}
+
+function sameIntegrityConstructProps(a: IntegrityConstructProps, b: IntegrityConstructProps) {
+  return a.integrityWork === b.integrityWork
+    && a.integrity.global === b.integrity.global
+    && a.integrity.sector === b.integrity.sector
+    && a.integrity.node === b.integrity.node
+    && a.discoveries === b.discoveries
+    && a.mutations === b.mutations
+    && a.fusions === b.fusions
+    && a.pressure === b.pressure
+    && a.activePlayers === b.activePlayers
+    && a.coreUnits === b.coreUnits
+    && a.coreDelta === b.coreDelta
+    && a.serverTimeMs === b.serverTimeMs
+    && a.receivedAtMs === b.receivedAtMs
+    && a.authoritativeSynchronization === b.authoritativeSynchronization
+    && sameTimeline(a.timeline, b.timeline);
+}
+
+export const IntegrityConstruct = memo(IntegrityConstructComponent, sameIntegrityConstructProps);

@@ -2,8 +2,10 @@ import { deepEqual, equal } from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  constrainMovablePanelSize,
   normalizeMovablePanelPosition,
   parseMovablePanelPosition,
+  parseMovablePanelSize,
   resolveMovablePanelPosition,
 } from './movable-panel.ts';
 
@@ -50,4 +52,32 @@ test('stored positions are validated and clamped', () => {
   deepEqual(parseMovablePanelPosition('{"x":1.4,"y":-0.2}'), { x: 1, y: 0 });
   equal(parseMovablePanelPosition('{"x":"right","y":0}'), null);
   equal(parseMovablePanelPosition('not json'), null);
+});
+
+test('stored panel sizes require finite positive dimensions', () => {
+  deepEqual(parseMovablePanelSize('{"width":420,"height":210}'), { width: 420, height: 210 });
+  equal(parseMovablePanelSize('{"width":0,"height":210}'), null);
+  equal(parseMovablePanelSize('{"width":"wide","height":210}'), null);
+  equal(parseMovablePanelSize('not json'), null);
+});
+
+test('panel resizing preserves its top-left anchor and viewport margin', () => {
+  deepEqual(
+    constrainMovablePanelSize(
+      { width: 900, height: 600 },
+      { x: 200, y: 100 },
+      { width: 844, height: 390 },
+      { width: 236, height: 150 },
+    ),
+    { width: 636, height: 282 },
+  );
+  deepEqual(
+    constrainMovablePanelSize(
+      { width: 120, height: 60 },
+      { x: 8, y: 8 },
+      { width: 844, height: 390 },
+      { width: 236, height: 150 },
+    ),
+    { width: 236, height: 150 },
+  );
 });

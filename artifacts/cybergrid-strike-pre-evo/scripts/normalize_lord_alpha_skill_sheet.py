@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from statistics import median
 
 from PIL import Image, ImageFilter
 
@@ -17,6 +18,8 @@ FRAME_COUNT = 8
 FRAME_WIDTH = 240
 FRAME_HEIGHT = 160
 OUTPUT_GUTTER = 6
+ATTACHMENT_ANCHOR_X = 196
+ATTACHMENT_ANCHOR_Y = 112
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,7 +62,42 @@ def parse_args() -> argparse.Namespace:
             "from every frame."
         ),
     )
+    parser.add_argument(
+        "--right-root-align",
+        action="store_true",
+        help=(
+            "Register the rightmost attachment hub to one stable in-frame "
+            "anchor. Intended for separate wing/equipment strips."
+        ),
+    )
     return parser.parse_args()
+
+
+def right_attachment_root(frame: Image.Image) -> tuple[int, int]:
+    """Locate the right-edge equipment hub without depending on its glow.
+
+    Roc Wing frames terminate in a compact circular base at the right edge.
+    Sampling a narrow opaque band there gives a stable hub centroid while
+    ignoring the changing deployment silhouette to its left.
+    """
+
+    opaque = frame.getchannel("A").point(lambda value: 255 if value >= 16 else 0)
+    bbox = opaque.getbbox()
+    if bbox is None:
+        raise SystemExit("cannot root-align an empty attachment frame")
+    left, top, right, bottom = bbox
+    band_width = max(8, round((right - left) * 0.08))
+    band_left = max(left, right - band_width)
+    pixels = opaque.load()
+    ys = [
+        y
+        for y in range(top, bottom)
+        for x in range(band_left, right)
+        if pixels[x, y]
+    ]
+    if not ys:
+        raise SystemExit("cannot locate the attachment hub")
+    return right - 1, round(median(ys))
 
 
 def remove_residue(frame: Image.Image) -> Image.Image:
@@ -283,9 +321,14 @@ def main() -> None:
         resized = registered.convert("RGBa").resize(
             (draw_width, draw_height), Image.Resampling.LANCZOS
         ).convert("RGBA")
-        x = index * FRAME_WIDTH + (FRAME_WIDTH - draw_width) // 2
-        y = FRAME_HEIGHT - OUTPUT_GUTTER - draw_height
-        if args.ground_align and index not in airborne_frames:
+        if args.right_root_align:
+            root_x, root_y = right_attachment_root(resized)
+            x = index * FRAME_WIDTH + ATTACHMENT_ANCHOR_X - root_x
+            y = ATTACHMENT_ANCHOR_Y - root_y
+        else:
+            x = index * FRAME_WIDTH + (FRAME_WIDTH - draw_width) // 2
+            y = FRAME_HEIGHT - OUTPUT_GUTTER - draw_height
+        if args.ground_align and index not in airborne_frames and not args.right_root_align:
             resized_visible = resized.getchannel("A").point(
                 lambda value: 255 if value >= 16 else 0
             ).getbbox()

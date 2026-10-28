@@ -407,3 +407,22 @@ test('every boss can execute effectful signatures across materially different ba
     );
   }
 });
+
+test('signature coverage uses every legal component before repeating one', () => {
+  const commandUses: [number, number, number] = [0, 0, 0];
+  const visited: number[] = [];
+  let lastCommand = -1;
+
+  for (let step = 0; step < 3; step++) {
+    const plan = chooseVersusNpcSignature(contextFor('apex', {
+      step,
+      signatureLastCommand: lastCommand,
+      signatureCommandUses: [...commandUses] as [number, number, number],
+    }));
+    visited.push(plan.commandIndex);
+    commandUses[plan.commandIndex] += 1;
+    lastCommand = plan.commandIndex;
+  }
+
+  deepStrictEqual(new Set(visited), new Set([0, 1, 2]));
+});

@@ -5,6 +5,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import {
+  tryReleasePointerCapture,
+  trySetPointerCapture,
+} from '../game/browser-compat';
 
 export type HudLayoutRect = {
   x: number;
@@ -74,7 +78,18 @@ export function HudLayoutItem({
     const pointerId = event.pointerId;
     const captureTarget = event.currentTarget;
     interactionCleanupRef.current?.();
-    captureTarget.setPointerCapture(pointerId);
+    trySetPointerCapture(captureTarget, pointerId);
+
+    const previewRect = (nextRect: HudLayoutRect) => {
+      rectRef.current = nextRect;
+      // Keep pointer tracking entirely inside this element. Re-rendering the
+      // 17k-line Game tree and synchronously persisting localStorage for every
+      // raw pointermove made Action Window resizing stall combat.
+      item.style.left = `${nextRect.x * 100}%`;
+      item.style.top = `${nextRect.y * 100}%`;
+      item.style.width = `${nextRect.width}px`;
+      item.style.height = `${nextRect.height}px`;
+    };
 
     const move = (nextEvent: PointerEvent) => {
       if (nextEvent.pointerId !== pointerId) return;
@@ -85,8 +100,7 @@ export function HudLayoutItem({
           ...start,
           ...constrainedSize(start.width + dx, start.height + dy, bounds),
         };
-        rectRef.current = nextRect;
-        onChange(nextRect);
+        previewRect(nextRect);
         return;
       }
 
@@ -97,8 +111,7 @@ export function HudLayoutItem({
         x: Math.max(0, Math.min(maxX, start.x + dx / bounds.width)),
         y: Math.max(0, Math.min(maxY, start.y + dy / bounds.height)),
       };
-      rectRef.current = nextRect;
-      onChange(nextRect);
+      previewRect(nextRect);
     };
     let cleanedUp = false;
     const cleanup = () => {
@@ -108,15 +121,14 @@ export function HudLayoutItem({
       window.removeEventListener('pointerup', finish);
       window.removeEventListener('pointercancel', finish);
       captureTarget.removeEventListener('lostpointercapture', finish);
-      if (captureTarget.hasPointerCapture(pointerId)) {
-        captureTarget.releasePointerCapture(pointerId);
-      }
+      tryReleasePointerCapture(captureTarget, pointerId);
       if (interactionCleanupRef.current === cleanup) {
         interactionCleanupRef.current = null;
       }
     };
     function finish(nextEvent: PointerEvent) {
       if (nextEvent.pointerId !== pointerId) return;
+      onChange(rectRef.current);
       cleanup();
     };
     window.addEventListener('pointermove', move);

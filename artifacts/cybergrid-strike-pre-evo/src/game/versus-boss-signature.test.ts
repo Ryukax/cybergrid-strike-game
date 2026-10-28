@@ -78,7 +78,7 @@ test('Lord Alpha exposes exactly the canonical nine actions and no substitute ac
   deepStrictEqual(
     resolved.map((action) => action.actionId),
     [
-      'web-shot', 'grapple', 'roc-stun', 'dimensional-net', 'wormhole-step',
+      'web-shot', 'grapple', 'roc-stun', 'dimensional-net', 'afterimage-step',
       'shadow-clone', 'tharthareon', 'millennium-dragon', 'equip',
     ],
   );
@@ -92,7 +92,7 @@ test('Lord Alpha exposes exactly the canonical nine actions and no substitute ac
   );
   deepStrictEqual(
     resolved.map((action) => action.kind === 'canonical-ability' ? action.abilityId : null),
-    ['arcweb', 'gravity', 'freeze', 'stasisgate', 'warpback', null, 'nuke', 'megabomb', null],
+    ['arcweb', 'gravity', 'freeze', 'stasisgate', 'backdash', null, 'nuke', 'megabomb', null],
   );
   equal(resolveLordAlphaNpcBankSlot(2, 2).actionId, 'equip');
   throws(

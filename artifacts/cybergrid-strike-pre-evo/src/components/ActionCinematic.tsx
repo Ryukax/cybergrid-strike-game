@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { drawCampaignSkinProjectile } from '../game/renderer';
 import { resolveCampaignBiome } from '../game/campaign-scenery';
+import { resolveGameplayCanvasDpr } from '../game/canvas-performance';
 import {
   CAMPAIGN_BOSSES_PER_STAGE,
   CAMPAIGN_PROVINCES,
@@ -46,6 +47,27 @@ type Props = {
 
 const COST = 2100;
 const ACTION_FIGHTER_COLUMN_STEP = 0.055;
+const ACTION_CINEMATIC_FRAME_MS = 1000 / 30;
+const REFERENCE_FRAME_MS = 1000 / 60;
+const FRAME_ALPHA_PROBE_INTERVAL_MS = 250;
+const FRAME_ALPHA_PROBE_LIMIT = 8;
+
+type CachedFighterFrame = {
+  canvas: HTMLCanvasElement;
+  source: HTMLCanvasElement | null;
+  sourceKey: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  visibleBottom: number;
+  alphaProbeResolved: boolean;
+  alphaProbeAttempts: number;
+  lastAlphaProbeAt: number;
+  hasFrame: boolean;
+};
+
+function frameAdjustedBlend(blendAt60Fps: number, frameScale: number): number {
+  return 1 - Math.pow(1 - blendAt60Fps, Math.max(0, frameScale));
+}
 
 /**
  * Maps a fighter's local 3-column grid position into the persistent world
@@ -87,47 +109,172 @@ export function ActionCinematic(props: Props) {
     let routeTravelEnergy = 0;
     let routeTravelDirection: CampaignRouteDirection | null = null;
     let routeTravelLane: CampaignRouteLane = 'middle';
-    const playerCache = document.createElement('canvas');
-    const npcCache = document.createElement('canvas');
-    const enemyCache = document.createElement('canvas');
-    const routeBossCache = document.createElement('canvas');
-    const provincePlates = CAMPAIGN_PROVINCES.map((province) => {
-      const image = new Image();
-      image.src = `${import.meta.env.BASE_URL}action-window/${province.image}`;
-      return image;
+    const createFrameCache = (): CachedFighterFrame => ({
+      canvas: document.createElement('canvas'),
+      source: null,
+      sourceKey: '',
+      sourceWidth: 0,
+      sourceHeight: 0,
+      visibleBottom: 0,
+      alphaProbeResolved: false,
+      alphaProbeAttempts: 0,
+      lastAlphaProbeAt: Number.NEGATIVE_INFINITY,
+      hasFrame: false,
     });
+    const playerCache = createFrameCache();
+    const npcCache = createFrameCache();
+    const enemyCache = createFrameCache();
+    const routeBossCache = createFrameCache();
+    const provincePlates = new Map<number, HTMLImageElement>();
+    const ensureProvincePlate = (index: number): HTMLImageElement | null => {
+      if (index < 0 || index >= CAMPAIGN_PROVINCES.length) return null;
+      const cached = provincePlates.get(index);
+      if (cached) return cached;
+      const image = new Image();
+      image.decoding = 'async';
+      image.src = `${import.meta.env.BASE_URL}action-window/${CAMPAIGN_PROVINCES[index].image}`;
+      provincePlates.set(index, image);
+      return image;
+    };
+    const ensureProvinceNeighborhood = (index: number) => {
+      const retained = new Set([index - 1, index, index + 1]);
+      for (const loadedIndex of provincePlates.keys()) {
+        if (!retained.has(loadedIndex)) provincePlates.delete(loadedIndex);
+      }
+      for (const nearbyIndex of retained) ensureProvincePlate(nearbyIndex);
+    };
+    ensureProvinceNeighborhood(observedBossStage);
+
+    let surfaceWidth = 1;
+    let surfaceHeight = 1;
+    const coarsePointer = window.matchMedia('(pointer: coarse)');
+    let surfaceDpr = resolveGameplayCanvasDpr(
+      window.devicePixelRatio,
+      window.innerWidth <= 900 || coarsePointer.matches,
+    );
+    const resizeSurface = () => {
+      const rect = canvas.getBoundingClientRect();
+      surfaceWidth = Math.max(1, rect.width);
+      surfaceHeight = Math.max(1, rect.height);
+      surfaceDpr = resolveGameplayCanvasDpr(
+        window.devicePixelRatio,
+        window.innerWidth <= 900 || coarsePointer.matches,
+      );
+      const pixelWidth = Math.max(1, Math.round(surfaceWidth * surfaceDpr));
+      const pixelHeight = Math.max(1, Math.round(surfaceHeight * surfaceDpr));
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+    };
+    resizeSurface();
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(resizeSurface);
+    resizeObserver?.observe(canvas);
+    window.addEventListener('resize', resizeSurface);
 
     const line = (points: number[][], color: string, width = 1) => {
       ctx.beginPath();
       points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
       ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
     };
-    const cacheValidFrame = (source: HTMLCanvasElement | null, cache: HTMLCanvasElement) => {
+    const cacheValidFrame = (
+      source: HTMLCanvasElement | null,
+      cache: CachedFighterFrame,
+      now: number,
+      sourceKey: string,
+    ) => {
       if (!source || !source.width || !source.height) return;
-      const sourceCtx = source.getContext('2d', { willReadFrequently: true });
-      if (!sourceCtx) return;
-      // The battle renderer clears before drawing. Do not replace a good frame
-      // with that transient blank state.
-      const pixels = sourceCtx.getImageData(0, 0, source.width, source.height).data;
-      let occupied = false;
-      for (let i = 3; i < pixels.length; i += 32) {
-        if (pixels[i] > 8) { occupied = true; break; }
+      const sourceChanged = cache.source !== source
+        || cache.sourceKey !== sourceKey
+        || cache.sourceWidth !== source.width
+        || cache.sourceHeight !== source.height;
+      if (sourceChanged) {
+        cache.source = source;
+        cache.sourceKey = sourceKey;
+        cache.sourceWidth = source.width;
+        cache.sourceHeight = source.height;
+        cache.visibleBottom = source.height;
+        cache.alphaProbeResolved = false;
+        cache.alphaProbeAttempts = 0;
+        cache.lastAlphaProbeAt = Number.NEGATIVE_INFINITY;
+        cache.hasFrame = false;
+        if (cache.canvas.width !== source.width || cache.canvas.height !== source.height) {
+          cache.canvas.width = source.width;
+          cache.canvas.height = source.height;
+        }
       }
-      if (!occupied) return;
-      if (cache.width !== source.width || cache.height !== source.height) {
-        cache.width = source.width; cache.height = source.height;
+
+      // Finding the authored foot line requires a CPU read once per new source,
+      // not once per paint. Blank startup frames retry at a deliberately low
+      // rate, then fall back to the full source height.
+      if (!cache.alphaProbeResolved
+        && cache.alphaProbeAttempts < FRAME_ALPHA_PROBE_LIMIT
+        && now - cache.lastAlphaProbeAt >= FRAME_ALPHA_PROBE_INTERVAL_MS) {
+        cache.lastAlphaProbeAt = now;
+        cache.alphaProbeAttempts++;
+        const sourceCtx = source.getContext('2d');
+        if (sourceCtx) {
+          try {
+            const pixels = sourceCtx.getImageData(0, 0, source.width, source.height).data;
+            let visibleBottom = 0;
+            outer: for (let py = source.height - 1; py >= 0; py -= 1) {
+              for (let px = 0; px < source.width; px += 2) {
+                if (pixels[(py * source.width + px) * 4 + 3] > 18) {
+                  visibleBottom = py + 1;
+                  break outer;
+                }
+              }
+            }
+            if (visibleBottom > 0) {
+              cache.visibleBottom = visibleBottom;
+              cache.alphaProbeResolved = true;
+            }
+          } catch {
+            cache.alphaProbeResolved = true;
+          }
+        }
+        if (cache.alphaProbeAttempts >= FRAME_ALPHA_PROBE_LIMIT) {
+          cache.alphaProbeResolved = true;
+        }
       }
-      const cacheCtx = cache.getContext('2d');
-      cacheCtx?.clearRect(0, 0, cache.width, cache.height);
-      cacheCtx?.drawImage(source, 0, 0);
+
+      // Canvas-to-canvas copies stay on the rendering path. They preserve the
+      // latest complete fighter frame without forcing a synchronous readback.
+      const cacheCtx = cache.canvas.getContext('2d');
+      if (!cacheCtx) return;
+      cacheCtx.clearRect(0, 0, cache.canvas.width, cache.canvas.height);
+      cacheCtx.drawImage(source, 0, 0);
+      cache.hasFrame = true;
     };
+    let lastPaintAt = 0;
     const draw = (now: number) => {
+      const elapsedSincePaint = lastPaintAt > 0 ? now - lastPaintAt : REFERENCE_FRAME_MS;
+      if (lastPaintAt > 0 && elapsedSincePaint < ACTION_CINEMATIC_FRAME_MS) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+      lastPaintAt = now;
+      const frameScale = elapsedSincePaint / REFERENCE_FRAME_MS;
       const p = stateRef.current;
       const playerOverlay = playerOverlayRef.current;
-      cacheValidFrame(p.getPlayerFrame(), playerCache);
-      cacheValidFrame(p.getNpcFrame(), npcCache);
-      cacheValidFrame(p.getEnemyFrame(), enemyCache);
-      cacheValidFrame(p.getRouteBossFrame?.() ?? null, routeBossCache);
+      const combat = p.getCombat();
+      if (!p.playerOverlay) {
+        cacheValidFrame(p.getPlayerFrame(), playerCache, now, `player:${p.playerSkin}`);
+      }
+      if (p.routeBoss) {
+        cacheValidFrame(
+          p.getRouteBossFrame?.() ?? null,
+          routeBossCache,
+          now,
+          `boss:${p.routeBoss.destination.id}`,
+        );
+      } else if (combat.versus) {
+        cacheValidFrame(p.getNpcFrame(), npcCache, now, `npc:${p.npcSkin}`);
+      } else {
+        cacheValidFrame(p.getEnemyFrame(), enemyCache, now, 'campaign-enemy');
+      }
       if (p.scene !== lastScene) {
         if (p.scene === 1 || p.scene === 2) {
           impactEnergy = 1;
@@ -151,16 +298,14 @@ export function ActionCinematic(props: Props) {
         observedBossStage = bossStage;
         cameraTravel = 0;
         provinceEnteredAt = performance.now();
+        ensureProvinceNeighborhood(bossStage);
       }
-      waveTravelEnergy *= .992;
-      routeTravelEnergy *= .986;
-      impactEnergy *= .982;
-      shownWork += (p.work - shownWork) * .035;
-      const rect = canvas.getBoundingClientRect();
-      const dpr = Math.min(2, devicePixelRatio || 1);
-      const w = Math.max(1, Math.round(rect.width * dpr)), h = Math.max(1, Math.round(rect.height * dpr));
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-      ctx.setTransform(dpr,0,0,dpr,0,0); const W=rect.width, H=rect.height;
+      waveTravelEnergy *= Math.pow(.992, frameScale);
+      routeTravelEnergy *= Math.pow(.986, frameScale);
+      impactEnergy *= Math.pow(.982, frameScale);
+      shownWork += (p.work - shownWork) * frameAdjustedBlend(.035, frameScale);
+      ctx.setTransform(surfaceDpr,0,0,surfaceDpr,0,0);
+      const W = surfaceWidth, H = surfaceHeight;
       const completed=Math.floor(shownWork/COST), progress=(shownWork%COST)/COST;
       const damage=p.node>=80?0:p.node>=65?1:p.node>=50?2:p.node>=35?3:p.node>=20?4:5;
       const sky=ctx.createLinearGradient(0,0,0,H); sky.addColorStop(0,p.node<35?'#271226':'#09243b'); sky.addColorStop(1,'#020914'); ctx.fillStyle=sky; ctx.fillRect(0,0,W,H);
@@ -173,12 +318,11 @@ export function ActionCinematic(props: Props) {
       const restoredStage = Math.max(0, Math.min(8, workBeat - damagePenalty));
       const restoredDepth = restoredStage / 8;
       const frontierX = W * restoredDepth;
-      const combat = p.getCombat();
       const provinceIndex = bossStage;
       const biome = resolveCampaignBiome(p.global, provinceIndex * CAMPAIGN_BOSSES_PER_STAGE + 1);
       const province = CAMPAIGN_PROVINCES[provinceIndex];
-      const provincePlate = provincePlates[provinceIndex];
-      if (provincePlate.complete && provincePlate.naturalWidth) {
+      const provincePlate = ensureProvincePlate(provinceIndex);
+      if (provincePlate?.complete && provincePlate.naturalWidth) {
         const elapsed = now - provinceEnteredAt;
         const introLinear = Math.max(0, Math.min(1, (elapsed - 900) / 3600));
         const intro = introLinear * introLinear * (3 - 2 * introLinear);
@@ -194,7 +338,10 @@ export function ActionCinematic(props: Props) {
         const impactRecoil = impactEnergy * .018;
         const provinceProgress = Math.max(0, Math.min(1,
           operationTravel - integritySetback - impactRecoil));
-        cameraTravel += (provinceProgress - cameraTravel) * (impactEnergy > .08 ? .16 : .09);
+        cameraTravel += (provinceProgress - cameraTravel) * frameAdjustedBlend(
+          impactEnergy > .08 ? .16 : .09,
+          frameScale,
+        );
         const establish = province.camera.establish;
         const groundView = province.camera.ground;
         const maximumGroundX = 1 - groundView[2];
@@ -222,28 +369,16 @@ export function ActionCinematic(props: Props) {
         // Consume the already-normalized frame canvases used by the live battle.
         // This preserves alpha cleanup, cropping, authored timing, and frame blend.
         const fighterH = H * .58;
-        const drawFighter = (source: HTMLCanvasElement | null, x: number, y: number, flip: boolean) => {
-          if (!source || !source.width || !source.height) return;
-          const sourceCtx = source.getContext('2d', { willReadFrequently: true });
-          let visibleBottom = source.height;
-          if (sourceCtx) {
-            const pixels = sourceCtx.getImageData(0, 0, source.width, source.height).data;
-            outer: for (let py = source.height - 1; py >= 0; py -= 1) {
-              for (let px = 0; px < source.width; px += 2) {
-                if (pixels[(py * source.width + px) * 4 + 3] > 18) {
-                  visibleBottom = py + 1;
-                  break outer;
-                }
-              }
-            }
-          }
-          const scale = fighterH / source.height;
-          const fw = source.width * scale;
+        const drawFighter = (source: CachedFighterFrame, x: number, y: number, flip: boolean) => {
+          if (!source.hasFrame || !source.canvas.width || !source.canvas.height) return;
+          const scale = fighterH / source.canvas.height;
+          const fw = source.canvas.width * scale;
           ctx.save(); ctx.translate(x, y); ctx.scale(flip ? -1 : 1, 1);
           ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = 8;
           // Align the lowest opaque sprite pixel to the authored terrain curve;
           // transparent padding in animation canvases no longer creates hover.
-          ctx.drawImage(source, -fw / 2, -visibleBottom * scale, fw, fighterH); ctx.restore();
+          ctx.drawImage(source.canvas, -fw / 2, -source.visibleBottom * scale, fw, fighterH);
+          ctx.restore();
         };
         const playerX = W * resolveActionFighterX('player', combat.playerCol);
         const npcX = W * resolveActionFighterX('npc', combat.npcCol);
@@ -357,7 +492,11 @@ export function ActionCinematic(props: Props) {
       raf=requestAnimationFrame(draw);
     };
     raf=requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', resizeSurface);
+    };
   }, []);
 
   return (

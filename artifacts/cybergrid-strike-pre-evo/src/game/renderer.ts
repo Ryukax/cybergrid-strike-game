@@ -13,11 +13,22 @@ import {
   LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
   LORD_ALPHA_SHURIKEN_PROJECTILE_SOURCE,
   LORD_ALPHA_SKIN_ID,
+  LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET,
+  LORD_ALPHA_THARTHAREON_HEADBUTT_LEGACY_SEQUENCE_ASSET,
+  LORD_ALPHA_THARTHAREON_HEADBUTT_SEQUENCE_ASSET,
+  LORD_ALPHA_THARTHAREON_HOLD_BITE_SEQUENCE_ASSET,
+  LORD_ALPHA_THARTHAREON_PORTAL_SEQUENCE_ASSET,
   generateLordAlphaTopology,
   lordAlphaAssetUrl,
+  resolveLordAlphaHeldTargetVisualPolicy,
+  type LordAlphaAnimationProfile,
 } from './lord-alpha';
 import { getBoardMetrics } from './board-layout';
 import { getEnemyVisualSeed } from './enemy-identity';
+import {
+  THARTHAREON_BITE_CLAMP_HOLD_SECONDS,
+  THARTHAREON_BITE_OPEN_HOLD_SECONDS,
+} from './tharthareon-bite';
 
 export { getBoardMetrics } from './board-layout';
 
@@ -31,6 +42,38 @@ const NICHE_COLORS: Record<string, string> = {
   symbiote: '#f472b6',
   opportunist: '#fb923c',
 };
+
+interface CachedBackdropGradient {
+  height: number;
+  corrupted: boolean;
+  gradient: CanvasGradient;
+}
+
+// Fold the opaque base and frame shading into one cached full-canvas paint.
+// Rebuilding and blending both layers on every frame was pure fill-rate cost.
+const backdropGradientCache = new WeakMap<CanvasRenderingContext2D, CachedBackdropGradient>();
+
+function getBackdropGradient(
+  ctx: CanvasRenderingContext2D,
+  height: number,
+  corrupted: boolean,
+): CanvasGradient {
+  const cached = backdropGradientCache.get(ctx);
+  if (cached && cached.height === height && cached.corrupted === corrupted) {
+    return cached.gradient;
+  }
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  if (corrupted) {
+    gradient.addColorStop(0, '#090916');
+    gradient.addColorStop(1, '#06050c');
+  } else {
+    gradient.addColorStop(0, '#061120');
+    gradient.addColorStop(1, '#040a14');
+  }
+  backdropGradientCache.set(ctx, { height, corrupted, gradient });
+  return gradient;
+}
 
 function visualGene(seed: number, salt: number): number {
   const value = Math.sin(seed * 12.9898 + salt * 91.731) * 43758.5453;
@@ -835,6 +878,19 @@ export interface LordAlphaProjectileFrame {
   readonly recovery: number;
 }
 
+export interface TharthareonBiteVisualFrame {
+  readonly originCol: number;
+  readonly progress: number;
+  readonly frameIndex: number;
+}
+
+export interface TharthareonHeadbuttVisualFrame {
+  readonly frameIndex: number;
+  readonly elapsedMs: number;
+  readonly progress: number;
+  readonly complete: boolean;
+}
+
 const clampUnit = (value: number): number => Math.max(0, Math.min(1, value));
 const smoothUnit = (value: number): number => {
   const bounded = clampUnit(value);
@@ -863,6 +919,122 @@ export function resolveLordAlphaProjectileFrame(
     edgeReveal: smoothUnit((progress - 0.12) / 0.5),
     impact: smoothUnit((progress - 0.5) / 0.27),
     recovery: smoothUnit((progress - 0.78) / 0.22),
+  };
+}
+
+/**
+ * Select an authored Hold-Tharthareon pose from the carrier's real board
+ * displacement. Travel plays the supplied emergence and anatomical-left roll
+ * once. Contact completes its closing bite once and then freezes the terminal
+ * clamp while the real target remains held.
+ */
+export function resolveTharthareonBiteVisualFrame(
+  projectile: Pick<
+    Bullet,
+    | 'colPos'
+    | 'travelOriginCol'
+    | 'travelLimitCells'
+    | 'tharthareonFinalBite'
+    | 'tharthareonHoldRemaining'
+    | 'tharthareonTargetSeed'
+    | 'tharthareonTargetNpc'
+    | 'tharthareonTargetHoldElapsed'
+  >,
+): TharthareonBiteVisualFrame {
+  const sequence = LORD_ALPHA_THARTHAREON_HOLD_BITE_SEQUENCE_ASSET;
+  const safeCol = Number.isFinite(projectile.colPos) ? projectile.colPos : 0;
+  const originCol = Number.isFinite(projectile.travelOriginCol)
+    ? projectile.travelOriginCol as number
+    : safeCol;
+  const travelLimit = Number.isFinite(projectile.travelLimitCells)
+    ? Math.max(0.0001, Math.abs(projectile.travelLimitCells as number))
+    : 3;
+  const progress = clampUnit(Math.abs(safeCol - originCol) / travelLimit);
+  const holdsLiveTarget = projectile.tharthareonTargetSeed !== undefined
+    || projectile.tharthareonTargetNpc === true;
+  let frameIndex: number = sequence.terminalOpenFrame;
+  if (!projectile.tharthareonFinalBite) {
+    const terminalTravelDistance = Math.max(
+      1,
+      sequence.mouthAnchorXByFrame[sequence.terminalOpenFrame] - sequence.rootAnchorX,
+    );
+    let nearestError = Number.POSITIVE_INFINITY;
+    frameIndex = 0;
+    for (let index = 0; index < sequence.travelFrameCount; index += 1) {
+      const authoredProgress = clampUnit(
+        (sequence.mouthAnchorXByFrame[index] - sequence.rootAnchorX)
+          / terminalTravelDistance,
+      );
+      const error = Math.abs(progress - authoredProgress);
+      if (error < nearestError) {
+        nearestError = error;
+        frameIndex = index;
+      }
+    }
+  } else {
+    const terminalElapsedSeconds = holdsLiveTarget
+      ? Math.max(0, projectile.tharthareonTargetHoldElapsed ?? 0)
+      : Math.max(
+        0,
+        THARTHAREON_BITE_OPEN_HOLD_SECONDS
+          + THARTHAREON_BITE_CLAMP_HOLD_SECONDS
+          - Math.max(0, projectile.tharthareonHoldRemaining ?? 0),
+      );
+    if (terminalElapsedSeconds >= THARTHAREON_BITE_OPEN_HOLD_SECONDS) {
+      const closingElapsedMs = (
+        terminalElapsedSeconds - THARTHAREON_BITE_OPEN_HOLD_SECONDS
+      ) * 1000;
+      let accumulatedMs = 0;
+      frameIndex = sequence.terminalFrame;
+      for (
+        let index = sequence.terminalClosingFrame;
+        index < sequence.terminalFrame;
+        index += 1
+      ) {
+        accumulatedMs += sequence.frameHoldMs[index];
+        if (closingElapsedMs < accumulatedMs) {
+          frameIndex = index;
+          break;
+        }
+      }
+    }
+  }
+  return {
+    originCol,
+    progress,
+    frameIndex,
+  };
+}
+
+/** Resolve the authored double-tap sequence once, clamping instead of looping. */
+export function resolveTharthareonHeadbuttVisualFrame(
+  elapsedSeconds: number,
+  solidAnimation = false,
+): TharthareonHeadbuttVisualFrame {
+  const sequence = solidAnimation
+    ? LORD_ALPHA_THARTHAREON_HEADBUTT_SEQUENCE_ASSET
+    : LORD_ALPHA_THARTHAREON_HEADBUTT_LEGACY_SEQUENCE_ASSET;
+  const elapsedMs = Math.max(
+    0,
+    Math.min(
+      sequence.durationMs,
+      (Number.isFinite(elapsedSeconds) ? elapsedSeconds : 0) * 1000,
+    ),
+  );
+  let accumulated = 0;
+  let frameIndex = sequence.frameCount - 1;
+  for (let index = 0; index < sequence.frameHoldMs.length; index++) {
+    accumulated += sequence.frameHoldMs[index];
+    if (elapsedMs < accumulated) {
+      frameIndex = index;
+      break;
+    }
+  }
+  return {
+    frameIndex,
+    elapsedMs,
+    progress: clampUnit(elapsedMs / sequence.durationMs),
+    complete: elapsedMs >= sequence.durationMs,
   };
 }
 
@@ -898,6 +1070,11 @@ const LORD_ALPHA_PROJECTILE_TOPOLOGIES = {
 } as const;
 
 let lordAlphaShurikenSheet: HTMLImageElement | null = null;
+let tharthareonHoldBiteCreatureSheet: HTMLImageElement | null = null;
+let tharthareonLegacyHeadbuttCreatureSheet: HTMLImageElement | null = null;
+let tharthareonHeadbuttCreatureSheet: HTMLImageElement | null = null;
+let tharthareonFireballProjectileImage: HTMLImageElement | null = null;
+let tharthareonPortalSheet: HTMLImageElement | null = null;
 
 function getLordAlphaShurikenSheet(): HTMLImageElement | null {
   if (lordAlphaShurikenSheet) return lordAlphaShurikenSheet;
@@ -912,11 +1089,500 @@ function getLordAlphaShurikenSheet(): HTMLImageElement | null {
   return sheet;
 }
 
+function getTharthareonHoldBiteCreatureSheet(): HTMLImageElement | null {
+  if (tharthareonHoldBiteCreatureSheet) return tharthareonHoldBiteCreatureSheet;
+  if (typeof Image === 'undefined') return null;
+  const sheet = new Image();
+  sheet.decoding = 'async';
+  sheet.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    LORD_ALPHA_THARTHAREON_HOLD_BITE_SEQUENCE_ASSET.suffix,
+  );
+  tharthareonHoldBiteCreatureSheet = sheet;
+  return sheet;
+}
+
+function getTharthareonPortalSheet(): HTMLImageElement | null {
+  if (tharthareonPortalSheet) return tharthareonPortalSheet;
+  if (typeof Image === 'undefined') return null;
+  const sheet = new Image();
+  sheet.decoding = 'async';
+  sheet.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    LORD_ALPHA_THARTHAREON_PORTAL_SEQUENCE_ASSET.suffix,
+  );
+  tharthareonPortalSheet = sheet;
+  return sheet;
+}
+
+function getTharthareonHeadbuttCreatureSheet(
+  solidAnimation = false,
+): HTMLImageElement | null {
+  const cached = solidAnimation
+    ? tharthareonHeadbuttCreatureSheet
+    : tharthareonLegacyHeadbuttCreatureSheet;
+  if (cached) return cached;
+  if (typeof Image === 'undefined') return null;
+  const sheet = new Image();
+  sheet.decoding = 'async';
+  const sequence = solidAnimation
+    ? LORD_ALPHA_THARTHAREON_HEADBUTT_SEQUENCE_ASSET
+    : LORD_ALPHA_THARTHAREON_HEADBUTT_LEGACY_SEQUENCE_ASSET;
+  sheet.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    sequence.suffix,
+  );
+  if (solidAnimation) tharthareonHeadbuttCreatureSheet = sheet;
+  else tharthareonLegacyHeadbuttCreatureSheet = sheet;
+  return sheet;
+}
+
+function getTharthareonFireballProjectileImage(): HTMLImageElement | null {
+  if (tharthareonFireballProjectileImage) return tharthareonFireballProjectileImage;
+  if (typeof Image === 'undefined') return null;
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = lordAlphaAssetUrl(
+    import.meta.env.BASE_URL,
+    LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET.suffix,
+  );
+  tharthareonFireballProjectileImage = image;
+  return image;
+}
+
+/** The supplied projectile persists at the simulation-owned bullet position. */
+function drawTharthareonFireballProjectile(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  cellSize: number,
+  direction: number,
+  now: number,
+  solidAnimation = false,
+): void {
+  const asset = LORD_ALPHA_THARTHAREON_FIREBALL_PROJECTILE_ASSET;
+  const safeCell = Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 48;
+  const image = getTharthareonFireballProjectileImage();
+  const pulse = solidAnimation || prefersReducedLordAlphaProjectileMotion()
+    ? 1
+    : 1 + Math.sin(now * 0.024) * 0.035;
+  const width = safeCell * asset.displayWidthCells * pulse;
+  const height = width * asset.frameHeight / asset.frameWidth;
+
+  ctx.save();
+  ctx.translate(x, y);
+  if (direction < 0) ctx.scale(-1, 1);
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = 'rgba(239, 68, 68, .88)';
+  ctx.shadowBlur = Math.max(3, safeCell * 0.15);
+  if (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    ctx.drawImage(
+      image,
+      0,
+      0,
+      asset.frameWidth,
+      asset.frameHeight,
+      -width * 0.5,
+      -height * 0.5,
+      width,
+      height,
+    );
+  } else {
+    if (solidAnimation) {
+      // Cold-cache fallback: keep the authored projectile's exact display
+      // footprint and full opacity so decoding cannot cause a scale pop.
+      ctx.fillStyle = '#7f1d1d';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = Math.max(1.5, safeCell * 0.025);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, width * 0.5, height * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      const gradient = ctx.createRadialGradient(
+        width * 0.2,
+        0,
+        0,
+        width * 0.2,
+        0,
+        height * 0.52,
+      );
+      gradient.addColorStop(0, '#fff7c2');
+      gradient.addColorStop(0.38, '#fb923c');
+      gradient.addColorStop(1, 'rgba(127, 29, 29, 0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(width * 0.08, 0, width * 0.45, height * 0.48, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+export interface TharthareonBiteRenderGeometry {
+  readonly frameIndex: number;
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  readonly destinationX: number;
+  readonly destinationY: number;
+  readonly destinationWidth: number;
+  readonly destinationHeight: number;
+  readonly uniformScale: number;
+  readonly clipX: number;
+  readonly clipWidth: number;
+  readonly renderedRootX: number;
+  readonly renderedContactX: number;
+  readonly portalAnchored: boolean;
+  readonly mirrored: false;
+  /** One authored raster owns the complete head-neck-torso-limb silhouette. */
+  readonly rigidCreature: true;
+}
+
+/**
+ * Map one connected authored creature frame to the simulation-owned mouth.
+ * The portal is only a reveal plane; it never joins or rescales anatomy.
+ * Runtime bites stop at the live entity they clamp, or at the three-cell
+ * limit when they miss. Arbitrary shorter coordinates remain supported for
+ * defensive samples and bounded-board variants.
+ *
+ * Player-side bites travel right. A defensive leftward sample retains the
+ * exact same anatomical-left artwork (positive destination width) and keeps
+ * its mouth on the carrier rather than mirroring the dragon.
+ */
+export function resolveTharthareonBiteRenderGeometry(
+  frameIndex: number,
+  originX: number,
+  contactX: number,
+  centerY: number,
+  cellSize: number,
+  terminalContact = false,
+  terminalTransitionProgress = 1,
+): TharthareonBiteRenderGeometry {
+  const sequence = LORD_ALPHA_THARTHAREON_HOLD_BITE_SEQUENCE_ASSET;
+  const safeFrame = Math.max(0, Math.min(
+    sequence.frameCount - 1,
+    Number.isFinite(frameIndex) ? Math.floor(frameIndex) : 0,
+  ));
+  const safeOrigin = Number.isFinite(originX) ? originX : 0;
+  const safeContact = Number.isFinite(contactX) ? contactX : safeOrigin;
+  const safeCenterY = Number.isFinite(centerY) ? centerY : 0;
+  const safeCell = Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 48;
+  const signedDistance = safeContact - safeOrigin;
+  const portalAnchored = signedDistance >= 0;
+  const uniformScale = safeCell * sequence.displayHeightCells / sequence.frameHeight;
+  const destinationWidth = sequence.frameWidth * uniformScale;
+  const destinationHeight = sequence.frameHeight * uniformScale;
+  // The authored frames already contain the complete outward emergence.
+  // Travel therefore stays rigidly rooted to the portal instead of applying
+  // a second carrier translation. Once collision starts, the whole closing
+  // sequence receives one fixed placement whose final mouth meets the target.
+  const portalRootedX = safeOrigin - sequence.rootAnchorX * uniformScale;
+  const contactRootedX = safeContact
+    - sequence.mouthAnchorXByFrame[sequence.terminalFrame] * uniformScale;
+  const contactTransition = terminalContact
+    ? smoothUnit(terminalTransitionProgress)
+    : 0;
+  // Solid mode supplies a short 0→1 contact transition. That keeps the first
+  // collision frame rooted exactly where travel ended, then lets the fixed-
+  // scale creature slide behind the portal's occlusion plane until the final
+  // mouth anchor reaches short, medium or full-range targets. Legacy callers
+  // retain the previous immediate target placement through the default `1`.
+  const destinationX = portalRootedX
+    + (contactRootedX - portalRootedX) * contactTransition;
+  const destinationY = safeCenterY - sequence.rootAnchorY * uniformScale;
+  const destinationRight = destinationX + destinationWidth;
+  const clipX = portalAnchored ? safeOrigin : destinationX;
+  const clipRight = portalAnchored ? destinationRight : safeOrigin;
+
+  return {
+    frameIndex: safeFrame,
+    sourceX: (safeFrame % sequence.atlasColumns) * sequence.frameWidth,
+    sourceY: Math.floor(safeFrame / sequence.atlasColumns) * sequence.frameHeight,
+    sourceWidth: sequence.frameWidth,
+    sourceHeight: sequence.frameHeight,
+    destinationX,
+    destinationY,
+    destinationWidth,
+    destinationHeight,
+    uniformScale,
+    clipX,
+    clipWidth: Math.max(0, clipRight - clipX),
+    renderedRootX: safeOrigin,
+    renderedContactX: safeContact,
+    portalAnchored,
+    mirrored: false,
+    rigidCreature: true,
+  };
+}
+
+/** Draw the fixed wormhole behind a board-owned creature layer. */
+function drawTharthareonPortalBehind(
+  ctx: CanvasRenderingContext2D,
+  originX: number,
+  centerY: number,
+  cellSize: number,
+  progress: number,
+): void {
+  const sequence = LORD_ALPHA_THARTHAREON_PORTAL_SEQUENCE_ASSET;
+  const portal = getTharthareonPortalSheet();
+  if (!portal?.complete || portal.naturalWidth <= 0 || portal.naturalHeight <= 0) return;
+  const safeCell = Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 48;
+  const frameIndex = Math.min(
+    sequence.frameCount - 1,
+    Math.max(0, Math.floor(clampUnit(progress) * sequence.frameCount)),
+  );
+  const height = safeCell * 2.15;
+  const width = height * sequence.frameWidth / sequence.frameHeight;
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(
+    portal,
+    frameIndex * sequence.frameWidth,
+    0,
+    sequence.frameWidth,
+    sequence.frameHeight,
+    originX - width * 0.5,
+    centerY - height * 0.5,
+    width,
+    height,
+  );
+  ctx.restore();
+}
+
+/** Draw the portal-free double-tap layer from its fixed wormhole root. */
+function drawTharthareonHeadbuttCarrier(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  cellSize: number,
+  projectile: Bullet,
+  solidAnimation = false,
+): void {
+  const sequence = solidAnimation
+    ? LORD_ALPHA_THARTHAREON_HEADBUTT_SEQUENCE_ASSET
+    : LORD_ALPHA_THARTHAREON_HEADBUTT_LEGACY_SEQUENCE_ASSET;
+  const safeCell = Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 48;
+  const originCol = Number.isFinite(projectile.travelOriginCol)
+    ? projectile.travelOriginCol as number
+    : projectile.colPos;
+  const originX = x + (originCol - projectile.colPos) * safeCell;
+  const frame = resolveTharthareonHeadbuttVisualFrame(
+    projectile.tharthareonCycleElapsed ?? 0,
+    solidAnimation,
+  );
+  const scale = safeCell * sequence.displayHeightCells / sequence.frameHeight;
+  const destinationX = originX - sequence.rootAnchorX * scale;
+  const destinationY = y - sequence.rootAnchorY * scale;
+  const destinationWidth = sequence.frameWidth * scale;
+  const destinationHeight = sequence.frameHeight * scale;
+  const creature = getTharthareonHeadbuttCreatureSheet(solidAnimation);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = 'rgba(30, 64, 175, .76)';
+  ctx.shadowBlur = Math.max(2, safeCell * 0.09);
+  if (creature?.complete && creature.naturalWidth > 0 && creature.naturalHeight > 0) {
+    // The portal remains an independent effect. Clip the creature at its root
+    // plane so no hidden neck segment can precede or redraw the portal rim.
+    ctx.beginPath();
+    ctx.rect(
+      originX,
+      destinationY - safeCell,
+      Math.max(0, destinationX + destinationWidth - originX),
+      destinationHeight + safeCell * 2,
+    );
+    ctx.clip();
+    ctx.drawImage(
+      creature,
+      (frame.frameIndex % sequence.atlasColumns) * sequence.frameWidth,
+      Math.floor(frame.frameIndex / sequence.atlasColumns) * sequence.frameHeight,
+      sequence.frameWidth,
+      sequence.frameHeight,
+      destinationX,
+      destinationY,
+      destinationWidth,
+      destinationHeight,
+    );
+  } else if (frame.frameIndex > 0 && frame.frameIndex < sequence.frameCount - 1) {
+    ctx.fillStyle = '#10234b';
+    ctx.strokeStyle = '#d6b36a';
+    ctx.lineWidth = Math.max(1.25, safeCell * 0.02);
+    ctx.beginPath();
+    if (solidAnimation) {
+      // Match the fixed authored destination instead of substituting a small
+      // moving ellipse while the 5x5 atlas finishes decoding.
+      ctx.rect(
+        originX,
+        destinationY - safeCell,
+        Math.max(0, destinationX + destinationWidth - originX),
+        destinationHeight + safeCell * 2,
+      );
+      ctx.clip();
+      const forwardWidth = Math.max(0, destinationX + destinationWidth - originX);
+      ctx.beginPath();
+      ctx.ellipse(
+        originX + forwardWidth * 0.5,
+        y,
+        forwardWidth * 0.5,
+        safeCell * 0.42,
+        -0.08,
+        0,
+        Math.PI * 2,
+      );
+    } else {
+      ctx.ellipse(
+        originX + safeCell * (0.55 + frame.progress * 1.65),
+        y,
+        safeCell * 0.46,
+        safeCell * 0.25,
+        -0.12,
+        0,
+        Math.PI * 2,
+      );
+    }
+    ctx.fill();
+    if (solidAnimation) ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * Draw the supplied Hold-Tharthareon creature over its fixed rear portal.
+ * The anatomical-left pose never inherits projectile direction transforms.
+ */
+function drawTharthareonBiteCarrier(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  cellSize: number,
+  projectile: Bullet,
+  solidAnimation = false,
+): void {
+  if (projectile.tharthareonMode === 'headbutt') {
+    drawTharthareonHeadbuttCarrier(
+      ctx,
+      x,
+      y,
+      cellSize,
+      projectile,
+      solidAnimation,
+    );
+    return;
+  }
+  const visual = resolveTharthareonBiteVisualFrame(projectile);
+  const safeCell = Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 48;
+  const originX = x + (visual.originCol - projectile.colPos) * safeCell;
+  const creature = getTharthareonHoldBiteCreatureSheet();
+  const geometry = resolveTharthareonBiteRenderGeometry(
+    visual.frameIndex,
+    originX,
+    x,
+    y,
+    safeCell,
+    Boolean(projectile.tharthareonFinalBite),
+    solidAnimation && projectile.tharthareonFinalBite
+      ? (() => {
+        const hasLiveTarget = projectile.tharthareonTargetSeed !== undefined
+          || projectile.tharthareonTargetNpc === true;
+        const terminalElapsed = hasLiveTarget
+          ? Math.max(0, projectile.tharthareonTargetHoldElapsed ?? 0)
+          : Math.max(
+            0,
+            THARTHAREON_BITE_OPEN_HOLD_SECONDS
+              + THARTHAREON_BITE_CLAMP_HOLD_SECONDS
+              - Math.max(0, projectile.tharthareonHoldRemaining ?? 0),
+          );
+        return terminalElapsed / Math.max(0.001, THARTHAREON_BITE_OPEN_HOLD_SECONDS);
+      })()
+      : 1,
+  );
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = 'rgba(30, 64, 175, .76)';
+  ctx.shadowBlur = Math.max(2, safeCell * 0.09);
+  const creatureReady = Boolean(
+    creature?.complete
+    && creature.naturalWidth > 0
+    && creature.naturalHeight > 0
+    && geometry.clipWidth > 0,
+  );
+  if (creatureReady) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(
+      geometry.clipX,
+      geometry.destinationY - safeCell,
+      geometry.clipWidth,
+      geometry.destinationHeight + safeCell * 2,
+    );
+    ctx.clip();
+    ctx.drawImage(
+      creature as HTMLImageElement,
+      geometry.sourceX,
+      geometry.sourceY,
+      geometry.sourceWidth,
+      geometry.sourceHeight,
+      geometry.destinationX,
+      geometry.destinationY,
+      geometry.destinationWidth,
+      geometry.destinationHeight,
+    );
+    ctx.restore();
+  } else if (geometry.destinationWidth > 0) {
+    ctx.fillStyle = '#101d3d';
+    ctx.strokeStyle = '#ef445b';
+    ctx.lineWidth = Math.max(1.5, safeCell * 0.025);
+    ctx.beginPath();
+    if (solidAnimation && geometry.clipWidth > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(
+        geometry.clipX,
+        geometry.destinationY - safeCell,
+        geometry.clipWidth,
+        geometry.destinationHeight + safeCell * 2,
+      );
+      ctx.clip();
+      const placeholderRight = geometry.destinationX + geometry.destinationWidth;
+      const forwardWidth = Math.max(0, placeholderRight - geometry.clipX);
+      ctx.beginPath();
+      ctx.ellipse(
+        geometry.clipX + forwardWidth * 0.5,
+        y,
+        forwardWidth * 0.5,
+        safeCell * 0.46,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.moveTo(x + safeCell * 0.38, y);
+      ctx.lineTo(x - safeCell * 0.28, y - safeCell * 0.27);
+      ctx.lineTo(x - safeCell * 0.2, y + safeCell * 0.27);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function drawAuthoredLordAlphaShuriken(
   ctx: CanvasRenderingContext2D,
   radius: number,
   direction: number,
   ageMs: number,
+  solidAnimation = false,
 ): boolean {
   const sheet = getLordAlphaShurikenSheet();
   if (!sheet?.complete || sheet.naturalWidth <= 0) return false;
@@ -926,7 +1592,7 @@ function drawAuthoredLordAlphaShuriken(
     + source.x;
   const drawSize = Math.max(18, radius * 6.2);
   const rotation = direction * (ageMs * 0.045);
-  const pulse = 1 + Math.sin(ageMs * 0.055) * 0.045;
+  const pulse = solidAnimation ? 1 : 1 + Math.sin(ageMs * 0.055) * 0.045;
 
   ctx.save();
   ctx.rotate(rotation);
@@ -1005,6 +1671,7 @@ function drawLordAlphaProjectile(
   now: number,
   birthMs?: number,
   requestedVariant?: LordAlphaProjectileVariant,
+  solidAnimation = false,
 ): void {
   const variant = requestedVariant ?? 'quick';
   // Older or restored bullets without a carrier clock remain readable as a
@@ -1026,7 +1693,13 @@ function drawLordAlphaProjectile(
 
   switch (variant) {
     case 'quick': {
-      if (drawAuthoredLordAlphaShuriken(ctx, radius, direction, frame.ageMs)) break;
+      if (drawAuthoredLordAlphaShuriken(
+        ctx,
+        radius,
+        direction,
+        frame.ageMs,
+        solidAnimation,
+      )) break;
       const length = scale * (0.2 + frame.nodeReveal * 2.35);
       ctx.strokeStyle = 'rgba(186, 230, 253, .94)';
       ctx.lineWidth = Math.max(1, radius * 0.22);
@@ -1091,7 +1764,9 @@ function drawLordAlphaProjectile(
     }
     case 'finisher': {
       const tighten = smoothUnit((frame.progress - 0.46) / 0.54);
-      const netScale = scale * (2.05 - tighten * 0.72);
+      // Keep the carrier footprint fixed. Tightening is communicated by its
+      // strand fade and bright center, not by contracting the entire image.
+      const netScale = scale * 2.05;
       ctx.rotate(frame.progress * 0.28);
       drawLordAlphaTopologyCarrier(
         ctx,
@@ -1130,11 +1805,36 @@ function drawSkinProjectileEffect(
   direction: number,
   now: number,
   projectileOrSkin?: Bullet | string,
+  cellSize?: number,
+  solidAnimation = false,
 ): boolean {
   const projectile = typeof projectileOrSkin === 'string' ? undefined : projectileOrSkin;
   const skin = typeof projectileOrSkin === 'string'
     ? projectileOrSkin
     : projectile?.effectSkin;
+  if (projectile?.visualKind === 'tharthareon-bite') {
+    drawTharthareonBiteCarrier(
+      ctx,
+      x,
+      y,
+      cellSize ?? radius / 0.08,
+      projectile,
+      solidAnimation,
+    );
+    return true;
+  }
+  if (projectile?.visualKind === 'tharthareon-fireball') {
+    drawTharthareonFireballProjectile(
+      ctx,
+      x,
+      y,
+      cellSize ?? radius / 0.08,
+      direction,
+      now,
+      solidAnimation,
+    );
+    return true;
+  }
   if (!skin) return false;
   if (skin === LORD_ALPHA_SKIN_ID) {
     drawLordAlphaProjectile(
@@ -1146,6 +1846,7 @@ function drawSkinProjectileEffect(
       now,
       projectile?.presentationBirthMs,
       projectile?.presentationVariant,
+      solidAnimation,
     );
     return true;
   }
@@ -1329,12 +2030,60 @@ function getAdvancedProjectileSheet(skin: string): HTMLImageElement | null {
 /** Begin loading the selected skin's authored projectile before its first shot. */
 export function preloadAdvancedProjectileSheet(skin: string): void {
   if (skin === LORD_ALPHA_SKIN_ID) {
-    getLordAlphaShurikenSheet();
+    // Keep selection lightweight: only the normal combat projectile is needed
+    // immediately. Tap / Double Tap / Hold assets are substantially larger and
+    // their draw paths already request them on demand with established
+    // placeholders while decoding finishes.
+    const image = getLordAlphaShurikenSheet();
+    if (image && typeof image.decode === 'function') {
+      void image.decode().catch(() => undefined);
+    }
     return;
   }
   if (PROJECTILE_EFFECTS[skin]) getAdvancedProjectileSheet(skin);
 }
 
+
+export interface RocLaneChoice {
+  readonly col: number;
+  readonly candidateRows: readonly number[];
+  readonly selectedRow: number | null;
+}
+
+export function resolveRocLaneChoiceHighlight(
+  col: number,
+  selectedRow: number | null,
+): RocLaneChoice | null {
+  if (!Number.isFinite(col) || selectedRow === null || !Number.isFinite(selectedRow)) {
+    return null;
+  }
+  const resolvedCol = Math.round(col);
+  const resolvedRow = Math.round(selectedRow);
+  if (resolvedCol < 0 || resolvedCol > 5 || resolvedRow < 0 || resolvedRow > 2) {
+    return null;
+  }
+  return {
+    col: resolvedCol,
+    candidateRows: [resolvedRow],
+    selectedRow: resolvedRow,
+  };
+}
+
+export function isRocLaneChoiceCell(
+  choice: RocLaneChoice | null | undefined,
+  col: number,
+  row: number,
+): boolean {
+  return Boolean(choice && choice.col === col && choice.candidateRows.includes(row));
+}
+
+export interface GameRenderOptions {
+  readonly lordAlphaAnimationProfile?: LordAlphaAnimationProfile;
+  /** Previous fully rendered raster-NPC frame for solid held-target compositing. */
+  readonly heldNpcCanvas?: HTMLCanvasElement | null;
+  /** Legal Roc Wing lane resolutions; candidates remain presentation-only. */
+  readonly rocLaneChoice?: RocLaneChoice | null;
+}
 
 export function draw(
   ctx: CanvasRenderingContext2D,
@@ -1352,32 +2101,59 @@ export function draw(
     boss?: boolean;
   } | null = null,
   boardTopFloor = 0,
+  pendingTeleport: { col: number; row: number } | null = null,
+  renderOptions: GameRenderOptions = {},
 ) {
   const nodeIntegrity = state.systemIntegrity?.node ?? 100;
   const corruption = Math.max(0, Math.min(1, (72 - nodeIntegrity) / 72));
   const timeSlice = Math.floor(renderNow / 180);
   // Opaque base — covers any DOM elements behind the canvas (e.g. keeper img)
-  ctx.fillStyle = corruption > 0.55 ? '#090713' : '#06101e';
+  ctx.fillStyle = getBackdropGradient(ctx, h, corruption > 0.55);
   ctx.fillRect(0, 0, w, h);
 
   const m = getBoardMetrics(w, h, boardTopFloor);
   const splitX = m.x + m.cell * 3;
   const vs = state.gameMode === 'vs';
-
-  // Subtle frame overlay
-  const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, 'rgba(8, 20, 40, 0.16)');
-  bg.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  const lordAlphaAnimationProfile = renderOptions.lordAlphaAnimationProfile ?? 'legacy';
+  const heldTargetVisualPolicy = resolveLordAlphaHeldTargetVisualPolicy(
+    lordAlphaAnimationProfile,
+  );
+  const solidLordAlphaAnimation = lordAlphaAnimationProfile === 'solid';
 
   // Scanlines
+  ctx.fillStyle = corruption > 0.45
+    ? `rgba(244,63,94,${0.025 + corruption * 0.075})`
+    : `rgba(56,189,248,${0.035 + (1 - corruption) * 0.025})`;
+  ctx.beginPath();
   for (let i = 0; i < 28; i++) {
     const yy = (i * 47 + (renderNow * 0.03)) % (h + 60) - 30;
-    ctx.fillStyle = corruption > 0.45
-      ? `rgba(244,63,94,${0.025 + corruption * 0.075})`
-      : `rgba(56,189,248,${0.035 + (1 - corruption) * 0.025})`;
-    ctx.fillRect(0, yy, w, 1);
+    ctx.rect(0, yy, w, 1);
+  }
+  ctx.fill();
+
+  // Resolve special projectiles once per frame. Auto-fire can populate the
+  // bullet list quickly; repeatedly scanning it for every enemy made a hold an
+  // avoidable O(enemies * bullets) renderer cost.
+  const tharthareonBullets: Bullet[] = [];
+  const regularBullets: Bullet[] = [];
+  const tharthareonHoldByEnemySeed = new Map<number, Bullet>();
+  let npcTharthareonHold: Bullet | undefined;
+  for (const bullet of state.bullets) {
+    if (bullet.visualKind !== 'tharthareon-bite') {
+      regularBullets.push(bullet);
+      continue;
+    }
+    tharthareonBullets.push(bullet);
+    if ((bullet.tharthareonHoldRemaining ?? 0) <= 0) continue;
+    if (bullet.tharthareonTargetNpc && !npcTharthareonHold) {
+      npcTharthareonHold = bullet;
+    }
+    if (
+      bullet.tharthareonTargetSeed !== undefined
+      && !tharthareonHoldByEnemySeed.has(bullet.tharthareonTargetSeed)
+    ) {
+      tharthareonHoldByEnemySeed.set(bullet.tharthareonTargetSeed, bullet);
+    }
   }
 
   // Grid cells
@@ -1396,8 +2172,22 @@ export function draw(
 
       const routeLastCell = campaignRoutePrompt?.last && playerSide && c === 0;
       const routeNextCell = campaignRoutePrompt?.next && playerSide && c === 2;
+      const pendingTeleportCell = playerSide
+        && pendingTeleport?.col === c
+        && pendingTeleport.row === r;
+      const rocBranchCell = isRocLaneChoiceCell(renderOptions.rocLaneChoice, c, r);
+      const selectedRocBranchCell = rocBranchCell
+        && renderOptions.rocLaneChoice?.selectedRow === r;
 
-      if (routeLastCell) {
+      if (pendingTeleportCell) {
+        const pulse = 0.31 + Math.sin(renderNow * 0.014) * 0.09;
+        ctx.fillStyle = `rgba(250,204,21,${pulse})`;
+      } else if (rocBranchCell) {
+        const pulse = selectedRocBranchCell
+          ? 0.46 + Math.sin(renderNow * 0.018) * 0.11
+          : 0.24 + Math.sin(renderNow * 0.014) * 0.07;
+        ctx.fillStyle = `rgba(239,68,68,${pulse})`;
+      } else if (routeLastCell) {
         ctx.fillStyle = 'rgba(92,217,245,0.28)';
       } else if (routeNextCell) {
         ctx.fillStyle = 'rgba(192,118,255,0.28)';
@@ -1413,7 +2203,11 @@ export function draw(
 
       ctx.fillRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
 
-      if (routeLastCell) {
+      if (pendingTeleportCell) {
+        ctx.strokeStyle = '#fde047';
+      } else if (rocBranchCell) {
+        ctx.strokeStyle = selectedRocBranchCell ? '#fecaca' : '#fb7185';
+      } else if (routeLastCell) {
         ctx.strokeStyle = 'rgba(92,217,245,0.92)';
       } else if (routeNextCell) {
         ctx.strokeStyle = 'rgba(192,118,255,0.92)';
@@ -1424,8 +2218,38 @@ export function draw(
       } else {
         ctx.strokeStyle = 'rgba(251,113,133,0.45)';
       }
-      ctx.lineWidth = 2;
+      ctx.lineWidth = pendingTeleportCell || selectedRocBranchCell ? 4 : rocBranchCell ? 3 : 2;
       ctx.strokeRect(cx + 2 + fractureX, cy + 2 + fractureY, m.cell - 4, m.cell - 4);
+
+      if (pendingTeleportCell) {
+        const inset = Math.max(7, m.cell * 0.1);
+        const corner = Math.max(6, m.cell * 0.12);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,249,196,0.96)';
+        ctx.lineWidth = Math.max(2, m.cell * 0.025);
+        ctx.shadowColor = '#facc15';
+        ctx.shadowBlur = Math.max(7, m.cell * 0.1);
+        for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
+          const anchorX = sx > 0 ? cx + inset : cx + m.cell - inset;
+          const anchorY = sy > 0 ? cy + inset : cy + m.cell - inset;
+          ctx.beginPath();
+          ctx.moveTo(anchorX + sx * corner, anchorY);
+          ctx.lineTo(anchorX, anchorY);
+          ctx.lineTo(anchorX, anchorY + sy * corner);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else if (rocBranchCell) {
+        const markerRadius = Math.max(4, m.cell * 0.055);
+        ctx.save();
+        ctx.fillStyle = selectedRocBranchCell ? '#fff1f2' : '#fda4af';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = selectedRocBranchCell ? 12 : 7;
+        ctx.beginPath();
+        ctx.arc(cx + m.cell * 0.5, cy + m.cell * 0.5, markerRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
   }
 
@@ -1480,6 +2304,34 @@ export function draw(
   ctx.moveTo(splitX, m.y + 4);
   ctx.lineTo(splitX, m.y + m.boardH - 4);
   ctx.stroke();
+
+  // Board-owned Tharthareon portals sit behind players, enemies and the
+  // creature. Drawing this once in the background pass prevents the portal
+  // rim from flashing across targets or appearing attached to the neck.
+  for (const bullet of tharthareonBullets) {
+    const originCol = Number.isFinite(bullet.travelOriginCol)
+      ? bullet.travelOriginCol as number
+      : bullet.colPos;
+    const originX = m.x + originCol * m.cell;
+    const centerY = m.y + (bullet.row + 0.5) * m.cell;
+    const portalProgress = bullet.tharthareonMode === 'headbutt'
+      ? resolveTharthareonHeadbuttVisualFrame(
+        bullet.tharthareonCycleElapsed ?? 0,
+        solidLordAlphaAnimation,
+      ).progress
+      : resolveTharthareonBiteVisualFrame(bullet).frameIndex
+        / Math.max(
+          1,
+          LORD_ALPHA_THARTHAREON_HOLD_BITE_SEQUENCE_ASSET.frameCount - 1,
+        );
+    drawTharthareonPortalBehind(
+      ctx,
+      originX,
+      centerY,
+      m.cell,
+      portalProgress,
+    );
+  }
 
   // Player ghost aura + shield ring
   const playerX = m.x + (state.player.col + 0.5) * m.cell;
@@ -1556,6 +2408,7 @@ export function draw(
     const npcActualCol = 3 + state.npc.col;
     const npcX = m.x + (npcActualCol + 0.5) * m.cell;
     const npcY = m.y + (state.npc.row + 0.5) * m.cell;
+    const npcHeldByTharthareon = Boolean(npcTharthareonHold);
 
     // NPC shield ring
     if (state.npc.shieldCharges > 0) {
@@ -1568,12 +2421,23 @@ export function draw(
 
     if (!npcHasOverlay) {
       // NPC body (mirror of player, gun faces LEFT)
-      const npcBreath = Math.sin(renderNow * 0.0065) * m.cell * 0.012;
+      const heldNpcRenderNow = solidLordAlphaAnimation && npcTharthareonHold
+        ? renderNow - Math.max(0, npcTharthareonHold.tharthareonTargetHoldElapsed ?? 0) * 1000
+        : renderNow;
+      const npcBreath = Math.sin(heldNpcRenderNow * 0.0065) * m.cell * 0.012;
       const npcFiring = state.npc.fireCooldown > 0.32;
-      const npcRecoil = npcFiring
+      const npcRecoil = npcFiring && !(solidLordAlphaAnimation && npcHeldByTharthareon)
         ? Math.sin(Math.min(1, state.npc.fireCooldown / 0.48) * Math.PI) * m.cell * 0.07
         : 0;
       ctx.save();
+      if (npcHeldByTharthareon) {
+        ctx.translate(npcX, npcY);
+        ctx.scale(
+          heldTargetVisualPolicy.canvasScale,
+          heldTargetVisualPolicy.canvasScale,
+        );
+        ctx.translate(-npcX, -npcY);
+      }
       ctx.translate(npcRecoil, npcBreath);
       ctx.fillStyle = '#34d399';
       ctx.beginPath();
@@ -1584,17 +2448,50 @@ export function draw(
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.fillRect(npcX - m.cell * 0.06, npcY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
       ctx.restore();
+    } else if (
+      solidLordAlphaAnimation
+      && npcHeldByTharthareon
+      && renderOptions.heldNpcCanvas
+      && renderOptions.heldNpcCanvas.width > 0
+      && renderOptions.heldNpcCanvas.height > 0
+    ) {
+      // Raster NPC overlays normally live above the opaque game canvas, which
+      // prevents the late jaw pass from covering them. During a solid-profile
+      // hold, composite the already-rendered frame into board space at full
+      // size; Game hides only that duplicate DOM wrapper for the same frame.
+      const heldSize = m.cell * 1.08;
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(
+        renderOptions.heldNpcCanvas,
+        npcX - heldSize * 0.5,
+        npcY - heldSize * 0.5,
+        heldSize,
+        heldSize,
+      );
+      ctx.restore();
     }
   }
 
   // Player bullets
-  for (const b of state.bullets) {
+  for (const b of regularBullets) {
     const bx = m.x + b.colPos * m.cell;
     const by = m.y + (b.row + 0.5) * m.cell;
     const radius = b.big ? m.cell * 0.12 : m.cell * 0.08;
     const direction = Math.sign(b.speed) || 1;
     const attackStyle = b.attackStyle ?? 'physical';
-    const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, direction, renderNow, b);
+    const skinProjectileDrawn = drawSkinProjectileEffect(
+      ctx,
+      bx,
+      by,
+      radius,
+      direction,
+      renderNow,
+      b,
+      m.cell,
+      solidLordAlphaAnimation,
+    );
     if (!skinProjectileDrawn) {
       ctx.save();
       if (attackStyle === 'melee') {
@@ -1762,7 +2659,17 @@ export function draw(
       const bx = m.x + b.colPos * m.cell;
       const by = m.y + (b.row + 0.5) * m.cell;
       const radius = m.cell * 0.08;
-      const skinProjectileDrawn = drawSkinProjectileEffect(ctx, bx, by, radius, -1, renderNow, b);
+      const skinProjectileDrawn = drawSkinProjectileEffect(
+        ctx,
+        bx,
+        by,
+        radius,
+        -1,
+        renderNow,
+        b,
+        m.cell,
+        solidLordAlphaAnimation,
+      );
       if (!skinProjectileDrawn) {
         ctx.fillStyle = '#67e8f9';
         ctx.beginPath();
@@ -1817,14 +2724,22 @@ export function draw(
       playerDist: Math.abs(e.colPos - state.player.col),
     };
     const genome = e.genome;
-    const drawCell = m.cell * (genome?.sizeScale ?? 1) * (genome ? getBaseVisualScale(genome.baseElement) : 1);
+    const tharthareonHold = tharthareonHoldByEnemySeed.get(enemyVisualSeed);
+    const heldByTharthareon = Boolean(tharthareonHold);
+    const drawCell = m.cell
+      * (genome?.sizeScale ?? 1)
+      * (genome ? getBaseVisualScale(genome.baseElement) : 1)
+      * (heldByTharthareon ? heldTargetVisualPolicy.canvasScale : 1);
     // Bodies are assembled from independent procedural modules; no finite base
     // sprite or morphology catalog is used for hostile entities.
     ctx.save();
     ctx.translate(ex, ey);
     if (genome) {
       const sprite = getProceduralVirusSprite(enemyVisualSeed, genome);
-      const motion = getEntityMotion(genome.baseElement, now, enemyVisualSeed);
+      const heldRenderNow = solidLordAlphaAnimation && tharthareonHold
+        ? now - Math.max(0, tharthareonHold.tharthareonTargetHoldElapsed ?? 0) * 1000
+        : now;
+      const motion = getEntityMotion(genome.baseElement, heldRenderNow, enemyVisualSeed);
       // Preserve the source's 3:2 aspect ratio while reserving real clearance
       // above the silhouette. At 99% cell height the top contour, motion and
       // HP marker competed for the same boundary and every family read clipped.
@@ -1853,7 +2768,9 @@ export function draw(
         drawCell,
         '#fb7185',
         e.flash > 0,
-        now,
+        solidLordAlphaAnimation && tharthareonHold
+          ? now - Math.max(0, tharthareonHold.tharthareonTargetHoldElapsed ?? 0) * 1000
+          : now,
         'hunter',
         undefined,
       );
@@ -1937,6 +2854,25 @@ export function draw(
       ctx.fillStyle = '#fff';
       ctx.fillRect(ex - 6, ey - m.cell * 0.43, 12, 3);
     }
+  }
+
+  // Late foreground pass: the bound campaign enemy or versus NPC has already
+  // drawn at the live mouth coordinate. The connected jaw raster now occludes
+  // that same entity without baking target artwork into Tharthareon's asset.
+  for (const b of tharthareonBullets) {
+    const bx = m.x + b.colPos * m.cell;
+    const by = m.y + (b.row + 0.5) * m.cell;
+    drawSkinProjectileEffect(
+      ctx,
+      bx,
+      by,
+      b.big ? m.cell * 0.12 : m.cell * 0.08,
+      Math.sign(b.speed) || 1,
+      renderNow,
+      b,
+      m.cell,
+      solidLordAlphaAnimation,
+    );
   }
 
   // Green enemies (VS mode — moving right, threatening NPC)

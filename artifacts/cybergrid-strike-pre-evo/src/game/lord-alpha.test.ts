@@ -4,23 +4,36 @@ import { test } from "node:test";
 import { ABILITY_LOOKUP } from "./constants";
 import {
   LORD_ALPHA_ASSETS,
+  LORD_ALPHA_ANIMATION_PROFILES,
   LORD_ALPHA_ASSET_REVISION,
   LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
+  LORD_ALPHA_ARCHIVED_SKILL_ACTIONS,
   LORD_ALPHA_CARD_PRESENTATIONS,
   LORD_ALPHA_COMBO_ASSET_SUFFIXES,
   LORD_ALPHA_COMBO_BEATS,
   LORD_ALPHA_COMBO_PRESENTATIONS,
   LORD_ALPHA_COMBO_RESET_MS,
   LORD_ALPHA_COMBO_TIMINGS_MS,
+  LORD_ALPHA_DIRECT_GAMEPAD_ACTIONS,
   LORD_ALPHA_EVENT_TIMINGS_MS,
   LORD_ALPHA_EFFECT_SEQUENCE_ASSETS,
   LORD_ALPHA_EFFECT_SEQUENCE_IDS,
   LORD_ALPHA_FORM_IDS,
   LORD_ALPHA_GAMEPLAY_BALANCE_CHANGES,
+  LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS,
+  LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS,
   LORD_ALPHA_HITBOX_CHANGES,
   LORD_ALPHA_PRESENTATION_EVENT_KINDS,
   LORD_ALPHA_PRESENTATION_TIMINGS_MS,
   LORD_ALPHA_PROCEDURAL_EFFECTS,
+  LORD_ALPHA_ROC_CHARGE_DURATION_MS,
+  LORD_ALPHA_ROC_CHARGE_PHASES,
+  LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS,
+  LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
+  LORD_ALPHA_ROC_WING_THRUST_SEQUENCE,
+  LORD_ALPHA_L2_TAP_WINDOW_MS,
+  LORD_ALPHA_R2_TAP_WINDOW_MS,
+  LORD_ALPHA_THARTHAREON_FIREBALL_RELEASE_MS,
   LORD_ALPHA_SKILL_BANKS,
   LORD_ALPHA_SKILL_BINDINGS,
   LORD_ALPHA_SKILL_PREVIEW_ACTIONS,
@@ -35,28 +48,500 @@ import {
   LORD_ALPHA_TOPOLOGY_VOCABULARY,
   LORD_ALPHA_VFX_TIMINGS_MS,
   advanceLordAlphaCombo,
+  advanceLordAlphaGrapplePullMotion,
   anatomicalLeftScreenSide,
+  branchLordAlphaRocChargeCells,
+  buildLordAlphaRocChargeCells,
+  canArmLordAlphaRocBranch,
+  canQueueLordAlphaRocBranchLane,
   clampTopologyProgress,
   createLordAlphaComboState,
   createLordAlphaDimensionalNetMorph,
+  createLordAlphaGrapplePullMotion,
   createLordAlphaPresentationEvent,
   createLordAlphaTopologyMorph,
   generateLordAlphaTopology,
   getLordAlphaCardPresentation,
+  hasLordAlphaRocReachedBranchPane,
+  isLordAlphaCollisionOwnedTharthareon,
+  isLordAlphaRocBranchImpactContact,
   isLordAlphaSkillsPreviewSearch,
   lordAlphaSignatureUsesCooldown,
+  lordAlphaRocBranchCandidateRows,
   lordAlphaTopologyMorphWeights,
   resetLordAlphaCombo,
+  resolveLordAlphaAnimationProfile,
+  resolveLordAlphaGrapplePullColumn,
+  resolveLordAlphaHeldTargetVisualPolicy,
+  resolveLordAlphaRocBranchHighlightCell,
+  resolveLordAlphaRocChargePose,
   resolveLordAlphaAttackSequence,
+  resolveLordAlphaDirectGamepadBinding,
   resolveLordAlphaEffectSequence,
   resolveLordAlphaSkillAction,
+  resolveLordAlphaSkillActionById,
   resolveLordAlphaSkillSequence,
+  resolveLordAlphaL2TapCommand,
+  resolveLordAlphaR2TapCommand,
+  resolveLordAlphaRocR2TapCommand,
+  resolveLordAlphaTharthareonPresentationSubtype,
+  shouldResolveLordAlphaRocBranchImpact,
   resolveLordAlphaVfxMode,
   rocWingPlacement,
   sampleLordAlphaTopologyMorph,
   topologyStage,
   wrapLordAlphaSkillBank,
 } from "./lord-alpha";
+
+test("direct Tharthareon owns a collision carrier without changing Nuke or NPC summons", () => {
+  const genericSubtype = resolveLordAlphaTharthareonPresentationSubtype(
+    false,
+    "tharthareon-emerge",
+  );
+  const biteSubtype = resolveLordAlphaTharthareonPresentationSubtype(
+    true,
+    "tharthareon-emerge",
+  );
+  const fireballSubtype = resolveLordAlphaTharthareonPresentationSubtype(
+    "fireball",
+    "tharthareon-emerge",
+  );
+
+  equal(genericSubtype, "tharthareon-emerge");
+  equal(biteSubtype, "tharthareon-bite-lunge");
+  equal(fireballSubtype, "tharthareon-fireball");
+  equal(isLordAlphaCollisionOwnedTharthareon(createLordAlphaPresentationEvent(
+    "tharthareon",
+    0,
+    { subtype: genericSubtype },
+  )), false);
+  equal(isLordAlphaCollisionOwnedTharthareon(createLordAlphaPresentationEvent(
+    "tharthareon",
+    0,
+    { subtype: biteSubtype },
+  )), true);
+  equal(isLordAlphaCollisionOwnedTharthareon(createLordAlphaPresentationEvent(
+    "tharthareon",
+    0,
+    { subtype: fireballSubtype },
+  )), true);
+  equal(isLordAlphaCollisionOwnedTharthareon(null), false);
+});
+
+test("Lord Alpha grapple attaches, then pulls exactly one cell toward its caster", () => {
+  ok(Math.abs(resolveLordAlphaGrapplePullColumn(4.4, 1, 0, 5.8) - 3.4) < 1e-9);
+  equal(resolveLordAlphaGrapplePullColumn(0, 2, 0, 2), 1);
+  equal(resolveLordAlphaGrapplePullColumn(1.4, 1, 0, 5.8), 1);
+  equal(resolveLordAlphaGrapplePullColumn(3, 0, 3, 5), 3);
+
+  const created = createLordAlphaGrapplePullMotion(4, 1, 0, 5.8);
+  ok(created);
+  equal(created.startColumn, 4);
+  equal(created.endColumn, 3);
+  equal(created.delay, LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS);
+  equal(created.duration, LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS);
+
+  const waiting = advanceLordAlphaGrapplePullMotion(created, created.delay * 0.5);
+  equal(waiting.column, 4);
+  ok(waiting.motion);
+  const completed = advanceLordAlphaGrapplePullMotion(
+    waiting.motion,
+    created.delay + created.duration,
+  );
+  equal(completed.column, 3);
+  equal(completed.motion, null);
+});
+
+test("Roc Stun traverses every cell to its target and retraces the route home", () => {
+  const horizontal = buildLordAlphaRocChargeCells(
+    { col: 0, row: 1 },
+    { col: 5, row: 1 },
+  );
+  deepStrictEqual(horizontal, [
+    { col: 0, row: 1 },
+    { col: 1, row: 1 },
+    { col: 2, row: 1 },
+    { col: 3, row: 1 },
+    { col: 4, row: 1 },
+    { col: 5, row: 1 },
+    { col: 4, row: 1 },
+    { col: 3, row: 1 },
+    { col: 2, row: 1 },
+    { col: 1, row: 1 },
+    { col: 0, row: 1 },
+  ]);
+
+  const bent = buildLordAlphaRocChargeCells(
+    { col: 1, row: 2 },
+    { col: 4, row: 0 },
+  );
+  deepStrictEqual(bent, [
+    { col: 1, row: 2 },
+    { col: 1, row: 1 },
+    { col: 1, row: 0 },
+    { col: 2, row: 0 },
+    { col: 3, row: 0 },
+    { col: 4, row: 0 },
+    { col: 3, row: 0 },
+    { col: 2, row: 0 },
+    { col: 1, row: 0 },
+    { col: 1, row: 1 },
+    { col: 1, row: 2 },
+  ]);
+  for (let index = 1; index < bent.length; index += 1) {
+    const previous = bent[index - 1];
+    const current = bent[index];
+    equal(
+      Math.abs(current.col - previous.col) + Math.abs(current.row - previous.row),
+      1,
+      `route segment ${index} must cross exactly one adjacent cell`,
+    );
+  }
+
+  deepStrictEqual(
+    buildLordAlphaRocChargeCells({ col: 2, row: 0 }, { col: 0, row: 0 }),
+    [
+      { col: 2, row: 0 },
+      { col: 1, row: 0 },
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+      { col: 2, row: 0 },
+    ],
+  );
+  deepStrictEqual(
+    buildLordAlphaRocChargeCells({ col: 3, row: 2 }, { col: 3, row: 2 }),
+    [{ col: 3, row: 2 }],
+  );
+});
+
+test("Roc Stun holds charge and impact, then recovers at its logical origin", () => {
+  const origin = Object.freeze({ col: 0, row: 1 });
+  const target = Object.freeze({ col: 5, row: 1 });
+  const cells = buildLordAlphaRocChargeCells(origin, target);
+  const turnIndex = Math.floor(cells.length / 2);
+
+  deepStrictEqual(resolveLordAlphaRocChargePose(cells, 0), {
+    ...origin,
+    phase: "charge",
+    cellIndex: 0,
+  });
+  deepStrictEqual(resolveLordAlphaRocChargePose(cells, LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd), {
+    ...target,
+    phase: "outbound",
+    cellIndex: turnIndex,
+  });
+  deepStrictEqual(resolveLordAlphaRocChargePose(cells, 0.55), {
+    ...target,
+    phase: "impact",
+    cellIndex: turnIndex,
+  });
+  deepStrictEqual(resolveLordAlphaRocChargePose(cells, LORD_ALPHA_ROC_CHARGE_PHASES.returnEnd), {
+    ...origin,
+    phase: "recovered",
+    cellIndex: cells.length - 1,
+  });
+  deepStrictEqual(resolveLordAlphaRocChargePose(cells, 1), {
+    ...origin,
+    phase: "recovered",
+    cellIndex: cells.length - 1,
+  });
+  deepStrictEqual(origin, { col: 0, row: 1 });
+  deepStrictEqual(target, { col: 5, row: 1 });
+
+  for (let index = 0; index <= turnIndex; index += 1) {
+    const progress = LORD_ALPHA_ROC_CHARGE_PHASES.chargeEnd
+      + (LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd - LORD_ALPHA_ROC_CHARGE_PHASES.chargeEnd)
+        * (index / turnIndex);
+    const pose = resolveLordAlphaRocChargePose(cells, progress);
+    equal(pose.col, cells[index].col);
+    equal(pose.row, cells[index].row);
+  }
+  for (let index = turnIndex; index < cells.length; index += 1) {
+    const progress = LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd
+      + (LORD_ALPHA_ROC_CHARGE_PHASES.returnEnd - LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd)
+        * ((index - turnIndex) / (cells.length - 1 - turnIndex));
+    const pose = resolveLordAlphaRocChargePose(cells, progress);
+    equal(pose.col, cells[index].col);
+    equal(pose.row, cells[index].row);
+  }
+});
+
+test("Roc Wing spin exposes only legal adjacent red-lane candidates", () => {
+  deepStrictEqual(lordAlphaRocBranchCandidateRows(0), [1]);
+  deepStrictEqual(lordAlphaRocBranchCandidateRows(1), [0, 2]);
+  deepStrictEqual(lordAlphaRocBranchCandidateRows(2), [1]);
+  deepStrictEqual(lordAlphaRocBranchCandidateRows(Number.NaN), [1]);
+
+  equal(canArmLordAlphaRocBranch(0), true);
+  equal(canArmLordAlphaRocBranch(LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd), true);
+  equal(canArmLordAlphaRocBranch(LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd + 0.001), false);
+  equal(canQueueLordAlphaRocBranchLane(LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd), true);
+  equal(canQueueLordAlphaRocBranchLane(LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd + 0.001), false);
+});
+
+test("Roc Wing resolves an apex impact only for a confirmed single R2", () => {
+  const apex = { col: 5, row: 1 };
+
+  equal(
+    shouldResolveLordAlphaRocBranchImpact(
+      false,
+      true,
+      false,
+      LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd,
+    ),
+    false,
+    "base R1 remains the non-damaging Roc Stun",
+  );
+  equal(
+    shouldResolveLordAlphaRocBranchImpact(
+      true,
+      false,
+      false,
+      LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd,
+    ),
+    false,
+    "double/triple R2 movement remains armed without queuing an extra Roc attack",
+  );
+  equal(
+    shouldResolveLordAlphaRocBranchImpact(
+      true,
+      true,
+      false,
+      LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd - 0.001,
+    ),
+    false,
+    "the branch cannot hit before reaching its forward apex",
+  );
+  equal(
+    shouldResolveLordAlphaRocBranchImpact(
+      true,
+      true,
+      false,
+      LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd,
+    ),
+    true,
+    "the first apex sample resolves the combo impact",
+  );
+  equal(
+    shouldResolveLordAlphaRocBranchImpact(true, true, true, 1),
+    false,
+    "the held apex and return leg cannot repeat damage",
+  );
+
+  equal(isLordAlphaRocBranchImpactContact(apex, { col: 4.4, row: 1 }), true);
+  equal(isLordAlphaRocBranchImpactContact(apex, { col: 4.39, row: 1 }), false);
+  equal(
+    isLordAlphaRocBranchImpactContact(apex, { col: 5, row: 0 }),
+    false,
+    "the selected recovery lane does not replace the original impact row",
+  );
+});
+
+test("Roc Wing locks its red pane beside the tile occupied when direction is pressed", () => {
+  const cells = buildLordAlphaRocChargeCells(
+    { col: 0, row: 1 },
+    { col: 5, row: 1 },
+  );
+  const turnIndex = Math.floor(cells.length / 2);
+  const atColumnThree = LORD_ALPHA_ROC_CHARGE_PHASES.chargeEnd
+    + (LORD_ALPHA_ROC_CHARGE_PHASES.outboundEnd - LORD_ALPHA_ROC_CHARGE_PHASES.chargeEnd)
+      * (3 / turnIndex);
+
+  const upperHighlight = resolveLordAlphaRocBranchHighlightCell(
+    cells,
+    atColumnThree,
+    turnIndex,
+    -1,
+  );
+  deepStrictEqual(upperHighlight, { col: 3, row: 0 });
+  ok(upperHighlight);
+  const routeToUpperHighlight = branchLordAlphaRocChargeCells(cells, upperHighlight);
+  ok(
+    routeToUpperHighlight.cells.some(
+      (cell) => cell.col === upperHighlight.col && cell.row === upperHighlight.row,
+    ),
+    "the return route must enter the captured red pane",
+  );
+  deepStrictEqual(
+    routeToUpperHighlight.cells[routeToUpperHighlight.cells.length - 1],
+    { col: 0, row: upperHighlight.row },
+    "after turning into the pane LASI returns home in that lane",
+  );
+  deepStrictEqual(
+    resolveLordAlphaRocBranchHighlightCell(cells, atColumnThree, turnIndex, 1),
+    { col: 3, row: 2 },
+  );
+  equal(resolveLordAlphaRocBranchHighlightCell(cells, atColumnThree, turnIndex, 0), null);
+
+  const topLane = buildLordAlphaRocChargeCells(
+    { col: 0, row: 0 },
+    { col: 5, row: 0 },
+  );
+  equal(
+    resolveLordAlphaRocBranchHighlightCell(
+      topLane,
+      atColumnThree,
+      Math.floor(topLane.length / 2),
+      -1,
+    ),
+    null,
+    "an edge press cannot create an off-grid persistent marker",
+  );
+});
+
+test("Roc Wing lands on player-side highlights and returns from enemy-side highlights", () => {
+  const baseCells = buildLordAlphaRocChargeCells(
+    { col: 0, row: 1 },
+    { col: 5, row: 1 },
+  );
+  const playerSideRoute = branchLordAlphaRocChargeCells(baseCells, { col: 2, row: 0 });
+  deepStrictEqual(
+    playerSideRoute.cells[playerSideRoute.cells.length - 1],
+    { col: 2, row: 0 },
+    "a highlighted pane on LASI's half becomes his landing cell",
+  );
+  deepStrictEqual(
+    resolveLordAlphaRocChargePose(playerSideRoute.cells, 1, playerSideRoute.turnIndex),
+    {
+      col: 2,
+      row: 0,
+      phase: "recovered",
+      cellIndex: playerSideRoute.cells.length - 1,
+    },
+  );
+  equal(
+    hasLordAlphaRocReachedBranchPane(
+      playerSideRoute.cells,
+      1,
+      playerSideRoute.turnIndex,
+      { col: 2, row: 0 },
+    ),
+    true,
+    "the player-side marker resolves at the exact committed landing pane",
+  );
+  for (let index = 1; index < playerSideRoute.cells.length; index++) {
+    const previous = playerSideRoute.cells[index - 1];
+    const current = playerSideRoute.cells[index];
+    equal(
+      Math.abs(current.col - previous.col) + Math.abs(current.row - previous.row),
+      1,
+      `player-side branch segment ${index} must remain cell-adjacent`,
+    );
+  }
+
+  const route = branchLordAlphaRocChargeCells(baseCells, { col: 3, row: 0 });
+  deepStrictEqual(
+    route.cells.slice(0, route.turnIndex + 1),
+    baseCells.slice(0, Math.floor(baseCells.length / 2) + 1),
+  );
+  deepStrictEqual(
+    route.cells.slice(route.turnIndex),
+    [
+      { col: 5, row: 1 },
+      { col: 4, row: 1 },
+      { col: 3, row: 1 },
+      { col: 3, row: 0 },
+      { col: 2, row: 0 },
+      { col: 1, row: 0 },
+      { col: 0, row: 0 },
+    ],
+    "LASI returns to the pane's column, turns into it, then carries that lane home",
+  );
+  for (let index = 1; index < route.cells.length; index += 1) {
+    const previous = route.cells[index - 1];
+    const current = route.cells[index];
+    equal(
+      Math.abs(current.col - previous.col) + Math.abs(current.row - previous.row),
+      1,
+      `branched route segment ${index} must remain cell-adjacent`,
+    );
+  }
+  const recovered = resolveLordAlphaRocChargePose(route.cells, 1, route.turnIndex);
+  deepStrictEqual(recovered, {
+    col: 0,
+    row: 0,
+    phase: "recovered",
+    cellIndex: route.cells.length - 1,
+  }, "column 3 is enemy-side, so LASI still returns to a legal player cell");
+
+  const unchanged = branchLordAlphaRocChargeCells(baseCells, { col: 0, row: 1 });
+  deepStrictEqual(unchanged.cells, baseCells);
+
+  const mixedRowBase = buildLordAlphaRocChargeCells(
+    { col: 0, row: 0 },
+    { col: 5, row: 1 },
+  );
+  const mixedRowRoute = branchLordAlphaRocChargeCells(
+    mixedRowBase,
+    { col: 4, row: 2 },
+  );
+  deepStrictEqual(
+    mixedRowRoute.cells[mixedRowRoute.turnIndex],
+    { col: 5, row: 1 },
+    "branch origin is the farthest Roc Wing landing pane",
+  );
+  deepStrictEqual(
+    mixedRowRoute.cells[mixedRowRoute.turnIndex + 1],
+    { col: 4, row: 1 },
+    "LASI first returns in the original lane to the selected column",
+  );
+  deepStrictEqual(
+    mixedRowRoute.cells[mixedRowRoute.cells.length - 1],
+    { col: 0, row: 2 },
+    "LASI continues home through the selected lane after the turn",
+  );
+
+  const crossApexRoute = branchLordAlphaRocChargeCells(
+    mixedRowBase,
+    { col: 3, row: 0 },
+  );
+  deepStrictEqual(
+    crossApexRoute.cells.slice(crossApexRoute.turnIndex),
+    [
+      { col: 5, row: 1 },
+      { col: 4, row: 1 },
+      { col: 3, row: 1 },
+      { col: 3, row: 0 },
+      { col: 2, row: 0 },
+      { col: 1, row: 0 },
+      { col: 0, row: 0 },
+    ],
+    "the press-relative pane remains the exact turn point after the apex",
+  );
+
+  equal(
+    hasLordAlphaRocReachedBranchPane(
+      route.cells,
+      LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd,
+      route.turnIndex,
+      { col: 3, row: 0 },
+    ),
+    false,
+    "the marker remains while LASI has not yet reached the pane",
+  );
+  const atTurnPane = LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd
+    + (LORD_ALPHA_ROC_CHARGE_PHASES.returnEnd - LORD_ALPHA_ROC_CHARGE_PHASES.impactEnd) * 0.5;
+  equal(
+    hasLordAlphaRocReachedBranchPane(
+      route.cells,
+      atTurnPane,
+      route.turnIndex,
+      { col: 3, row: 0 },
+    ),
+    true,
+    "the marker clears when LASI enters the highlighted pane",
+  );
+  equal(
+    hasLordAlphaRocReachedBranchPane(
+      route.cells,
+      1,
+      route.turnIndex,
+      { col: 3, row: 0 },
+    ),
+    true,
+    "a skipped frame after the turn still clears the marker",
+  );
+});
 
 test("Lord Alpha campaign signatures do not inherit card cooldowns", () => {
   equal(lordAlphaSignatureUsesCooldown("classic", false), false);
@@ -78,7 +563,7 @@ test("Lord Alpha skill preview is explicit and covers each deterministic present
       "grapple",
       "roc-stun",
       "dimensional-net",
-      "wormhole-step",
+      "afterimage-step",
       "shadow-clone",
       "tharthareon",
       "millennium-dragon",
@@ -93,6 +578,65 @@ test("Lord Alpha skill preview is explicit and covers each deterministic present
   equal(equipLatency?.label, "Equip Latency");
   equal(equipLatency?.presentation.subtype, "equip-assembly");
   equal(equipLatency?.presentation.durationMs, LORD_ALPHA_EVENT_TIMINGS_MS.equip);
+
+  deepStrictEqual(
+    LORD_ALPHA_ARCHIVED_SKILL_ACTIONS.map(({ id, mechanicId }) => [id, mechanicId]),
+    [["wormhole-step", "warpback"]],
+  );
+  equal(
+    LORD_ALPHA_SKILL_PREVIEW_ACTIONS.some(({ id }) => id === "wormhole-step"),
+    false,
+  );
+  equal(LORD_ALPHA_SKILL_SEQUENCE_ASSETS["wormhole-step"].id, "wormhole-step");
+  equal(LORD_ALPHA_CARD_PRESENTATIONS.warpback.subtype, "wormhole-cast");
+});
+
+test("Lord Alpha animations default to solid sizing on every route", () => {
+  deepStrictEqual(LORD_ALPHA_ANIMATION_PROFILES, ["legacy", "solid"]);
+  equal(
+    resolveLordAlphaAnimationProfile(
+      "?lordAlphaSkills=1&lordAlphaAnimation=solid",
+    ),
+    "solid",
+  );
+  equal(
+    resolveLordAlphaAnimationProfile(
+      "lordAlphaAnimation=solid&lordAlphaSkills=1",
+    ),
+    "solid",
+  );
+  equal(resolveLordAlphaAnimationProfile("?lordAlphaAnimation=solid"), "solid");
+  equal(resolveLordAlphaAnimationProfile("?lordAlphaSkills=1"), "solid");
+  equal(
+    resolveLordAlphaAnimationProfile("?lordAlphaSkills=1&lordAlphaAnimation=legacy"),
+    "legacy",
+  );
+  equal(
+    resolveLordAlphaAnimationProfile(
+      "?lordAlphaSkills=0&lordAlphaAnimation=solid",
+    ),
+    "solid",
+  );
+  equal(
+    resolveLordAlphaAnimationProfile(
+      "?lordAlphaSkills=1&lordAlphaAnimation=SOLID",
+    ),
+    "solid",
+  );
+  equal(resolveLordAlphaAnimationProfile(""), "solid");
+});
+
+test("Lord Alpha held-target visual policy keeps solid targets full-size", () => {
+  deepStrictEqual(resolveLordAlphaHeldTargetVisualPolicy("legacy"), {
+    canvasScale: 0.56,
+    overlayScale: 0.52,
+    overlayClipPath: "ellipse(46% 42% at 50% 50%)",
+  });
+  deepStrictEqual(resolveLordAlphaHeldTargetVisualPolicy("solid"), {
+    canvasScale: 1,
+    overlayScale: 1,
+    overlayClipPath: null,
+  });
 });
 
 test("Lord Alpha signature banks expose stable live-mechanic and input mappings", () => {
@@ -101,11 +645,22 @@ test("Lord Alpha signature banks expose stable live-mechanic and input mappings"
     { slot: 1, gamepad: "Y", keyboard: "X" },
     { slot: 2, gamepad: "B", keyboard: "C" },
   ]);
+  deepStrictEqual(LORD_ALPHA_DIRECT_GAMEPAD_ACTIONS, {
+    X: "tharthareon",
+    B: "web-shot",
+    R1: "roc-stun",
+    R2: "afterimage-step",
+  });
+  equal(resolveLordAlphaDirectGamepadBinding("tharthareon"), "X");
+  equal(resolveLordAlphaDirectGamepadBinding("web-shot"), "B");
+  equal(resolveLordAlphaDirectGamepadBinding("roc-stun"), "R1");
+  equal(resolveLordAlphaDirectGamepadBinding("afterimage-step"), "R2");
+  equal(resolveLordAlphaDirectGamepadBinding("grapple"), null);
   deepStrictEqual(
     LORD_ALPHA_SKILL_BANKS.map(({ id, actionIds }) => ({ id, actionIds })),
     [
-      { id: "web", actionIds: ["web-shot", "grapple", "dimensional-net"] },
-      { id: "mobility", actionIds: ["roc-stun", "wormhole-step", "shadow-clone"] },
+      { id: "web", actionIds: ["roc-stun", "grapple", "web-shot"] },
+      { id: "mobility", actionIds: ["dimensional-net", "afterimage-step", "shadow-clone"] },
       { id: "summon-form", actionIds: ["tharthareon", "millennium-dragon", "equip"] },
     ],
   );
@@ -116,7 +671,7 @@ test("Lord Alpha signature banks expose stable live-mechanic and input mappings"
       ["grapple", "gravity"],
       ["roc-stun", "freeze"],
       ["dimensional-net", "stasisgate"],
-      ["wormhole-step", "warpback"],
+      ["afterimage-step", "backdash"],
       ["shadow-clone", null],
       ["tharthareon", "nuke"],
       ["millennium-dragon", "megabomb"],
@@ -129,11 +684,43 @@ test("Lord Alpha signature banks expose stable live-mechanic and input mappings"
 
   equal(wrapLordAlphaSkillBank(-1), 2);
   equal(wrapLordAlphaSkillBank(3), 0);
-  equal(resolveLordAlphaSkillAction(0, 0)?.id, "web-shot");
+  equal(resolveLordAlphaSkillAction(0, 0)?.id, "roc-stun");
+  equal(resolveLordAlphaSkillAction(0, 2)?.id, "web-shot");
+  equal(resolveLordAlphaSkillAction(1, 0)?.id, "dimensional-net");
   equal(resolveLordAlphaSkillAction(1, 2)?.id, "shadow-clone");
   equal(resolveLordAlphaSkillAction(2, 1)?.id, "millennium-dragon");
   equal(resolveLordAlphaSkillAction(20, -1), null);
   equal(resolveLordAlphaSkillAction(20, 3), null);
+  equal(resolveLordAlphaSkillActionById("tharthareon")?.mechanicId, "nuke");
+});
+
+test("Lord Alpha L2 tap counts separate panel and bank commands", () => {
+  equal(LORD_ALPHA_L2_TAP_WINDOW_MS, 260);
+  equal(resolveLordAlphaL2TapCommand(1), "toggle-skill-panel");
+  equal(resolveLordAlphaL2TapCommand(2), "cycle-forward");
+  equal(resolveLordAlphaL2TapCommand(3), "cycle-back");
+  equal(resolveLordAlphaL2TapCommand(0), null);
+  equal(resolveLordAlphaL2TapCommand(4), null);
+  equal(resolveLordAlphaL2TapCommand(Number.NaN), null);
+});
+
+test("Lord Alpha R2 tap count preserves Step and adds Slice and Back Thrust", () => {
+  equal(LORD_ALPHA_R2_TAP_WINDOW_MS, 260);
+  equal(resolveLordAlphaR2TapCommand(1), "afterimage-step");
+  equal(resolveLordAlphaR2TapCommand(2), "ninjato-phase-slice");
+  equal(resolveLordAlphaR2TapCommand(3), "ninjato-back-thrust");
+  equal(resolveLordAlphaR2TapCommand(0), null);
+  equal(resolveLordAlphaR2TapCommand(4), null);
+  equal(resolveLordAlphaR2TapCommand(Number.NaN), null);
+});
+
+test("Roc Wing keeps its first R2 spin while double and triple taps retain their sword moves", () => {
+  equal(resolveLordAlphaRocR2TapCommand(1), "roc-wing-spin");
+  equal(resolveLordAlphaRocR2TapCommand(2), "ninjato-phase-slice");
+  equal(resolveLordAlphaRocR2TapCommand(3), "ninjato-back-thrust");
+  equal(resolveLordAlphaRocR2TapCommand(0), null);
+  equal(resolveLordAlphaRocR2TapCommand(4), null);
+  equal(resolveLordAlphaRocR2TapCommand(Number.NaN), null);
 });
 
 test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences", () => {
@@ -143,10 +730,15 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
   for (const asset of Object.values(LORD_ALPHA_SKILL_SEQUENCE_ASSETS)) {
     ok(asset.suffix.startsWith("skins/lord-alpha/skill-sequences/"));
     ok(asset.suffix.endsWith(".png"));
-    equal(asset.frameCount, LORD_ALPHA_SKILL_SEQUENCE_FRAME_COUNT);
+    const expectedFrameCount = asset.id === "tharthareon-fireball" || asset.id === "tharthareon"
+      ? 7
+      : asset.id === "ninjato-phase-slice"
+        ? 10
+        : LORD_ALPHA_SKILL_SEQUENCE_FRAME_COUNT;
+    equal(asset.frameCount, expectedFrameCount);
     equal(asset.frameWidth, LORD_ALPHA_SKILL_SEQUENCE_FRAME_WIDTH);
     equal(asset.frameHeight, LORD_ALPHA_SKILL_SEQUENCE_FRAME_HEIGHT);
-    equal(asset.frameWidth * asset.frameCount, 1_920);
+    equal(asset.frameWidth * asset.frameCount, asset.frameWidth * expectedFrameCount);
     equal(asset.frameHoldMs.length, asset.frameCount);
     ok(asset.frameHoldMs.every((hold) => Number.isFinite(hold) && hold > 0));
     equal(asset.frameHoldMs.reduce((sum, hold) => sum + hold, 0), asset.durationMs);
@@ -154,6 +746,14 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
     ok(asset.reducedMotionFrame >= 0);
     ok(asset.reducedMotionFrame < asset.frameCount);
     ok(asset.durationMs > 0);
+    ok(Number.isFinite(asset.actorScale));
+    ok(asset.actorScale >= 1 && asset.actorScale <= 1.5);
+    ok(Number.isFinite(asset.actorRootY));
+    ok(asset.actorRootY > 0 && asset.actorRootY < asset.frameHeight);
+    if ("frameScales" in asset) {
+      equal(asset.frameScales.length, asset.frameCount);
+      ok(asset.frameScales.every((scale) => Number.isFinite(scale) && scale >= 0.5 && scale <= 2));
+    }
     for (const forbiddenKey of ["damage", "power", "range", "cooldown", "status"]) {
       ok(!(forbiddenKey in asset));
     }
@@ -164,11 +764,14 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
     {
       "web-shot": 640,
       grapple: 700,
-      "roc-stun": 700,
+      "roc-stun": LORD_ALPHA_ROC_CHARGE_DURATION_MS,
       "dimensional-net": 800,
       "wormhole-step": 760,
       "shadow-clone": 960,
+      "ninjato-phase-slice": 1_420,
+      "ninjato-back-thrust": 660,
       tharthareon: 980,
+      "tharthareon-fireball": 2_020,
       "millennium-dragon": 1_100,
       equip: 720,
     },
@@ -189,7 +792,7 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
         reducedMotionFrame: 4,
       },
       "roc-stun": {
-        frameHoldMs: [80, 70, 60, 70, 100, 100, 100, 120],
+        frameHoldMs: [140, 130, 140, 180, 420, 420, 210, 160],
         reducedMotionFrame: 3,
       },
       "dimensional-net": {
@@ -204,9 +807,21 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
         frameHoldMs: [90, 100, 110, 120, 140, 160, 120, 120],
         reducedMotionFrame: 6,
       },
-      tharthareon: {
-        frameHoldMs: [100, 100, 110, 130, 160, 170, 100, 110],
+      "ninjato-phase-slice": {
+        frameHoldMs: [240, 90, 180, 50, 50, 60, 280, 60, 90, 320],
         reducedMotionFrame: 6,
+      },
+      "ninjato-back-thrust": {
+        frameHoldMs: [90, 60, 55, 55, 100, 140, 70, 90],
+        reducedMotionFrame: 5,
+      },
+      tharthareon: {
+        frameHoldMs: [150, 130, 140, 160, 140, 130, 130],
+        reducedMotionFrame: 3,
+      },
+      "tharthareon-fireball": {
+        frameHoldMs: [550, 160, 180, 240, 180, 160, 550],
+        reducedMotionFrame: 3,
       },
       "millennium-dragon": {
         frameHoldMs: [110, 120, 130, 150, 170, 180, 110, 130],
@@ -217,6 +832,12 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
         reducedMotionFrame: 7,
       },
     },
+  );
+  equal(
+    LORD_ALPHA_THARTHAREON_FIREBALL_RELEASE_MS,
+    LORD_ALPHA_SKILL_SEQUENCE_ASSETS["tharthareon-fireball"].frameHoldMs
+      .slice(0, 3)
+      .reduce((sum, hold) => sum + hold, 0),
   );
 
   for (const action of LORD_ALPHA_SKILL_PREVIEW_ACTIONS) {
@@ -236,7 +857,11 @@ test("Lord Alpha skill events resolve to their ImageGen-authored frame sequences
     ["wormhole", "dimensional-net", "dimensional-net"],
     ["wormhole", "wormhole-cast", "wormhole-step"],
     ["clone", "clone-symmetry", "shadow-clone"],
+    ["move", "ninjato-phase-slice", "ninjato-phase-slice"],
+    ["move", "ninjato-back-thrust", "ninjato-back-thrust"],
     ["tharthareon", "tharthareon-emerge", "tharthareon"],
+    ["tharthareon", "tharthareon-fireball", "tharthareon-fireball"],
+    ["tharthareon", "tharthareon-bite-lunge", "tharthareon"],
     ["dragon", "ultimate-landing", "millennium-dragon"],
     ["equip", "equip-assembly", "equip"],
   ] as const;
@@ -268,6 +893,10 @@ test("each Lord Alpha combo beat resolves to a distinct authored attack strip", 
     equal(asset.frameWidth, 240);
     equal(asset.frameHeight, 160);
     equal(asset.frameHoldMs.reduce((sum, hold) => sum + hold, 0), asset.durationMs);
+    ok(Number.isFinite(asset.actorScale));
+    ok(asset.actorScale >= 1 && asset.actorScale <= 1.5);
+    ok(Number.isFinite(asset.actorRootY));
+    ok(asset.actorRootY > 0 && asset.actorRootY < asset.frameHeight);
     ok(asset.durationMs <= 330);
     ok(new RegExp(`supreme-combo-${beat}-v\\d+\\.png$`).test(asset.suffix));
     suffixes.add(asset.suffix);
@@ -286,11 +915,11 @@ test("each active Lord Alpha skill resolves to an independent board-space effect
     ["web", "web-chain", "web-shot", "travel"],
     ["web", "web-restraint", "web-shot", "travel"],
     ["web", "web-pull", "grapple", "travel"],
-    ["move", "roc-stun", "roc-stun", "travel"],
+    ["move", "roc-stun", "roc-stun", "target"],
     ["wormhole", "dimensional-net", "dimensional-net", "target"],
     ["wormhole", "wormhole-cast", "wormhole-step", "dual"],
     ["clone", "clone-symmetry", "shadow-clone", "origin"],
-    ["tharthareon", "tharthareon-emerge", "tharthareon", "board"],
+    ["tharthareon", "tharthareon-emerge", "tharthareon", "origin"],
     ["dragon", "ultimate-landing", "millennium-dragon", "board"],
     ["equip", "equip-assembly", "equip-latency", "origin"],
   ] as const;
@@ -312,6 +941,17 @@ test("each active Lord Alpha skill resolves to an independent board-space effect
     ok((asset?.spanScale ?? 0) > 0);
     if (asset) suffixes.add(asset.suffix);
   }
+  const grappleOrb = LORD_ALPHA_EFFECT_SEQUENCE_ASSETS["grapple-orb"];
+  equal(grappleOrb.placement, "target");
+  equal(grappleOrb.frameCount, 8);
+  equal(grappleOrb.frameWidth, 240);
+  equal(grappleOrb.frameHeight, 160);
+  ok(grappleOrb.suffix.endsWith("grapple-orb-v18.png"));
+  suffixes.add(grappleOrb.suffix);
+  equal(
+    LORD_ALPHA_EFFECT_SEQUENCE_ASSETS.tharthareon.suffix,
+    "effects/lord-alpha/sequences/tharthareon-fixed-portal-v19.png",
+  );
   equal(suffixes.size, LORD_ALPHA_EFFECT_SEQUENCE_IDS.length);
 
   equal(resolveLordAlphaEffectSequence(null), null);
@@ -350,6 +990,8 @@ test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => 
   deepStrictEqual(LORD_ALPHA_ASSETS.combo, LORD_ALPHA_COMBO_ASSET_SUFFIXES);
   deepStrictEqual(LORD_ALPHA_ASSETS.attackSequences, LORD_ALPHA_ATTACK_SEQUENCE_ASSETS);
   deepStrictEqual(LORD_ALPHA_ASSETS.skillSequences, LORD_ALPHA_SKILL_SEQUENCE_ASSETS);
+  deepStrictEqual(LORD_ALPHA_ASSETS.rocWingThrustSequence, LORD_ALPHA_ROC_WING_THRUST_SEQUENCE);
+  deepStrictEqual(LORD_ALPHA_ASSETS.rocWingSpinSequence, LORD_ALPHA_ROC_WING_SPIN_SEQUENCE);
   deepStrictEqual(LORD_ALPHA_ASSETS.effectSequences, LORD_ALPHA_EFFECT_SEQUENCE_ASSETS);
   deepStrictEqual(LORD_ALPHA_COMBO_ASSET_SUFFIXES, {
     quick: "skins/lord-alpha/supreme-combo-quick.png",
@@ -365,7 +1007,12 @@ test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => 
   deepStrictEqual(LORD_ALPHA_PROCEDURAL_EFFECTS, [
     "move",
   ]);
-  equal(LORD_ALPHA_ASSET_REVISION, "2026-10-08-v16-arena-imagegen");
+  equal(LORD_ALPHA_ROC_WING_THRUST_SEQUENCE.suffix, "skins/lord-alpha/attachments/roc-wing-thrust-v19.png");
+  equal(LORD_ALPHA_ROC_WING_THRUST_SEQUENCE.durationMs, LORD_ALPHA_ROC_CHARGE_DURATION_MS);
+  equal(LORD_ALPHA_ROC_WING_SPIN_SEQUENCE.durationMs, LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS);
+  equal(LORD_ALPHA_VFX_TIMINGS_MS["roc-stun"], LORD_ALPHA_ROC_CHARGE_DURATION_MS);
+  equal(LORD_ALPHA_SKILL_SEQUENCE_ASSETS["roc-stun"].durationMs, LORD_ALPHA_ROC_CHARGE_DURATION_MS);
+  equal(LORD_ALPHA_ASSET_REVISION, "2026-10-27-frame-normalization-v1");
   equal(LORD_ALPHA_GAMEPLAY_BALANCE_CHANGES, false);
   equal(LORD_ALPHA_HITBOX_CHANGES, false);
 });
@@ -493,6 +1140,7 @@ test("presentation events preserve old calls and normalize optional anchors", ()
       subtype: "wormhole-arrival",
       origin: { x: -0.25, y: 0.4 },
       target: { x: 1.5, y: 0.75 },
+      destination: { x: 0.7, y: 2 },
     }),
     {
       kind: "wormhole",
@@ -500,6 +1148,7 @@ test("presentation events preserve old calls and normalize optional anchors", ()
       subtype: "wormhole-arrival",
       origin: { x: 0, y: 0.4 },
       target: { x: 1, y: 0.75 },
+      destination: { x: 0.7, y: 1 },
     },
   );
   deepStrictEqual(

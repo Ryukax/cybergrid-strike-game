@@ -101,6 +101,8 @@ export interface AbilityBoardContext {
     hp?: number;
     maxHp?: number;
     tags?: readonly AbilityEnemyTag[];
+    /** Live normalized duel distance; avoids duplicating the opponent in enemies. */
+    distance?: number;
   };
 }
 
@@ -275,7 +277,7 @@ function opponentSnapshot(context: AbilityBoardContext): AbilityEnemySnapshot | 
     tags: context.opponent.tags ?? [],
     hp: context.opponent.hp,
     maxHp: context.opponent.maxHp,
-    distance: 0.65,
+    distance: context.opponent.distance ?? 0.65,
   };
 }
 

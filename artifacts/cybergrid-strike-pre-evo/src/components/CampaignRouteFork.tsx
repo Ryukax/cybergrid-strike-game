@@ -84,19 +84,16 @@ export function CampaignRouteFork({
 
   useEffect(() => {
     if (!enabled) return undefined;
-    let frame = 0;
-    let previousSample = 0;
-    const render = (time: number) => {
-      if (time - previousSample >= 90) {
-        previousSample = time;
-        const latestPosition = getPlayerPosition();
-        setPosition((current) => current.row === latestPosition.row && current.col === latestPosition.col
-          ? current : latestPosition);
-      }
-      frame = requestAnimationFrame(render);
+    const sample = () => {
+      const latestPosition = getPlayerPosition();
+      setPosition((current) => current.row === latestPosition.row && current.col === latestPosition.col
+        ? current : latestPosition);
     };
-    frame = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(frame);
+    sample();
+    // Route selection does not need a display-rate callback. Sampling at the
+    // same ~90 ms cadence directly avoids waking another RAF every frame.
+    const timer = window.setInterval(sample, 90);
+    return () => window.clearInterval(timer);
   }, [enabled, getPlayerPosition]);
 
   if (!enabled) return null;

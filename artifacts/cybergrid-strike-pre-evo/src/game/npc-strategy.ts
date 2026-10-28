@@ -41,6 +41,8 @@ export interface VersusNpcContext {
   signatureOriginRow: number;
   signatureOriginCol: number;
   signatureLastCommand: number;
+  /** Per-command coverage ledger; lower-use legal commands are surfaced first. */
+  signatureCommandUses?: readonly [number, number, number];
 }
 
 export interface VersusAbilityPlan {
@@ -945,12 +947,19 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
       (candidate.requiresCharges ?? 0) <= context.signatureCharges
       && (candidate.requiresPlacements ?? 0) <= context.signaturePlacements.length
     ));
+  const commandUses = context.signatureCommandUses ?? [0, 0, 0];
+  const leastUseCount = eligibleCommands.length > 0
+    ? Math.min(...eligibleCommands.map(({ index }) => commandUses[index] ?? 0))
+    : 0;
+  const coverageCommands = eligibleCommands.filter(
+    ({ index }) => (commandUses[index] ?? 0) === leastUseCount,
+  );
   let commandIndex: 0 | 1 | 2 = 0;
   let bestScore = Number.NEGATIVE_INFINITY;
-  for (const { candidate, index } of eligibleCommands) {
+  for (const { candidate, index } of coverageCommands) {
     // A signature is a sequence, not one optimal command spammed repeatedly.
     // When another legal command exists, force the boss to advance its plan.
-    if (eligibleCommands.length > 1 && index === context.signatureLastCommand) continue;
+    if (coverageCommands.length > 1 && index === context.signatureLastCommand) continue;
     const score = scoreIntent(specs[index], context, index);
     if (score > bestScore) {
       bestScore = score;

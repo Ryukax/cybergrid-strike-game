@@ -81,6 +81,47 @@ export interface Bullet {
   homing?: boolean;
   /** NPC-only bounded recovery applied after this projectile deals HP damage. */
   leechOnHit?: number;
+  /** Dedicated authored carrier; omitted for every ordinary projectile. */
+  visualKind?: 'tharthareon-bite' | 'tharthareon-fireball';
+  /** Input-authored Tharthareon action sharing the collision-owned carrier. */
+  tharthareonMode?: 'fireball' | 'bite' | 'headbutt';
+  /** Monotonic one-shot presentation clock; headbutt frames never wrap. */
+  tharthareonCycleElapsed?: number;
+  /** Fixed launch coordinate used to cap a short-range authored carrier. */
+  travelOriginCol?: number;
+  /** Maximum horizontal distance from travelOriginCol before the carrier expires. */
+  travelLimitCells?: number;
+  /** Previous simulation coordinate used by the bite's swept collision check. */
+  previousColPos?: number;
+  /** Set only on the frame the carrier reaches its bounded endpoint. */
+  travelComplete?: boolean;
+  /** Renderer contract: hold the authored final jaw-closed bite frame. */
+  tharthareonFinalBite?: boolean;
+  /** Simulation-owned final-frame hold, in seconds. */
+  tharthareonHoldRemaining?: number;
+  /** Prevents the held impact sprite from applying damage more than once. */
+  tharthareonCollisionResolved?: boolean;
+  /** True until the input source that launched this bite is released. */
+  tharthareonInputHeld?: boolean;
+  /** Stable campaign-enemy identity currently clamped in the jaws. */
+  tharthareonTargetSeed?: number;
+  /** Versus/boss target marker; the live NpcAgent remains the rendered entity. */
+  tharthareonTargetNpc?: boolean;
+  /** Simulation time spent retaining the live target, capped at three seconds. */
+  tharthareonTargetHoldElapsed?: number;
+}
+
+/**
+ * Rewind-safe horizontal displacement used by authored grid pulls. Keeping the
+ * complete interpolation state in GameState makes the motion pause, rewind,
+ * and render through the same simulation clock as its target.
+ */
+export interface GridColumnPullMotion {
+  startColumn: number;
+  endColumn: number;
+  elapsed: number;
+  delay: number;
+  duration: number;
 }
 
 export type EnemyAbility =
@@ -109,6 +150,10 @@ export interface Enemy {
   catalystMarked?: boolean;
   /** Per-entity locomotion restraint used by specialist counter abilities. */
   mobilityLockTimer?: number;
+  /** Lord Alpha's attached grapple; present only while the target crosses a cell. */
+  grapplePull?: GridColumnPullMotion;
+  /** A grappled campaign-route objective remains at its newly secured hold line. */
+  routeHoldColumn?: number;
   /** Suppresses phase, regeneration, fusion and constitution casting. */
   traitSuppressionTimer?: number;
   ability?: EnemyAbility;
@@ -167,6 +212,8 @@ export interface NpcAgent {
   signatureOriginRow: number;
   strategyStep: number;
   decisionLock: number;
+  /** Lord Alpha's attached grapple; columns remain local to the NPC half. */
+  grapplePull?: GridColumnPullMotion;
 }
 
 export interface AbilityCooldowns {

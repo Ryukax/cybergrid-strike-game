@@ -1,7 +1,7 @@
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
@@ -27,9 +27,65 @@ if (!basePath) {
   );
 }
 
+const lanEntryRedirect = (): Plugin => {
+  const redirectRoot = (
+    request: { url?: string; headers?: Record<string, string | string[] | undefined> },
+    response: { statusCode: number; setHeader(name: string, value: string): void; end(): void },
+    next: () => void,
+  ) => {
+    const requestUrl = request.url ?? '/';
+    if (requestUrl.startsWith(`${basePath}__client-error`)) {
+      const diagnostic = new URL(requestUrl, 'http://cybergrid.local');
+      const clean = (value: string | null, limit: number) => (value ?? '')
+        .replace(/[\r\n\t]+/g, ' ')
+        .slice(0, limit);
+      const kind = clean(diagnostic.searchParams.get('kind'), 80) || 'client error';
+      const message = clean(diagnostic.searchParams.get('message'), 300) || 'No message';
+      const userAgent = clean(
+        diagnostic.searchParams.get('ua')
+          ?? String(request.headers?.['user-agent'] ?? ''),
+        320,
+      );
+      console.warn(`[CyberGrid Safari] ${kind}: ${message} | ${userAgent}`);
+      response.statusCode = 204;
+      response.setHeader('Cache-Control', 'no-store');
+      response.end();
+      return;
+    }
+    if (requestUrl === '/' || requestUrl.startsWith('/?')) {
+      response.statusCode = 302;
+      response.setHeader('Location', `${basePath}${requestUrl.slice(1)}`);
+      response.end();
+      return;
+    }
+    next();
+  };
+
+  return {
+    name: 'cybergrid-lan-entry-redirect',
+    configureServer(server) {
+      server.middlewares.use(redirectRoot);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(redirectRoot);
+    },
+  };
+};
+
 export default defineConfig({
   base: basePath,
+  // Keep the LAN build parseable on older iPhones as well as current Safari.
+  // Runtime collection/image fallbacks are installed before the game module.
+  esbuild: {
+    target: 'safari12',
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'safari12',
+    },
+  },
   plugins: [
+    lanEntryRedirect(),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
@@ -63,6 +119,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    target: 'safari12',
+    cssTarget: 'safari12',
   },
   server: {
     port,

@@ -27,6 +27,10 @@ html, body, #root {
   color: var(--text);
 }
 
+html {
+  height: -webkit-fill-available;
+}
+
 body {
   touch-action: none;
 }
@@ -35,8 +39,11 @@ body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
+  min-height: -webkit-fill-available;
   overflow: hidden;
   touch-action: none;
+  -webkit-user-select: none;
   user-select: none;
 }
 
@@ -68,9 +75,9 @@ body {
 }
 
 @keyframes integrityNoise {
-  0%, 100% { transform: translate(0, 0); filter: hue-rotate(0deg); }
-  35% { transform: translate(2px, -1px); filter: hue-rotate(16deg); }
-  70% { transform: translate(-2px, 1px); filter: hue-rotate(-12deg); }
+  0%, 100% { transform: translate(0, 0); }
+  35% { transform: translate(2px, -1px); }
+  70% { transform: translate(-2px, 1px); }
 }
 
 canvas#canvas {
@@ -107,11 +114,13 @@ canvas#canvas {
 }
 
 .panel {
-  background: rgba(8, 20, 40, 0.55);
+  /* Avoid re-blurring the continuously repainted game canvas beneath each HUD
+     panel. The denser fill retains the readable glass silhouette. */
+  background: rgba(8, 20, 40, 0.88);
   border: 1px solid rgba(125, 211, 252, 0.35);
   border-radius: 12px;
   padding: 8px 12px;
-  backdrop-filter: blur(4px);
+  contain: layout paint style;
   box-shadow: 0 0 20px rgba(14, 165, 233, 0.12) inset;
 }
 
@@ -334,7 +343,7 @@ canvas#canvas {
     radial-gradient(circle at 50% 52%, rgba(34, 211, 238, calc(.08 + var(--integrity) * .15)), transparent 54%),
     linear-gradient(145deg, rgba(2, 8, 23, .9), rgba(4, 14, 31, .72));
   box-shadow: 0 0 34px rgba(6, 182, 212, calc(var(--integrity) * .22)), inset 0 0 22px rgba(2, 6, 23, .72);
-  backdrop-filter: blur(7px);
+  contain: layout paint style;
 }
 .constructHeading {
   position: absolute;
@@ -478,7 +487,7 @@ canvas#canvas {
 .telemetryFlow.research { background: #c4b5fd; animation-delay: -.9s; }
 @keyframes telemetryPulse { 50% { transform: scaleX(.35); opacity: .4; } }
 .integrityConstruct.critical { animation: constructBreach .7s steps(2) infinite; }
-@keyframes constructBreach { 50% { border-color: rgba(251, 113, 133, .7); filter: hue-rotate(-12deg); } }
+@keyframes constructBreach { 50% { border-color: rgba(251, 113, 133, .7); } }
 .integrityConstruct.core-growing {
   box-shadow: 0 0 44px rgba(34, 211, 238, .42), inset 0 0 22px rgba(2, 6, 23, .72);
 }
@@ -745,11 +754,10 @@ canvas#canvas {
 }
 
 @keyframes skillCasterMaterialize {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
-  18% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
-  34%, 72% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  86% { opacity: 0.9; transform: translate(-50%, -50%) scale(0.94); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.72); }
+  0% { opacity: 0; transform: translate(-50%, -50%); }
+  18%, 72% { opacity: 1; transform: translate(-50%, -50%); }
+  86% { opacity: 0.9; transform: translate(-50%, -50%); }
+  100% { opacity: 0; transform: translate(-50%, -50%); }
 }
 
 .cloneAvatar {
@@ -769,15 +777,15 @@ canvas#canvas {
 @keyframes cloneMaterializeHandoff {
   0%, 62% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.92);
+    transform: translate(-50%, -50%);
   }
   84% {
     opacity: 0.72;
-    transform: translate(-50%, -50%) scale(0.98);
+    transform: translate(-50%, -50%);
   }
   100% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(-50%, -50%);
   }
 }
 
@@ -959,14 +967,14 @@ canvas#canvas {
 .cloneActionBtn:disabled { opacity: 0.3; transform: none; }
 
 @keyframes cloneAttackCommit {
-  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  80% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(0.82); opacity: 0; }
+  0% { transform: translate(-50%, -50%); opacity: 1; }
+  80% { transform: translate(-50%, -50%); opacity: 1; }
+  100% { transform: translate(-50%, -50%); opacity: 0; }
 }
 
 @keyframes cloneDisperse {
-  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { transform: translate(-50%, -58%) scale(1.35); opacity: 0; }
+  0% { transform: translate(-50%, -50%); opacity: 1; }
+  100% { transform: translate(-50%, -58%); opacity: 0; }
 }
 
 /* Card UI wrapper — column container positioned below the grid */
@@ -1454,11 +1462,12 @@ canvas#canvas {
 .rivalPlayerSprite {
   animation: rivalIdle 1.15s steps(2, end) infinite;
   transform-origin: 50% 80%;
+  filter: drop-shadow(0 3px 2px rgba(2, 6, 23, 0.75));
 }
 
 @keyframes rivalIdle {
-  0%, 100% { margin-top: 0; filter: drop-shadow(0 3px 2px rgba(2, 6, 23, 0.75)); }
-  50% { margin-top: -3px; filter: drop-shadow(0 5px 4px rgba(34, 211, 238, 0.28)); }
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -3px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2312,6 +2321,7 @@ canvas#canvas {
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.48);
   pointer-events: none;
+  contain: layout paint style;
 }
 
 .actionWindowHeader {
@@ -2368,7 +2378,7 @@ canvas#canvas {
   overflow: visible;
   transform: translate(-50%, -91.25%);
   transform-origin: 50% 91.25%;
-  will-change: left, top, opacity;
+  will-change: opacity;
 }
 
 #actionWindowBar.campaignRouteForkEnabled {
@@ -3480,7 +3490,8 @@ canvas#canvas {
 }
 
 /* VS NPC menu button */
-#menuVsBtn {
+#menuVsBtn,
+#menuNpcVsNpcBtn {
   background: linear-gradient(135deg, rgba(16, 100, 60, 0.85), rgba(5, 45, 30, 0.95));
   border: 2px solid rgba(52, 211, 153, 0.7);
   border-radius: 16px;
@@ -3496,9 +3507,48 @@ canvas#canvas {
   width: 100%;
 }
 
-#menuVsBtn:active {
+#menuVsBtn:active,
+#menuNpcVsNpcBtn:active {
   transform: scale(0.96);
   box-shadow: 0 0 44px rgba(52, 211, 153, 0.6);
+}
+
+#menuNpcVsNpcBtn {
+  background: linear-gradient(135deg, rgba(88, 28, 135, 0.9), rgba(15, 45, 75, 0.96));
+  border-color: rgba(103, 232, 249, 0.75);
+  box-shadow: 0 0 28px rgba(103, 232, 249, 0.28);
+}
+
+#game.npc-vs-npc #cardUiWrapper,
+#game.npc-vs-npc #dpad,
+#game.npc-vs-npc #controls,
+#game.npc-vs-npc #cloneActionControls,
+#game.npc-vs-npc #lordAlphaSkillPreview {
+  display: none !important;
+}
+
+#game.npc-vs-npc #hud .panel:first-child {
+  color: #67e8f9;
+  border-color: rgba(103, 232, 249, 0.55);
+  text-shadow: 0 0 8px rgba(103, 232, 249, 0.45);
+}
+
+#gameOverOverlay.npcVsNpcResult {
+  background: rgba(3, 12, 28, 0.88);
+}
+
+#gameOverCard.npcVsNpcResult {
+  border-color: rgba(103, 232, 249, 0.62);
+  box-shadow: 0 0 60px rgba(103, 232, 249, 0.18);
+}
+
+#gameOverCard.npcVsNpcResult #gameOverTitle {
+  color: #67e8f9;
+  text-shadow: 0 0 20px rgba(103, 232, 249, 0.65);
+}
+
+.npcVsNpcPickerCard #customSubtitle {
+  color: #a5f3fc;
 }
 
 /* NPC HP HUD panel */
@@ -3626,7 +3676,79 @@ canvas#canvas {
   height: 112% !important;
   transform: translate(-50%, -50%);
   z-index: 2;
+}
+/* Keep the glow on the stable body layer. Filtering the outer sprite forced
+   the browser to re-filter its independently moving body, wing, and slinger
+   as one surface on every idle frame. */
+.lordAlphaGameplay .lordAlphaSprite__body {
   filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.5));
+}
+.lordAlphaAfterimageLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  pointer-events: none;
+  overflow: hidden;
+  contain: layout paint style;
+}
+.lordAlphaAfterimageGhost {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  /* The gameplay loop updates left/top directly; declaring them here cannot
+     move that work to the compositor and only reserves extra layers. */
+  will-change: opacity, transform;
+  mix-blend-mode: screen;
+  filter:
+    saturate(1.25)
+    drop-shadow(0 0 7px rgba(103, 232, 249, 0.9))
+    drop-shadow(0 0 12px rgba(250, 204, 21, 0.32));
+}
+.lordAlphaAfterimageGhost[data-trail-index="1"] {
+  filter:
+    hue-rotate(7deg)
+    drop-shadow(0 0 6px rgba(125, 211, 252, 0.72));
+}
+.lordAlphaAfterimageGhost[data-trail-index="2"] {
+  filter:
+    hue-rotate(15deg)
+    drop-shadow(0 0 5px rgba(167, 139, 250, 0.62));
+}
+.lordAlphaNinjatoSliceLayer {
+  z-index: 35;
+}
+.lordAlphaNinjatoSliceGhost {
+  mix-blend-mode: screen;
+  filter:
+    saturate(1.18)
+    drop-shadow(0 0 6px rgba(244, 211, 94, 0.86))
+    drop-shadow(0 0 10px rgba(56, 189, 248, 0.56));
+}
+.lordAlphaNinjatoSliceGhost[data-trail-index="1"] {
+  filter:
+    saturate(1.12)
+    drop-shadow(0 0 5px rgba(125, 211, 252, 0.72));
+}
+.lordAlphaNinjatoSliceGhost[data-trail-index="2"] {
+  filter:
+    saturate(1.06)
+    drop-shadow(0 0 4px rgba(167, 139, 250, 0.58));
+}
+.lordAlphaAfterimageSprite {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 100% !important;
+  height: 112% !important;
+  transform: translate(-50%, -50%);
+}
+.lordAlphaAfterimageSprite .lordAlphaSprite__wing {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lordAlphaAfterimageGhost:not([data-trail-index="0"]) {
+    display: none;
+  }
 }
 /* The opt-in animation lab keeps gameplay coordinates, sprite size, and hitboxes intact. */
 .lordAlphaGameplayPreview[data-motion="skill"] {
@@ -3636,7 +3758,61 @@ canvas#canvas {
   scale: 1;
   transform-origin: 50% 86%;
 }
+/*
+ * Opt-in fixed-frame animation profile. The authored strip remains animated,
+ * while the outer actor box never squashes, shrinks or adds a translucent
+ * duplicate. This keeps gameplay size and the anatomical silhouette stable.
+ */
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__motion[data-motion="attack"],
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__motion[data-motion="skill"] {
+  animation: none !important;
+  transform: none !important;
+  scale: 1 !important;
+}
+/*
+ * Sequence sheets are authored as 240x160 frames. Rendering an eight-frame
+ * strip at 800% of the square actor width made the sheet only two-thirds as
+ * tall as the actor, so LASI shrank whenever an attack or skill began. Give
+ * the clipping viewport the authored 3:2 aspect ratio. Each body manifest can
+ * then apply one sequence-wide skeleton gauge without distorting individual
+ * poses. The strip still advances one complete frame at a time.
+ */
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__skillSequenceViewport {
+  left: 50% !important;
+  right: auto !important;
+  width: auto !important;
+  aspect-ratio: 3 / 2;
+}
+/* The independently authored Roc Wing strip uses the same 240x160 cells. */
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__wingSequenceViewport {
+  left: -63% !important;
+  right: auto !important;
+  width: auto !important;
+  height: 100% !important;
+  aspect-ratio: 3 / 2;
+}
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__wingSequenceViewport[data-screen-side="screen-right"] {
+  left: auto !important;
+  right: -63% !important;
+}
+#game[data-lord-alpha-animation="solid"] .lordAlphaSprite__skillSequenceSheet--trail {
+  display: none !important;
+}
+#game[data-lord-alpha-animation="solid"] .lordAlphaGlobalVfx {
+  mix-blend-mode: normal;
+}
+#game[data-lord-alpha-animation="solid"] .rivalPlayerSprite[data-tharthareon-held="true"],
+#game[data-lord-alpha-animation="solid"] .rivalPlayerSprite[data-tharthareon-held="true"] * {
+  animation-play-state: paused !important;
+}
+#game[data-lord-alpha-animation="solid"] #lordAlphaSkillPreview > header small {
+  color: #fde68a;
+  font-weight: 800;
+}
 .lordAlphaNpcGameplay {
+  filter: none;
+}
+.lordAlphaNpcGameplay .lordAlphaSprite__body {
   filter:
     drop-shadow(0 0 3px rgba(253, 230, 138, 0.4))
     drop-shadow(0 0 5px rgba(96, 165, 250, 0.36));
@@ -3651,7 +3827,9 @@ canvas#canvas {
 }
 .lordAlphaGlobalVfx {
   z-index: 16 !important;
-  mix-blend-mode: screen;
+  /* Alpha is authored into the effect canvas; normal composition avoids an
+     extra full-screen blend surface on every VFX frame. */
+  mix-blend-mode: normal;
 }
 .lordAlphaPreviewVfx {
   /* Keep authored geometry above gameplay, but never over its preview controls. */
@@ -3660,9 +3838,15 @@ canvas#canvas {
 #lordAlphaSkillPreview {
   position: fixed;
   z-index: 42;
+  display: flex;
+  flex-direction: column;
   right: 50%;
   bottom: max(8px, env(safe-area-inset-bottom));
   width: min(310px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  box-sizing: border-box;
   padding: 7px;
   color: #e0f2fe;
   border: 1px solid rgba(125, 211, 252, 0.7);
@@ -3671,6 +3855,25 @@ canvas#canvas {
   box-shadow: 0 0 18px rgba(56, 189, 248, 0.2);
   touch-action: manipulation;
   transform: translateX(50%);
+}
+#lordAlphaSkillPreview:not([data-open]):not([data-hud-editing]) {
+  height: auto !important;
+}
+#lordAlphaSkillPreview[data-hud-editing] {
+  z-index: 80;
+  outline: 2px solid #22d3ee;
+  outline-offset: 3px;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.32);
+}
+#lordAlphaSkillPreview[data-hud-editing][data-presenting] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.lordAlphaSkillLayoutLabel {
+  z-index: 8;
+}
+.lordAlphaSkillResizeHandle {
+  z-index: 9;
 }
 #lordAlphaSkillPreview > header {
   display: flex;
@@ -3685,6 +3888,14 @@ canvas#canvas {
 }
 #lordAlphaSkillPreview > header:active {
   cursor: grabbing;
+}
+.lordAlphaSkillBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 #lordAlphaSkillPreview > header > span {
   display: grid;
@@ -3814,7 +4025,7 @@ canvas#canvas {
   border-color: #fde68a;
   background: rgba(30, 64, 175, 0.96);
 }
-#lordAlphaSkillPreview > p {
+.lordAlphaSkillBody > p {
   margin: 6px 2px 0;
   color: rgba(186, 230, 253, 0.62);
   font-size: 8px;
@@ -3911,4 +4122,40 @@ canvas#canvas {
 }
 @media (prefers-reduced-motion: reduce) {
   .lordAlphaGlobalVfx { mix-blend-mode: normal; }
+}
+
+/* Keep coarse-pointer/mobile combat responsive by avoiding full-screen blend
+   and filter work. Geometry, timing, and hit feedback remain unchanged. */
+@media (max-width: 900px), (pointer: coarse) {
+  /* Avoid WebKit's full-screen canvas + backdrop-filter compositor failure.
+     The opaque menu keeps the same visual hierarchy without a live blur layer. */
+  #mainMenu {
+    height: 100vh;
+    height: 100svh;
+    max-height: 100dvh;
+    background: #020617;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  #mainMenu > #menuCard {
+    flex: 0 0 auto;
+    margin: 0 auto;
+  }
+
+  #game.integrity-low::after,
+  #game.integrity-critical::after {
+    animation: none;
+    transform: none;
+  }
+
+  .lordAlphaAfterimageGhost,
+  .lordAlphaAfterimageGhost[data-trail-index="1"],
+  .lordAlphaAfterimageGhost[data-trail-index="2"],
+  .lordAlphaNinjatoSliceGhost,
+  .lordAlphaNinjatoSliceGhost[data-trail-index="1"],
+  .lordAlphaNinjatoSliceGhost[data-trail-index="2"] {
+    mix-blend-mode: normal;
+    filter: drop-shadow(0 0 4px rgba(125, 211, 252, 0.58));
+  }
 }

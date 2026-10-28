@@ -20,7 +20,10 @@ if (-not $createdNew) {
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $stateRoot = Join-Path $env:LOCALAPPDATA 'CyberGridStrikePreview'
 $logPath = Join-Path $stateRoot 'server.log'
+$linkPath = Join-Path $stateRoot 'current-link.txt'
 $probeUrl = "http://127.0.0.1:$Port$BasePath"
+$lastPublishedUrl = $null
+$lastNetworkCheckAt = [DateTime]::MinValue
 
 New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
 
@@ -43,6 +46,35 @@ function Test-PreviewReady {
   }
   catch {
     return $false
+  }
+}
+
+function Publish-LanPreviewUrl {
+  try {
+    $configuration = Get-NetIPConfiguration -ErrorAction Stop |
+      Where-Object {
+        $_.IPv4DefaultGateway -and
+        $_.NetAdapter.Status -eq 'Up' -and
+        $_.IPv4Address
+      } |
+      Sort-Object InterfaceMetric |
+      Select-Object -First 1
+    $address = $configuration.IPv4Address |
+      Where-Object { $_.IPAddress -notlike '169.254.*' } |
+      Select-Object -First 1 -ExpandProperty IPAddress
+    if (-not $address) {
+      return
+    }
+
+    $lanUrl = "http://${address}:$Port$BasePath"
+    Set-Content -LiteralPath $linkPath -Value $lanUrl -Encoding utf8
+    if ($script:lastPublishedUrl -ne $lanUrl) {
+      Write-PreviewLog "Phone / Safari link: $lanUrl"
+      $script:lastPublishedUrl = $lanUrl
+    }
+  }
+  catch {
+    Write-PreviewLog "Could not resolve the current LAN address: $($_.Exception.Message)"
   }
 }
 
@@ -71,8 +103,15 @@ function Add-BundledNodeToPath {
 
 try {
   Write-PreviewLog 'Preview watchdog started.'
+  Publish-LanPreviewUrl
 
   while ($true) {
+    $now = Get-Date
+    if (($now - $lastNetworkCheckAt).TotalSeconds -ge 30) {
+      Publish-LanPreviewUrl
+      $lastNetworkCheckAt = $now
+    }
+
     if (Test-PreviewReady) {
       Start-Sleep -Seconds 5
       continue
@@ -94,11 +133,37 @@ try {
 
       Push-Location $projectRoot
       try {
-        Write-PreviewLog "Launching CyberGrid Strike at $probeUrl"
-        & $pnpm run dev 2>&1 | ForEach-Object {
-          Add-Content -LiteralPath $logPath -Value ([string]$_)
+        # Vite's development client follows Vite's own modern browser floor and
+        # can fail before the game bundle runs on older iOS Safari. Serve the
+        # Safari-targeted production bundle on the phone/LAN port instead.
+        Write-PreviewLog 'Building Safari-compatible phone bundle.'
+        $previousErrorActionPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+          & $pnpm run build 2>&1 | ForEach-Object {
+            Add-Content -LiteralPath $logPath -Value ([string]$_)
+          }
+          $buildExitCode = $LASTEXITCODE
         }
-        Write-PreviewLog "Preview process exited with code $LASTEXITCODE; restarting."
+        finally {
+          $ErrorActionPreference = $previousErrorActionPreference
+        }
+        if ($buildExitCode -ne 0) {
+          throw "Production build exited with code $buildExitCode."
+        }
+
+        Write-PreviewLog "Launching Safari-compatible CyberGrid Strike at $probeUrl"
+        $ErrorActionPreference = 'Continue'
+        try {
+          & $pnpm run serve 2>&1 | ForEach-Object {
+            Add-Content -LiteralPath $logPath -Value ([string]$_)
+          }
+          $previewExitCode = $LASTEXITCODE
+        }
+        finally {
+          $ErrorActionPreference = $previousErrorActionPreference
+        }
+        Write-PreviewLog "Preview process exited with code $previewExitCode; restarting."
       }
       finally {
         Pop-Location

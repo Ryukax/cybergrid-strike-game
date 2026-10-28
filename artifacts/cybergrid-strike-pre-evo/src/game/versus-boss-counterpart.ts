@@ -1,9 +1,11 @@
 import {
   composePracticalAbilityHand,
+  evaluateAbility,
   type AbilityBoardContext,
 } from './ability-system';
 import { ABILITY_LOOKUP } from './constants';
 import {
+  generatedVersusAbilityIsPractical,
   readGeneratedVersusAbilityCard,
   selectGeneratedVersusAbilities,
   type GeneratedAbilityId,
@@ -78,6 +80,9 @@ export interface VersusBossAbilityHandState {
   readonly unsupportedAbilityIds: readonly string[];
   readonly hand: readonly VersusBossAbilityId[];
   readonly previousHand: readonly VersusBossAbilityId[];
+  /** Cards not yet surfaced during the current deal cycle. */
+  readonly dealCycleRemainingAbilityIds: readonly VersusBossAbilityId[];
+  /** Cards cast or explicitly retired from the current hand. */
   readonly usedAbilityIds: readonly VersusBossAbilityId[];
   readonly cooldowns: Readonly<Record<string, number>>;
   readonly dealIndex: number;
@@ -221,6 +226,7 @@ export function createVersusBossCounterpart(
       unsupportedAbilityIds,
       hand: [],
       previousHand: [],
+      dealCycleRemainingAbilityIds: [...pool],
       usedAbilityIds: [],
       cooldowns: Object.fromEntries(pool.map((abilityId) => [abilityId, 0])),
       dealIndex: 0,
@@ -228,9 +234,97 @@ export function createVersusBossCounterpart(
   };
 }
 
+function practicalReadyAbilityIds(
+  counterpart: VersusBossCounterpart,
+  context: AbilityBoardContext,
+): VersusBossAbilityId[] {
+  return counterpart.abilities.pool.filter((abilityId) => {
+    if ((counterpart.abilities.cooldowns[abilityId] ?? 0) > 0) return false;
+    if (isVersusAbilityId(abilityId)) {
+      return evaluateAbility(abilityId, context).valid;
+    }
+    const card = counterpart.abilities.generatedCards[abilityId as GeneratedAbilityId];
+    return Boolean(card && generatedVersusAbilityIsPractical(card, context));
+  });
+}
+
+function preferOutsidePreviousHand(
+  candidates: readonly VersusBossAbilityId[],
+  previousHand: ReadonlySet<VersusBossAbilityId>,
+  size: number,
+): VersusBossAbilityId[] {
+  const fresh = candidates.filter((abilityId) => !previousHand.has(abilityId));
+  return fresh.length >= Math.min(size, candidates.length)
+    ? fresh
+    : [...candidates];
+}
+
+function selectPracticalHand(
+  counterpart: VersusBossCounterpart,
+  candidates: readonly VersusBossAbilityId[],
+  context: AbilityBoardContext,
+  seed: number,
+  size: number,
+): VersusBossAbilityId[] {
+  const limit = Math.max(0, Math.min(VERSUS_BOSS_ABILITY_HAND_SIZE, Math.trunc(size)));
+  if (limit === 0) return [];
+  const canonicalCandidates = candidates.filter(isVersusAbilityId);
+  const generatedCandidates = candidates
+    .map((abilityId) => counterpart.abilities.generatedCards[abilityId as GeneratedAbilityId])
+    .filter((card): card is GeneratedVersusAbilityCard => Boolean(card));
+
+  if (limit === 1) {
+    const canonical = composePracticalAbilityHand({
+      availableAbilityIds: canonicalCandidates,
+      context,
+      seed,
+      size: 1,
+    }).map(({ id }) => id).find(isVersusAbilityId);
+    const generated = selectGeneratedVersusAbilities(
+      generatedCandidates,
+      context,
+      seed,
+      1,
+    )[0]?.id;
+    // A one-card mixed hand must not be permanently owned by either class.
+    // The seed makes the choice reproducible while allowing both the exact
+    // generated definition and the practical canonical card to surface.
+    const selected = canonical && generated
+      ? ((seed & 1) === 0 ? generated : canonical)
+      : (generated ?? canonical);
+    return selected ? [selected] : [];
+  }
+
+  const firstGenerated = selectGeneratedVersusAbilities(
+    generatedCandidates,
+    context,
+    seed,
+    canonicalCandidates.length > 0 ? 1 : limit,
+  );
+  const canonicalHand = composePracticalAbilityHand({
+    availableAbilityIds: canonicalCandidates,
+    context,
+    seed,
+    size: Math.max(1, limit - firstGenerated.length),
+  }).map(({ id }) => id).filter(isVersusAbilityId);
+  const remainingGenerated = selectGeneratedVersusAbilities(
+    generatedCandidates.filter((card) => !firstGenerated.some(({ id }) => id === card.id)),
+    context,
+    seed ^ 0x27d4eb2d,
+    Math.max(0, limit - firstGenerated.length - canonicalHand.length),
+  );
+  return [
+    ...firstGenerated.map(({ id }) => id),
+    ...canonicalHand,
+    ...remainingGenerated.map(({ id }) => id),
+  ].slice(0, limit);
+}
+
 /**
  * Deals from only this opponent's selected preset. No boss profile, skin, or
- * fallback list may inject unrelated cards into the hand.
+ * fallback list may inject unrelated cards into the hand. Practical, ready
+ * cards remaining in the current coverage cycle are always selected before
+ * cards already surfaced during that cycle.
  */
 export function dealVersusBossAbilityHand(
   counterpart: VersusBossCounterpart,
@@ -240,71 +334,40 @@ export function dealVersusBossAbilityHand(
     1,
     Math.min(VERSUS_BOSS_ABILITY_HAND_SIZE, Math.trunc(options.size ?? VERSUS_BOSS_ABILITY_HAND_SIZE)),
   );
-  const ready = counterpart.abilities.pool.filter(
-    (abilityId) => (counterpart.abilities.cooldowns[abilityId] ?? 0) <= 0,
-  );
+  const practicalReady = practicalReadyAbilityIds(counterpart, options.context);
+  const pool = new Set(counterpart.abilities.pool);
+  const storedRemaining = counterpart.abilities.dealCycleRemainingAbilityIds
+    .filter((abilityId) => pool.has(abilityId));
+  const cycleRemaining = storedRemaining.length > 0
+    ? storedRemaining
+    : [...counterpart.abilities.pool];
+  const cycleRemainingSet = new Set(cycleRemaining);
   const previous = new Set(counterpart.abilities.hand);
-  const fresh = ready.filter((abilityId) => !previous.has(abilityId));
-  const candidates = fresh.length >= size
-    ? fresh
-    : [...new Set([...fresh, ...ready])];
-  const canonicalCandidates = candidates.filter(isVersusAbilityId);
-  const generatedCandidates = candidates
-    .map((abilityId) => counterpart.abilities.generatedCards[abilityId as GeneratedAbilityId])
-    .filter((card): card is GeneratedVersusAbilityCard => Boolean(card));
-  if (size === 1) {
-    const canonical = composePracticalAbilityHand({
-      availableAbilityIds: canonicalCandidates,
-      context: options.context,
-      seed: options.seed,
-      size: 1,
-    }).map(({ id }) => id).find(isVersusAbilityId);
-    const generated = selectGeneratedVersusAbilities(
-      generatedCandidates,
-      options.context,
-      options.seed,
-      1,
-    )[0]?.id;
-    // A one-card mixed hand must not be permanently owned by either class.
-    // The seed makes the choice reproducible while allowing both the exact
-    // generated definition and the practical canonical card to surface.
-    const selected = canonical && generated
-      ? ((options.seed & 1) === 0 ? generated : canonical)
-      : (generated ?? canonical);
-    return {
-      ...counterpart,
-      abilities: {
-        ...counterpart.abilities,
-        hand: selected ? [selected] : [],
-        previousHand: [...counterpart.abilities.hand],
-        usedAbilityIds: [],
-        dealIndex: counterpart.abilities.dealIndex + 1,
-      },
-    };
-  }
-  const firstGenerated = selectGeneratedVersusAbilities(
-    generatedCandidates,
+  const pending = practicalReady.filter((abilityId) => cycleRemainingSet.has(abilityId));
+  const priorityCandidates = preferOutsidePreviousHand(pending, previous, size);
+  const priorityHand = selectPracticalHand(
+    counterpart,
+    priorityCandidates,
     options.context,
     options.seed,
-    canonicalCandidates.length > 0 ? 1 : size,
+    size,
   );
-  const canonicalHand = composePracticalAbilityHand({
-    availableAbilityIds: canonicalCandidates,
-    context: options.context,
-    seed: options.seed,
-    size: Math.max(1, size - firstGenerated.length),
-  }).map(({ id }) => id).filter(isVersusAbilityId);
-  const remainingGenerated = selectGeneratedVersusAbilities(
-    generatedCandidates.filter((card) => !firstGenerated.some(({ id }) => id === card.id)),
+  const selected = new Set(priorityHand);
+  const repeatCandidates = practicalReady.filter((abilityId) => (
+    !cycleRemainingSet.has(abilityId) && !selected.has(abilityId)
+  ));
+  const repeatHand = selectPracticalHand(
+    counterpart,
+    preferOutsidePreviousHand(repeatCandidates, previous, size - priorityHand.length),
     options.context,
-    options.seed ^ 0x27d4eb2d,
-    Math.max(0, size - firstGenerated.length - canonicalHand.length),
+    options.seed ^ 0x5f3759df,
+    size - priorityHand.length,
   );
   const hand: VersusBossAbilityId[] = [
-    ...firstGenerated.map(({ id }) => id),
-    ...canonicalHand,
-    ...remainingGenerated.map(({ id }) => id),
+    ...priorityHand,
+    ...repeatHand,
   ].slice(0, size);
+  const dealt = new Set(hand);
 
   return {
     ...counterpart,
@@ -312,6 +375,7 @@ export function dealVersusBossAbilityHand(
       ...counterpart.abilities,
       hand,
       previousHand: [...counterpart.abilities.hand],
+      dealCycleRemainingAbilityIds: cycleRemaining.filter((abilityId) => !dealt.has(abilityId)),
       usedAbilityIds: [],
       dealIndex: counterpart.abilities.dealIndex + 1,
     },
@@ -422,6 +486,28 @@ export function advanceVersusBossAbilityCooldowns(
   return {
     ...counterpart,
     abilities: { ...counterpart.abilities, cooldowns },
+  };
+}
+
+/**
+ * Retires every uncast card in the current hand without applying its effect or
+ * cooldown. This is the pure escape hatch for a hand whose live conditions
+ * have made every remaining card temporarily impractical. The exhausted hand
+ * can then be redealt while deal-cycle coverage continues forward.
+ */
+export function retireVersusBossAbilityHand(
+  counterpart: VersusBossCounterpart,
+): VersusBossCounterpart {
+  const used = new Set(counterpart.abilities.usedAbilityIds);
+  const remaining = counterpart.abilities.hand.filter((abilityId) => !used.has(abilityId));
+  if (remaining.length === 0) return counterpart;
+
+  return {
+    ...counterpart,
+    abilities: {
+      ...counterpart.abilities,
+      usedAbilityIds: [...counterpart.abilities.usedAbilityIds, ...remaining],
+    },
   };
 }
 

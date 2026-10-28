@@ -2,13 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#06101e" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CyberGrid" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <title>CyberGrid Strike (Fitted)</title>
     <meta name="description" content="CyberGrid Strike (Fitted) — built on Replit. Update this description to reflect the app." />
     <meta name="robots" content="index, follow" />
@@ -18,13 +18,102 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CyberGrid Strike (Fitted)" />
     <meta name="twitter:description" content="CyberGrid Strike (Fitted) — built on Replit. Update this description to reflect the app." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      #boot-status {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        color: #dbeafe;
+        background: #06101e;
+        font: 700 15px/1.45 Arial, sans-serif;
+        text-align: center;
+      }
+      #boot-status > div {
+        width: min(88vw, 430px);
+        padding: 20px;
+        border: 1px solid rgba(125, 211, 252, 0.7);
+        border-radius: 14px;
+        background: #081a30;
+        box-shadow: 0 0 28px rgba(14, 165, 233, 0.2);
+      }
+      #boot-status strong { display: block; color: #7dd3fc; font-size: 18px; }
+      #boot-status small { display: block; margin-top: 8px; color: #bae6fd; }
+      #boot-status button {
+        margin-top: 14px;
+        padding: 10px 18px;
+        color: #fff;
+        border: 1px solid #7dd3fc;
+        border-radius: 9px;
+        background: #075985;
+        font: inherit;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-status" role="status" aria-live="polite">
+        <div>
+          <strong>CYBERGRID STRIKE</strong>
+          <small>Starting the Safari-compatible build…</small>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var finished = false;
+        var status = document.getElementById('boot-status');
+        var detail = status && status.querySelector('small');
+
+        function normalizeReason(reason) {
+          if (!reason) return 'Unknown startup error';
+          if (reason.message) return String(reason.message);
+          return String(reason);
+        }
+
+        function report(kind, reason) {
+          if (finished) return;
+          var message = normalizeReason(reason).slice(0, 240);
+          if (detail) detail.textContent = kind + ': ' + message;
+          if (status && !status.querySelector('button')) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = 'Reload game';
+            button.onclick = function () { window.location.reload(); };
+            status.firstElementChild.appendChild(button);
+          }
+          try {
+            var endpoint = new URL('./__client-error', window.location.href);
+            endpoint.searchParams.set('kind', kind);
+            endpoint.searchParams.set('message', message);
+            endpoint.searchParams.set('ua', navigator.userAgent.slice(0, 300));
+            fetch(endpoint.toString(), { method: 'GET', mode: 'no-cors', keepalive: true }).catch(function () {});
+          } catch (_) {}
+        }
+
+        window.__CYBERGRID_BOOT__ = {
+          ready: function () { finished = true; },
+          fail: report
+        };
+        window.addEventListener('error', function (event) {
+          var source = event.filename || (event.target && event.target.src) || '';
+          report('Safari startup error', (event.error || event.message || 'Resource failed') + (source ? ' · ' + source : ''));
+        }, true);
+        window.addEventListener('unhandledrejection', function (event) {
+          report('Safari startup rejection', event.reason);
+        });
+        window.setTimeout(function () {
+          if (!finished) report('Safari startup timeout', 'The game bundle did not finish loading.');
+        }, 10000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

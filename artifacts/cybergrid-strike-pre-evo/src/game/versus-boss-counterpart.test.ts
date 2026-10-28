@@ -12,6 +12,7 @@ import {
   advanceVersusBossAbilityCooldowns,
   createVersusBossCounterpart,
   dealVersusBossAbilityHand,
+  retireVersusBossAbilityHand,
   selectVersusBossReadyAbility,
   useVersusBossAbility,
   versusBossAbilityHandIsExhausted,
@@ -191,6 +192,85 @@ test('live ready-card selection rechecks resources and reactive pressure', () =>
     seed: 17,
   });
   equal(threatenedChoice, 'returnfire');
+});
+
+test('deal cycles surface every practical ready owned card before repeating', () => {
+  const pool = ['shotgun', 'bomb', 'barrage', 'surge', 'backdash', 'snipe'] as const;
+  const original = createVersusBossCounterpart({
+    skinId: 'chrono',
+    playableAbilityPreset: pool,
+  });
+  const first = dealVersusBossAbilityHand(original, { context: board(), seed: 31 });
+  const second = dealVersusBossAbilityHand(first, { context: board(), seed: 37 });
+
+  equal(first.abilities.hand.length, 3);
+  equal(second.abilities.hand.length, 3);
+  deepStrictEqual(
+    second.abilities.hand.filter((abilityId) => first.abilities.hand.includes(abilityId)),
+    [],
+    'the second hand must finish the six-card coverage cycle before any repeat',
+  );
+  deepStrictEqual(
+    [...new Set([...first.abilities.hand, ...second.abilities.hand])].sort(),
+    [...pool].sort(),
+  );
+  deepStrictEqual(second.abilities.dealCycleRemainingAbilityIds, []);
+
+  const third = dealVersusBossAbilityHand(second, { context: board(), seed: 41 });
+  equal(third.abilities.hand.length, 3, 'a completed cycle starts a new three-card deal');
+});
+
+test('temporarily impractical cards stay pending and take priority when conditions change', () => {
+  const original = createVersusBossCounterpart({
+    skinId: 'bloom',
+    playableAbilityPreset: ['heal', 'shotgun', 'bomb', 'barrage'],
+  });
+  const fullIntegrity = board({ playerHp: 5, playerMaxHp: 5 });
+  const first = dealVersusBossAbilityHand(original, { context: fullIntegrity, seed: 43 });
+  ok(!first.abilities.hand.includes('heal'));
+  deepStrictEqual(first.abilities.dealCycleRemainingAbilityIds, ['heal']);
+
+  const repeated = dealVersusBossAbilityHand(first, { context: fullIntegrity, seed: 47 });
+  equal(repeated.abilities.hand.length, 3, 'practical covered cards may fill while Heal is invalid');
+  ok(!repeated.abilities.hand.includes('heal'));
+  deepStrictEqual(repeated.abilities.dealCycleRemainingAbilityIds, ['heal']);
+
+  const damaged = dealVersusBossAbilityHand(repeated, {
+    context: board({ playerHp: 2, playerMaxHp: 5 }),
+    seed: 53,
+  });
+  ok(damaged.abilities.hand.includes('heal'), 'Heal must surface as soon as it becomes practical');
+  deepStrictEqual(damaged.abilities.dealCycleRemainingAbilityIds, []);
+});
+
+test('retiring an impractical live hand is pure, cooldown-neutral, and exhausts it', () => {
+  const dealt = dealVersusBossAbilityHand(
+    createVersusBossCounterpart({
+      skinId: 'bloom',
+      playableAbilityPreset: ['heal', 'shield', 'shotgun'],
+    }),
+    { context: board(), seed: 59 },
+  );
+  const use = useVersusBossAbility(dealt, 'shotgun');
+  ok(use);
+  const beforeRetire = use.counterpart;
+  equal(selectVersusBossReadyAbility(beforeRetire, {
+    context: board({
+      playerHp: 5,
+      playerMaxHp: 5,
+      shieldCharges: 3,
+      maxShieldCharges: 3,
+    }),
+    seed: 61,
+  }), null);
+
+  const retired = retireVersusBossAbilityHand(beforeRetire);
+  ok(retired !== beforeRetire);
+  deepStrictEqual(beforeRetire.abilities.usedAbilityIds, ['shotgun']);
+  deepStrictEqual(new Set(retired.abilities.usedAbilityIds), new Set(dealt.abilities.hand));
+  deepStrictEqual(retired.abilities.cooldowns, beforeRetire.abilities.cooldowns);
+  ok(versusBossAbilityHandIsExhausted(retired));
+  equal(retireVersusBossAbilityHand(retired), retired, 'retiring an exhausted hand is idempotent');
 });
 
 test('NPC hand state is independent, practical, cooldown-aware, and immutable', () => {

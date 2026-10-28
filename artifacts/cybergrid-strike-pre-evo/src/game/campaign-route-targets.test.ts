@@ -124,6 +124,7 @@ test('route target replacement is scheduled within one 60 Hz frame', () => {
 test('a published route target holds a stable engagement line until resolution', () => {
   equal(advanceCampaignRouteTargetColumn(4.4, 0.25, true), 4.15);
   equal(advanceCampaignRouteTargetColumn(3.7, 0.25, true), CAMPAIGN_ROUTE_TARGET_HOLD_COL);
+  equal(advanceCampaignRouteTargetColumn(2.7, 0.25, true, 2.65), 2.65);
   equal(advanceCampaignRouteTargetColumn(3.7, 0.25, false), 3.45);
 });
 

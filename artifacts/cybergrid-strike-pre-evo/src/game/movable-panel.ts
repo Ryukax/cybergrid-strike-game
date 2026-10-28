@@ -63,3 +63,41 @@ export function parseMovablePanelPosition(value: string | null): MovablePanelPos
     return null;
   }
 }
+
+export function parseMovablePanelSize(value: string | null): MovablePanelSize | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<MovablePanelSize>;
+    if (!Number.isFinite(parsed.width) || !Number.isFinite(parsed.height)) return null;
+    if ((parsed.width as number) <= 0 || (parsed.height as number) <= 0) return null;
+    return {
+      width: parsed.width as number,
+      height: parsed.height as number,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Clamp a southeast resize to the remaining viewport without moving its top-left anchor. */
+export function constrainMovablePanelSize(
+  size: MovablePanelSize,
+  origin: MovablePanelPosition,
+  viewport: MovablePanelSize,
+  minimum: MovablePanelSize,
+  margin = MOVABLE_PANEL_MARGIN,
+): MovablePanelSize {
+  const safeMargin = Math.max(0, margin);
+  const availableWidth = Math.max(1, viewport.width - Math.max(safeMargin, origin.x) - safeMargin);
+  const availableHeight = Math.max(1, viewport.height - Math.max(safeMargin, origin.y) - safeMargin);
+  return {
+    width: Math.max(
+      Math.min(minimum.width, availableWidth),
+      Math.min(availableWidth, size.width),
+    ),
+    height: Math.max(
+      Math.min(minimum.height, availableHeight),
+      Math.min(availableHeight, size.height),
+    ),
+  };
+}

@@ -1,8 +1,10 @@
-import React, { useEffect, useId, type CSSProperties } from 'react';
+import React, { useEffect, useId, useInsertionEffect, type CSSProperties } from 'react';
 import {
   LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
   LORD_ALPHA_ASSETS,
   LORD_ALPHA_COMBO_ASSET_SUFFIXES,
+  LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
+  LORD_ALPHA_ROC_WING_THRUST_SEQUENCE,
   anatomicalLeftScreenSide,
   lordAlphaAssetUrl,
   resolveLordAlphaAttackSequence,
@@ -34,6 +36,8 @@ export interface LordAlphaSpriteProps {
   /** Major-event clock, kept separate so movement and auto-fire cannot restart equip/summon visuals. */
   eventPulse?: number;
   event?: LordAlphaPresentationEvent | null;
+  /** Keeps the singular anatomical-left Roc Wing deployed during an in-flight follow-up. */
+  rocWingActive?: boolean;
   /** Presentation-only attack beat. It never changes damage, hitboxes, or recovery. */
   comboBeat?: LordAlphaComboBeat | null;
   /** Civilian form visible beneath an equip construction into the Supreme runtime form. */
@@ -67,6 +71,9 @@ const featherPath = (
 
 const skillSequenceAnimationName = (id: string) =>
   `lord-alpha-skill-sequence-frames-${id}`;
+
+const frameScaleAnimationName = (id: string) =>
+  `lord-alpha-frame-scale-${id}`;
 
 const skillSequenceFrameOffset = (frameIndex: number, frameCount: number) =>
   -100 * frameIndex / frameCount;
@@ -107,11 +114,51 @@ export function buildLordAlphaSkillSequenceKeyframes(
   return `@keyframes ${skillSequenceAnimationName(sequence.id)} {\n${stops.join('\n')}\n  }`;
 }
 
+type FrameScaleSequence = LordAlphaFrameSequenceAssetManifest & {
+  readonly frameScales: readonly number[];
+};
+
+/** Build discrete skeleton-gauge correction without tweening actor size. */
+export function buildLordAlphaFrameScaleKeyframes(
+  sequence: FrameScaleSequence,
+): string {
+  const { frameCount, frameHoldMs, frameScales, durationMs } = sequence;
+  if (frameScales.length !== frameCount) {
+    throw new Error(`Invalid Lord Alpha frame scale count for ${sequence.id}`);
+  }
+  if (frameScales.some((scale) => !Number.isFinite(scale) || scale < 0.5 || scale > 2)) {
+    throw new Error(`Invalid Lord Alpha frame scale for ${sequence.id}`);
+  }
+
+  let elapsed = 0;
+  const stops = frameHoldMs.map((hold, frameIndex) => {
+    const progress = formatCssNumber(elapsed / durationMs * 100);
+    const scale = formatCssNumber(frameScales[frameIndex]);
+    elapsed += hold;
+    return `    ${progress}% { transform: scale(${scale}); }`;
+  });
+  stops.push(`    100% { transform: scale(${formatCssNumber(frameScales[frameCount - 1])}); }`);
+  return `@keyframes ${frameScaleAnimationName(sequence.id)} {\n${stops.join('\n')}\n  }`;
+}
+
 const SKILL_SEQUENCE_KEYFRAMES = [
   ...Object.values(LORD_ALPHA_ATTACK_SEQUENCE_ASSETS),
   ...Object.values(LORD_ALPHA_ASSETS.skillSequences),
+  LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
+  LORD_ALPHA_ROC_WING_THRUST_SEQUENCE,
 ]
   .map(buildLordAlphaSkillSequenceKeyframes)
+  .join('\n');
+
+const FRAME_SCALE_KEYFRAMES = [
+  ...Object.values(LORD_ALPHA_ATTACK_SEQUENCE_ASSETS),
+  ...Object.values(LORD_ALPHA_ASSETS.skillSequences),
+  LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
+]
+  .filter((sequence): sequence is typeof sequence & FrameScaleSequence => (
+    'frameScales' in sequence && Array.isArray(sequence.frameScales)
+  ))
+  .map(buildLordAlphaFrameScaleKeyframes)
   .join('\n');
 
 const SKILL_SEQUENCE_PRELOADS = new Map<string, HTMLImageElement>();
@@ -121,6 +168,8 @@ function preloadLordAlphaSkillSequences(baseUrl: string): void {
   for (const sequence of [
     ...Object.values(LORD_ALPHA_ATTACK_SEQUENCE_ASSETS),
     ...Object.values(LORD_ALPHA_ASSETS.skillSequences),
+    LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
+    LORD_ALPHA_ROC_WING_THRUST_SEQUENCE,
   ]) {
     const url = lordAlphaAssetUrl(baseUrl, sequence.suffix);
     if (SKILL_SEQUENCE_PRELOADS.has(url)) continue;
@@ -153,17 +202,17 @@ const SPRITE_CSS = `
     45% { transform: translate3d(var(--lord-alpha-web-x), -1%, 0) rotate(var(--lord-alpha-web-rotate)); }
   }
   @keyframes lord-alpha-combo-power {
-    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-    38% { transform: translate3d(var(--lord-alpha-power-windup-x), 1%, 0) scale(.98, 1.02); }
-    64% { transform: translate3d(var(--lord-alpha-power-impact-x), -1%, 0) scale(1.035, .98); }
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    38% { transform: translate3d(var(--lord-alpha-power-windup-x), 1%, 0); }
+    64% { transform: translate3d(var(--lord-alpha-power-impact-x), -1%, 0); }
   }
   @keyframes lord-alpha-combo-roc {
     0%, 100% { transform: translate3d(0, 0, 0); }
     42% { transform: translate3d(var(--lord-alpha-roc-x), -4%, 0); }
   }
   @keyframes lord-alpha-combo-finisher {
-    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-    48% { transform: translate3d(var(--lord-alpha-finisher-x), -1%, 0) scale(1.025); }
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    48% { transform: translate3d(var(--lord-alpha-finisher-x), -1%, 0); }
   }
   @keyframes lord-alpha-gesture-build {
     0% { opacity: 0; transform: scale(.2) rotate(-18deg); }
@@ -184,56 +233,58 @@ const SPRITE_CSS = `
     45% { transform: translate3d(0, -4%, 0); }
   }
   @keyframes lord-alpha-skill-web-shot {
-    0% { transform: translate3d(-4%, 2%, 0) rotate(-2deg) scale(.96); }
-    24% { transform: translate3d(-1%, 0, 0) rotate(-.6deg) scale(.985); }
-    48%, 70% { transform: translate3d(4%, -1%, 0) rotate(.8deg) scale(1.025); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(-4%, 2%, 0) rotate(-2deg); }
+    24% { transform: translate3d(-1%, 0, 0) rotate(-.6deg); }
+    48%, 70% { transform: translate3d(4%, -1%, 0) rotate(.8deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-grapple {
-    0% { transform: translate3d(4%, -1%, 0) rotate(1.4deg) scale(1.02, .98); }
-    24% { transform: translate3d(1%, 1.5%, 0) rotate(.2deg) scale(.985, 1.02); }
-    48%, 72% { transform: translate3d(-5%, 2%, 0) rotate(-2deg) scale(1.025, .985); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(4%, -1%, 0) rotate(1.4deg); }
+    24% { transform: translate3d(1%, 1.5%, 0) rotate(.2deg); }
+    48%, 72% { transform: translate3d(-5%, 2%, 0) rotate(-2deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-roc-stun {
-    0% { transform: translate3d(-1%, 4%, 0) rotate(-1.5deg) scale(.97, 1.035); }
-    26% { transform: translate3d(0, 1%, 0) rotate(-.4deg) scale(.99, 1.01); }
-    48%, 66% { transform: translate3d(3%, -7%, 0) rotate(2deg) scale(1.04, .97); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(0, 0, 0) rotate(0); }
+    18% { transform: translate3d(0, 2%, 0) rotate(-1deg); }
+    42%, 78% { transform: translate3d(0, -2%, 0) rotate(1.2deg); }
+    90% { transform: translate3d(0, 0, 0) rotate(.3deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-net {
-    0% { transform: translate3d(-2%, 2%, 0) rotate(-1.6deg) scale(.965); }
-    25% { transform: translate3d(0, 0, 0) rotate(.7deg) scale(.99); }
-    46% { transform: translate3d(2%, -1%, 0) rotate(-.5deg) scale(1.015); }
-    68% { transform: translate3d(3%, -1.5%, 0) rotate(.8deg) scale(1.025); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(-2%, 2%, 0) rotate(-1.6deg); }
+    25% { transform: translate3d(0, 0, 0) rotate(.7deg); }
+    46% { transform: translate3d(2%, -1%, 0) rotate(-.5deg); }
+    68% { transform: translate3d(3%, -1.5%, 0) rotate(.8deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-wormhole {
-    0% { transform: translate3d(-8%, 3%, 0) rotate(-2deg) scale(.94, 1.03); }
-    28% { transform: translate3d(-2%, 1%, 0) rotate(-.7deg) scale(.98, 1.01); }
-    54%, 72% { transform: translate3d(8%, -2%, 0) rotate(1.4deg) scale(1.035, .98); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(-8%, 3%, 0) rotate(-2deg); }
+    28% { transform: translate3d(-2%, 1%, 0) rotate(-.7deg); }
+    54%, 72% { transform: translate3d(8%, -2%, 0) rotate(1.4deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-clone {
-    0% { transform: translate3d(0, 1%, 0) rotate(-2deg) scale(.97); }
-    20% { transform: translate3d(-2%, -1%, 0) rotate(1.6deg) scale(1.01); }
-    38% { transform: translate3d(2%, -1%, 0) rotate(-1.2deg) scale(.99); }
-    58%, 76% { transform: translate3d(0, -3%, 0) rotate(0) scale(1.035); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(0, 1%, 0) rotate(-2deg); }
+    20% { transform: translate3d(-2%, -1%, 0) rotate(1.6deg); }
+    38% { transform: translate3d(2%, -1%, 0) rotate(-1.2deg); }
+    58%, 76% { transform: translate3d(0, -3%, 0) rotate(0); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   @keyframes lord-alpha-skill-summon {
-    0% { transform: translate3d(0, 5%, 0) scale(.96, 1.04); }
-    24% { transform: translate3d(0, 2%, 0) scale(.985, 1.015); }
-    48%, 76% { transform: translate3d(0, 0, 0) scale(1.02, .99); }
-    100% { transform: translate3d(0, 0, 0) scale(1); }
+    0% { transform: translate3d(0, 5%, 0); }
+    24% { transform: translate3d(0, 2%, 0); }
+    48%, 76% { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(0, 0, 0); }
   }
   @keyframes lord-alpha-skill-dragon {
-    0% { transform: translate3d(2%, -2%, 0) rotate(1.2deg) scale(1.025, .98); }
-    30% { transform: translate3d(0, 3%, 0) rotate(0) scale(.98, 1.035); }
-    50%, 72% { transform: translate3d(-2%, 4%, 0) rotate(-1deg) scale(1.035, .975); }
-    100% { transform: translate3d(0, 0, 0) rotate(0) scale(1); }
+    0% { transform: translate3d(2%, -2%, 0) rotate(1.2deg); }
+    30% { transform: translate3d(0, 3%, 0) rotate(0); }
+    50%, 72% { transform: translate3d(-2%, 4%, 0) rotate(-1deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   ${SKILL_SEQUENCE_KEYFRAMES}
+  ${FRAME_SCALE_KEYFRAMES}
   @keyframes lord-alpha-victory-rise {
     0%, 100% { transform: translate3d(0, 0, 0); }
     50% { transform: translate3d(0, -5%, 0); }
@@ -286,6 +337,12 @@ const SPRITE_CSS = `
   .lordAlphaSprite__motion[data-skill-sprite="shadow-clone"] { animation: lord-alpha-skill-clone var(--lord-alpha-skill-sequence-duration) cubic-bezier(.2,.72,.2,1) both; }
   .lordAlphaSprite__motion[data-skill-sprite="tharthareon"] { animation: lord-alpha-skill-summon var(--lord-alpha-skill-sequence-duration) cubic-bezier(.2,.7,.2,1) both; }
   .lordAlphaSprite__motion[data-skill-sprite="millennium-dragon"] { animation: lord-alpha-skill-dragon var(--lord-alpha-skill-sequence-duration) cubic-bezier(.18,.78,.18,1) both; }
+  /*
+   * Authored strips already contain their root motion and pose change. Keep
+   * their actor stage rigid: a second transform here made the same raster
+   * squash and pulse even when its frame projection was correct.
+   */
+  .lordAlphaSprite__motion[data-attack-sprite],
   .lordAlphaSprite__motion[data-imagegen-skill-sequence="true"] {
     animation: none;
     transform: none;
@@ -293,12 +350,25 @@ const SPRITE_CSS = `
   }
   .lordAlphaSprite__skillSequenceViewport {
     position: absolute;
-    left: 0;
+    left: 50%;
     top: 0;
-    width: 100%;
+    width: auto;
     height: 100%;
-    overflow: hidden;
+    aspect-ratio: 3 / 2;
+    overflow: visible;
     pointer-events: none;
+    transform: translateX(-50%);
+  }
+  .lordAlphaSprite__frameProjection {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    transform-origin: 50% 100%;
+    animation-duration: var(--lord-alpha-skill-sequence-duration);
+    animation-timing-function: steps(1, end);
+    animation-fill-mode: both;
+    animation-iteration-count: 1;
+    will-change: transform;
   }
   .lordAlphaSprite__skillSequenceSheet {
     position: absolute;
@@ -313,6 +383,7 @@ const SPRITE_CSS = `
     animation-timing-function: steps(1, end);
     animation-fill-mode: both;
     animation-iteration-count: 1;
+    will-change: transform;
   }
   .lordAlphaSprite__skillSequenceSheet--trail {
     opacity: .16;
@@ -343,12 +414,39 @@ const SPRITE_CSS = `
       animation: none !important;
       transform: translate3d(var(--lord-alpha-skill-sequence-reduced-offset), -50%, 0);
     }
+    .lordAlphaSprite:not([data-force-motion="true"]) .lordAlphaSprite__frameProjection {
+      animation: none !important;
+      transform: scale(var(--lord-alpha-frame-reduced-scale, 1));
+    }
     .lordAlphaSprite:not([data-force-motion="true"]) .lordAlphaSprite__skillSequenceSheet--trail { display: none; }
     .lordAlphaSprite:not([data-force-motion="true"]) .lordAlphaSprite__plateStep { opacity: 1; stroke-dashoffset: 0; }
     .lordAlphaSprite:not([data-force-motion="true"]) .lordAlphaSprite__gesture,
     .lordAlphaSprite:not([data-force-motion="true"]) .lordAlphaSprite__aperture { opacity: 1; }
   }
 `;
+
+/** Shared stylesheet text, exported for deterministic rendering regression tests. */
+export const LORD_ALPHA_SPRITE_CSS = SPRITE_CSS;
+
+const LORD_ALPHA_SPRITE_STYLE_ID = 'lord-alpha-sprite-styles';
+
+function useLordAlphaSpriteStyles(): void {
+  useInsertionEffect(() => {
+    if (typeof document === 'undefined') return;
+    const existing = document.getElementById(LORD_ALPHA_SPRITE_STYLE_ID);
+    const stylesheet = existing?.tagName === 'STYLE'
+      ? existing as HTMLStyleElement
+      : document.createElement('style');
+    if (!existing) {
+      stylesheet.id = LORD_ALPHA_SPRITE_STYLE_ID;
+      document.head.appendChild(stylesheet);
+    }
+    if (stylesheet.textContent !== SPRITE_CSS) stylesheet.textContent = SPRITE_CSS;
+    // This stylesheet is shared by every sprite instance. Keep it for the
+    // document lifetime so unmounting one sprite cannot remove styles used by
+    // another sprite mounting in the same commit.
+  }, []);
+}
 
 export function LordAlphaSprite({
   baseUrl = import.meta.env.BASE_URL,
@@ -358,6 +456,7 @@ export function LordAlphaSprite({
   pulse,
   eventPulse = pulse,
   event = null,
+  rocWingActive = false,
   comboBeat = null,
   equipSourceForm = null,
   compact = false,
@@ -365,6 +464,7 @@ export function LordAlphaSprite({
   className,
   style,
 }: LordAlphaSpriteProps) {
+  useLordAlphaSpriteStyles();
   const svgId = useId().replace(/:/g, '');
   useEffect(() => {
     if (form === 'supreme') preloadLordAlphaSkillSequences(baseUrl);
@@ -375,13 +475,38 @@ export function LordAlphaSprite({
   const skillSequence = form === 'supreme' && motion === 'skill'
     ? resolveLordAlphaSkillSequence(event)
     : null;
+  const rocWingSpinSequence = form === 'supreme'
+    && motion === 'skill'
+    && eventSubtype === 'roc-wing-spin'
+    ? LORD_ALPHA_ROC_WING_SPIN_SEQUENCE
+    : null;
   const activeComboBeat = motion === 'attack' ? comboBeat : null;
   const attackSequence = form === 'supreme' && motion === 'attack'
     ? resolveLordAlphaAttackSequence(activeComboBeat)
     : null;
-  const frameSequence = skillSequence ?? attackSequence;
-  const skillSpriteId = skillSequence?.id ?? null;
+  const frameSequence = rocWingSpinSequence ?? skillSequence ?? attackSequence;
+  const actorScale = frameSequence?.actorScale ?? 1;
+  const actorRootY = frameSequence?.actorRootY ?? 148;
+  // The idle sheet's grounded silhouette ends at source y=148. Position each
+  // complete sequence viewport from its own authored foot root. Optional
+  // frame correction happens inside that fixed viewport and remains discrete,
+  // so neither its baseline nor gameplay position can drift between cells.
+  const actorViewportBottom = frameSequence
+    ? (1 - 148 / frameSequence.frameHeight) * 100
+      - actorScale * (1 - actorRootY / frameSequence.frameHeight) * 100
+    : 0;
+  const authoredSkillSequence = rocWingSpinSequence ?? skillSequence;
+  const skillSpriteId = authoredSkillSequence?.id ?? null;
   const attackSpriteId = attackSequence?.id ?? null;
+  // Back Thrust is deliberately authored with LASI facing screen-left while
+  // the blade drives screen-right into an opponent. Never mirror that anatomy
+  // from the player's ordinary locomotion facing state.
+  const preserveAuthoredFacing = skillSpriteId === 'ninjato-back-thrust';
+  const rocWingThrustSequence = form === 'supreme'
+    && motion === 'skill'
+    && eventSubtype === 'roc-stun'
+    ? LORD_ALPHA_ROC_WING_THRUST_SEQUENCE
+    : null;
   const comboSuffix = form === 'supreme' && activeComboBeat && !attackSequence
     ? LORD_ALPHA_COMBO_ASSET_SUFFIXES[activeComboBeat]
     : null;
@@ -403,15 +528,19 @@ export function LordAlphaSprite({
   const wingOnLeft = anatomicalSide === 'screen-left';
   const wingDirection: -1 | 1 = wingOnLeft ? -1 : 1;
   const wingRootX = wingOnLeft ? 70 : 10;
-  const wingMode = activeComboBeat === 'roc'
+  const wingMode = rocWingActive
     ? 'boost'
-    : eventSubtype === 'roc-stun'
-      ? 'deploy'
-      : eventSubtype === 'web-pull' || eventSubtype === 'wormhole-cast' || motion === 'move'
-        ? 'rudder'
-      : motion === 'victory'
-        ? 'glide'
-        : 'latent';
+    : activeComboBeat === 'roc'
+      ? 'boost'
+      : eventSubtype === 'roc-stun'
+        ? 'thrust'
+        : eventSubtype === 'roc-wing-spin'
+          ? 'boost'
+          : eventSubtype === 'web-pull' || eventSubtype === 'wormhole-cast' || motion === 'move'
+            ? 'rudder'
+            : motion === 'victory'
+              ? 'glide'
+              : 'latent';
   const wrapperStyle: CSSProperties = {
     position: 'absolute',
     left: 0,
@@ -474,7 +603,6 @@ export function LordAlphaSprite({
       role="img"
       aria-label={`Lord Alpha ${form} form`}
     >
-      <style>{SPRITE_CSS}</style>
       <span
         key={`motion-${motion}-${frameSequence?.id ?? 'base'}-${pulse}-${eventPulse}`}
         className="lordAlphaSprite__motion"
@@ -482,7 +610,7 @@ export function LordAlphaSprite({
         data-combo-beat={activeComboBeat ?? undefined}
         data-skill-sprite={skillSpriteId ?? undefined}
         data-attack-sprite={attackSpriteId ?? undefined}
-        data-imagegen-skill-sequence={skillSequence ? true : undefined}
+        data-imagegen-skill-sequence={authoredSkillSequence ? true : undefined}
         style={{
           position: 'absolute',
           zIndex: 1,
@@ -504,56 +632,101 @@ export function LordAlphaSprite({
         aria-hidden="true"
       >
 
-      {/* One Roc Wing only. It is independently placed on anatomical-left and never mirrored. */}
-      <svg
-        className="lordAlphaSprite__wing"
-        data-part="roc-wing"
-        data-wing-mode={wingMode}
-        data-anatomical-side={wing.anatomicalSide}
-        data-screen-side={wing.screenSide}
-        viewBox="0 0 80 112"
-        style={wingStyle}
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient
-            id={`${svgId}-feather`}
-            x1={wingOnLeft ? '100%' : '0%'}
-            y1="80%"
-            x2={wingOnLeft ? '0%' : '100%'}
-            y2="0%"
-          >
-            <stop offset="0" stopColor="#fffdf2" />
-            <stop offset=".48" stopColor="#fff7c2" />
-            <stop offset="1" stopColor="#b9e6ff" />
-          </linearGradient>
-          <linearGradient id={`${svgId}-quill`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0" stopColor="#e7c760" />
-            <stop offset="1" stopColor="#e0f2fe" />
-          </linearGradient>
-        </defs>
-        <g fill={`url(#${svgId}-feather)`} stroke="#f8e9a1" strokeWidth="1.05" strokeLinejoin="round">
-          <path d={featherPath(wingRootX, wingDirection, 83, 59, 5, 10)} />
-          <path d={featherPath(wingRootX, wingDirection, 87, 55, 24, 9)} />
-          <path d={featherPath(wingRootX, wingDirection, 91, 48, 43, 8)} />
-          <path d={featherPath(wingRootX, wingDirection, 94, 39, 60, 7)} />
-          <path d={featherPath(wingRootX, wingDirection, 97, 29, 75, 6)} />
-        </g>
-        <path
-          d={`M ${wingRootX} 101 C ${wingRootX + wingDirection * 7} 78, ${wingRootX + wingDirection * 20} 45, ${wingRootX + wingDirection * 52} 8`}
-          fill="none"
-          stroke={`url(#${svgId}-quill)`}
-          strokeWidth="2.4"
-          strokeLinecap="round"
-        />
-        <path
-          d={`M ${wingRootX - wingDirection * 2} 102 Q ${wingRootX + wingDirection * 8} 82 ${wingRootX + wingDirection * 13} 68`}
-          fill="none"
-          stroke="#7dd3fc"
-          strokeWidth="1.25"
-          strokeLinecap="round"
-        />
-      </svg>
+      {/* One Roc Wing only. Its viewport moves to anatomical-left before any facing mirror. */}
+      {rocWingThrustSequence ? (
+        <span
+          key={`roc-wing-thrust-${eventPulse}`}
+          className="lordAlphaSprite__wing lordAlphaSprite__wingSequenceViewport"
+          data-part="roc-wing"
+          data-wing-mode={wingMode}
+          data-anatomical-side={wing.anatomicalSide}
+          data-screen-side={wing.screenSide}
+          data-back-anchor="upper-left"
+          style={{
+            position: 'absolute',
+            zIndex: 0,
+            top: '-22%',
+            left: wingOnLeft ? '-63%' : 'auto',
+            right: wingOnLeft ? 'auto' : '-63%',
+            width: 'auto',
+            height: '100%',
+            aspectRatio: '3 / 2',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+            transform: wingOnLeft ? undefined : 'scaleX(-1)',
+            transformOrigin: '50% 50%',
+            filter: 'drop-shadow(0 0 4px rgba(125, 211, 252, .72))',
+          }}
+          aria-hidden="true"
+        >
+          <img
+            className="lordAlphaSprite__skillSequenceSheet lordAlphaSprite__wingSequenceSheet"
+            data-part="roc-wing-sequence-sheet"
+            src={lordAlphaAssetUrl(baseUrl, rocWingThrustSequence.suffix)}
+            alt=""
+            draggable={false}
+            style={{
+              animationName: skillSequenceAnimationName(rocWingThrustSequence.id),
+              '--lord-alpha-skill-sequence-duration': `${rocWingThrustSequence.durationMs}ms`,
+              '--lord-alpha-skill-sequence-sheet-width': `${rocWingThrustSequence.frameCount * 100}%`,
+              '--lord-alpha-skill-sequence-reduced-offset': `${skillSequenceFrameOffset(
+                rocWingThrustSequence.reducedMotionFrame,
+                rocWingThrustSequence.frameCount,
+              )}%`,
+            } as CSSProperties}
+          />
+        </span>
+      ) : (
+        <svg
+          className="lordAlphaSprite__wing"
+          data-part="roc-wing"
+          data-wing-mode={wingMode}
+          data-anatomical-side={wing.anatomicalSide}
+          data-screen-side={wing.screenSide}
+          viewBox="0 0 80 112"
+          style={wingStyle}
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient
+              id={`${svgId}-feather`}
+              x1={wingOnLeft ? '100%' : '0%'}
+              y1="80%"
+              x2={wingOnLeft ? '0%' : '100%'}
+              y2="0%"
+            >
+              <stop offset="0" stopColor="#fffdf2" />
+              <stop offset=".48" stopColor="#fff7c2" />
+              <stop offset="1" stopColor="#b9e6ff" />
+            </linearGradient>
+            <linearGradient id={`${svgId}-quill`} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0" stopColor="#e7c760" />
+              <stop offset="1" stopColor="#e0f2fe" />
+            </linearGradient>
+          </defs>
+          <g fill={`url(#${svgId}-feather)`} stroke="#f8e9a1" strokeWidth="1.05" strokeLinejoin="round">
+            <path d={featherPath(wingRootX, wingDirection, 83, 59, 5, 10)} />
+            <path d={featherPath(wingRootX, wingDirection, 87, 55, 24, 9)} />
+            <path d={featherPath(wingRootX, wingDirection, 91, 48, 43, 8)} />
+            <path d={featherPath(wingRootX, wingDirection, 94, 39, 60, 7)} />
+            <path d={featherPath(wingRootX, wingDirection, 97, 29, 75, 6)} />
+          </g>
+          <path
+            d={`M ${wingRootX} 101 C ${wingRootX + wingDirection * 7} 78, ${wingRootX + wingDirection * 20} 45, ${wingRootX + wingDirection * 52} 8`}
+            fill="none"
+            stroke={`url(#${svgId}-quill)`}
+            strokeWidth="2.4"
+            strokeLinecap="round"
+          />
+          <path
+            d={`M ${wingRootX - wingDirection * 2} 102 Q ${wingRootX + wingDirection * 8} 82 ${wingRootX + wingDirection * 13} 68`}
+            fill="none"
+            stroke="#7dd3fc"
+            strokeWidth="1.25"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
 
       <span
         className="lordAlphaSprite__body"
@@ -563,41 +736,46 @@ export function LordAlphaSprite({
           <span
             key={`frame-sequence-${frameSequence.id}-${pulse}-${eventPulse}`}
             className="lordAlphaSprite__skillSequenceViewport"
-            data-part={skillSequence ? 'skill-sequence' : 'attack-sequence'}
-            data-skill-sprite={skillSequence?.id}
+            data-part={authoredSkillSequence ? 'skill-sequence' : 'attack-sequence'}
+            data-skill-sprite={authoredSkillSequence?.id}
             data-attack-sprite={attackSequence?.id}
             data-facing={facing}
             data-frame-count={frameSequence.frameCount}
             data-frame-width={frameSequence.frameWidth}
             data-frame-height={frameSequence.frameHeight}
-            style={{ transform: facing === 'left' ? 'scaleX(-1)' : undefined }}
+            data-actor-scale={actorScale}
+            data-actor-root-y={actorRootY}
+            data-authored-facing={preserveAuthoredFacing ? 'left' : undefined}
+            style={{
+              top: 'auto',
+              bottom: `${formatCssNumber(actorViewportBottom)}%`,
+              height: `${formatCssNumber(actorScale * 100)}%`,
+              transform: !preserveAuthoredFacing && facing === 'left'
+                ? 'translateX(-50%) scaleX(-1)'
+                : 'translateX(-50%)',
+            }}
           >
-            <img
-              className="lordAlphaSprite__skillSequenceSheet"
-              data-part={skillSequence ? 'skill-sequence-sheet' : 'attack-sequence-sheet'}
-              data-skill-sprite={skillSequence?.id}
-              data-attack-sprite={attackSequence?.id}
-              src={lordAlphaAssetUrl(baseUrl, frameSequence.suffix)}
-              alt=""
-              draggable={false}
+            <span
+              className="lordAlphaSprite__frameProjection"
+              data-part="frame-projection"
+              data-frame-scale-correction={frameSequence.frameScales ? 'true' : 'false'}
               style={{
-                animationName: skillSequenceAnimationName(frameSequence.id),
-                '--lord-alpha-skill-sequence-sheet-width': `${frameSequence.frameCount * 100}%`,
-                '--lord-alpha-skill-sequence-reduced-offset': `${skillSequenceFrameOffset(
-                  frameSequence.reducedMotionFrame,
-                  frameSequence.frameCount,
-                )}%`,
+                animationName: frameSequence.frameScales
+                  ? frameScaleAnimationName(frameSequence.id)
+                  : undefined,
+                '--lord-alpha-frame-reduced-scale': frameSequence.frameScales
+                  ? frameSequence.frameScales[frameSequence.reducedMotionFrame]
+                  : 1,
               } as CSSProperties}
-            />
-            {!skillSequence && (
+            >
               <img
-                className="lordAlphaSprite__skillSequenceSheet lordAlphaSprite__skillSequenceSheet--trail"
-                data-part="sequence-motion-trail"
+                className="lordAlphaSprite__skillSequenceSheet"
+                data-part={authoredSkillSequence ? 'skill-sequence-sheet' : 'attack-sequence-sheet'}
+                data-skill-sprite={authoredSkillSequence?.id}
                 data-attack-sprite={attackSequence?.id}
                 src={lordAlphaAssetUrl(baseUrl, frameSequence.suffix)}
                 alt=""
                 draggable={false}
-                aria-hidden="true"
                 style={{
                   animationName: skillSequenceAnimationName(frameSequence.id),
                   '--lord-alpha-skill-sequence-sheet-width': `${frameSequence.frameCount * 100}%`,
@@ -607,7 +785,26 @@ export function LordAlphaSprite({
                   )}%`,
                 } as CSSProperties}
               />
-            )}
+              {!authoredSkillSequence && (
+                <img
+                  className="lordAlphaSprite__skillSequenceSheet lordAlphaSprite__skillSequenceSheet--trail"
+                  data-part="sequence-motion-trail"
+                  data-attack-sprite={attackSequence?.id}
+                  src={lordAlphaAssetUrl(baseUrl, frameSequence.suffix)}
+                  alt=""
+                  draggable={false}
+                  aria-hidden="true"
+                  style={{
+                    animationName: skillSequenceAnimationName(frameSequence.id),
+                    '--lord-alpha-skill-sequence-sheet-width': `${frameSequence.frameCount * 100}%`,
+                    '--lord-alpha-skill-sequence-reduced-offset': `${skillSequenceFrameOffset(
+                      frameSequence.reducedMotionFrame,
+                      frameSequence.frameCount,
+                    )}%`,
+                  } as CSSProperties}
+                />
+              )}
+            </span>
           </span>
         ) : (
           <img

@@ -6,6 +6,7 @@ import {
   LORD_ALPHA_VFX_TIMINGS_MS,
   clampTopologyProgress,
   generateLordAlphaTopology,
+  isLordAlphaCollisionOwnedTharthareon,
   lordAlphaAssetUrl,
   resolveLordAlphaEffectSequence,
   resolveLordAlphaVfxMode,
@@ -15,12 +16,17 @@ import {
   type LordAlphaTopology,
   type LordAlphaTopologyNode,
 } from '../game/lord-alpha.ts';
+import { resolveGameplayCanvasDpr } from '../game/canvas-performance';
 
 export interface LordAlphaVfxProps {
   baseUrl?: string;
   event: LordAlphaPresentationEvent | null;
   /** Increment this value for consecutive events of the same kind. */
   pulse: number;
+  /** Board-cell size keeps authored effects proportional to the combatants. */
+  cellSize?: number;
+  /** Opt-in animation lab: fixed-size rasters with construction revealed by motion/clipping. */
+  solidAnimation?: boolean;
   className?: string;
 }
 
@@ -69,6 +75,12 @@ const REDUCED_MOTION_PROGRESS: Readonly<Record<string, number>> = {
   clone: 0.84,
 };
 
+// Full-viewport authored effects are expensive to repaint at device refresh
+// rate on phones. Their source strips contain far fewer than 30 unique poses,
+// so 30 Hz preserves every authored beat while halving canvas composition on
+// a typical 60 Hz display.
+const LORD_ALPHA_VFX_FRAME_MS = 1000 / 30;
+
 const VFX_STYLE: CSSProperties = {
   position: 'absolute',
   zIndex: 20,
@@ -83,6 +95,8 @@ const VFX_STYLE: CSSProperties = {
 
 const CREATURE_IMAGES = new Map<string, HTMLImageElement>();
 const EFFECT_SEQUENCE_IMAGES = new Map<string, HTMLImageElement>();
+/** `spanScale` was authored against the original 8.2-cell short surface. */
+const LORD_ALPHA_EFFECT_REFERENCE_SHORT_SPAN_CELLS = 8.2;
 
 const clamp = (value: number, minimum = 0, maximum = 1): number =>
   Math.min(maximum, Math.max(minimum, value));
@@ -92,6 +106,15 @@ const lerp = (from: number, to: number, progress: number): number =>
   from + (to - from) * progress;
 const easeOutCubic = (value: number): number => 1 - (1 - clamp(value)) ** 3;
 const easeInCubic = (value: number): number => clamp(value) ** 3;
+
+function quadraticPoint(start: Point, control: Point, end: Point, progress: number): Point {
+  const bounded = clamp(progress);
+  const inverse = 1 - bounded;
+  return {
+    x: inverse * inverse * start.x + 2 * inverse * bounded * control.x + bounded * bounded * end.x,
+    y: inverse * inverse * start.y + 2 * inverse * bounded * control.y + bounded * bounded * end.y,
+  };
+}
 
 function eventEnvelope(progress: number): number {
   if (progress < 0.06) return progress / 0.06;
@@ -115,7 +138,12 @@ function prepareCanvas(canvas: HTMLCanvasElement): {
   const bounds = canvas.getBoundingClientRect();
   const width = Math.max(1, Math.round(bounds.width || canvas.parentElement?.clientWidth || 320));
   const height = Math.max(1, Math.round(bounds.height || canvas.parentElement?.clientHeight || 220));
-  const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  // This is a full-viewport transparent surface, so it follows the same
+  // backing-store budget as the main game canvas. On phones a 2x/3x DPR
+  // surface multiplies every portal, web, and creature composite despite the
+  // authored source frames containing no additional detail at that density.
+  const compactOrCoarse = width <= 900 || window.matchMedia('(pointer: coarse)').matches;
+  const dpr = resolveGameplayCanvasDpr(window.devicePixelRatio, compactOrCoarse);
   const pixelWidth = Math.round(width * dpr);
   const pixelHeight = Math.round(height * dpr);
   if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
@@ -164,6 +192,8 @@ function drawEffectSequenceFrameAt(
   facing = 1,
   rotation = 0,
   forcedFrame?: number,
+  cellSize?: number,
+  solidAnimation = false,
 ): boolean {
   if (!image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
   const frameIndex = Math.min(
@@ -173,8 +203,18 @@ function drawEffectSequenceFrameAt(
       forcedFrame ?? Math.floor(clamp(progress) * sequence.frameCount),
     ),
   );
-  const sourceX = frameIndex * sequence.frameWidth;
-  const requestedWidth = Math.min(size.width, size.height) * sequence.spanScale;
+  // Roc Stun's eighth source cell is a 19x11 dissipating spark. In the solid
+  // profile the complete field holds its authored size and the event envelope
+  // performs the fade, avoiding a one-frame collapse at the target.
+  const displayFrameIndex = solidAnimation
+    && sequence.id === 'roc-stun'
+    && frameIndex === sequence.frameCount - 1
+    ? Math.max(0, sequence.frameCount - 2)
+    : frameIndex;
+  const sourceX = displayFrameIndex * sequence.frameWidth;
+  const requestedWidth = solidAnimation && cellSize && cellSize > 0
+    ? cellSize * LORD_ALPHA_EFFECT_REFERENCE_SHORT_SPAN_CELLS * sequence.spanScale
+    : Math.min(size.width, size.height) * sequence.spanScale;
   const destinationWidth = Math.max(
     1,
     Math.min(requestedWidth, size.width * 0.88, size.height * 0.78 * 1.5),
@@ -203,6 +243,103 @@ function drawEffectSequenceFrameAt(
   return true;
 }
 
+function resolveGrappleSpan(
+  size: CanvasSize,
+  progress: number,
+  event: EventWithAnchors,
+): { origin: Point; latch: Point; deltaX: number; deltaY: number; distance: number } {
+  const origin = resolveAnchor(event.origin, size, { x: 0.36, y: 0.54 });
+  const target = resolveAnchor(event.target, size, { x: 0.69, y: 0.48 });
+  const destination = event.destination
+    ? resolveAnchor(event.destination, size, { x: 0.58, y: 0.48 })
+    : target;
+  const pull = easeOutCubic(segment(progress, 0.33, 0.62));
+  const latch = {
+    x: lerp(target.x, destination.x, pull),
+    y: lerp(target.y, destination.y, pull),
+  };
+  const deltaX = latch.x - origin.x;
+  const deltaY = latch.y - origin.y;
+  return {
+    origin,
+    latch,
+    deltaX,
+    deltaY,
+    distance: Math.max(1, Math.hypot(deltaX, deltaY)),
+  };
+}
+
+/** Map the authored Grapple line over the real board-space tether span. */
+function drawGrappleEffectSequenceSpan(
+  context: CanvasRenderingContext2D,
+  size: CanvasSize,
+  image: HTMLImageElement,
+  sequence: LordAlphaEffectSequenceAssetManifest,
+  progress: number,
+  event: EventWithAnchors,
+  forcedFrame?: number,
+): boolean {
+  if (!image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+  const { origin, deltaX, deltaY, distance } = resolveGrappleSpan(size, progress, event);
+  const span = Math.min(size.width, size.height);
+  const padding = span * 0.04;
+  const destinationHeight = Math.min(size.height * 0.3, span * 0.22);
+  const destinationWidth = distance + padding * 2;
+  const frameIndex = Math.min(
+    sequence.frameCount - 1,
+    Math.max(0, forcedFrame ?? Math.floor(clamp(progress) * sequence.frameCount)),
+  );
+
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  context.globalAlpha = eventEnvelope(progress) * 0.9;
+  context.translate(origin.x, origin.y);
+  context.rotate(Math.atan2(deltaY, deltaX));
+  context.drawImage(
+    image,
+    frameIndex * sequence.frameWidth,
+    0,
+    sequence.frameWidth,
+    sequence.frameHeight,
+    -padding,
+    -destinationHeight * 0.5,
+    destinationWidth,
+    destinationHeight,
+  );
+  context.restore();
+  return true;
+}
+
+/** Keep the endpoint orb circular while it follows the pulled target. */
+function drawGrappleOrbSequence(
+  context: CanvasRenderingContext2D,
+  size: CanvasSize,
+  image: HTMLImageElement,
+  sequence: LordAlphaEffectSequenceAssetManifest,
+  progress: number,
+  event: EventWithAnchors,
+  forcedFrame?: number,
+  cellSize?: number,
+  solidAnimation = false,
+): boolean {
+  const { latch, deltaX } = resolveGrappleSpan(size, progress, event);
+  return drawEffectSequenceFrameAt(
+    context,
+    size,
+    image,
+    sequence,
+    progress,
+    latch,
+    eventEnvelope(progress),
+    deltaX < 0 ? -1 : 1,
+    0,
+    forcedFrame,
+    cellSize,
+    solidAnimation,
+  );
+}
+
 /** Draw one authored effect strip in board space, independent of player scale. */
 function drawEffectSequence(
   context: CanvasRenderingContext2D,
@@ -212,9 +349,23 @@ function drawEffectSequence(
   progress: number,
   event: EventWithAnchors,
   forcedFrame?: number,
+  cellSize?: number,
+  solidAnimation = false,
 ): boolean {
+  if (sequence.id === 'grapple') {
+    return drawGrappleEffectSequenceSpan(
+      context,
+      size,
+      image,
+      sequence,
+      progress,
+      event,
+      forcedFrame,
+    );
+  }
+
   const origin = resolveAnchor(event.origin, size, { x: 0.36, y: 0.54 });
-  const target = resolveAnchor(event.destination ?? event.target, size, { x: 0.69, y: 0.48 });
+  const target = resolveAnchor(event.target, size, { x: 0.69, y: 0.48 });
   const alpha = eventEnvelope(progress);
   const facing = target.x < origin.x ? -1 : 1;
   const travelRotation = Math.atan2(target.y - origin.y, Math.max(1, Math.abs(target.x - origin.x)));
@@ -222,17 +373,20 @@ function drawEffectSequence(
   switch (sequence.placement) {
     case 'travel': {
       const travel = easeOutCubic(segment(progress, 0.03, 0.68));
+      const center = { x: lerp(origin.x, target.x, travel), y: lerp(origin.y, target.y, travel) };
       return drawEffectSequenceFrameAt(
         context,
         size,
         image,
         sequence,
         progress,
-        { x: lerp(origin.x, target.x, travel), y: lerp(origin.y, target.y, travel) },
+        center,
         alpha,
         facing,
         travelRotation,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
     }
     case 'target':
@@ -247,6 +401,8 @@ function drawEffectSequence(
         facing,
         0,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
     case 'origin':
       return drawEffectSequenceFrameAt(
@@ -260,6 +416,8 @@ function drawEffectSequence(
         facing,
         0,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
     case 'dual': {
       const departureProgress = segment(progress, 0, 0.7);
@@ -275,6 +433,8 @@ function drawEffectSequence(
         facing,
         0,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
       const arrival = progress < 0.18 ? false : drawEffectSequenceFrameAt(
         context,
@@ -287,6 +447,8 @@ function drawEffectSequence(
         facing,
         0,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
       return departure || arrival;
     }
@@ -302,6 +464,8 @@ function drawEffectSequence(
         1,
         0,
         forcedFrame,
+        cellSize,
+        solidAnimation,
       );
   }
 }
@@ -400,6 +564,137 @@ function drawPreparedTopology(
   context.restore();
 }
 
+/**
+ * Build and keep the Grapple latch alive as a mechanical web anchor.
+ *
+ * The generic topology renderer is intentionally unsuitable here once its
+ * construction pass completes: every spoke becomes static. Grapple needs the
+ * attachment itself to communicate load, so each spoke extends separately,
+ * the perimeter closes behind it, and energy continues travelling through the
+ * finished web while the target is pulled.
+ */
+function drawAnimatedGrappleLatch(
+  context: CanvasRenderingContext2D,
+  size: CanvasSize,
+  prepared: PreparedTopology,
+  center: Point,
+  progress: number,
+  radius: number,
+  alpha: number,
+): void {
+  const outerNodes = prepared.topology.nodes.filter((node) => node.id !== 0);
+  if (outerNodes.length === 0) return;
+
+  const build = easeOutCubic(segment(progress, 0.2, 0.49));
+  if (build <= 0) return;
+
+  const load = segment(progress, 0.39, 0.9);
+  const release = easeInCubic(segment(progress, 0.82, 0.94));
+  const rotation = progress * Math.PI * 0.72;
+  const options: DrawTopologyOptions = {
+    center,
+    radius,
+    aspectY: 0.9,
+    rotation,
+  };
+  const hub = topologyPoint(prepared, 0, size, options) ?? center;
+  const rim = outerNodes
+    .map((node) => topologyPoint(prepared, node.id, size, options))
+    .filter((point): point is Point => point !== null);
+  if (rim.length === 0) return;
+
+  context.save();
+  context.globalCompositeOperation = 'lighter';
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+
+  for (let index = 0; index < rim.length; index += 1) {
+    const point = rim[index];
+    const next = rim[(index + 1) % rim.length];
+    const order = index / rim.length;
+    const spokeBuild = easeOutCubic(segment(build, order * 0.42, 0.58 + order * 0.42));
+    const spokeRelease = easeInCubic(segment(release, order * 0.34, 0.62 + order * 0.34));
+    const visibleSpoke = spokeBuild * (1 - spokeRelease);
+    const spokeEnd = {
+      x: lerp(hub.x, point.x, visibleSpoke),
+      y: lerp(hub.y, point.y, visibleSpoke),
+    };
+
+    // Radial strands deploy one after another from the target contact point.
+    context.globalAlpha = alpha * (0.62 + visibleSpoke * 0.28);
+    context.strokeStyle = index % 3 === 0 ? '#fde68a' : '#8ff7ff';
+    context.lineWidth = Math.max(1, radius * 0.085);
+    context.beginPath();
+    context.moveTo(hub.x, hub.y);
+    context.lineTo(spokeEnd.x, spokeEnd.y);
+    context.stroke();
+
+    // The outer web closes in independently animated sections after its two
+    // supporting spokes have reached the rim.
+    const rimBuild = easeOutCubic(segment(build, 0.46 + order * 0.28, 0.74 + order * 0.26));
+    const rimRelease = easeInCubic(segment(release, order * 0.4, 0.58 + order * 0.38));
+    const visibleRim = rimBuild * (1 - rimRelease);
+    if (visibleRim > 0) {
+      context.globalAlpha = alpha * (0.48 + visibleRim * 0.28);
+      context.strokeStyle = '#d7f8ff';
+      context.lineWidth = Math.max(0.9, radius * 0.06);
+      context.beginPath();
+      context.moveTo(point.x, point.y);
+      context.lineTo(lerp(point.x, next.x, visibleRim), lerp(point.y, next.y, visibleRim));
+      context.stroke();
+    }
+
+    if (load > 0 && visibleSpoke >= 0.98 && release < 0.02) {
+      // A travelling bead on every spoke makes the load transfer visible; the
+      // stagger prevents the latch from reading as a single rotating icon.
+      const travel = (load * 2.7 + order) % 1;
+      const bead = {
+        x: lerp(point.x, hub.x, travel),
+        y: lerp(point.y, hub.y, travel),
+      };
+      context.globalAlpha = alpha * (0.42 + 0.48 * Math.sin(travel * Math.PI));
+      context.fillStyle = index % 2 === 0 ? '#fff7c2' : '#b8f4ff';
+      context.beginPath();
+      context.arc(bead.x, bead.y, Math.max(1.15, radius * 0.1), 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+
+  // The hub tightens under load while the perimeter continues to circulate.
+  const hubPulse = 0.72 + Math.sin(progress * Math.PI * 18) * 0.18;
+  context.globalAlpha = alpha * hubPulse;
+  context.strokeStyle = '#fff7c2';
+  context.lineWidth = Math.max(1, radius * 0.075);
+  context.beginPath();
+  context.arc(hub.x, hub.y, radius * (0.13 + load * 0.035), 0, Math.PI * 2);
+  context.stroke();
+  context.fillStyle = '#f8fdff';
+  context.beginPath();
+  context.arc(hub.x, hub.y, Math.max(1.35, radius * 0.075), 0, Math.PI * 2);
+  context.fill();
+
+  if (load > 0 && release < 0.02) {
+    const ringPhase = load * rim.length;
+    const ringIndex = Math.floor(ringPhase) % rim.length;
+    const ringTravel = ringPhase - Math.floor(ringPhase);
+    const from = rim[ringIndex];
+    const to = rim[(ringIndex + 1) % rim.length];
+    context.globalAlpha = alpha * 0.9;
+    context.fillStyle = '#fde68a';
+    context.beginPath();
+    context.arc(
+      lerp(from.x, to.x, ringTravel),
+      lerp(from.y, to.y, ringTravel),
+      Math.max(1.25, radius * 0.11),
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+  }
+
+  context.restore();
+}
+
 function drawAperture(
   context: CanvasRenderingContext2D,
   center: Point,
@@ -489,16 +784,32 @@ function drawGrappleTension(
   context: CanvasRenderingContext2D,
   size: CanvasSize,
   progress: number,
+  radialLatch: PreparedTopology,
   event: EventWithAnchors,
+  drawLatch = true,
 ): void {
   const life = eventEnvelope(progress);
   const origin = resolveAnchor(event.origin, size, { x: 0.34, y: 0.58 });
   const target = resolveAnchor(event.target, size, { x: 0.73, y: 0.34 });
+  const destination = event.destination
+    ? resolveAnchor(event.destination, size, { x: 0.58, y: 0.34 })
+    : target;
   const deploy = easeOutCubic(segment(progress, 0.06, 0.33));
   const tension = segment(progress, 0.3, 0.66);
+  const pull = easeOutCubic(segment(progress, 0.33, 0.62));
   const acceleration = easeInCubic(segment(progress, 0.62, 0.9));
   const span = Math.min(size.width, size.height);
-  const end = { x: lerp(origin.x, target.x, deploy), y: lerp(origin.y, target.y, deploy) };
+  const latch = {
+    x: lerp(target.x, destination.x, pull),
+    y: lerp(target.y, destination.y, pull),
+  };
+  const end = deploy < 1
+    ? { x: lerp(origin.x, target.x, deploy), y: lerp(origin.y, target.y, deploy) }
+    : latch;
+  const control = {
+    x: lerp(origin.x, end.x, 0.5),
+    y: lerp(origin.y, end.y, 0.5) + (1 - tension) * span * 0.08,
+  };
 
   context.save();
   context.globalCompositeOperation = 'lighter';
@@ -509,21 +820,47 @@ function drawGrappleTension(
   context.beginPath();
   context.moveTo(origin.x, origin.y);
   context.quadraticCurveTo(
-    lerp(origin.x, end.x, 0.5),
-    lerp(origin.y, end.y, 0.5) + (1 - tension) * span * 0.08,
+    control.x,
+    control.y,
     end.x,
     end.y,
   );
   context.stroke();
 
-  if (deploy >= 0.98) {
-    context.translate(target.x, target.y);
-    context.rotate(Math.PI * 0.25);
-    context.strokeStyle = '#fde68a';
-    context.lineWidth = Math.max(1, span * 0.005);
-    context.strokeRect(-span * 0.018, -span * 0.018, span * 0.036, span * 0.036);
-    context.rotate(-Math.PI * 0.25);
-    context.translate(-target.x, -target.y);
+  // Sequential knots make the line read as a tether traversing discrete grid
+  // cells rather than a screen-space flash. They share the same deploy clock
+  // as the authored grapple head.
+  const tetherDistance = Math.hypot(target.x - origin.x, target.y - origin.y);
+  const knotCount = Math.max(2, Math.min(6, Math.round(tetherDistance / Math.max(1, span * 0.14))));
+  for (let index = 1; index <= knotCount; index += 1) {
+    const fraction = index / (knotCount + 1);
+    if (deploy + 0.02 < fraction) continue;
+    const knotX = lerp(origin.x, latch.x, fraction);
+    const knotY = lerp(origin.y, latch.y, fraction);
+    const constructionAlpha = Math.min(1, (deploy - fraction + 0.12) * 7);
+    const loadPulse = tension > 0
+      ? 0.45 + ((Math.sin((progress * 18 - fraction * 7) * Math.PI) + 1) * 0.275)
+      : 1;
+    context.globalAlpha = life * constructionAlpha * loadPulse;
+    context.fillStyle = index % 2 === 0 ? '#fde68a' : '#8ff7ff';
+    context.beginPath();
+    context.arc(knotX, knotY, Math.max(1.2, span * 0.006), 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // Once attached, packets visibly travel from the radial latch back through
+  // the web line. This is actual sectional motion, not a whole-line opacity
+  // pulse, so the player can read the direction of the pulling force.
+  if (tension > 0 && deploy >= 1) {
+    for (let index = 0; index < 3; index += 1) {
+      const packet = (tension * 2.4 + index / 3) % 1;
+      const point = quadraticPoint(origin, control, end, 1 - packet);
+      context.globalAlpha = life * (0.48 + Math.sin(packet * Math.PI) * 0.48);
+      context.fillStyle = index === 0 ? '#fff7c2' : '#9ae6ff';
+      context.beginPath();
+      context.arc(point.x, point.y, Math.max(1.25, span * 0.0065), 0, Math.PI * 2);
+      context.fill();
+    }
   }
 
   if (tension > 0) {
@@ -534,11 +871,15 @@ function drawGrappleTension(
       const amount = offset * span * 0.012 * (1 - tension);
       context.globalAlpha = life * 0.55;
       context.strokeStyle = '#67e8f9';
+      context.setLineDash([Math.max(3, span * 0.022), Math.max(2, span * 0.014)]);
+      context.lineDashOffset = -progress * span * 0.7 * offset;
       context.beginPath();
       context.moveTo(origin.x + normalX / normalLength * amount, origin.y + normalY / normalLength * amount);
-      context.lineTo(target.x, target.y);
+      context.lineTo(latch.x, latch.y);
       context.stroke();
     }
+    context.setLineDash([]);
+    context.lineDashOffset = 0;
   }
 
   if (acceleration > 0) {
@@ -553,6 +894,18 @@ function drawGrappleTension(
     }
   }
   context.restore();
+
+  if (drawLatch && deploy >= 0.82) {
+    drawAnimatedGrappleLatch(
+      context,
+      size,
+      radialLatch,
+      latch,
+      progress,
+      span * (0.05 + tension * 0.012),
+      life * 0.96,
+    );
+  }
 }
 
 function drawRocStun(
@@ -929,13 +1282,15 @@ function drawTharthareonEmergence(
   size: CanvasSize,
   progress: number,
   image: HTMLImageElement | null,
+  centerOverride?: Point,
+  solidAnimation = false,
 ): void {
   const life = eventEnvelope(progress);
   const depth = segment(progress, 0.08, 0.3);
   const silhouetteProgress = segment(progress, 0.18, 0.42);
   const crossing = easeOutCubic(segment(progress, 0.34, 0.9));
   const span = Math.min(size.width, size.height);
-  const center = { x: size.width * 0.52, y: size.height * 0.51 };
+  const center = centerOverride ?? { x: size.width * 0.52, y: size.height * 0.51 };
 
   if (depth > 0 && crossing < 0.48) {
     context.save();
@@ -968,7 +1323,10 @@ function drawTharthareonEmergence(
     drawHeight = maxHeight;
     drawWidth = drawHeight * imageRatio;
   }
-  const scale = 0.72 + crossing * 0.28;
+  // In the solid profile the creature advances through the portal at one
+  // stable scale. The expanding clip and forward translation communicate
+  // emergence without making the creature grow from a smaller bitmap.
+  const scale = solidAnimation ? 1 : 0.72 + crossing * 0.28;
   drawWidth *= scale;
   drawHeight *= scale;
   const drawX = center.x - drawWidth * 0.5 + (1 - crossing) * span * 0.08;
@@ -1188,6 +1546,8 @@ export function LordAlphaVfx({
   baseUrl = import.meta.env.BASE_URL,
   event,
   pulse,
+  cellSize,
+  solidAnimation = false,
   className,
 }: LordAlphaVfxProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1200,24 +1560,23 @@ export function LordAlphaVfx({
   }, [event?.progress]);
 
   useEffect(() => {
-    for (const sequence of Object.values(LORD_ALPHA_EFFECT_SEQUENCE_ASSETS)) {
-      getEffectSequenceImage(baseUrl, sequence);
-    }
-  }, [baseUrl]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const preparedCanvas = prepareCanvas(canvas);
-    if (!preparedCanvas) return;
-    let surface = preparedCanvas;
-    surface.context.clearRect(0, 0, surface.size.width, surface.size.height);
     if (!eventKind || !event) {
       delete canvas.dataset.stage;
       delete canvas.dataset.effect;
       delete canvas.dataset.effectSource;
+      // Release any event-sized backing store as soon as the effect ends. The
+      // canvas remains CSS-sized, but an idle LASI no longer retains a full
+      // viewport DPR texture merely to display nothing.
+      if (canvas.width !== 1) canvas.width = 1;
+      if (canvas.height !== 1) canvas.height = 1;
       return;
     }
+    const preparedCanvas = prepareCanvas(canvas);
+    if (!preparedCanvas) return;
+    let surface = preparedCanvas;
+    surface.context.clearRect(0, 0, surface.size.width, surface.size.height);
 
     const eventData = event as EventWithAnchors;
     canvas.dataset.effect = eventKind;
@@ -1229,25 +1588,66 @@ export function LordAlphaVfx({
     const fold = prepareTopology(generateLordAlphaTopology({ kind: 'fold', seed: `${seed}:fold`, nodeCount }));
     const portal = prepareTopology(generateLordAlphaTopology({ kind: 'portal', seed: `${seed}:portal`, nodeCount: 28 }));
     const webImpact = prepareTopology(generateLordAlphaTopology({ kind: 'radial', seed: `${seed}:impact`, nodeCount: 17 }));
-    const creature = eventKind === 'tharthareon' ? getCreatureImage(baseUrl) : null;
     const effectSequenceImage = authoredSequence
       ? getEffectSequenceImage(baseUrl, authoredSequence)
+      : null;
+    const collisionOwnedTharthareon = isLordAlphaCollisionOwnedTharthareon(event);
+    const boardOwnedTharthareonPortal = eventKind === 'tharthareon'
+      && event.subtype === 'tharthareon-bite-lunge';
+    // Direct bite-lunge events render the moving head on the board collision
+    // carrier. Generic Nuke and NPC summon events retain their established
+    // full-creature emergence so changing the direct skill cannot hollow out
+    // those independent presentation paths.
+    const creature = eventKind === 'tharthareon' && !collisionOwnedTharthareon
+      ? getCreatureImage(baseUrl)
+      : null;
+    const grappleOrbSequence = eventKind === 'grapple'
+      ? LORD_ALPHA_EFFECT_SEQUENCE_ASSETS['grapple-orb']
+      : null;
+    const grappleOrbImage = grappleOrbSequence
+      ? getEffectSequenceImage(baseUrl, grappleOrbSequence)
       : null;
 
     let animationFrame = 0;
     let stopped = false;
     let lastProgress = 0;
+    let lastFrameAt = Number.NEGATIVE_INFINITY;
     const initialProgress = clampTopologyProgress(eventProgressRef.current);
     const startedAt = performance.now();
 
     const drawFrame = (progress: number): void => {
       const bounded = clampTopologyProgress(progress);
       lastProgress = bounded;
-      surface = prepareCanvas(canvas) ?? surface;
       const { context, size } = surface;
       context.clearRect(0, 0, size.width, size.height);
       canvas.dataset.stage = debugStageFor(eventKind, bounded);
-      if (
+      const tharthareonOrigin = eventKind === 'tharthareon'
+        ? resolveAnchor(eventData.origin, size, { x: 0.36, y: 0.54 })
+        : null;
+      if (solidAnimation && eventKind === 'grapple') {
+        // Preserve the web line's thickness across any number of cells. The
+        // procedural strand owns extension/tension, while the generated orb
+        // remains an aspect-correct image at the live latch point.
+        drawGrappleTension(context, size, bounded, webImpact, eventData, false);
+        if (grappleOrbSequence && grappleOrbImage) {
+          drawGrappleOrbSequence(
+            context,
+            size,
+            grappleOrbImage,
+            grappleOrbSequence,
+            bounded,
+            eventData,
+            reducedMotion ? grappleOrbSequence.reducedMotionFrame : undefined,
+            cellSize,
+            true,
+          );
+        }
+        canvas.dataset.effectSource = 'solid-tether+imagegen-orb';
+        return;
+      }
+      const authoredSequenceDrawn = (
+        !boardOwnedTharthareonPortal
+        &&
         authoredSequence
         && effectSequenceImage
         && drawEffectSequence(
@@ -1258,8 +1658,34 @@ export function LordAlphaVfx({
           bounded,
           eventData,
           reducedMotion ? authoredSequence.reducedMotionFrame : undefined,
+          cellSize,
+          solidAnimation,
         )
-      ) {
+      );
+      if (authoredSequenceDrawn) {
+        if (eventKind === 'grapple' && grappleOrbSequence && grappleOrbImage) {
+          drawGrappleOrbSequence(
+            context,
+            size,
+            grappleOrbImage,
+            grappleOrbSequence,
+            bounded,
+            eventData,
+            reducedMotion ? grappleOrbSequence.reducedMotionFrame : undefined,
+            cellSize,
+            solidAnimation,
+          );
+        }
+        if (eventKind === 'tharthareon' && !collisionOwnedTharthareon) {
+          drawTharthareonEmergence(
+            context,
+            size,
+            bounded,
+            creature,
+            tharthareonOrigin ?? undefined,
+            solidAnimation,
+          );
+        }
         canvas.dataset.effectSource = 'imagegen';
         return;
       }
@@ -1272,7 +1698,7 @@ export function LordAlphaVfx({
           drawWebShot(context, size, bounded, webImpact, eventData, true);
           return;
         case 'grapple':
-          drawGrappleTension(context, size, bounded, eventData);
+          drawGrappleTension(context, size, bounded, webImpact, eventData);
           return;
         case 'roc-stun':
           drawRocStun(context, size, bounded, eventData);
@@ -1284,10 +1710,35 @@ export function LordAlphaVfx({
           drawWormholeStep(context, size, bounded, portal, eventData);
           return;
         case 'tharthareon': {
-          const portalBuild = segment(bounded, 0, 0.36);
-          const portalCollapse = segment(bounded, 0.9, 1);
-          drawPortalStructure(context, size, portal, { x: size.width * 0.5, y: size.height * 0.5 }, portalBuild, portalCollapse, bounded * 0.8, eventEnvelope(bounded));
-          drawTharthareonEmergence(context, size, bounded, creature);
+          if (boardOwnedTharthareonPortal) {
+            // Hold and double-tap attacks render the fixed portal beneath the
+            // board-owned creature. Keeping this overlay empty prevents a
+            // foreground rim from appearing attached to its neck.
+            return;
+          }
+          // The overlay owns only portal construction. The board renderer
+          // anchors one complete connected Tharthareon creature to the
+          // collision carrier so the visible bite stops on the exact enemy.
+          drawPortalStructure(
+            context,
+            size,
+            portal,
+            tharthareonOrigin ?? resolveAnchor(eventData.origin, size, { x: 0.36, y: 0.54 }),
+            segment(bounded, 0, 0.22),
+            segment(bounded, 0.94, 1),
+            bounded * 0.8,
+            eventEnvelope(bounded),
+          );
+          if (!collisionOwnedTharthareon) {
+            drawTharthareonEmergence(
+              context,
+              size,
+              bounded,
+              creature,
+              tharthareonOrigin ?? undefined,
+              solidAnimation,
+            );
+          }
           return;
         }
         case 'dragon':
@@ -1305,16 +1756,16 @@ export function LordAlphaVfx({
       }
     };
 
-    const redrawLoadedCreature = () => {
-      if (!stopped && reducedMotion && eventKind === 'tharthareon') drawFrame(lastProgress);
-    };
     const redrawLoadedSequence = () => {
       if (!stopped) drawFrame(lastProgress);
     };
-    creature?.addEventListener('load', redrawLoadedCreature);
     effectSequenceImage?.addEventListener('load', redrawLoadedSequence);
+    grappleOrbImage?.addEventListener('load', redrawLoadedSequence);
+    creature?.addEventListener('load', redrawLoadedSequence);
     const redrawForResize = () => {
-      if (!stopped) drawFrame(lastProgress);
+      if (stopped) return;
+      surface = prepareCanvas(canvas) ?? surface;
+      drawFrame(lastProgress);
     };
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(redrawForResize);
     resizeObserver?.observe(canvas.parentElement ?? canvas);
@@ -1324,8 +1775,9 @@ export function LordAlphaVfx({
       resizeObserver?.disconnect();
       window.removeEventListener('resize', redrawForResize);
       window.removeEventListener('orientationchange', redrawForResize);
-      creature?.removeEventListener('load', redrawLoadedCreature);
       effectSequenceImage?.removeEventListener('load', redrawLoadedSequence);
+      grappleOrbImage?.removeEventListener('load', redrawLoadedSequence);
+      creature?.removeEventListener('load', redrawLoadedSequence);
     };
 
     if (reducedMotion) {
@@ -1342,7 +1794,10 @@ export function LordAlphaVfx({
       const localProgress = clampTopologyProgress(initialProgress + (now - startedAt) / duration);
       const authoredProgress = clampTopologyProgress(eventProgressRef.current);
       const progress = Math.max(localProgress, authoredProgress);
-      drawFrame(progress);
+      if (progress >= 1 || now - lastFrameAt >= LORD_ALPHA_VFX_FRAME_MS) {
+        lastFrameAt = now;
+        drawFrame(progress);
+      }
       if (progress < 1) animationFrame = window.requestAnimationFrame(tick);
     };
     animationFrame = window.requestAnimationFrame(tick);
@@ -1353,7 +1808,7 @@ export function LordAlphaVfx({
       window.cancelAnimationFrame(animationFrame);
       surface.context.clearRect(0, 0, surface.size.width, surface.size.height);
     };
-  }, [authoredSequence, baseUrl, eventKind, pulse]);
+  }, [authoredSequence, baseUrl, cellSize, eventKind, pulse, solidAnimation]);
 
   return (
     <canvas
