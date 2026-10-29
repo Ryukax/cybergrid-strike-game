@@ -401,9 +401,7 @@ import {
 } from '../game/lord-alpha-afterimage-step';
 import {
   advanceLordAlphaIdleRecovery,
-  consumeLordAlphaDamageNegation,
   createLordAlphaIdleRecoveryState,
-  registerLordAlphaTileMove,
   type LordAlphaIdleRecoveryState,
 } from '../game/lord-alpha-idle-recovery';
 
@@ -4225,11 +4223,11 @@ export default function Game() {
   const lordAlphaHeldTargetVisualPolicy = useRef(
     resolveLordAlphaHeldTargetVisualPolicy(lordAlphaAnimationProfile),
   ).current;
-  // Campaign route progression is part of the current game, so the public
-  // entry point must not silently fall back to the pre-navigation build when
-  // the old experiment query flag is absent. Keep `actionFork=0` as an
-  // explicit diagnostic opt-out while every normal entry path enables it.
-  const actionForkExperiment = actionForkParameters.get('actionFork') !== '0'
+  // The Lord Alpha animation lab must exercise the current campaign build,
+  // rather than silently dropping back to the pre-navigation game. Keep the
+  // explicit actionFork switch for normal testing, but make the character
+  // preview opt into the same route system automatically.
+  const actionForkExperiment = actionForkParameters.get('actionFork') === '1'
     || lordAlphaSkillsPreview;
   const requestedActionForkStart = Number(actionForkParameters.get('actionForkStart'));
   const actionForkStartWave = Number.isFinite(requestedActionForkStart) && requestedActionForkStart > 0
@@ -7005,19 +7003,9 @@ export default function Game() {
   ): boolean => {
     const s = stateRef.current;
     if (!s.running || col < 0 || col > 2 || row < 0 || row > 2) return false;
-    const movedToNewTile = s.player.col !== col || s.player.row !== row;
-    if (!movedToNewTile) return false;
     // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
-    lordAlphaIdleRecoveryRef.current = registerLordAlphaTileMove(
-      lordAlphaIdleRecoveryRef.current,
-      {
-        hp: s.hp,
-        enabled: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
-        movedToNewTile,
-      },
-    );
     const chrono = rivalSkillRef.current;
     if (chrono.active && chrono.id === 'chrono') {
       const positions = chrono.chronoPositions.filter((position) =>
@@ -7190,19 +7178,6 @@ export default function Game() {
     lordAlphaRocLaneHighlightRef.current = null;
     showMessage('ROC WING · LANE RESOLVED', 750);
   }, [commitPlayerTile, showMessage]);
-
-  const consumeLordAlphaMovingDamageNegation = useCallback(() => {
-    const s = stateRef.current;
-    const result = consumeLordAlphaDamageNegation(lordAlphaIdleRecoveryRef.current, {
-      hp: s.hp,
-      enabled: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
-    });
-    lordAlphaIdleRecoveryRef.current = result.state;
-    if (result.negated) {
-      showMessage('LASI MOVEMENT NEGATE · DAMAGE CANCELLED', 750);
-    }
-    return result.negated;
-  }, [showMessage]);
 
   const advanceLordAlphaIdleRecoveryClock = useCallback((
     dt: number,
@@ -12872,9 +12847,6 @@ export default function Game() {
           playHit();
           triggerLordAlphaMotion('hit');
           updateHud();
-        } else if (consumeLordAlphaMovingDamageNegation()) {
-          e.colPos = -9;
-          playHit();
         } else {
           s.hp--;
           applyIntegrityBreach(
@@ -14168,10 +14140,6 @@ export default function Game() {
           && execution.state.player.hp < playerHpBeforeCast) {
           execution.state.player.hp = playerHpBeforeCast;
         }
-        if (execution.state.player.hp < playerHpBeforeCast
-          && consumeLordAlphaMovingDamageNegation()) {
-          execution.state.player.hp = playerHpBeforeCast;
-        }
         npcAbilityRuntimeRef.current = execution.state;
         npc.hp = execution.state.npc.hp;
         npc.shieldCharges = execution.state.npc.shields;
@@ -14318,11 +14286,7 @@ export default function Game() {
               hitCount++;
               const resolvedDamage = competitiveProjectileDamage(1);
               if (s.shieldCharges > 0) s.shieldCharges--;
-              else if (s.ghostTimer <= 0
-                && !lordAlphaSkillsPreview
-                && !consumeLordAlphaMovingDamageNegation()) {
-                s.hp -= resolvedDamage;
-              }
+              else if (s.ghostTimer <= 0 && !lordAlphaSkillsPreview) s.hp -= resolvedDamage;
               if (npcAbilityRuntimeRef.current) {
                 npcAbilityRuntimeRef.current.player.hp = s.hp;
                 npcAbilityRuntimeRef.current.player.shields = s.shieldCharges;
@@ -15102,9 +15066,6 @@ export default function Game() {
             if (lordAlphaSkillsPreview) {
               s.hp = Math.max(1, s.hp);
               triggerLordAlphaMotion('hit');
-            } else if (consumeLordAlphaMovingDamageNegation()) {
-              // The pending movement charge owns this impact, so verified
-              // damage, leech, and on-damage effects all remain at zero.
             } else {
               s.hp -= resolvedDamage;
               if ((bullet.leechOnHit ?? 0) > 0) {
@@ -15181,7 +15142,7 @@ export default function Game() {
         || gp.l1
         || gp.r1,
     );
-  }, [actionForkExperiment, actionForkStartWave, handleGamepad, tryMoveTo, commitActionRoute, advanceLordAlphaAfterimageStep, resolveLordAlphaRocBranchImpact, advanceLordAlphaRocCharge, advanceLordAlphaNinjatoSlice, advanceLordAlphaNinjatoThrust, advanceLordAlphaIdleRecoveryClock, consumeLordAlphaMovingDamageNegation, isLordAlphaAfterimageEvading, moveControlledClone, manualBuster, queueSkillTap, queueLordAlphaL2Tap, queueLordAlphaR2Tap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, setActionRouteAvailability, setActionRoutePrompt, triggerLordAlphaMotion, triggerLordAlphaImpact, triggerNpcLordAlphaPresentation, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, pressLordAlphaSkillSlot, releaseLordAlphaSkillSlot, pressLordAlphaSkillAction, releaseLordAlphaSkillAction, lordAlphaSkillsPreview, resolveCampaignEnemyDefeat, publishNpcSkillPresentation, publishNpcLeftSkillPresentation, resetVersusBossCounterpart, consumeNpcShadowCloneCharge]);
+  }, [actionForkExperiment, actionForkStartWave, handleGamepad, tryMoveTo, commitActionRoute, advanceLordAlphaAfterimageStep, resolveLordAlphaRocBranchImpact, advanceLordAlphaRocCharge, advanceLordAlphaNinjatoSlice, advanceLordAlphaNinjatoThrust, advanceLordAlphaIdleRecoveryClock, isLordAlphaAfterimageEvading, moveControlledClone, manualBuster, queueSkillTap, queueLordAlphaL2Tap, queueLordAlphaR2Tap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, setActionRouteAvailability, setActionRoutePrompt, triggerLordAlphaMotion, triggerLordAlphaImpact, triggerNpcLordAlphaPresentation, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, pressLordAlphaSkillSlot, releaseLordAlphaSkillSlot, pressLordAlphaSkillAction, releaseLordAlphaSkillAction, lordAlphaSkillsPreview, resolveCampaignEnemyDefeat, publishNpcSkillPresentation, publishNpcLeftSkillPresentation, resetVersusBossCounterpart, consumeNpcShadowCloneCharge]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -16238,9 +16199,6 @@ export default function Game() {
       mode,
       mode === 'classic' && actionForkExperiment,
     );
-    lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
-      stateRef.current.hp,
-    );
     if (mode === 'vs') {
       resetVersusBossCounterpart(npcSkinRef.current, stateRef.current);
     } else {
@@ -16465,9 +16423,6 @@ export default function Game() {
       enabledAbilitiesRef.current,
       'classic',
       actionForkExperiment,
-    );
-    lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
-      stateRef.current.hp,
     );
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
