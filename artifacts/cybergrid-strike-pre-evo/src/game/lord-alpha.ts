@@ -1861,6 +1861,30 @@ export const LORD_ALPHA_DIRECT_GAMEPAD_ACTIONS = {
   R2: "afterimage-step",
 } as const satisfies Record<"X" | "B" | "R1" | "R2", LordAlphaSkillActionId>;
 
+export interface LordAlphaGamepadOwnershipContext {
+  isLordAlpha: boolean;
+  skillPanelOpen: boolean;
+  evolutionSelectionActive?: boolean;
+  npcVsNpcActive?: boolean;
+}
+
+/**
+ * LASI's direct skill mappings own the controller only while the skill panel
+ * is open. Closing it restores the standard ability, Evolution, and control
+ * layers without changing the authored skill bindings.
+ */
+export function lordAlphaSkillControlsOwnGamepad({
+  isLordAlpha,
+  skillPanelOpen,
+  evolutionSelectionActive = false,
+  npcVsNpcActive = false,
+}: LordAlphaGamepadOwnershipContext): boolean {
+  return isLordAlpha
+    && skillPanelOpen
+    && !evolutionSelectionActive
+    && !npcVsNpcActive;
+}
+
 export const LORD_ALPHA_L2_TAP_WINDOW_MS = 260;
 export const LORD_ALPHA_R2_TAP_WINDOW_MS = 260;
 

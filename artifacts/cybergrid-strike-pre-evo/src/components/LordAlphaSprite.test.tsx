@@ -178,7 +178,7 @@ test('undersized atlases keep a canonical root and opt into discrete frame norma
     ['skill', null, ['dragon', 'ultimate-landing'], '1.35', '153', 'height:135%', 'bottom:1.59375%', true],
   ] as const;
 
-  for (const [motion, comboBeat, skill, scale, rootY, height, bottom, normalized = false] of cases) {
+  for (const [motion, comboBeat, skill, scale, rootY, height, bottom] of cases) {
     const markup = renderToStaticMarkup(
       <LordAlphaSprite
         baseUrl="/"
@@ -196,10 +196,10 @@ test('undersized atlases keep a canonical root and opt into discrete frame norma
     ok(markup.includes(`data-actor-root-y="${rootY}"`));
     ok(markup.includes(height));
     ok(markup.includes(bottom));
-    ok(markup.includes(`data-frame-scale-correction="${normalized}"`));
+    ok(markup.includes('data-frame-scale-correction="false"'));
   }
-  ok(LORD_ALPHA_SPRITE_CSS.includes('@keyframes lord-alpha-frame-scale-supreme-combo-roc'));
-  ok(LORD_ALPHA_SPRITE_CSS.includes('@keyframes lord-alpha-frame-scale-roc-wing-spin'));
+  ok(!LORD_ALPHA_SPRITE_CSS.includes('@keyframes lord-alpha-frame-scale-supreme-combo-roc'));
+  ok(!LORD_ALPHA_SPRITE_CSS.includes('@keyframes lord-alpha-frame-scale-roc-wing-spin'));
 });
 
 test('Supreme equip uses the authored transformation strip without the legacy overlay', () => {

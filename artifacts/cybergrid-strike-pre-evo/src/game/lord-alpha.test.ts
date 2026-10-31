@@ -66,6 +66,7 @@ import {
   isLordAlphaCollisionOwnedTharthareon,
   isLordAlphaRocBranchImpactContact,
   isLordAlphaSkillsPreviewSearch,
+  lordAlphaSkillControlsOwnGamepad,
   lordAlphaSignatureUsesCooldown,
   lordAlphaRocBranchCandidateRows,
   lordAlphaTopologyMorphWeights,
@@ -692,6 +693,31 @@ test("Lord Alpha signature banks expose stable live-mechanic and input mappings"
   equal(resolveLordAlphaSkillAction(20, -1), null);
   equal(resolveLordAlphaSkillAction(20, 3), null);
   equal(resolveLordAlphaSkillActionById("tharthareon")?.mechanicId, "nuke");
+});
+
+test("LASI direct controls yield to abilities and Evolution when the skill panel is closed", () => {
+  equal(lordAlphaSkillControlsOwnGamepad({
+    isLordAlpha: true,
+    skillPanelOpen: false,
+  }), false);
+  equal(lordAlphaSkillControlsOwnGamepad({
+    isLordAlpha: true,
+    skillPanelOpen: true,
+  }), true);
+  equal(lordAlphaSkillControlsOwnGamepad({
+    isLordAlpha: true,
+    skillPanelOpen: true,
+    evolutionSelectionActive: true,
+  }), false);
+  equal(lordAlphaSkillControlsOwnGamepad({
+    isLordAlpha: true,
+    skillPanelOpen: true,
+    npcVsNpcActive: true,
+  }), false);
+  equal(lordAlphaSkillControlsOwnGamepad({
+    isLordAlpha: false,
+    skillPanelOpen: true,
+  }), false);
 });
 
 test("Lord Alpha L2 tap counts separate panel and bank commands", () => {

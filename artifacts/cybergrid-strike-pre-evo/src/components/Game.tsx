@@ -26,6 +26,7 @@ import {
   queueManualBusterInput,
   resolveManualBusterInput,
 } from '../game/responsive-input';
+import { normalizeSpriteFrameBank } from '../game/sprite-frame-normalization';
 import {
   cloneBrowserValue,
   readBrowserViewport,
@@ -350,6 +351,7 @@ import {
   resolveLordAlphaAnimationProfile,
   resolveLordAlphaHeldTargetVisualPolicy,
   resolveLordAlphaTharthareonPresentationSubtype,
+  lordAlphaSkillControlsOwnGamepad,
   lordAlphaSignatureUsesCooldown,
   resolveLordAlphaAttackSequence,
   resolveLordAlphaDirectGamepadBinding,
@@ -401,7 +403,9 @@ import {
 } from '../game/lord-alpha-afterimage-step';
 import {
   advanceLordAlphaIdleRecovery,
+  consumeLordAlphaDamageNegation,
   createLordAlphaIdleRecoveryState,
+  registerLordAlphaTileMove,
   type LordAlphaIdleRecoveryState,
 } from '../game/lord-alpha-idle-recovery';
 
@@ -3107,12 +3111,6 @@ const RIVAL_SKILL_LABELS: Record<RivalSkillId, string> = {
   tidal: 'Tidal Engine',
 };
 const RIVAL_SKILL_IDS = Object.keys(RIVAL_SKILL_LABELS) as RivalSkillId[];
-const REGISTERED_RIVAL_FRAME_FIXES = new Set<RivalSkillId>([
-  'override', 'architect', 'apex', 'counter', 'phase', 'vector',
-  'gridshift', 'resonance', 'exchange', 'causality', 'arsenal',
-  'null', 'polarity', 'colossus', 'predator', 'orbital', 'hijack',
-  'sovereign',
-]);
 type AssemblySkillId = 'shadow' | RivalSkillId;
 const CONCEPT_SKIN_IDS = [
   'tempest', 'cryo', 'terra', 'echo', 'mirage',
@@ -4223,11 +4221,11 @@ export default function Game() {
   const lordAlphaHeldTargetVisualPolicy = useRef(
     resolveLordAlphaHeldTargetVisualPolicy(lordAlphaAnimationProfile),
   ).current;
-  // The Lord Alpha animation lab must exercise the current campaign build,
-  // rather than silently dropping back to the pre-navigation game. Keep the
-  // explicit actionFork switch for normal testing, but make the character
-  // preview opt into the same route system automatically.
-  const actionForkExperiment = actionForkParameters.get('actionFork') === '1'
+  // Campaign route progression is part of the current game, so the public
+  // entry point must not silently fall back to the pre-navigation build when
+  // the old experiment query flag is absent. Keep `actionFork=0` as an
+  // explicit diagnostic opt-out while every normal entry path enables it.
+  const actionForkExperiment = actionForkParameters.get('actionFork') !== '0'
     || lordAlphaSkillsPreview;
   const requestedActionForkStart = Number(actionForkParameters.get('actionForkStart'));
   const actionForkStartWave = Number.isFinite(requestedActionForkStart) && requestedActionForkStart > 0
@@ -4398,9 +4396,9 @@ export default function Game() {
   const skillFxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cloneNorthRef = useRef<HTMLDivElement>(null);
   const cloneSouthRef = useRef<HTMLDivElement>(null);
-  const rivalAttackSequenceRef = useRef<HTMLImageElement | null>(null);
-  const rivalSkillSequenceRef = useRef<HTMLImageElement | null>(null);
-  const rivalSkillCommandSequencesRef = useRef<HTMLImageElement[]>([]);
+  const rivalAttackSequenceRef = useRef<ImageBitmap[]>([]);
+  const rivalSkillSequenceRef = useRef<ImageBitmap[]>([]);
+  const rivalSkillCommandSequencesRef = useRef<ImageBitmap[][]>([]);
   const rivalSkillAnimationStartedRef = useRef(-1);
   const rivalSkillAnimationCommandRef = useRef(-1);
   const cloneActionTimersRef = useRef<Record<CloneDirection, ReturnType<typeof setTimeout> | null>>({
@@ -4911,6 +4909,19 @@ export default function Game() {
     | 'predator' | 'orbital' | 'hijack' | 'sovereign'
     | 'tempest' | 'cryo' | 'terra' | 'echo' | 'mirage'
     | 'beacon' | 'swarm' | 'bloom' | 'tidal';
+  const overlayScaleForSkin = (skin: PlayerSkin): number => {
+    if (skin === 'dots') return 1;
+    if (skin === 'gem') return 0.85;
+    if (skin === LORD_ALPHA_SKIN_ID) return 1.12;
+    if (RIVAL_SKILL_IDS.includes(skin as RivalSkillId)
+      || CONCEPT_SKIN_IDS.includes(skin as (typeof CONCEPT_SKIN_IDS)[number])) return 1.08;
+    return 0.72;
+  };
+  const overlayAspectForSkin = (skin: PlayerSkin): number => (
+    CONCEPT_SKIN_IDS.includes(skin as (typeof CONCEPT_SKIN_IDS)[number])
+      ? 256 / 160
+      : 1
+  );
   const SKIN_KEY = 'cgs_player_skin';
   const knownPlayerSkins = new Set<PlayerSkin>([
     'default', 'rocket', 'dots', 'gem', 'assembly', LORD_ALPHA_SKIN_ID,
@@ -5736,72 +5747,13 @@ export default function Game() {
     if (assemblySkill !== 'shadow') preloadSignatureSkillVfx(assemblySkill);
   }, [assemblySkill]);
 
-  useEffect(() => {
-    if (!RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId)) {
-      rivalAttackSequenceRef.current = null;
-      rivalSkillSequenceRef.current = null;
-      rivalSkillCommandSequencesRef.current = [];
-      return;
-    }
-    const attackSequence = new Image();
-    attackSequence.src = `${import.meta.env.BASE_URL}skins/advanced-attack-sequences/${playerSkin}.png?v=5`;
-    rivalAttackSequenceRef.current = attackSequence;
-    const skillSequence = new Image();
-    skillSequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-sequences/${playerSkin}.png?v=1`;
-    rivalSkillSequenceRef.current = skillSequence;
-    const commandSequences = [0, 1, 2].map((command) => {
-      const sequence = new Image();
-      sequence.src = `${import.meta.env.BASE_URL}skins/advanced-skill-command-sequences/${playerSkin}-${command}.png?v=1`;
-      return sequence;
-    });
-    rivalSkillCommandSequencesRef.current = commandSequences;
-    return () => {
-      if (rivalAttackSequenceRef.current === attackSequence) {
-        rivalAttackSequenceRef.current = null;
-      }
-      if (rivalSkillSequenceRef.current === skillSequence) {
-        rivalSkillSequenceRef.current = null;
-      }
-      if (rivalSkillCommandSequencesRef.current === commandSequences) {
-        rivalSkillCommandSequencesRef.current = [];
-      }
-    };
-  }, [playerSkin]);
-
   // Load pre-transparified PNG frames when a sprite skin is selected.
   useEffect(() => {
     const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkin as RivalSkillId);
     const conceptSkin = CONCEPT_SKIN_IDS.includes(playerSkin as (typeof CONCEPT_SKIN_IDS)[number]);
     if (playerSkin !== 'rocket' && playerSkin !== 'dots' && playerSkin !== 'gem' && !rivalSkin && !conceptSkin) return;
     const base = import.meta.env.BASE_URL;
-    const loadBmp = (url: string): Promise<ImageBitmap> =>
-      new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload  = () => createImageBitmap(img)
-          .then(resolve)
-          .catch(reject);
-        img.onerror = () => reject(new Error(`Failed to load ${url}`));
-        img.src = url;
-      });
-
-    // Load rocket attack frames into gifAttackFramesRef
-    if (playerSkin === 'rocket') {
-      Promise.all(Array.from({ length: 13 }, (_, i) => loadBmp(`${base}skins/rocket_attack_frame_${i}.png?alpha=v2`)))
-        .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
-        .catch(err => console.error('[rocket attack] frame load error:', err));
-    }
-
-    // Also load gem attack + move frames whenever gem is selected
-    if (playerSkin === 'gem') {
-      Promise.all([0,1,2].map(i => loadBmp(`${base}skins/gem_attack_frame_${i}.png?alpha=v2`)))
-        .then(bitmaps => { gifAttackFramesRef.current = bitmaps; })
-        .catch(err => console.error('[gem attack] frame load error:', err));
-      Promise.all(Array.from({ length: 18 }, (_, i) => loadBmp(`${base}skins/gem_move_frame_${i}.png`)))
-        .then(bitmaps => { gifMoveFramesRef.current = bitmaps; })
-        .catch(err => console.error('[gem move] frame load error:', err));
-    }
     let cancelled = false;
-
     const loadBitmap = (url: string): Promise<ImageBitmap> =>
       new Promise((resolve, reject) => {
         const img = new Image();
@@ -5811,12 +5763,58 @@ export default function Game() {
         img.onerror = () => reject(new Error(`Failed to load ${url}`));
         img.src = url;
       });
+    const loadSequenceFrames = async (
+      url: string,
+      reference: ImageBitmap,
+      mode: 'per-frame' | 'sequence',
+    ): Promise<ImageBitmap[]> => {
+      const sheet = await loadBitmap(url);
+      const rawFrames: ImageBitmap[] = [];
+      try {
+        const frameSize = sheet.height;
+        const frameCount = Math.max(1, Math.floor(sheet.width / frameSize));
+        for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+          rawFrames.push(await createImageBitmap(
+            sheet,
+            frameIndex * frameSize,
+            0,
+            frameSize,
+            frameSize,
+          ));
+        }
+        const normalized = await normalizeSpriteFrameBank(reference, rawFrames, {
+          mode,
+          maxScale: mode === 'sequence' ? 1 : 1.35,
+          alignActor: mode !== 'sequence',
+        });
+        rawFrames.forEach((frame) => frame.close());
+        return normalized;
+      } catch (error) {
+        rawFrames.forEach((frame) => frame.close());
+        throw error;
+      } finally {
+        sheet.close();
+      }
+    };
+    const loadOptionalSequenceFrames = async (
+      url: string,
+      reference: ImageBitmap,
+      sequenceName: string,
+      mode: 'per-frame' | 'sequence',
+    ): Promise<ImageBitmap[]> => {
+      try {
+        return await loadSequenceFrames(url, reference, mode);
+      } catch (error) {
+        console.warn(`[${playerSkin} player skin] ${sequenceName} sequence unavailable:`, error);
+        return [];
+      }
+    };
 
     (async () => {
       try {
         const base = import.meta.env.BASE_URL;
         if (conceptSkin) {
-          const [idleFrames, attackFrames] = await Promise.all([
+          const [rawIdleFrames, rawAttackFrames] = await Promise.all([
             Promise.all(Array.from(
               { length: 8 },
               (_, index) => loadBitmap(`${base}skins/concept-idle-frames/${playerSkin}-${index}.png`),
@@ -5826,10 +5824,17 @@ export default function Game() {
               (_, index) => loadBitmap(`${base}skins/concept-attack-frames/${playerSkin}-${index}.png`),
             )),
           ]);
-          const brinkFrames = playerSkin === 'echo'
+          const rawBrinkFrames = playerSkin === 'echo'
             ? await Promise.all([2, 3, 5].map((index) =>
                 loadBitmap(`${base}skins/concept-attack-frames/echo-${index}.png?brink=v3`)))
             : [];
+          const [idleFrames, attackFrames, brinkFrames] = await Promise.all([
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawIdleFrames),
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawAttackFrames),
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawBrinkFrames),
+          ]);
+          [...rawIdleFrames, ...rawAttackFrames, ...rawBrinkFrames]
+            .forEach((bitmap) => bitmap.close());
           if (cancelled) {
             [...idleFrames, ...attackFrames, ...brinkFrames].forEach((bitmap) => bitmap.close());
             return;
@@ -5904,30 +5909,45 @@ export default function Game() {
             ]);
             rawAttack.close();
             pair = { idle, attack };
-          } else if (REGISTERED_RIVAL_FRAME_FIXES.has(playerSkin as RivalSkillId)) {
-            pair = await sanitizeRivalSkinPair(rawIdle, rawAttack);
           } else {
-            pair = {
-              idle: await sanitizeRivalSkinFrame(rawIdle),
-              attack: await sanitizeRivalSkinFrame(rawAttack),
-            };
+            pair = await sanitizeRivalSkinPair(rawIdle, rawAttack);
           }
+          const [attackSequence, skillSequence, ...commandSequences] = await Promise.all([
+            loadOptionalSequenceFrames(
+              `${base}skins/advanced-attack-sequences/${playerSkin}.png?v=5`,
+              pair.idle,
+              'attack',
+              'per-frame',
+            ),
+            loadOptionalSequenceFrames(
+              `${base}skins/advanced-skill-sequences/${playerSkin}.png?v=1`,
+              pair.idle,
+              'skill',
+              'sequence',
+            ),
+            ...[0, 1, 2].map((command) => loadOptionalSequenceFrames(
+              `${base}skins/advanced-skill-command-sequences/${playerSkin}-${command}.png?v=1`,
+              pair.idle,
+              `command ${command}`,
+              'sequence',
+            )),
+          ]);
           if (cancelled) {
             pair.idle.close();
             pair.attack.close();
+            [...attackSequence, ...skillSequence, ...commandSequences.flat()]
+              .forEach((frame) => frame.close());
             return;
           }
           gifFramesRef.current = [pair.idle];
           gifAttackFramesRef.current = [pair.attack];
+          rivalAttackSequenceRef.current = attackSequence;
+          rivalSkillSequenceRef.current = skillSequence;
+          rivalSkillCommandSequencesRef.current = commandSequences;
           rocketFrameRef.current = -1;
           return;
         }
-        const urls = conceptSkin
-          ? Array.from(
-              { length: 8 },
-              (_, index) => `${base}skins/concept-idle-frames/${playerSkin}-${index}.png`,
-            )
-          : playerSkin === 'rocket'
+        const urls = playerSkin === 'rocket'
           ? [`${base}skins/rocket_idle.png`]
           : playerSkin === 'dots'
           ? [
@@ -5940,9 +5960,38 @@ export default function Game() {
           : playerSkin === 'gem'
           ? Array.from({ length: 12 }, (_, i) => `${base}skins/gem_frame_${i}.png`)
           : [`${base}skins/skill-${playerSkin}-idle.png`];
-        const bitmaps = await Promise.all(urls.map(loadBitmap));
-        if (cancelled) { bitmaps.forEach(b => b.close()); return; }
+        const rawBitmaps = await Promise.all(urls.map(loadBitmap));
+        const bitmaps = await normalizeSpriteFrameBank(rawBitmaps[0], rawBitmaps);
+        let attackFrames: ImageBitmap[] = [];
+        let moveFrames: ImageBitmap[] = [];
+        if (playerSkin === 'rocket') {
+          const rawAttackFrames = await Promise.all(Array.from(
+            { length: 13 },
+            (_, index) => loadBitmap(`${base}skins/rocket_attack_frame_${index}.png?alpha=v2`),
+          ));
+          attackFrames = await normalizeSpriteFrameBank(rawBitmaps[0], rawAttackFrames);
+          rawAttackFrames.forEach((frame) => frame.close());
+        } else if (playerSkin === 'gem') {
+          const [rawAttackFrames, rawMoveFrames] = await Promise.all([
+            Promise.all([0, 1, 2].map((index) =>
+              loadBitmap(`${base}skins/gem_attack_frame_${index}.png?alpha=v2`))),
+            Promise.all(Array.from({ length: 18 }, (_, index) =>
+              loadBitmap(`${base}skins/gem_move_frame_${index}.png`))),
+          ]);
+          [attackFrames, moveFrames] = await Promise.all([
+            normalizeSpriteFrameBank(rawBitmaps[0], rawAttackFrames),
+            normalizeSpriteFrameBank(rawBitmaps[0], rawMoveFrames),
+          ]);
+          [...rawAttackFrames, ...rawMoveFrames].forEach((frame) => frame.close());
+        }
+        rawBitmaps.forEach((frame) => frame.close());
+        if (cancelled) {
+          [...bitmaps, ...attackFrames, ...moveFrames].forEach((frame) => frame.close());
+          return;
+        }
         gifFramesRef.current = bitmaps;
+        gifAttackFramesRef.current = attackFrames;
+        gifMoveFramesRef.current = moveFrames;
         rocketFrameRef.current = -1; // -1 = idle
       } catch (err) {
         console.error(`[${playerSkin} skin] frame load error:`, err);
@@ -5962,6 +6011,12 @@ export default function Game() {
       echoBrinkFramesRef.current = [];
       gifMoveFramesRef.current.forEach(b => b.close());
       gifMoveFramesRef.current = [];
+      rivalAttackSequenceRef.current.forEach((frame) => frame.close());
+      rivalAttackSequenceRef.current = [];
+      rivalSkillSequenceRef.current.forEach((frame) => frame.close());
+      rivalSkillSequenceRef.current = [];
+      rivalSkillCommandSequencesRef.current.flat().forEach((frame) => frame.close());
+      rivalSkillCommandSequencesRef.current = [];
       rocketFrameRef.current = -1;
       gemAttackFrameRef.current = -1;
       rivalAttackStartedRef.current = -1;
@@ -5990,14 +6045,18 @@ export default function Game() {
       img.onerror = () => reject(new Error(`Failed to load ${url}`));
       img.src = url;
     });
-    const loadSequenceFrames = async (url: string): Promise<ImageBitmap[]> => {
+    const loadSequenceFrames = async (
+      url: string,
+      reference: ImageBitmap,
+      mode: 'per-frame' | 'sequence',
+    ): Promise<ImageBitmap[]> => {
       const sheet = await loadBitmap(url);
-      const frames: ImageBitmap[] = [];
+      const rawFrames: ImageBitmap[] = [];
       try {
         const frameSize = sheet.height;
         const frameCount = Math.max(1, Math.floor(sheet.width / frameSize));
         for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
-          frames.push(await createImageBitmap(
+          rawFrames.push(await createImageBitmap(
             sheet,
             frameIndex * frameSize,
             0,
@@ -6005,9 +6064,15 @@ export default function Game() {
             frameSize,
           ));
         }
-        return frames;
+        const normalized = await normalizeSpriteFrameBank(reference, rawFrames, {
+          mode,
+          maxScale: mode === 'sequence' ? 1 : 1.35,
+          alignActor: mode !== 'sequence',
+        });
+        rawFrames.forEach((frame) => frame.close());
+        return normalized;
       } catch (error) {
-        frames.forEach((frame) => frame.close());
+        rawFrames.forEach((frame) => frame.close());
         throw error;
       } finally {
         sheet.close();
@@ -6015,10 +6080,12 @@ export default function Game() {
     };
     const loadOptionalSequenceFrames = async (
       url: string,
+      reference: ImageBitmap,
       sequenceName: string,
+      mode: 'per-frame' | 'sequence',
     ): Promise<ImageBitmap[]> => {
       try {
-        return await loadSequenceFrames(url);
+        return await loadSequenceFrames(url, reference, mode);
       } catch (error) {
         // The base idle/attack body remains valid if an optional authored
         // sequence fails to decode. Keep the boss visible and fall back to its
@@ -6035,29 +6102,46 @@ export default function Game() {
         let skillFrames: ImageBitmap[] = [];
         let skillCommandFrames: ImageBitmap[][] = [];
         if (concept) {
-          [idleFrames, attackFrames] = await Promise.all([
+          const [rawIdleFrames, rawAttackFrames] = await Promise.all([
             Promise.all(Array.from({ length: 8 }, (_, i) =>
               loadBitmap(`${base}skins/concept-idle-frames/${npcSkin}-${i}.png`))),
             Promise.all(Array.from({ length: 8 }, (_, i) =>
               loadBitmap(`${base}skins/concept-attack-frames/${npcSkin}-${i}.png`))),
           ]);
-        } else if (npcSkin === 'rocket') {
           [idleFrames, attackFrames] = await Promise.all([
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawIdleFrames),
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawAttackFrames),
+          ]);
+          [...rawIdleFrames, ...rawAttackFrames].forEach((frame) => frame.close());
+        } else if (npcSkin === 'rocket') {
+          const [rawIdleFrames, rawAttackFrames] = await Promise.all([
             Promise.all([loadBitmap(`${base}skins/rocket_idle.png`)]),
             Promise.all(Array.from({ length: 13 }, (_, i) =>
               loadBitmap(`${base}skins/rocket_attack_frame_${i}.png?alpha=v2`))),
           ]);
+          [idleFrames, attackFrames] = await Promise.all([
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawIdleFrames),
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawAttackFrames),
+          ]);
+          [...rawIdleFrames, ...rawAttackFrames].forEach((frame) => frame.close());
         } else if (npcSkin === 'dots') {
-          idleFrames = await Promise.all(Array.from({ length: 5 }, (_, i) =>
+          const rawIdleFrames = await Promise.all(Array.from({ length: 5 }, (_, i) =>
             loadBitmap(`${base}skins/dots_frame_${i}.png`)));
+          idleFrames = await normalizeSpriteFrameBank(rawIdleFrames[0], rawIdleFrames);
+          rawIdleFrames.forEach((frame) => frame.close());
           attackFrames = idleFrames;
         } else if (npcSkin === 'gem') {
-          [idleFrames, attackFrames] = await Promise.all([
+          const [rawIdleFrames, rawAttackFrames] = await Promise.all([
             Promise.all(Array.from({ length: 12 }, (_, i) =>
               loadBitmap(`${base}skins/gem_frame_${i}.png`))),
             Promise.all(Array.from({ length: 3 }, (_, i) =>
               loadBitmap(`${base}skins/gem_attack_frame_${i}.png?alpha=v2`))),
           ]);
+          [idleFrames, attackFrames] = await Promise.all([
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawIdleFrames),
+            normalizeSpriteFrameBank(rawIdleFrames[0], rawAttackFrames),
+          ]);
+          [...rawIdleFrames, ...rawAttackFrames].forEach((frame) => frame.close());
         } else {
           let [idle, attack] = await Promise.all([
             loadBitmap(`${base}skins/skill-${npcSkin}-idle.png`),
@@ -6076,8 +6160,9 @@ export default function Game() {
               );
               idle.close();
               attack.close();
-              idle = await sanitizeRivalSkinFrame(idleCrop);
-              attack = await sanitizeRivalSkinFrame(attackCrop);
+              const cleaned = await sanitizeRivalSkinPair(idleCrop, attackCrop);
+              idle = cleaned.idle;
+              attack = cleaned.attack;
             } else if (npcSkin === 'architect' || npcSkin === 'chrono') {
               const normalizedAttack = document.createElement('canvas');
               normalizedAttack.width = 160;
@@ -6100,15 +6185,21 @@ export default function Game() {
             const [attackSequence, skillSequence, ...commandSequences] = await Promise.all([
               loadOptionalSequenceFrames(
                 `${base}skins/advanced-attack-sequences/${npcSkin}.png?v=5`,
+                idle,
                 'attack',
+                'per-frame',
               ),
               loadOptionalSequenceFrames(
                 `${base}skins/advanced-skill-sequences/${npcSkin}.png?v=1`,
+                idle,
                 'skill',
+                'sequence',
               ),
               ...[0, 1, 2].map((command) => loadOptionalSequenceFrames(
                 `${base}skins/advanced-skill-command-sequences/${npcSkin}-${command}.png?v=1`,
+                idle,
                 `command ${command}`,
+                'sequence',
               )),
             ]);
             authoredAttackFrames = attackSequence.length > 0 ? attackSequence : null;
@@ -7003,9 +7094,19 @@ export default function Game() {
   ): boolean => {
     const s = stateRef.current;
     if (!s.running || col < 0 || col > 2 || row < 0 || row > 2) return false;
+    const movedToNewTile = s.player.col !== col || s.player.row !== row;
+    if (!movedToNewTile) return false;
     // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
+    lordAlphaIdleRecoveryRef.current = registerLordAlphaTileMove(
+      lordAlphaIdleRecoveryRef.current,
+      {
+        hp: s.hp,
+        enabled: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+        movedToNewTile,
+      },
+    );
     const chrono = rivalSkillRef.current;
     if (chrono.active && chrono.id === 'chrono') {
       const positions = chrono.chronoPositions.filter((position) =>
@@ -7178,6 +7279,19 @@ export default function Game() {
     lordAlphaRocLaneHighlightRef.current = null;
     showMessage('ROC WING · LANE RESOLVED', 750);
   }, [commitPlayerTile, showMessage]);
+
+  const consumeLordAlphaMovingDamageNegation = useCallback(() => {
+    const s = stateRef.current;
+    const result = consumeLordAlphaDamageNegation(lordAlphaIdleRecoveryRef.current, {
+      hp: s.hp,
+      enabled: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+    });
+    lordAlphaIdleRecoveryRef.current = result.state;
+    if (result.negated) {
+      showMessage('LASI MOVEMENT NEGATE · DAMAGE CANCELLED', 750);
+    }
+    return result.negated;
+  }, [showMessage]);
 
   const advanceLordAlphaIdleRecoveryClock = useCallback((
     dt: number,
@@ -10328,13 +10442,14 @@ export default function Game() {
     const next = !lordAlphaSkillModeOpenRef.current;
     lordAlphaSkillModeOpenRef.current = next;
     setLordAlphaSkillModeOpen(next);
+    if (!next) resetLordAlphaR2TapGesture();
     showMessage(
       next ? 'LORD ALPHA SKILLS · R2 STEP / ×2 SLICE / ×3 BACK THRUST'
         : 'LORD ALPHA SKILLS CLOSED',
       900,
     );
     return true;
-  }, [resetLordAlphaL2TapGesture, showMessage]);
+  }, [resetLordAlphaL2TapGesture, resetLordAlphaR2TapGesture, showMessage]);
 
   const queueLordAlphaL2Tap = useCallback(() => {
     if (lordAlphaL2TapCountRef.current >= 3) return;
@@ -11832,9 +11947,14 @@ export default function Game() {
     }
 
     const upgradeGamepad = gamepadRef.current;
-    const lordAlphaOwnsDirectControls = playerSkinRef.current === LORD_ALPHA_SKIN_ID;
-    // LASI owns R1 as Roc Wing whether the skill panel is shown or hidden;
-    // Evolution remains available by touch/Q. Other characters retain R1.
+    const lordAlphaOwnsDirectControls = lordAlphaSkillControlsOwnGamepad({
+      isLordAlpha: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+      skillPanelOpen: lordAlphaSkillModeOpenRef.current,
+      evolutionSelectionActive,
+      npcVsNpcActive,
+    });
+    // LASI owns R1 as Roc Wing only while the skill panel is open. Closing it
+    // restores the standard controller layer, including milestone Evolution.
     if (s.upgradePromptOpen
       && !lordAlphaOwnsDirectControls
       && !rivalSkillRef.current.active
@@ -11886,10 +12006,12 @@ export default function Game() {
       if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) queueLordAlphaL2Tap();
       else queueSkillTap();
     }
-    // The panel is informational: hiding it must not change LASI's fixed
-    // controller layout. Only Y's bank-relative shortcut needs an open panel.
-    const lordAlphaSkillInputActive = !npcVsNpcActive && !slowMotionActive
-      && playerSkinRef.current === LORD_ALPHA_SKIN_ID;
+    const lordAlphaSkillInputActive = lordAlphaSkillControlsOwnGamepad({
+      isLordAlpha: playerSkinRef.current === LORD_ALPHA_SKIN_ID,
+      skillPanelOpen: lordAlphaSkillModeOpenRef.current,
+      evolutionSelectionActive: slowMotionActive,
+      npcVsNpcActive,
+    });
     if (lordAlphaSkillInputActive) {
       if (gp.r1 && !gp.prevR1) {
         pressLordAlphaSkillAction(LORD_ALPHA_DIRECT_GAMEPAD_ACTIONS.R1);
@@ -12847,6 +12969,9 @@ export default function Game() {
           playHit();
           triggerLordAlphaMotion('hit');
           updateHud();
+        } else if (consumeLordAlphaMovingDamageNegation()) {
+          e.colPos = -9;
+          playHit();
         } else {
           s.hp--;
           applyIntegrityBreach(
@@ -14140,6 +14265,10 @@ export default function Game() {
           && execution.state.player.hp < playerHpBeforeCast) {
           execution.state.player.hp = playerHpBeforeCast;
         }
+        if (execution.state.player.hp < playerHpBeforeCast
+          && consumeLordAlphaMovingDamageNegation()) {
+          execution.state.player.hp = playerHpBeforeCast;
+        }
         npcAbilityRuntimeRef.current = execution.state;
         npc.hp = execution.state.npc.hp;
         npc.shieldCharges = execution.state.npc.shields;
@@ -14286,7 +14415,11 @@ export default function Game() {
               hitCount++;
               const resolvedDamage = competitiveProjectileDamage(1);
               if (s.shieldCharges > 0) s.shieldCharges--;
-              else if (s.ghostTimer <= 0 && !lordAlphaSkillsPreview) s.hp -= resolvedDamage;
+              else if (s.ghostTimer <= 0
+                && !lordAlphaSkillsPreview
+                && !consumeLordAlphaMovingDamageNegation()) {
+                s.hp -= resolvedDamage;
+              }
               if (npcAbilityRuntimeRef.current) {
                 npcAbilityRuntimeRef.current.player.hp = s.hp;
                 npcAbilityRuntimeRef.current.player.shields = s.shieldCharges;
@@ -15066,6 +15199,9 @@ export default function Game() {
             if (lordAlphaSkillsPreview) {
               s.hp = Math.max(1, s.hp);
               triggerLordAlphaMotion('hit');
+            } else if (consumeLordAlphaMovingDamageNegation()) {
+              // The pending movement charge owns this impact, so verified
+              // damage, leech, and on-damage effects all remain at zero.
             } else {
               s.hp -= resolvedDamage;
               if ((bullet.leechOnHit ?? 0) > 0) {
@@ -15142,7 +15278,7 @@ export default function Game() {
         || gp.l1
         || gp.r1,
     );
-  }, [actionForkExperiment, actionForkStartWave, handleGamepad, tryMoveTo, commitActionRoute, advanceLordAlphaAfterimageStep, resolveLordAlphaRocBranchImpact, advanceLordAlphaRocCharge, advanceLordAlphaNinjatoSlice, advanceLordAlphaNinjatoThrust, advanceLordAlphaIdleRecoveryClock, isLordAlphaAfterimageEvading, moveControlledClone, manualBuster, queueSkillTap, queueLordAlphaL2Tap, queueLordAlphaR2Tap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, setActionRouteAvailability, setActionRoutePrompt, triggerLordAlphaMotion, triggerLordAlphaImpact, triggerNpcLordAlphaPresentation, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, pressLordAlphaSkillSlot, releaseLordAlphaSkillSlot, pressLordAlphaSkillAction, releaseLordAlphaSkillAction, lordAlphaSkillsPreview, resolveCampaignEnemyDefeat, publishNpcSkillPresentation, publishNpcLeftSkillPresentation, resetVersusBossCounterpart, consumeNpcShadowCloneCharge]);
+  }, [actionForkExperiment, actionForkStartWave, handleGamepad, tryMoveTo, commitActionRoute, advanceLordAlphaAfterimageStep, resolveLordAlphaRocBranchImpact, advanceLordAlphaRocCharge, advanceLordAlphaNinjatoSlice, advanceLordAlphaNinjatoThrust, advanceLordAlphaIdleRecoveryClock, consumeLordAlphaMovingDamageNegation, isLordAlphaAfterimageEvading, moveControlledClone, manualBuster, queueSkillTap, queueLordAlphaL2Tap, queueLordAlphaR2Tap, queueR2ControlCycle, resolveCloneAction, resolveRivalSkillAction, finishRivalSkill, cancelEchoDrive, switchCloneControl, disperseClone, rotateHand, fireBullet, resolveAttackStyle, addParticles, showMessage, updateHud, endGame, recordBestiary, awardAvatarComponent, chooseRunUpgrade, openUpgradeSelection, closeUpgradeSelection, activateAbilityPreset, startChronoRewind, stopChronoRewind, setActionRouteAvailability, setActionRoutePrompt, triggerLordAlphaMotion, triggerLordAlphaImpact, triggerNpcLordAlphaPresentation, lordAlphaBoardAnchor, cycleLordAlphaSkillBank, triggerLordAlphaSkillSlot, pressLordAlphaSkillSlot, releaseLordAlphaSkillSlot, pressLordAlphaSkillAction, releaseLordAlphaSkillAction, lordAlphaSkillsPreview, resolveCampaignEnemyDefeat, publishNpcSkillPresentation, publishNpcLeftSkillPresentation, resetVersusBossCounterpart, consumeNpcShadowCloneCharge]);
 
   const loop = useCallback((ts: number) => {
     if (!lastTimeRef.current) lastTimeRef.current = ts;
@@ -15661,23 +15797,20 @@ export default function Game() {
           const py = m.y + (visualRow + 0.5) * m.cell;
           const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
             || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
-          const szScale = playerSkinRef.current === 'dots' ? 1.0
-            : playerSkinRef.current === 'gem' ? 0.85
-              : playerSkinRef.current === LORD_ALPHA_SKIN_ID ? 1.12
-                : rivalSkin ? 1.08 : 0.72;
-          const sz = Math.round(m.cell * szScale);
+          const sz = Math.round(m.cell * overlayScaleForSkin(playerSkinRef.current));
+          const stageWidth = Math.round(sz * overlayAspectForSkin(playerSkinRef.current));
           wrap.style.left   = `${px}px`;
           wrap.style.top    = `${py}px`;
-          wrap.style.width  = `${sz}px`;
+          wrap.style.width  = `${stageWidth}px`;
           wrap.style.height = `${sz}px`;
 
           const frames = gifFramesRef.current;
           if (playerSkinRef.current === 'assembly') {
-            if (sCanvas.width !== sz || sCanvas.height !== sz) {
-              sCanvas.width = sz;
+            if (sCanvas.width !== stageWidth || sCanvas.height !== sz) {
+              sCanvas.width = stageWidth;
               sCanvas.height = sz;
             }
-            sCanvas.getContext('2d')?.clearRect(0, 0, sz, sz);
+            sCanvas.getContext('2d')?.clearRect(0, 0, stageWidth, sz);
           } else if (frames.length > 0) {
             // Rocket: shoot-pose state machine via rocketFrameRef
             // Dots: auto-cycle walk animation via performance.now()
@@ -15739,13 +15872,13 @@ export default function Game() {
               // Rocket idle — frames[0] is the only idle frame
               bitmap = frames[0];
             }
-            if (sCanvas.width !== sz || sCanvas.height !== sz) {
-              sCanvas.width  = sz;
+            if (sCanvas.width !== stageWidth || sCanvas.height !== sz) {
+              sCanvas.width  = stageWidth;
               sCanvas.height = sz;
             }
             const sctx = sCanvas.getContext('2d');
             if (sctx) {
-              sctx.clearRect(0, 0, sz, sz);
+              sctx.clearRect(0, 0, stageWidth, sz);
               const mirror = playerSkinRef.current === 'gem' && gemMoveMirrorRef.current;
               const echoBracing = playerSkinRef.current === 'echo' && echoBrinkRef.current.held;
               const echoDraining = playerSkinRef.current === 'echo'
@@ -15764,45 +15897,31 @@ export default function Game() {
                 const heldFrame = echoDraining
                   ? authoredFrames[Math.min(4, authoredFrames.length - 1)]
                   : frames[0];
-                sctx.drawImage(heldFrame ?? bitmap, 0, 0, sz, sz);
+                sctx.drawImage(heldFrame ?? bitmap, 0, 0, stageWidth, sz);
                 sctx.restore();
               } else if (rivalSkillAnimating) {
                 const command = rivalSkillAnimationCommandRef.current;
                 const sequence = command >= 0
                   ? rivalSkillCommandSequencesRef.current[command]
                   : rivalSkillSequenceRef.current;
-                if (sequence?.complete && sequence.naturalWidth > 0) {
+                if (sequence && sequence.length > 0) {
                   const progress = Math.max(0, Math.min(
-                    1,
+                    0.999,
                     skillElapsed / RIVAL_SKILL_ANIMATION_DURATION,
                   ));
-                  const framePosition = progress * 7;
-                  const frameIndex = Math.min(6, Math.floor(framePosition));
-                  const blendRaw = framePosition - frameIndex;
-                  const frameBlend = blendRaw * blendRaw * (3 - 2 * blendRaw);
-                  const sourceSize = sequence.naturalHeight;
-                  sctx.save();
-                  sctx.globalAlpha = 1 - frameBlend;
-                  sctx.drawImage(
-                    sequence,
-                    frameIndex * sourceSize, 0, sourceSize, sourceSize,
-                    0, 0, sz, sz,
+                  const frameIndex = Math.min(
+                    sequence.length - 1,
+                    Math.floor(progress * sequence.length),
                   );
-                  sctx.globalAlpha = frameBlend;
-                  sctx.drawImage(
-                    sequence,
-                    (frameIndex + 1) * sourceSize, 0, sourceSize, sourceSize,
-                    0, 0, sz, sz,
-                  );
-                  sctx.restore();
+                  sctx.drawImage(sequence[frameIndex], 0, 0, stageWidth, sz);
                 } else {
-                  sctx.drawImage(bitmap, 0, 0, sz, sz);
+                  sctx.drawImage(bitmap, 0, 0, stageWidth, sz);
                 }
               } else if (mirror) {
                 sctx.save();
-                sctx.translate(sz, 0);
+                sctx.translate(stageWidth, 0);
                 sctx.scale(-1, 1);
-                sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.drawImage(bitmap, 0, 0, stageWidth, sz);
                 sctx.restore();
               } else if (rivalAttackBitmap) {
                 const smoothstep = (value: number) => {
@@ -15810,66 +15929,43 @@ export default function Game() {
                   return clamped * clamped * (3 - 2 * clamped);
                 };
                 const strikeIn = smoothstep((rivalAttackProgress - 0.06) / 0.24);
-                const recover = smoothstep((rivalAttackProgress - 0.74) / 0.26);
-                const attackWeight = strikeIn * (1 - recover);
-                const anticipation = Math.sin(
-                  Math.min(1, rivalAttackProgress / 0.2) * Math.PI,
-                );
                 const recoil = Math.sin(
                   Math.max(0, Math.min(1, (rivalAttackProgress - 0.32) / 0.5)) * Math.PI,
                 );
 
                 const sequence = rivalAttackSequenceRef.current;
-                if (sequence?.complete && sequence.naturalWidth > 0) {
+                if (sequence.length > 0) {
                   // Chrona's seventh authored cell reads as an involuntary body
-                  // reaction rather than controlled recovery. Skip it and blend
+                  // reaction rather than controlled recovery. Skip it and step
                   // the temporal-resolution pose directly into ready stance.
                   const frameOrder = playerSkinRef.current === 'chrono'
-                    ? [0, 1, 2, 3, 4, 5, 7]
-                    : [0, 1, 2, 3, 4, 5, 6, 7];
-                  const framePosition = rivalAttackProgress * (frameOrder.length - 1);
-                  const frameIndex = Math.min(frameOrder.length - 2, Math.floor(framePosition));
-                  const frameBlend = smoothstep(framePosition - frameIndex);
-                  const sourceSize = sequence.naturalHeight;
-                  const drawSequenceFrame = (index: number, alpha: number) => {
-                    sctx.globalAlpha = alpha;
-                    sctx.drawImage(
-                      sequence,
-                      index * sourceSize,
-                      0,
-                      sourceSize,
-                      sourceSize,
-                      0,
-                      0,
-                      sz,
-                      sz,
-                    );
-                  };
-                  sctx.save();
-                  drawSequenceFrame(frameOrder[frameIndex], 1 - frameBlend);
-                  drawSequenceFrame(frameOrder[frameIndex + 1], frameBlend);
-                  sctx.restore();
+                    ? sequence.map((_, index) => index).filter((index) => index !== 6)
+                    : sequence.map((_, index) => index);
+                  const frameIndex = Math.min(
+                    frameOrder.length - 1,
+                    Math.floor(Math.min(0.999, rivalAttackProgress) * frameOrder.length),
+                  );
+                  sctx.drawImage(
+                    sequence[frameOrder[frameIndex]],
+                    0,
+                    0,
+                    stageWidth,
+                    sz,
+                  );
                 } else {
-                  // Loading fallback only. The normal path above uses eight
-                  // genuinely different authored character poses.
+                  // Loading fallback only. Keep one fully opaque silhouette so
+                  // overlapping partial-alpha poses cannot read as shrinkage.
                   sctx.save();
-                  sctx.globalAlpha = Math.max(0, 1 - attackWeight);
-                  sctx.translate(-sz * 0.035 * anticipation, sz * 0.018 * anticipation);
-                  sctx.drawImage(bitmap, 0, 0, sz, sz);
-                  sctx.restore();
-
-                  sctx.save();
-                  sctx.globalAlpha = attackWeight;
                   sctx.translate(
                     -sz * 0.075 * (1 - strikeIn) - sz * 0.025 * recoil,
                     sz * 0.014 * recoil,
                   );
-                  sctx.drawImage(rivalAttackBitmap, 0, 0, sz, sz);
+                  sctx.drawImage(rivalAttackBitmap, 0, 0, stageWidth, sz);
                   sctx.restore();
                 }
 
               } else {
-                sctx.drawImage(bitmap, 0, 0, sz, sz);
+                sctx.drawImage(bitmap, 0, 0, stageWidth, sz);
               }
             }
           }
@@ -15925,17 +16021,18 @@ export default function Game() {
           visual.at = ts;
           const px = m.x + (3 + visual.col + 0.5) * m.cell;
           const py = m.y + (visual.row + 0.5) * m.cell;
-          const sz = Math.round(m.cell * 1.08);
+          const sz = Math.round(m.cell * overlayScaleForSkin(npcSkinRef.current));
+          const stageWidth = Math.round(sz * overlayAspectForSkin(npcSkinRef.current));
           wrap.style.left = `${px}px`;
           wrap.style.top = `${py}px`;
-          wrap.style.width = `${sz}px`;
+          wrap.style.width = `${stageWidth}px`;
           wrap.style.height = `${sz}px`;
-          if (npcCanvas.width !== sz || npcCanvas.height !== sz) {
-            npcCanvas.width = sz;
+          if (npcCanvas.width !== stageWidth || npcCanvas.height !== sz) {
+            npcCanvas.width = stageWidth;
             npcCanvas.height = sz;
           }
           const npcCtx = npcCanvas.getContext('2d');
-          npcCtx?.clearRect(0, 0, sz, sz);
+          npcCtx?.clearRect(0, 0, stageWidth, sz);
           const idleFrames = npcIdleFramesRef.current;
           const attackFrames = npcAttackFramesRef.current;
           const skillCommandIndex = npcSkillCommandIndexRef.current;
@@ -15985,24 +16082,16 @@ export default function Game() {
           const animationProgress = attacking || usingSkill
             ? Math.min(0.999, animationElapsed / animationDuration)
             : (animationElapsed % animationDuration) / animationDuration;
-          const framePosition = attacking || usingSkill
-            ? animationProgress * Math.max(0, activeFrames.length - 1)
-            : animationProgress * Math.max(1, activeFrames.length);
+          const framePosition = animationProgress * Math.max(1, activeFrames.length);
           const frameIndex = Math.min(
             Math.max(0, activeFrames.length - 1),
             Math.floor(framePosition),
           );
-          const nextFrameIndex = attacking || usingSkill
-            ? Math.min(activeFrames.length - 1, frameIndex + 1)
-            : (frameIndex + 1) % Math.max(1, activeFrames.length);
-          const frameBlendRaw = framePosition - Math.floor(framePosition);
-          const frameBlend = frameBlendRaw * frameBlendRaw * (3 - 2 * frameBlendRaw);
           const frame = activeFrames[frameIndex] ?? npcFrameRef.current;
-          const nextFrame = activeFrames[nextFrameIndex] ?? frame;
           if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
             npcCtx.imageSmoothingEnabled = false;
             npcCtx.save();
-            npcCtx.translate(sz, 0);
+            npcCtx.translate(stageWidth, 0);
             npcCtx.scale(-1, 1);
             if (usingEchoHold && npcEchoChannel === 'brink' && !reducedMotion) {
               npcCtx.translate(Math.sin(ts * 0.085) * sz * 0.018, 0);
@@ -16017,12 +16106,7 @@ export default function Game() {
               const charge = Math.sin(Math.min(1, animationProgress) * Math.PI);
               npcCtx.translate(0, -charge * sz * 0.025);
             }
-            npcCtx.globalAlpha = 1 - frameBlend;
-            npcCtx.drawImage(frame, 0, 0, sz, sz);
-            if (nextFrame && nextFrame !== frame && frameBlend > 0.001) {
-              npcCtx.globalAlpha = frameBlend;
-              npcCtx.drawImage(nextFrame, 0, 0, sz, sz);
-            }
+            npcCtx.drawImage(frame, 0, 0, stageWidth, sz);
             npcCtx.restore();
           }
         }
@@ -16198,6 +16282,9 @@ export default function Game() {
       enabledAbilitiesRef.current,
       mode,
       mode === 'classic' && actionForkExperiment,
+    );
+    lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
+      stateRef.current.hp,
     );
     if (mode === 'vs') {
       resetVersusBossCounterpart(npcSkinRef.current, stateRef.current);
@@ -16423,6 +16510,9 @@ export default function Game() {
       enabledAbilitiesRef.current,
       'classic',
       actionForkExperiment,
+    );
+    lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
+      stateRef.current.hp,
     );
     chronoHistoryRef.current = [];
     chronoLastCaptureRef.current = 0;
@@ -18997,7 +19087,7 @@ export default function Game() {
         >
           <strong>EVOLUTION READY · {Math.max(0, Math.ceil(hud.upgradePromptTimer))}s</strong>
           <span>
-            {playerSkin === LORD_ALPHA_SKIN_ID
+            {playerSkin === LORD_ALPHA_SKIN_ID && lordAlphaSkillModeOpen
               ? 'Tap or press Q to enter slow-time selection'
               : 'Tap or press Q / R1 to enter slow-time selection'}
           </span>

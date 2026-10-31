@@ -150,17 +150,6 @@ const SKILL_SEQUENCE_KEYFRAMES = [
   .map(buildLordAlphaSkillSequenceKeyframes)
   .join('\n');
 
-const FRAME_SCALE_KEYFRAMES = [
-  ...Object.values(LORD_ALPHA_ATTACK_SEQUENCE_ASSETS),
-  ...Object.values(LORD_ALPHA_ASSETS.skillSequences),
-  LORD_ALPHA_ROC_WING_SPIN_SEQUENCE,
-]
-  .filter((sequence): sequence is typeof sequence & FrameScaleSequence => (
-    'frameScales' in sequence && Array.isArray(sequence.frameScales)
-  ))
-  .map(buildLordAlphaFrameScaleKeyframes)
-  .join('\n');
-
 const SKILL_SEQUENCE_PRELOADS = new Map<string, HTMLImageElement>();
 
 function preloadLordAlphaSkillSequences(baseUrl: string): void {
@@ -284,7 +273,6 @@ const SPRITE_CSS = `
     100% { transform: translate3d(0, 0, 0) rotate(0); }
   }
   ${SKILL_SEQUENCE_KEYFRAMES}
-  ${FRAME_SCALE_KEYFRAMES}
   @keyframes lord-alpha-victory-rise {
     0%, 100% { transform: translate3d(0, 0, 0); }
     50% { transform: translate3d(0, -5%, 0); }
@@ -758,14 +746,11 @@ export function LordAlphaSprite({
             <span
               className="lordAlphaSprite__frameProjection"
               data-part="frame-projection"
-              data-frame-scale-correction={frameSequence.frameScales ? 'true' : 'false'}
+              data-frame-scale-correction="false"
               style={{
-                animationName: frameSequence.frameScales
-                  ? frameScaleAnimationName(frameSequence.id)
-                  : undefined,
-                '--lord-alpha-frame-reduced-scale': frameSequence.frameScales
-                  ? frameSequence.frameScales[frameSequence.reducedMotionFrame]
-                  : 1,
+                // The authored strips already share one skeleton gauge. A
+                // second per-frame CSS scale made LASI pulse and shrink.
+                '--lord-alpha-frame-reduced-scale': 1,
               } as CSSProperties}
             >
               <img
