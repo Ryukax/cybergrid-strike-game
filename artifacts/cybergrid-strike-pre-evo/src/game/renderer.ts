@@ -25,6 +25,7 @@ import {
 } from './lord-alpha';
 import { getBoardMetrics } from './board-layout';
 import { getEnemyVisualSeed } from './enemy-identity';
+import { COOP_PARTNER_PAIR_OFFSET_CELLS } from './coop-partner';
 import {
   THARTHAREON_BITE_CLAMP_HOLD_SECONDS,
   THARTHAREON_BITE_OPEN_HOLD_SECONDS,
@@ -2114,6 +2115,11 @@ export function draw(
   const m = getBoardMetrics(w, h, boardTopFloor);
   const splitX = m.x + m.cell * 3;
   const vs = state.gameMode === 'vs';
+  const coop = state.gameMode === 'coop' && state.coopPlayer !== null;
+  const coopCoLocated = coop
+    && state.coopPlayer!.col === state.player.col
+    && state.coopPlayer!.row === state.player.row;
+  const coopPairLayout = coopCoLocated ? state.coopPairLayout : null;
   const lordAlphaAnimationProfile = renderOptions.lordAlphaAnimationProfile ?? 'legacy';
   const heldTargetVisualPolicy = resolveLordAlphaHeldTargetVisualPolicy(
     lordAlphaAnimationProfile,
@@ -2169,6 +2175,11 @@ export function draw(
 
       // NPC movement remains highlighted; Player movement uses only the avatar animation.
       const npcFlash = npcSide && (3 + state.npc.col) === c && state.npc.row === r;
+      const coopPlayerOneCell = coop && state.player.col === c && state.player.row === r;
+      const coopPlayerTwoCell = coop
+        && state.coopPlayer?.col === c
+        && state.coopPlayer.row === r;
+      const coopSharedCell = coopPlayerOneCell && coopPlayerTwoCell;
 
       const routeLastCell = campaignRoutePrompt?.last && playerSide && c === 0;
       const routeNextCell = campaignRoutePrompt?.next && playerSide && c === 2;
@@ -2191,6 +2202,23 @@ export function draw(
         ctx.fillStyle = 'rgba(92,217,245,0.28)';
       } else if (routeNextCell) {
         ctx.fillStyle = 'rgba(192,118,255,0.28)';
+      } else if (coopSharedCell) {
+        const playerGradientX = coopPairLayout?.playerX === 1 ? cx + m.cell : cx;
+        const playerGradientY = coopPairLayout?.playerY === 1 ? cy + m.cell : cy;
+        const sharedCellGradient = ctx.createLinearGradient(
+          playerGradientX,
+          playerGradientY,
+          cx + m.cell - (playerGradientX - cx),
+          cy + m.cell - (playerGradientY - cy),
+        );
+        sharedCellGradient.addColorStop(0, 'rgba(56,189,248,0.3)');
+        sharedCellGradient.addColorStop(0.48, 'rgba(94,207,214,0.25)');
+        sharedCellGradient.addColorStop(1, 'rgba(251,191,36,0.3)');
+        ctx.fillStyle = sharedCellGradient;
+      } else if (coopPlayerOneCell) {
+        ctx.fillStyle = 'rgba(56,189,248,0.23)';
+      } else if (coopPlayerTwoCell) {
+        ctx.fillStyle = 'rgba(251,191,36,0.23)';
       } else if (playerSide) {
         ctx.fillStyle = 'rgba(59,130,246,0.12)';
       } else if (npcFlash) {
@@ -2211,6 +2239,22 @@ export function draw(
         ctx.strokeStyle = 'rgba(92,217,245,0.92)';
       } else if (routeNextCell) {
         ctx.strokeStyle = 'rgba(192,118,255,0.92)';
+      } else if (coopSharedCell) {
+        const playerGradientX = coopPairLayout?.playerX === 1 ? cx + m.cell : cx;
+        const playerGradientY = coopPairLayout?.playerY === 1 ? cy + m.cell : cy;
+        const sharedCellStroke = ctx.createLinearGradient(
+          playerGradientX,
+          playerGradientY,
+          cx + m.cell - (playerGradientX - cx),
+          cy + m.cell - (playerGradientY - cy),
+        );
+        sharedCellStroke.addColorStop(0, 'rgba(56,189,248,0.95)');
+        sharedCellStroke.addColorStop(1, 'rgba(251,191,36,0.95)');
+        ctx.strokeStyle = sharedCellStroke;
+      } else if (coopPlayerOneCell) {
+        ctx.strokeStyle = 'rgba(56,189,248,0.95)';
+      } else if (coopPlayerTwoCell) {
+        ctx.strokeStyle = 'rgba(251,191,36,0.95)';
       } else if (playerSide) {
         ctx.strokeStyle = 'rgba(125,211,252,0.55)';
       } else if (npcSide) {
@@ -2305,6 +2349,16 @@ export function draw(
   ctx.lineTo(splitX, m.y + m.boardH - 4);
   ctx.stroke();
 
+  if (coop) {
+    ctx.save();
+    ctx.fillStyle = '#fde68a';
+    ctx.font = `800 ${Math.max(9, Math.round(m.cell * 0.095))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('INDEPENDENT · COLLISION PAIRING', m.x + m.cell * 1.5, m.y - 6);
+    ctx.restore();
+  }
+
   // Board-owned Tharthareon portals sit behind players, enemies and the
   // creature. Drawing this once in the background pass prevents the portal
   // rim from flashing across targets or appearing attached to the neck.
@@ -2334,8 +2388,13 @@ export function draw(
   }
 
   // Player ghost aura + shield ring
-  const playerX = m.x + (state.player.col + 0.5) * m.cell;
-  const playerY = m.y + (state.player.row + 0.5) * m.cell;
+  const playerTileX = m.x + (state.player.col + 0.5) * m.cell;
+  const playerTileY = m.y + (state.player.row + 0.5) * m.cell;
+  const coopPairOffset = m.cell * COOP_PARTNER_PAIR_OFFSET_CELLS;
+  const playerX = playerTileX
+    + (coopPairLayout?.playerX ?? 0) * coopPairOffset;
+  const playerY = playerTileY
+    + (coopPairLayout?.playerY ?? 0) * coopPairOffset;
 
   if (state.ghostTimer > 0) {
     // Pulsing cyan ghost aura
@@ -2401,6 +2460,63 @@ export function draw(
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
     ctx.fillRect(playerX - m.cell * 0.12, playerY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
     ctx.globalAlpha = 1.0;
+  }
+
+  if (coop) {
+    // Identity rings keep the player and ally legible without changing either
+    // avatar's scale. Authored skins remain DOM-backed while Default retains
+    // the original stable canvas combatant in the same grid tile.
+    ctx.save();
+    ctx.lineWidth = Math.max(2, m.cell * 0.025);
+    ctx.strokeStyle = 'rgba(56,189,248,0.9)';
+    ctx.beginPath();
+    ctx.arc(playerX, playerY, m.cell * 0.29, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#bae6fd';
+    ctx.font = `900 ${Math.max(9, Math.round(m.cell * 0.1))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const playerLabelX = playerX
+      + (coopPairLayout?.playerX ?? 0) * m.cell * 0.08;
+    const playerLabelY = playerY
+      + (coopPairLayout?.playerY ?? -1) * m.cell * 0.34;
+    ctx.fillText('YOU', playerLabelX, playerLabelY);
+
+    const coopPlayer = state.coopPlayer!;
+    const coopX = m.x + (coopPlayer.col + 0.5) * m.cell
+      - (coopPairLayout?.playerX ?? 0) * coopPairOffset;
+    const coopY = m.y + (coopPlayer.row + 0.5) * m.cell
+      - (coopPairLayout?.playerY ?? 0) * coopPairOffset;
+    ctx.strokeStyle = 'rgba(251,191,36,0.95)';
+    ctx.beginPath();
+    ctx.arc(coopX, coopY, m.cell * 0.29, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (!npcHasOverlay) {
+      // Default retains the original gold ally. Authored partner choices use
+      // the full-size normalized secondary overlay at this exact anchor.
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      (ctx as Ctx2D).roundRect(
+        coopX - m.cell * 0.22,
+        coopY - m.cell * 0.26,
+        m.cell * 0.44,
+        m.cell * 0.52,
+        10,
+      );
+      ctx.fill();
+      ctx.fillStyle = '#fef3c7';
+      ctx.fillRect(coopX + m.cell * 0.05, coopY - m.cell * 0.06, m.cell * 0.18, m.cell * 0.12);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.fillRect(coopX - m.cell * 0.12, coopY - m.cell * 0.16, m.cell * 0.18, m.cell * 0.08);
+    }
+    ctx.fillStyle = '#fde68a';
+    const allyLabelX = coopX
+      - (coopPairLayout?.playerX ?? 0) * m.cell * 0.08;
+    const allyLabelY = coopY
+      - (coopPairLayout?.playerY ?? 1) * m.cell * 0.34;
+    ctx.fillText('ALLY', allyLabelX, allyLabelY);
+    ctx.restore();
   }
 
   // NPC (VS mode only — faces left, green, at col 3+npc.col)

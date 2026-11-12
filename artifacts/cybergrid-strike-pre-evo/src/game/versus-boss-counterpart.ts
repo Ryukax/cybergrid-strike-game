@@ -115,6 +115,10 @@ export interface DealVersusBossAbilityHandOptions {
 export interface SelectVersusBossReadyAbilityOptions {
   readonly context: AbilityBoardContext;
   readonly seed: number;
+  /** Boss-authored tactical order, filtered against the real ready hand. */
+  readonly preferredAbilityIds?: readonly string[];
+  /** A campaign boss should not have its urgent authored card displaced by seed parity. */
+  readonly preferAuthoredAbility?: boolean;
 }
 
 export interface VersusBossAbilityUse {
@@ -395,12 +399,22 @@ export function selectVersusBossReadyAbility(
     !counterpart.abilities.usedAbilityIds.includes(abilityId)
     && (counterpart.abilities.cooldowns[abilityId] ?? 0) <= 0
   ));
-  const canonicalCandidate = composePracticalAbilityHand({
-    availableAbilityIds: ready.filter(isVersusAbilityId),
+  const readyCanonical = ready.filter(isVersusAbilityId);
+  const practicalCanonical = composePracticalAbilityHand({
+    availableAbilityIds: readyCanonical,
     context: options.context,
     seed: options.seed,
-    size: 1,
-  })[0]?.id;
+    // Preserve the original generic selector exactly when no boss doctrine is
+    // supplied; expanded ranking is campaign-boss-only.
+    size: options.preferredAbilityIds ? readyCanonical.length : 1,
+  }).map(({ id }) => id).filter(isVersusAbilityId);
+  const practicalCanonicalSet = new Set(practicalCanonical);
+  const preferredCanonical = options.preferredAbilityIds?.find(
+    (abilityId): abilityId is VersusAbilityId => (
+      isVersusAbilityId(abilityId) && practicalCanonicalSet.has(abilityId)
+    ),
+  );
+  const canonicalCandidate = preferredCanonical ?? practicalCanonical[0];
   const canonicalSelected = canonicalCandidate && isVersusAbilityId(canonicalCandidate)
     ? canonicalCandidate
     : undefined;
@@ -414,6 +428,7 @@ export function selectVersusBossReadyAbility(
   )[0]?.id;
   if (!canonicalSelected) return generatedSelected ?? null;
   if (!generatedSelected) return canonicalSelected;
+  if (options.preferAuthoredAbility && preferredCanonical) return preferredCanonical;
   // Alternate deterministic ownership when both card classes are practical;
   // neither class silently replaces the other.
   return (options.seed & 1) === 0 ? generatedSelected : canonicalSelected;

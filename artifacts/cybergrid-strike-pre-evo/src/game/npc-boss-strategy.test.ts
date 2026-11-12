@@ -1,4 +1,4 @@
-import { deepStrictEqual, equal, ok } from 'node:assert/strict';
+import { deepStrictEqual, equal, match, ok } from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { CAMPAIGN_ROUTE_BOSS_ROSTER } from './campaign-route-director';
@@ -9,6 +9,7 @@ import {
   chooseVersusNpcAbility,
   chooseVersusNpcSignature,
   doctrineForSkill,
+  rankVersusNpcAbilities,
   resolveVersusNpcAbility,
   shotRowsForPlan,
   type VersusNpcContext,
@@ -212,6 +213,37 @@ test('ability decisions are deterministic, executable, and constrained to each b
       `${skillId} ignored battle state and always selected ${[...selected].join(', ')}`,
     );
   }
+});
+
+test('ready-card ranking preserves each boss opening, pressure, and payoff progression', () => {
+  const phases = [
+    { npcHp: 90, expected: 'barrage', reason: /^opening:/ },
+    { npcHp: 55, expected: 'shotgun', reason: /^pressure:/ },
+    { npcHp: 20, expected: 'overclock', reason: /^desperation:/ },
+  ] as const;
+
+  for (const phase of phases) {
+    const ranked = rankVersusNpcAbilities(contextFor('arsenal', {
+      npcHp: phase.npcHp,
+      incomingByRow: [0, 0, 0],
+    }));
+    equal(ranked[0]?.abilityId, phase.expected);
+    match(ranked[0]?.reason ?? '', phase.reason);
+    const owned = new Set<string>(bossStrategyProfile('arsenal').abilities);
+    ok(ranked.every(({ abilityId }) => owned.has(abilityId)));
+  }
+});
+
+test('reactive ranking elevates a boss-owned counter only while its trigger is live', () => {
+  const quiet = rankVersusNpcAbilities(contextFor('counter', {
+    incomingByRow: [0, 0, 0],
+  }));
+  ok(!quiet.some(({ abilityId }) => abilityId === 'returnfire'));
+
+  const threatened = rankVersusNpcAbilities(contextFor('counter', {
+    incomingByRow: [0, 3, 0],
+  }));
+  equal(threatened[0]?.abilityId, 'returnfire');
 });
 
 test('every chosen boss ability resolves to an observable bounded duel effect', () => {

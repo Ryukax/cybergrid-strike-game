@@ -1751,7 +1751,7 @@ export const LORD_ALPHA_HELD_TARGET_VISUAL_POLICIES = {
  * VS runtime. Only a standalone competitive match keeps shared cooldowns.
  */
 export function lordAlphaSignatureUsesCooldown(
-  gameMode: "classic" | "vs",
+  gameMode: "classic" | "coop" | "vs",
   preview: boolean,
   campaignEncounter = false,
 ): boolean {

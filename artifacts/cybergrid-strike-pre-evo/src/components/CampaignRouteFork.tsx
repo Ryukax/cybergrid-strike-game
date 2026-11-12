@@ -136,7 +136,7 @@ export function CampaignRouteFork({
               ? 'WAVE COMPLETE \u2014 CHOOSE A ROUTE'
               : quotaPending ? 'ROUTE QUOTA SECURED' : 'ROUTE TARGETS ACTIVE'}</strong>
         <span>{bossEncounter
-          ? `${bossEncounter.destination.bearing} · ${bossEncounter.destination.label} · SEG ${bossEncounter.segment}`
+          ? `${bossEncounter.destination.bearing} · RANK #${bossEncounter.destination.rank} · ${bossEncounter.destination.label} · SEG ${bossEncounter.segment}`
           : bossForkReady
             ? 'TOP / BOTTOM BOSS · MIDDLE STRAIGHT'
           : unlocked
@@ -185,9 +185,9 @@ export function CampaignRouteFork({
                   // pointer-down has already committed the route.
                   onSelect?.(lane === 'top' ? 0 : 2, 'last');
                 }}
-                aria-label={`${destinations.last.bearing} ${destinations.last.label} boss route`}>
+                aria-label={`${destinations.last.bearing} rank ${destinations.last.rank} ${destinations.last.label} boss route`}>
                 <img src={npcImage(destinations.last.id)} alt="" />
-                <small>{destinations.last.bearing} · {destinations.last.label}</small>
+                <small>{destinations.last.bearing} · #{destinations.last.rank} {destinations.last.label}</small>
               </button>
               <span className={`routeBranch last${routeIsAvailable('last') ? ' available' : ' unavailable'}${lastSelected ? ' selected' : ''}`} />
               <span className="routeJunction">{lane === 'top' ? 'TOP' : 'BOTTOM'}</span>
@@ -203,9 +203,9 @@ export function CampaignRouteFork({
                   event.stopPropagation();
                   onSelect?.(lane === 'top' ? 0 : 2, 'next');
                 }}
-                aria-label={`${destinations.next.bearing} ${destinations.next.label} boss route`}>
+                aria-label={`${destinations.next.bearing} rank ${destinations.next.rank} ${destinations.next.label} boss route`}>
                 <img src={npcImage(destinations.next.id)} alt="" />
-                <small>{destinations.next.bearing} · {destinations.next.label}</small>
+                <small>{destinations.next.bearing} · #{destinations.next.rank} {destinations.next.label}</small>
               </button>
             </div>
           );
@@ -232,7 +232,7 @@ export function CampaignRouteFork({
             ? ` · VALID HITS ${confirmedHits}/${requiredHits}`
             : '';
           const targetState = directionHasBoss
-            ? `BOSS TARGET ACTIVE \u00b7 ${bossEncounter.destination.bearing}`
+            ? `BOSS TARGET ACTIVE \u00b7 RANK #${bossEncounter.destination.rank} \u00b7 ${bossEncounter.destination.bearing}`
             : directionReady
               ? `SELECT ${directionLabel} NOW`
               : directionQuotaMet
@@ -263,7 +263,7 @@ export function CampaignRouteFork({
                 <small>SEG {displayedSegment}</small>
               </span>
               {directionHasBoss
-                ? <img className="routeBossPortrait" src={npcImage(bossEncounter.destination.id)} alt={`${bossEncounter.destination.label} boss`} />
+                ? <img className="routeBossPortrait" src={npcImage(bossEncounter.destination.id)} alt={`${bossEncounter.destination.label} rank ${bossEncounter.destination.rank} boss`} />
                 : <canvas ref={direction === 'last' ? lastCanvasRef : nextCanvasRef} width={62} height={50} />}
               <span className="routeContactIdentity">
                 <strong title={targetLabel}>TARGET: {targetLabel}</strong>

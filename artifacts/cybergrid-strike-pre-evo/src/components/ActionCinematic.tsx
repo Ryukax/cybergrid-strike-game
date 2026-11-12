@@ -407,7 +407,7 @@ export function ActionCinematic(props: Props) {
         // make the encountered NPC face back toward the player.
         drawFighter(opponentFrame, npcX, npcGround, Boolean(p.routeBoss));
         if (p.routeBoss) {
-          const label = `BOSS CONTACT · ${p.routeBoss.destination.label} · ${p.routeBoss.destination.bearing}`;
+          const label = `BOSS CONTACT · RANK #${p.routeBoss.destination.rank} · ${p.routeBoss.destination.label} · ${p.routeBoss.destination.bearing}`;
           ctx.save();
           ctx.globalAlpha = actorReveal;
           ctx.font = '800 8px system-ui';

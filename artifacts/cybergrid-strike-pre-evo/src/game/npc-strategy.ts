@@ -917,23 +917,43 @@ function scoreBossAbility(
   return score + stableNoise(`${context.skillId}:${context.step}:${plan.abilityId}`) * 0.08;
 }
 
-export function chooseVersusNpcAbility(context: VersusNpcContext): VersusAbilityPlan {
+/**
+ * Rank every currently practical card in the boss's authored loadout.
+ *
+ * Runtime hand/cooldown ownership stays in the counterpart system; this
+ * function only supplies the boss-specific tactical order for whatever cards
+ * are actually ready there. Keeping those responsibilities separate prevents
+ * the AI from fabricating a card while still preserving each boss's intended
+ * opening -> pressure -> payoff identity.
+ */
+export function rankVersusNpcAbilities(
+  context: VersusNpcContext,
+): readonly VersusAbilityPlan[] {
   const profile = bossStrategyProfile(context.skillId);
   const phase = bossBattlePhase(context);
   const preferredSlot = phase === 'opening' ? 0 : phase === 'pressure' ? 1 : 2;
-  let selected: VersusAbilityPlan | undefined;
-  let selectedScore = Number.NEGATIVE_INFINITY;
-  profile.abilities.forEach((abilityId, slot) => {
+  const ranked = profile.abilities.flatMap((abilityId, slot) => {
     const candidate = resolveVersusNpcAbility(abilityId, context);
-    if (!isVersusNpcAbilityPractical(abilityId, candidate, context)) return;
-    const score = scoreBossAbility(candidate, context, slot, preferredSlot);
-    if (score > selectedScore) {
-      selected = candidate;
-      selectedScore = score;
-    }
-  });
-  selected ??= ordinaryPressurePlan(context);
-  selected.reason = `${phase}: ${selected.reason}; ${profile.strategy}`;
+    if (!isVersusNpcAbilityPractical(abilityId, candidate, context)) return [];
+    return [{
+      plan: candidate,
+      score: scoreBossAbility(candidate, context, slot, preferredSlot),
+      slot,
+    }];
+  }).sort((left, right) => right.score - left.score || left.slot - right.slot);
+
+  return ranked.map(({ plan }) => ({
+    ...plan,
+    reason: `${phase}: ${plan.reason}; ${profile.strategy}`,
+  }));
+}
+
+export function chooseVersusNpcAbility(context: VersusNpcContext): VersusAbilityPlan {
+  const selected = rankVersusNpcAbilities(context)[0]
+    ?? ordinaryPressurePlan(context);
+  if (!selected.reason.startsWith(`${bossBattlePhase(context)}:`)) {
+    selected.reason = `${bossBattlePhase(context)}: ${selected.reason}; ${bossStrategyProfile(context.skillId).strategy}`;
+  }
   return selected;
 }
 

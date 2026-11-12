@@ -546,6 +546,7 @@ test("Roc Wing lands on player-side highlights and returns from enemy-side highl
 
 test("Lord Alpha campaign signatures do not inherit card cooldowns", () => {
   equal(lordAlphaSignatureUsesCooldown("classic", false), false);
+  equal(lordAlphaSignatureUsesCooldown("coop", false), false);
   equal(lordAlphaSignatureUsesCooldown("classic", true), false);
   equal(lordAlphaSignatureUsesCooldown("vs", true), false);
   equal(lordAlphaSignatureUsesCooldown("vs", false, true), false);

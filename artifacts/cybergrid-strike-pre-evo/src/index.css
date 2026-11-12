@@ -3491,7 +3491,8 @@ canvas#canvas {
 
 /* VS NPC menu button */
 #menuVsBtn,
-#menuNpcVsNpcBtn {
+#menuNpcVsNpcBtn,
+#menuCoopBtn {
   background: linear-gradient(135deg, rgba(16, 100, 60, 0.85), rgba(5, 45, 30, 0.95));
   border: 2px solid rgba(52, 211, 153, 0.7);
   border-radius: 16px;
@@ -3508,7 +3509,8 @@ canvas#canvas {
 }
 
 #menuVsBtn:active,
-#menuNpcVsNpcBtn:active {
+#menuNpcVsNpcBtn:active,
+#menuCoopBtn:active {
   transform: scale(0.96);
   box-shadow: 0 0 44px rgba(52, 211, 153, 0.6);
 }
@@ -3517,6 +3519,21 @@ canvas#canvas {
   background: linear-gradient(135deg, rgba(88, 28, 135, 0.9), rgba(15, 45, 75, 0.96));
   border-color: rgba(103, 232, 249, 0.75);
   box-shadow: 0 0 28px rgba(103, 232, 249, 0.28);
+}
+
+#menuCoopBtn {
+  display: grid;
+  gap: 2px;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(2,132,199,0.92), rgba(146,64,14,0.92));
+  border-color: rgba(251,191,36,0.82);
+  box-shadow: 0 0 30px rgba(56,189,248,0.2), 0 0 24px rgba(251,191,36,0.18);
+}
+
+#menuCoopBtn small {
+  color: #fde68a;
+  font-size: 0.5em;
+  letter-spacing: 0.16em;
 }
 
 #game.npc-vs-npc #cardUiWrapper,
@@ -3558,6 +3575,39 @@ canvas#canvas {
   border-color: rgba(52, 211, 153, 0.45);
   text-shadow: 0 0 8px rgba(52, 211, 153, 0.4);
   transition: color 0.3s, text-shadow 0.3s, border-color 0.3s;
+}
+
+#coopTeamPanel {
+  position: relative;
+  color: #fde68a;
+  border-color: rgba(251,191,36,0.52);
+  text-shadow: 0 0 8px rgba(251,191,36,0.38);
+}
+
+.coopRulesetBadge {
+  display: block;
+  margin-top: 0.15rem;
+  padding: 0.12rem 0.34rem;
+  border: 1px solid rgba(251,191,36,0.5);
+  border-radius: 999px;
+  color: #fde68a;
+  font-size: 0.56em;
+  letter-spacing: 0.08em;
+  vertical-align: middle;
+}
+
+@media (max-width: 520px) {
+  #hud {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  #hud .panel {
+    min-width: 0;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
 }
 
 .versusRulesetBadge {

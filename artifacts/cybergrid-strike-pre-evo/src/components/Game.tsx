@@ -26,6 +26,18 @@ import {
   queueManualBusterInput,
   resolveManualBusterInput,
 } from '../game/responsive-input';
+import {
+  createDiagonalCoopSpawns,
+  resolveDiagonalCoopMovement,
+  resolveDiagonalCoopPairLayout,
+  type DiagonalCoopPositions,
+} from '../game/diagonal-coop';
+import { chooseDiagonalCoopNpcDecision } from '../game/diagonal-coop-npc';
+import {
+  COOP_PARTNER_SKIN_KEY,
+  resolveCoopPartnerVisualCell,
+  resolveStoredCoopPartnerSkin,
+} from '../game/coop-partner';
 import { normalizeSpriteFrameBank } from '../game/sprite-frame-normalization';
 import {
   cloneBrowserValue,
@@ -37,6 +49,11 @@ import {
 } from '../game/browser-compat';
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
+
+// Usurper's idle source sheet includes a separate discarded head below the
+// intact character. End the subject window immediately before that artifact
+// (source y=100) so it cannot be retained as a nearby anatomy island.
+const USURPER_IDLE_SUBJECT_WINDOW = [4, 24, 188, 76] as const;
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -59,10 +76,10 @@ function SkinPreviewCanvas({ src }: { src: string }) {
         // primary alpha island. Crop to their intentional subject window
         // before connected-component cleanup so the debris cannot win or
         // survive the island analysis.
-        const subjectWindows: Record<string, [number, number, number, number]> = {
+        const subjectWindows: Record<string, readonly [number, number, number, number]> = {
           override: [34, 20, 154, 140],
           apex: [27, 20, 194, 140],
-          hijack: [4, 24, 188, 120],
+          hijack: USURPER_IDLE_SUBJECT_WINDOW,
         };
         const skinMatch = src.match(/skill-([a-z]+)-idle/i);
         const subject = skinMatch ? subjectWindows[skinMatch[1]] : undefined;
@@ -246,11 +263,20 @@ import {
   chooseVersusMovementPosition,
   chooseVersusNpcSignature,
   planCampaignNpc,
+  rankVersusNpcAbilities,
   resolveVersusNpcAbility,
   type VersusAbilityPlan,
   type VersusNpcContext,
   type VersusSignaturePlan,
 } from '../game/npc-strategy';
+import {
+  chooseBossTacticalAction,
+  createBossTacticalMemory,
+  observeBossPlayerPattern,
+  recordBossTacticalAction,
+  type BossTacticalAction,
+  type BossTacticalDecision,
+} from '../game/boss-tactical-director';
 import {
   planVersusBossEvasion,
   versusBossImpactIsCommitted,
@@ -2776,11 +2802,56 @@ function randomAbilityOptions(
   return opts;
 }
 
+function diagonalCoopPositionsForState(state: GameState): DiagonalCoopPositions | null {
+  if (state.gameMode !== 'coop' || !state.coopPlayer) return null;
+  return {
+    p1: { col: state.player.col, row: state.player.row },
+    p2: { col: state.coopPlayer.col, row: state.coopPlayer.row },
+  };
+}
+
+function reconcileDiagonalCoopPairLayout(
+  state: GameState,
+  previous: DiagonalCoopPositions | null,
+): void {
+  const next = diagonalCoopPositionsForState(state);
+  if (!next) {
+    state.coopPairLayout = null;
+    return;
+  }
+  const previouslyTogether = previous !== null
+    && previous.p1.col === previous.p2.col
+    && previous.p1.row === previous.p2.row;
+  const nowTogether = next.p1.col === next.p2.col && next.p1.row === next.p2.row;
+  state.coopPairLayout = resolveDiagonalCoopPairLayout(
+    previous ?? next,
+    next,
+    state.coopPairLayout,
+  );
+  // Keep a first-contact pairing on screen long enough to be readable before
+  // the autonomous ally is allowed to choose its next independent step.
+  if (!previouslyTogether && nowTogether && state.coopPlayer) {
+    state.coopPlayer.moveCooldown = Math.max(state.coopPlayer.moveCooldown, 0.42);
+  }
+}
+
+function setPlayerGridPosition(
+  state: GameState,
+  col: number,
+  row: number,
+): void {
+  const previous = diagonalCoopPositionsForState(state);
+  state.player.col = col;
+  state.player.row = row;
+  reconcileDiagonalCoopPairLayout(state, previous);
+}
+
 function makeInitialState(
   enabledIds?: Set<string>,
   mode: GameMode = 'classic',
   milestoneTraversalDriven = false,
 ): GameState {
+  const coopSpawns = createDiagonalCoopSpawns();
   return {
     running: true,
     score: 0,
@@ -2851,7 +2922,13 @@ function makeInitialState(
     cardSelectionOpen: false,
     rotateUsedThisHand: false,
     usedInHand: [],
-    player: { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0 },
+    player: mode === 'coop'
+      ? { ...coopSpawns.p1, fireCooldown: 0, moveCooldown: 0 }
+      : { col: 1, row: 1, fireCooldown: 0, moveCooldown: 0 },
+    coopPlayer: mode === 'coop'
+      ? { ...coopSpawns.p2, fireCooldown: 0, moveCooldown: 0 }
+      : null,
+    coopPairLayout: null,
     architectCannons: [],
     bullets: [],
     enemies: [],
@@ -2890,6 +2967,10 @@ function makeInitialState(
     npcEnemies: [],
     playerWon: false,
   };
+}
+
+function isCampaignGameMode(mode: GameMode): boolean {
+  return mode === 'classic' || mode === 'coop';
 }
 
 interface HudData {
@@ -4420,7 +4501,7 @@ export default function Game() {
   const phaseRef = useRef<'menu' | 'playing'>('menu');
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
-  type MenuScreen = 'main' | 'vs-select' | 'npc-vs-npc-select' | 'customization' | 'bestiary' | 'options';
+  type MenuScreen = 'main' | 'coop-select' | 'vs-select' | 'npc-vs-npc-select' | 'customization' | 'bestiary' | 'options';
   const [menuScreen, setMenuScreen] = useState<MenuScreen>('main');
   const menuScreenRef = useRef<MenuScreen>('main');
   const [versusControlMode, setVersusControlMode] = useState<VersusControlMode>('human-vs-npc');
@@ -4524,6 +4605,7 @@ export default function Game() {
     actionRouteAutoBusterStateRef.current = createCampaignRouteAutoBusterState(1);
     actionRouteTargetReacquireDelayRef.current = { last: 0, next: 0 };
     campaignBossSessionRef.current = null;
+    npcBossTacticalMemoryRef.current = createBossTacticalMemory();
     setActionRouteTargetRevision((revision) => revision + 1);
     actionRouteBossFrameRef.current = null;
     setActionRouteAvailability({ last: false, next: false });
@@ -4540,10 +4622,10 @@ export default function Game() {
     image.onload = async () => {
       try {
         let bitmap = await createImageBitmap(image);
-        const subjectWindows: Partial<Record<CampaignRouteBossEncounter['destination']['id'], [number, number, number, number]>> = {
+        const subjectWindows: Partial<Record<CampaignRouteBossEncounter['destination']['id'], readonly [number, number, number, number]>> = {
           override: [34, 20, 154, 140],
           apex: [27, 20, 194, 140],
-          hijack: [4, 24, 188, 120],
+          hijack: USURPER_IDLE_SUBJECT_WINDOW,
         };
         const subject = subjectWindows[bossId];
         if (subject) {
@@ -4936,6 +5018,13 @@ export default function Game() {
       : 'default';
   const [playerSkin, setPlayerSkin] = useState<PlayerSkin>(savedSkin);
   const playerSkinRef = useRef<PlayerSkin>(savedSkin);
+  const savedCoopPartnerSkin = resolveStoredCoopPartnerSkin(
+    localStorage.getItem(COOP_PARTNER_SKIN_KEY),
+    [...knownPlayerSkins],
+    'default',
+  );
+  const [coopPartnerSkin, setCoopPartnerSkin] = useState<PlayerSkin>(savedCoopPartnerSkin);
+  const coopPartnerSkinRef = useRef<PlayerSkin>(savedCoopPartnerSkin);
   const [npcVsNpcLeftSkin, setNpcVsNpcLeftSkin] = useState<PlayerSkin>(savedSkin);
   const npcVsNpcLeftSkinRef = useRef<PlayerSkin>(savedSkin);
   const npcVsNpcPreviousPlayerSkinRef = useRef<PlayerSkin | null>(null);
@@ -5350,6 +5439,7 @@ export default function Game() {
   const npcAbilityRuntimeRef = useRef<VersusBossAbilityRuntimeState | null>(null);
   const npcSignatureRuntimeRef = useRef<VersusBossSignatureRuntimeState | null>(null);
   const npcSignatureCommandUsesRef = useRef<[number, number, number]>([0, 0, 0]);
+  const npcBossTacticalMemoryRef = useRef(createBossTacticalMemory());
   const npcRegenerationTickRef = useRef(0);
   const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
   const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -5852,12 +5942,13 @@ export default function Game() {
             loadBitmap(`${base}skins/skill-${playerSkin}-attack.png?alpha=${alphaVersion}`),
           ]);
           if (playerSkin === 'hijack') {
+            const [idleX, idleY, idleWidth, idleHeight] = USURPER_IDLE_SUBJECT_WINDOW;
             const idleCrop = await createImageBitmap(
               rawIdle,
-              Math.round(rawIdle.width * 4 / 240),
-              Math.round(rawIdle.height * 24 / 160),
-              Math.round(rawIdle.width * 188 / 240),
-              Math.round(rawIdle.height * 100 / 160),
+              Math.round(rawIdle.width * idleX / 240),
+              Math.round(rawIdle.height * idleY / 160),
+              Math.round(rawIdle.width * idleWidth / 240),
+              Math.round(rawIdle.height * idleHeight / 160),
             );
             const attackCrop = await createImageBitmap(
               rawAttack,
@@ -6150,9 +6241,13 @@ export default function Game() {
           let authoredAttackFrames: ImageBitmap[] | null = null;
           if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
             if (npcSkin === 'hijack') {
+              const [idleX, idleY, idleWidth, idleHeight] = USURPER_IDLE_SUBJECT_WINDOW;
               const idleCrop = await createImageBitmap(
-                idle, Math.round(idle.width * 4 / 240), Math.round(idle.height * 24 / 160),
-                Math.round(idle.width * 188 / 240), Math.round(idle.height * 100 / 160),
+                idle,
+                Math.round(idle.width * idleX / 240),
+                Math.round(idle.height * idleY / 160),
+                Math.round(idle.width * idleWidth / 240),
+                Math.round(idle.height * idleHeight / 160),
               );
               const attackCrop = await createImageBitmap(
                 attack, 0, Math.round(attack.height * 18 / 160),
@@ -6348,10 +6443,15 @@ export default function Game() {
       ? assemblySkillRef.current
       : skinId;
     const authoredAbilityPreset = npcAuthoredAbilityPreset(skinId, selectedSkillId);
-    const encounterManifestation = selectGeneratedVersusEncounterCard(
-      generatedAbilitiesRef.current,
-      state.wave,
-    );
+    // Route bosses enter with their exact authored three-card doctrine. A
+    // random manifestation can still join ordinary VS opponents, but must not
+    // replace an opening/pressure/payoff card in a named boss encounter.
+    const encounterManifestation = campaignBossSessionRef.current
+      ? null
+      : selectGeneratedVersusEncounterCard(
+          generatedAbilitiesRef.current,
+          state.wave,
+        );
     const playableAbilityPreset = encounterManifestation
       ? [...authoredAbilityPreset, encounterManifestation.id]
       : authoredAbilityPreset;
@@ -6395,6 +6495,7 @@ export default function Game() {
       { col: state.npc.col, row: state.npc.row },
     );
     npcSignatureCommandUsesRef.current = [0, 0, 0];
+    npcBossTacticalMemoryRef.current = createBossTacticalMemory(state.player.row);
     npcRegenerationTickRef.current = 0;
   }, [npcAuthoredAbilityPreset]);
 
@@ -6432,7 +6533,7 @@ export default function Game() {
   const [presence, setPresence] = useState<PresenceSnapshot | null>(null);
 
   useEffect(() => {
-    if (!actionForkExperiment || phase !== 'playing' || hud.gameMode !== 'classic') {
+    if (!actionForkExperiment || phase !== 'playing' || !isCampaignGameMode(hud.gameMode)) {
       if (actionRoutePromptActiveRef.current) setActionRoutePrompt(false);
       if (actionRouteAvailabilityRef.current.last || actionRouteAvailabilityRef.current.next) {
         setActionRouteAvailability({ last: false, next: false });
@@ -6829,6 +6930,8 @@ export default function Game() {
     routeDirection?: CampaignRouteDirection;
     suppressSecondary?: boolean;
     speedOverride?: number;
+    directionOverride?: -1 | 1;
+    effectSkinOverride?: PlayerSkin;
     travelLimitCells?: number;
     visualKind?: 'tharthareon-bite' | 'tharthareon-fireball';
     tharthareonInputHeld?: boolean;
@@ -6857,10 +6960,11 @@ export default function Game() {
     }
     if (suppressSecondary) pierce = false;
     if (s.critTimer > 0 && Math.random() < 0.4) power *= 3;
-    const direction = playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1;
+    const direction = opts?.directionOverride
+      ?? (playerSkinRef.current === 'gem' ? eloAttackDirectionRef.current : 1);
     const projectileSpeed = opts?.speedOverride
       ?? 8.5 * milestoneProjectileSpeedMultiplier(s.runUpgrades);
-    const attackStyle = resolveAttackStyle();
+    const attackStyle = resolveAttackStyle(opts?.effectSkinOverride);
     let presentationVariant = opts?.presentationVariant;
     let presentationBirthMs: number | undefined;
     if (playerSkinRef.current === LORD_ALPHA_SKIN_ID
@@ -6903,7 +7007,7 @@ export default function Game() {
       big,
       pierce,
       attackStyle,
-      effectSkin: playerSkinRef.current,
+      effectSkin: opts?.effectSkinOverride ?? playerSkinRef.current,
       ...(opts?.leechOnHit && opts.leechOnHit > 0 ? { leechOnHit: opts.leechOnHit } : {}),
       ...(opts?.visualKind ? { visualKind: opts.visualKind } : {}),
       ...(opts?.visualKind === 'tharthareon-bite' ? {
@@ -6934,7 +7038,7 @@ export default function Game() {
         big: false,
         pierce: false,
         attackStyle,
-        effectSkin: playerSkinRef.current,
+        effectSkin: opts?.effectSkinOverride ?? playerSkinRef.current,
         ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
       });
     }
@@ -7017,8 +7121,10 @@ export default function Game() {
       clearNpcLeftSkillPresentation();
       resetCloneSkillSession();
       const campaignState = cloneBrowserValue(s);
-      campaignState.player.col = 1;
-      campaignState.player.row = 1;
+      if (campaignState.gameMode === 'classic') {
+        campaignState.player.col = 1;
+        campaignState.player.row = 1;
+      }
       campaignBossSessionRef.current = {
         encounter: bossEncounter,
         campaignState,
@@ -7071,7 +7177,7 @@ export default function Game() {
       lastRenderTimeRef.current = 0;
       updateHud();
       showMessage(
-        `BOSS ENCOUNTER · ${bossEncounter.destination.label} · ${bossEncounter.destination.bearing}`,
+        `BOSS ENCOUNTER · RANK #${bossEncounter.destination.rank} · ${bossEncounter.destination.label} · ${bossEncounter.destination.bearing}`,
         2200,
       );
     } else {
@@ -7096,9 +7202,11 @@ export default function Game() {
     if (!s.running || col < 0 || col > 2 || row < 0 || row > 2) return false;
     const movedToNewTile = s.player.col !== col || s.player.row !== row;
     if (!movedToNewTile) return false;
+    const previousCoopPositions = diagonalCoopPositionsForState(s);
     // Player retains facing even while moving backward.
     s.player.col = col;
     s.player.row = row;
+    reconcileDiagonalCoopPairLayout(s, previousCoopPositions);
     lordAlphaIdleRecoveryRef.current = registerLordAlphaTileMove(
       lordAlphaIdleRecoveryRef.current,
       {
@@ -7453,14 +7561,17 @@ export default function Game() {
       reconcileIntegrityWork(restored);
       restored.running = true;
       restored.playerWon = false;
-      restored.gameMode = 'classic';
-      restored.player.col = 1;
-      restored.player.row = 1;
+      restored.gameMode = bossSession.campaignState.gameMode;
+      if (restored.gameMode === 'classic') {
+        restored.player.col = 1;
+        restored.player.row = 1;
+      }
       stateRef.current = restored;
       campaignBossSessionRef.current = null;
       npcCounterpartRef.current = null;
       npcAbilityRuntimeRef.current = null;
       npcSignatureRuntimeRef.current = null;
+      npcBossTacticalMemoryRef.current = createBossTacticalMemory(restored.player.row);
       setActionRouteBossEncounter(null);
       setActionRouteBossesDefeated(actionRouteBossesDefeatedRef.current + 1);
 
@@ -7492,6 +7603,7 @@ export default function Game() {
     npcCounterpartRef.current = null;
     npcAbilityRuntimeRef.current = null;
     npcSignatureRuntimeRef.current = null;
+    npcBossTacticalMemoryRef.current = createBossTacticalMemory(s.player.row);
     s.playerWon = won;
     if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
       if (lordAlphaPresentationTimerRef.current) {
@@ -9225,8 +9337,7 @@ export default function Game() {
       } else if (active.id === 'causality') {
         if (active.mode === 0) s.hp = Math.max(s.hp, active.origin.hp);
         else if (active.mode === 1) {
-          s.player.col = active.origin.col;
-          s.player.row = active.origin.row;
+          setPlayerGridPosition(s, active.origin.col, active.origin.row);
         } else {
           for (let row = 0; row < 3; row++) fireBullet(row, { power: 3, big: true, pierce: true });
         }
@@ -9425,8 +9536,7 @@ export default function Game() {
         } else {
           const index = (next.chronoPositionIndex + 1) % next.chronoPositions.length;
           const destination = next.chronoPositions[index];
-          s.player.col = destination.col;
-          s.player.row = destination.row;
+          setPlayerGridPosition(s, destination.col, destination.row);
           s.moveFlash = 0.15;
           next.chronoPositionIndex = index;
           stepMessage = `Time Step ${index + 1}/${next.chronoPositions.length}.`;
@@ -9516,7 +9626,7 @@ export default function Game() {
         else {
           next.placements = [...next.placements, 3 + s.player.row];
           next.charges = next.placements.length;
-          s.player.row = (s.player.row + 1) % 3;
+          setPlayerGridPosition(s, s.player.col, (s.player.row + 1) % 3);
           showMessage('Relay node placed · linked jump.', 700);
         }
       } else {
@@ -9565,7 +9675,7 @@ export default function Game() {
       const targets = [...s.enemies].sort((a, b) => b.hp - a.hp);
       const target = targets[active.mode % Math.max(1, targets.length)];
       if (action === 'primary' && target) {
-        s.player.row = target.row;
+        setPlayerGridPosition(s, s.player.col, target.row);
         target.hp -= 6;
         target.flash = 0.2;
         s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
@@ -9580,8 +9690,7 @@ export default function Game() {
           showMessage('Priority target changed.', 700);
         }
       } else {
-        s.player.col = active.origin.col;
-        s.player.row = active.origin.row;
+        setPlayerGridPosition(s, active.origin.col, active.origin.row);
         showMessage('Chain broken; unused marks retained.', 800);
       }
     } else if (active.id === 'phoenix') {
@@ -9594,8 +9703,7 @@ export default function Game() {
         next.origin = { col: s.player.col, row: s.player.row, hp: s.hp };
         showMessage('Restoration anchor moved.', 750);
       } else {
-        s.player.col = next.origin.col;
-        s.player.row = next.origin.row;
+        setPlayerGridPosition(s, next.origin.col, next.origin.row);
         s.hp = Math.max(s.hp, next.origin.hp);
         next.charges = Math.max(0, next.charges - 1);
         showMessage('Recorded state restored.', 800);
@@ -9605,7 +9713,7 @@ export default function Game() {
         if (next.placements.length < 2) showMessage('Place both portals first.', 750);
         else {
           const destination = next.placements[next.mode % 2];
-          s.player.row = destination;
+          setPlayerGridPosition(s, s.player.col, destination);
           next.mode = next.mode ? 0 : 1;
           fireBullet(next.placements[next.mode], { power: 3, big: true, pierce: true });
           showMessage('Portal traversed · shot redirected.', 800);
@@ -9726,8 +9834,7 @@ export default function Game() {
       } else {
         if (next.mode === 0) s.hp = Math.max(s.hp, next.origin.hp);
         else if (next.mode === 1) {
-          s.player.col = next.origin.col;
-          s.player.row = next.origin.row;
+          setPlayerGridPosition(s, next.origin.col, next.origin.row);
         } else fireBullet(undefined, { power: 4, big: true, pierce: true });
         showMessage(`${eventNames[next.mode]} repeated.`, 750);
       }
@@ -9742,7 +9849,7 @@ export default function Game() {
         showMessage('Weapon grows toward shield-cannon.', 700);
       } else {
         next.placements = [...next.placements, 2];
-        s.player.row = (s.player.row + 1) % 3;
+        setPlayerGridPosition(s, s.player.col, (s.player.row + 1) % 3);
         fireBullet(undefined, { power: 2, big: true });
         showMessage('Weapon grows toward propulsion blade.', 700);
       }
@@ -9818,7 +9925,7 @@ export default function Game() {
           enemy.colPos = Math.min(5.8, enemy.colPos + 1);
         }
         s.enemies = s.enemies.filter((enemy) => enemy.hp > 0);
-        s.player.col = Math.min(2, s.player.col + 1);
+        setPlayerGridPosition(s, Math.min(2, s.player.col + 1), s.player.row);
         showMessage('Colossus trample.', 700);
       } else {
         s.shieldCharges += 2;
@@ -9831,7 +9938,7 @@ export default function Game() {
       if (action === 'primary') {
         if (!target) showMessage('No prey detected.', 700);
         else {
-          s.player.row = target.row;
+          setPlayerGridPosition(s, s.player.col, target.row);
           target.hp -= 3 + next.charges;
           target.flash = 0.2;
           next.charges++;
@@ -9992,8 +10099,7 @@ export default function Game() {
         const origin = next.placements[next.placements.length - 1];
         if (origin === undefined) echoMessage = 'Trace an origin first.';
         else {
-          s.player.col = Math.floor(origin / 3);
-          s.player.row = origin % 3;
+          setPlayerGridPosition(s, Math.floor(origin / 3), origin % 3);
           s.ghostTimer = Math.max(s.ghostTimer, 0.8);
           echoMessage = 'Echo displacement complete.';
         }
@@ -10020,8 +10126,7 @@ export default function Game() {
         const decoy = next.placements.pop();
         if (decoy === undefined) showMessage('Project a decoy first.', 650);
         else {
-          s.player.col = Math.floor(decoy / 3);
-          s.player.row = decoy % 3;
+          setPlayerGridPosition(s, Math.floor(decoy / 3), decoy % 3);
           fireBullet(s.player.row, { originCol: s.player.col, power: 4, big: true, pierce: true });
           next.charges = next.placements.length;
           showMessage('Mirage ambush resolved.', 700);
@@ -11531,6 +11636,7 @@ export default function Game() {
       const mapping = gp.mapping?.trim() || 'legacy mapping';
       setControllerStatus(`CONNECTED — ${name} · ${mapping} · ${gp.buttons.length} buttons`);
     }
+
   }, [clearLordAlphaNinjatoSlice, clearLordAlphaNinjatoThrustCombo, resetLordAlphaR2TapGesture]);
 
   const update = useCallback((dt: number) => {
@@ -11542,7 +11648,7 @@ export default function Game() {
     let npcVsNpcALethalThisFrame = false;
     let npcVsNpcBLethalThisFrame = false;
 
-    if (actionForkExperiment && s.gameMode === 'classic') {
+    if (actionForkExperiment && isCampaignGameMode(s.gameMode)) {
       const directions: CampaignRouteDirection[] = ['last', 'next'];
       for (const direction of directions) {
         actionRouteTargetReacquireDelayRef.current[direction] = Math.max(
@@ -11562,6 +11668,10 @@ export default function Game() {
     handleGamepad();
     const evolutionSelectionActive = s.upgradeSelectionOpen;
     s.player.moveCooldown = Math.max(0, (s.player.moveCooldown ?? 0) - dt);
+    if (s.coopPlayer) {
+      s.coopPlayer.fireCooldown = Math.max(0, s.coopPlayer.fireCooldown - dt);
+      s.coopPlayer.moveCooldown = Math.max(0, (s.coopPlayer.moveCooldown ?? 0) - dt);
+    }
 
     // Route selection is a post-wave intermission rather than live combat.
     // Freeze the simulation while retaining pause and directional route input.
@@ -12077,7 +12187,6 @@ export default function Game() {
       if (Math.abs(gp.moveX) > 0.15 && !eloFlipCombo) dx = gp.moveX > 0 ? 1 : -1;
       if (Math.abs(gp.moveY) > 0.15) dy = gp.moveY > 0 ? 1 : -1;
     }
-
     // A target can die while a movement key/stick is already held. Require a
     // neutral sample before accepting a route decision so that held combat
     // movement cannot spontaneously travel Last or Next.
@@ -12399,7 +12508,7 @@ export default function Game() {
         }
         : null;
       let routeAutoPhase: CampaignRouteAutoBusterPhase = 'inactive';
-      if (actionForkExperiment && s.gameMode === 'classic'
+      if (actionForkExperiment && isCampaignGameMode(s.gameMode)
         && s.wave >= actionForkStartWave
         && s.wave >= actionRouteTargetArmWaveRef.current) {
         routeAutoPhase = actionRoutePromptActiveRef.current
@@ -12446,6 +12555,63 @@ export default function Game() {
           }
         }
       }
+      }
+    }
+
+    // The friendly co-op NPC owns its own targeting and fire cooldown. Player
+    // Auto Buster settings remain player-owned; the ally fires autonomously
+    // only when a living threat is currently in its lane.
+    const coopNpcDecision = s.gameMode === 'coop' && s.coopPlayer
+      ? chooseDiagonalCoopNpcDecision({
+        player: s.player,
+        npc: s.coopPlayer,
+        threats: s.enemies
+          .filter((enemy) => enemy.colPos >= -1)
+          .map((enemy) => ({ col: enemy.colPos, row: enemy.row, hp: enemy.hp })),
+        canMove: s.coopPlayer.moveCooldown <= 0 && !slowMotionActive,
+        canFire: s.coopPlayer.fireCooldown <= 0 && !slowMotionActive,
+      })
+      : null;
+    if (s.gameMode === 'coop' && s.coopPlayer && coopNpcDecision?.shouldFire) {
+      const rapidScale = (1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1)
+        * milestoneFireRateMultiplier(s.runUpgrades);
+      const interval = (
+        s.berserkTimer > 0 ? 0.09 : s.overclockTimer > 0 ? 0.16 : 0.34
+      ) / rapidScale;
+      s.coopPlayer.fireCooldown = interval;
+      const allyAttackNow = performance.now();
+      if (allyAttackNow - npcAttackStartedRef.current >= NPC_ATTACK_ANIMATION_DURATION) {
+        npcAttackStartedRef.current = allyAttackNow;
+      }
+      if (coopPartnerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+        if (npcLordAlphaMotionTimerRef.current) {
+          clearTimeout(npcLordAlphaMotionTimerRef.current);
+        }
+        setNpcLordAlphaMotion('attack');
+        setNpcLordAlphaMotionPulse((pulse) => pulse + 1);
+        npcLordAlphaMotionTimerRef.current = setTimeout(() => {
+          setNpcLordAlphaMotion('idle');
+          npcLordAlphaMotionTimerRef.current = null;
+        }, 320);
+      }
+      fireBullet(s.coopPlayer.row, {
+        originCol: s.coopPlayer.col,
+        directionOverride: 1,
+        effectSkinOverride: coopPartnerSkinRef.current,
+      });
+    }
+    if (s.gameMode === 'coop' && s.coopPlayer && coopNpcDecision?.moveTo) {
+      const current = diagonalCoopPositionsForState(s);
+      if (current) {
+        const movement = resolveDiagonalCoopMovement(
+          current,
+          { p2: coopNpcDecision.moveTo },
+          s.coopPairLayout,
+        );
+        s.coopPlayer.col = movement.positions.p2.col;
+        s.coopPlayer.row = movement.positions.p2.row;
+        s.coopPairLayout = movement.layout;
+        if (movement.moved.p2) s.coopPlayer.moveCooldown = 0.32;
       }
     }
 
@@ -12928,16 +13094,27 @@ export default function Game() {
         showMessage(`${struckDefender.toUpperCase()} clone absorbed the hit and dispersed.`, 1000);
         disperseClone(struckDefender, false);
       }
-      if (Math.round(e.colPos) === s.player.col && e.row === s.player.row && e.colPos < s.player.col + 0.45) {
-        const eloIsIntangible = playerSkinRef.current === 'gem' && !s.autoBuster;
+      const hitsPlayerOne = Math.round(e.colPos) === s.player.col
+        && e.row === s.player.row
+        && e.colPos < s.player.col + 0.45;
+      const hitsPlayerTwo = s.gameMode === 'coop'
+        && s.coopPlayer !== null
+        && Math.round(e.colPos) === s.coopPlayer.col
+        && e.row === s.coopPlayer.row
+        && e.colPos < s.coopPlayer.col + 0.45;
+      // Shared cells still resolve one carrier only; separate cells let either
+      // actor protect the team without duplicating damage on an overlap.
+      if (hitsPlayerOne || hitsPlayerTwo) {
+        const eloIsIntangible = hitsPlayerOne
+          && playerSkinRef.current === 'gem' && !s.autoBuster;
         const counter = rivalSkillRef.current;
-        if (isLordAlphaAfterimageEvading()) {
+        if (hitsPlayerOne && isLordAlphaAfterimageEvading()) {
           // Resolve this carrier as a miss once. Removing it without defeat
           // credit prevents the same overlap from becoming a delayed hit on the
           // first frame after the evasion window closes.
           e.colPos = -9;
           showMessage('AFTERIMAGE STEP · MISS', 500);
-        } else if (counter.active && counter.id === 'counter') {
+        } else if (hitsPlayerOne && counter.active && counter.id === 'counter') {
           const captured = { ...counter, charges: Math.min(5, counter.charges + 1) };
           rivalSkillRef.current = captured;
           setRivalSkillView(captured);
@@ -12948,7 +13125,7 @@ export default function Game() {
         } else if (eloIsIntangible) {
           // Player phases while automation is disabled. The enemy continues
           // through the occupied cell without damage or consuming a shield.
-        } else if (echoBrinkRef.current.drainHeld) {
+        } else if (hitsPlayerOne && echoBrinkRef.current.drainHeld) {
           s.hp += 1;
           e.colPos = -9;
           playHit();
@@ -12969,7 +13146,7 @@ export default function Game() {
           playHit();
           triggerLordAlphaMotion('hit');
           updateHud();
-        } else if (consumeLordAlphaMovingDamageNegation()) {
+        } else if (hitsPlayerOne && consumeLordAlphaMovingDamageNegation()) {
           e.colPos = -9;
           playHit();
         } else {
@@ -13256,7 +13433,7 @@ export default function Game() {
     s.enemies = s.enemies.filter((e) => e.colPos > -1);
 
     if (actionForkExperiment
-      && s.gameMode === 'classic'
+      && isCampaignGameMode(s.gameMode)
       && s.wave >= actionForkStartWave
       && s.wave >= actionRouteTargetArmWaveRef.current) {
       const directions: CampaignRouteDirection[] = ['last', 'next'];
@@ -14450,6 +14627,20 @@ export default function Game() {
       let npcHighLevelActed = false;
       let npcHighLevelColumnActed = false;
       let npcHighLevelMovementContext: VersusNpcContext | null = null;
+      const campaignBossTacticsActive = Boolean(
+        campaignBossSessionRef.current && npcRivalSkill,
+      );
+      const rememberCampaignBossAction = (action: BossTacticalAction) => {
+        if (!campaignBossTacticsActive) return;
+        const previous = npcBossTacticalMemoryRef.current;
+        const observed = observeBossPlayerPattern(previous, {
+          playerRow: s.player.row,
+          moved: s.player.row !== previous.lastPlayerRow,
+          fired: s.player.fireCooldown > 0,
+          defended: s.shieldCharges > 0 || s.ghostTimer > 0,
+        });
+        npcBossTacticalMemoryRef.current = recordBossTacticalAction(observed, action);
+      };
 
       // A visible projectile has defensive priority, just as it does for a
       // human opponent. The ETA window prevents spawn-reading; the recovery
@@ -14470,7 +14661,79 @@ export default function Game() {
         projectiles: s.bullets,
       };
       const committedImpact = versusBossImpactIsCommitted(evasionContext);
-      const evasionPlan = npcEchoBracing ? null : planVersusBossEvasion(evasionContext);
+      const prospectiveEvasionPlan = npcEchoBracing
+        ? null
+        : planVersusBossEvasion(evasionContext);
+      const bossStrategyContext = campaignBossTacticsActive
+        ? buildNpcContext(npc.strategyStep)
+        : null;
+      const rankedBossAbilityPlans = bossStrategyContext
+        ? rankVersusNpcAbilities(bossStrategyContext)
+        : [];
+      const bossPreferredAbilityIds = rankedBossAbilityPlans.map(({ abilityId }) => abilityId);
+      let preparedBossCounterpart: VersusBossCounterpart | null = null;
+      let preparedBossReadyAbilityId: ReturnType<typeof selectVersusBossReadyAbility> = null;
+      let preparedBossAbilityPlan: VersusAbilityPlan | null = null;
+
+      // Prepare (but do not consume) the real owned hand before selecting the
+      // action category. This lets a live counter or critical recovery beat a
+      // dodge/signature opening without ever inventing a card or bypassing its
+      // cooldown.
+      if (campaignBossTacticsActive
+        && npc.abilityCooldown <= 0
+        && npc.signatureWindow <= 0
+        && !committedImpact
+        && npc.decisionLock <= 0) {
+        preparedBossCounterpart = npcCounterpartRef.current;
+        const refreshRequested = npcAbilityRuntimeRef.current?.npcHandRefreshRequested ?? false;
+        if (preparedBossCounterpart && (
+          preparedBossCounterpart.abilities.hand.length === 0
+          || versusBossAbilityHandIsExhausted(preparedBossCounterpart)
+          || refreshRequested
+        )) {
+          preparedBossCounterpart = dealVersusBossAbilityHand(preparedBossCounterpart, {
+            context: buildNpcAbilityBoardContext(),
+            seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
+          });
+          npcCounterpartRef.current = preparedBossCounterpart;
+          if (npcAbilityRuntimeRef.current) {
+            npcAbilityRuntimeRef.current.npcHandRefreshRequested = false;
+          }
+        }
+        preparedBossReadyAbilityId = preparedBossCounterpart
+          ? selectVersusBossReadyAbility(preparedBossCounterpart, {
+              context: buildNpcAbilityBoardContext(),
+              seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
+              preferredAbilityIds: bossPreferredAbilityIds,
+              preferAuthoredAbility: true,
+            })
+          : null;
+        preparedBossAbilityPlan = rankedBossAbilityPlans.find(
+          ({ abilityId }) => abilityId === preparedBossReadyAbilityId,
+        ) ?? null;
+      }
+
+      const bossTacticalDecision: BossTacticalDecision | null = bossStrategyContext
+        ? chooseBossTacticalAction({
+            context: bossStrategyContext,
+            memory: npcBossTacticalMemoryRef.current,
+            impactCommitted: committedImpact,
+            decisionLocked: npc.decisionLock > 0,
+            evasionAvailable: prospectiveEvasionPlan !== null,
+            signatureAvailable: npcHasSignatureCounterpart,
+            signatureCooldownReady: npc.signatureWindow <= 0
+              && npc.signatureCooldown <= 0,
+            signatureWindowActive: npc.signatureWindow > 0,
+            signatureActionReady: npc.signatureActionCooldown <= 0
+              && npc.signatureActions < npcSignatureActionLimit,
+            abilityPlan: preparedBossAbilityPlan,
+            movementReady: npc.moveCooldown <= 0,
+            basicReady: npc.fireCooldown <= 0,
+          })
+        : null;
+      const evasionPlan = bossTacticalDecision?.action === 'ability'
+        ? null
+        : prospectiveEvasionPlan;
       let npcEvadedThisFrame = false;
       if (evasionPlan) {
         npc.row = evasionPlan.nextRow;
@@ -14480,6 +14743,7 @@ export default function Game() {
         npc.decisionLock = Math.max(npc.decisionLock, evasionPlan.fireRecovery);
         npc.strategyStep++;
         npcEvadedThisFrame = true;
+        rememberCampaignBossAction('evade');
         if (m) addParticles(
           m.x + (npcBoardColBeforeMovement + 0.5) * m.cell,
           m.y + (npc.row + 0.5) * m.cell,
@@ -14492,7 +14756,9 @@ export default function Game() {
         && npc.signatureWindow <= 0
         && npc.signatureCooldown <= 0
         && !committedImpact
-        && npc.decisionLock <= 0) {
+        && npc.decisionLock <= 0
+        && (!campaignBossTacticsActive
+          || bossTacticalDecision?.action === 'signature-open')) {
         npc.signatureWindow = npcCounterpart
           ? npcSignatureWindowDuration(npcCounterpart)
           : COMPETITIVE_RULESET.signatureWindow;
@@ -14505,6 +14771,7 @@ export default function Game() {
         npc.signatureOriginCol = npc.col;
         npc.signatureOriginRow = npc.row;
         npc.signatureCooldown = VS_NPC_SKILL_INTERVAL;
+        rememberCampaignBossAction('signature-open');
       }
 
       if (npc.abilityCooldown <= 0
@@ -14512,7 +14779,7 @@ export default function Game() {
         && npc.signatureWindow <= 0
         && !committedImpact
         && npc.decisionLock <= 0) {
-        let activeCounterpart = npcCounterpartRef.current;
+        let activeCounterpart = preparedBossCounterpart ?? npcCounterpartRef.current;
         const refreshRequested = npcAbilityRuntimeRef.current?.npcHandRefreshRequested ?? false;
         if (activeCounterpart && (
           activeCounterpart.abilities.hand.length === 0
@@ -14529,12 +14796,21 @@ export default function Game() {
           }
         }
 
-        const readyAbilityId = activeCounterpart
-          ? selectVersusBossReadyAbility(activeCounterpart, {
-            context: buildNpcAbilityBoardContext(),
-            seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
-          })
-          : null;
+        const readyAbilityId = campaignBossTacticsActive
+          && activeCounterpart === preparedBossCounterpart
+          ? preparedBossReadyAbilityId
+          : activeCounterpart
+            ? selectVersusBossReadyAbility(activeCounterpart, {
+                context: buildNpcAbilityBoardContext(),
+                seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
+                ...(campaignBossTacticsActive
+                  ? {
+                      preferredAbilityIds: bossPreferredAbilityIds,
+                      preferAuthoredAbility: true,
+                    }
+                  : {}),
+              })
+            : null;
         const abilityUse = activeCounterpart && readyAbilityId
           ? useVersusBossAbility(activeCounterpart, readyAbilityId)
           : null;
@@ -14587,6 +14863,7 @@ export default function Game() {
           npc.abilityCooldown = VS_NPC_ABILITY_INTERVAL + nextNpcRandom();
           npc.decisionLock = npcAbilityPresentationDurationMs / 1000;
           npcHighLevelActed = true;
+          rememberCampaignBossAction('ability');
           updateHud();
           if (s.hp <= 0) {
             if (npcVsNpcActive) npcVsNpcALethalThisFrame = true;
@@ -14823,6 +15100,7 @@ export default function Game() {
           npc.signatureWindow = 0;
         }
         npcHighLevelActed = true;
+        rememberCampaignBossAction('signature-action');
         updateHud();
       }
 
@@ -14847,8 +15125,18 @@ export default function Game() {
         npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
         const context = buildNpcContext(npc.strategyStep++);
         const position = chooseVersusMovementPosition(context, nextNpcRandom());
-        npc.row = position.row;
+        const adaptiveManeuver = campaignBossTacticsActive
+          && bossTacticalDecision?.action === 'maneuver';
+        npc.row = adaptiveManeuver
+          ? bossTacticalDecision.targetRow
+          : position.row;
         npc.col = position.col;
+        if (adaptiveManeuver) {
+          // Learned lane movement is a deliberate beat, not a free pre-fire
+          // teleport. The following decision can then punish the new angle.
+          npcHighLevelActed = true;
+          rememberCampaignBossAction('maneuver');
+        }
       }
       if (npcSignatureRuntimeRef.current) {
         npcSignatureRuntimeRef.current = recordVersusBossSignaturePosition(
@@ -14876,6 +15164,7 @@ export default function Game() {
           npc.row = aim.nextRow;
           npc.fireCooldown = 0.14;
           npc.moveCooldown = Math.max(npc.moveCooldown, 0.14);
+          rememberCampaignBossAction('maneuver');
         } else {
           const basicLaunch = launchVersusBossBasicProjectile(
             synchronizeNpcAbilityRuntime(),
@@ -14897,6 +15186,7 @@ export default function Game() {
           }
           const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
           npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
+          rememberCampaignBossAction('basic');
         }
       }
 
@@ -15366,7 +15656,9 @@ export default function Game() {
           chronoHistoryRef.current = [];
           chronoLastCaptureRef.current = 0;
         }
+        const previousCoopPositions = diagonalCoopPositionsForState(stateRef.current);
         update(dt);
+        reconcileDiagonalCoopPairLayout(stateRef.current, previousCoopPositions);
         // Boss duels are temporary campaign encounters. Their combat score may
         // move, but the campaign wave/work display remains at the selected fork
         // until victory restores the exact saved campaign state.
@@ -15380,21 +15672,24 @@ export default function Game() {
       if (menuScreenRef.current === 'main') {
         if (Math.abs(gp.moveY) > 0.15 && menuNavCooldownRef.current <= 0) {
           const direction = gp.moveY > 0 ? 1 : -1;
-          menuSelectionRef.current = (menuSelectionRef.current + direction + 6) % 6;
+          menuSelectionRef.current = (menuSelectionRef.current + direction + 7) % 7;
           setMenuSelection(menuSelectionRef.current);
-          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuNpcVsNpcBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
+          const ids = ['menuPlayBtn', 'menuCoopBtn', 'menuVsBtn', 'menuNpcVsNpcBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
           scrollMenuTargetIntoView(document.getElementById(ids[menuSelectionRef.current]));
           menuNavCooldownRef.current = 0.22;
         }
         if (gp.fire && !gp.prevFire) {
-          const ids = ['menuPlayBtn', 'menuVsBtn', 'menuNpcVsNpcBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
+          const ids = ['menuPlayBtn', 'menuCoopBtn', 'menuVsBtn', 'menuNpcVsNpcBtn', 'menuCustomBtn', 'menuBestiaryBtn', 'menuOptionsBtn'];
           document.getElementById(ids[menuSelectionRef.current])?.click();
         }
-      } else if (menuScreenRef.current === 'vs-select'
+      } else if (menuScreenRef.current === 'coop-select'
+        || menuScreenRef.current === 'vs-select'
         || menuScreenRef.current === 'npc-vs-npc-select') {
-        const selector = menuScreenRef.current === 'vs-select'
-          ? '.vs-skin-btn'
-          : '.npc-vs-npc-skin-btn';
+        const selector = menuScreenRef.current === 'coop-select'
+          ? '.coop-skin-btn'
+          : menuScreenRef.current === 'vs-select'
+            ? '.vs-skin-btn'
+            : '.npc-vs-npc-skin-btn';
         const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(selector));
         if (buttons.length > 0) {
           if (Math.abs(gp.moveX) > 0.15 && menuNavCooldownRef.current <= 0) {
@@ -15551,7 +15846,10 @@ export default function Game() {
         || playerSkinRef.current === LORD_ALPHA_SKIN_ID
         || RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
         || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
-      const npcUsesOverlay = stateRef.current.gameMode === 'vs' && npcSkinRef.current !== 'default';
+      const npcUsesOverlay = (
+        stateRef.current.gameMode === 'vs'
+        || stateRef.current.gameMode === 'coop'
+      ) && npcSkinRef.current !== 'default';
       const npcTharthareonHold = stateRef.current.bullets.find((bullet) => (
         bullet.visualKind === 'tharthareon-bite'
         && bullet.tharthareonTargetNpc
@@ -15570,7 +15868,7 @@ export default function Game() {
         skinHasOverlay,
         npcHasOverlay,
         chronoRewindRef.current.held ? chronoRewindRef.current.cursorAt : ts,
-        actionForkExperiment && stateRef.current.gameMode === 'classic'
+        actionForkExperiment && isCampaignGameMode(stateRef.current.gameMode)
           ? (() => {
             const targetPair = getCompleteCampaignRouteTargetPair(actionRouteTargetsRef.current);
             return {
@@ -15657,8 +15955,20 @@ export default function Game() {
           const visualRow = reducedMotion
             ? afterimageStep.origin.row
             : holdProgress > 0 ? afterimageStep.origin.row : scanRow;
-          const px = m.x + (visualCol + 0.5) * m.cell;
-          const py = m.y + (visualRow + 0.5) * m.cell;
+          // Offset only while the independently moving actors are co-located.
+          // The signs preserve the diagonal established by their first point
+          // of contact; dimensions remain unchanged.
+          const coopState = stateRef.current;
+          const coopPairLayout = coopState.gameMode === 'coop'
+            && coopState.coopPlayer
+            && coopState.player.col === coopState.coopPlayer.col
+            && coopState.player.row === coopState.coopPlayer.row
+            ? coopState.coopPairLayout
+            : null;
+          const px = m.x + (visualCol + 0.5) * m.cell
+            + (coopPairLayout?.playerX ?? 0) * m.cell * 0.13;
+          const py = m.y + (visualRow + 0.5) * m.cell
+            + (coopPairLayout?.playerY ?? 0) * m.cell * 0.13;
           const beat = reducedMotion ? 0.32 : 0.42 + Math.abs(Math.sin(scanAngle)) * 0.34;
           const opacity = Math.max(0, beat * (1 - index * 0.24) * (1 - holdProgress));
           ghost.style.left = `${px}px`;
@@ -15682,6 +15992,15 @@ export default function Game() {
       if (ninjatoSlice) {
         const m = frameMetrics;
         const size = Math.round(m.cell * 1.12);
+        const coopState = stateRef.current;
+        const coopPairLayout = coopState.gameMode === 'coop'
+          && coopState.coopPlayer
+          && coopState.player.col === coopState.coopPlayer.col
+          && coopState.player.row === coopState.coopPlayer.row
+          ? coopState.coopPairLayout
+          : null;
+        const coopOffsetX = (coopPairLayout?.playerX ?? 0) * m.cell * 0.13;
+        const coopOffsetY = (coopPairLayout?.playerY ?? 0) * m.cell * 0.13;
         const currentPose = resolveLordAlphaNinjatoSlicePose(
           ninjatoSlice.state,
           ts,
@@ -15698,8 +16017,10 @@ export default function Game() {
           const trailVisible = !reducedMotion
             && (currentPose?.phase === 'approach' || currentPose?.phase === 'cut')
             && (laggedPose?.phase === 'approach' || laggedPose?.phase === 'cut');
-          const px = m.x + ((laggedPose?.col ?? ninjatoSlice.state.origin.col) + 0.5) * m.cell;
-          const py = m.y + ((laggedPose?.row ?? ninjatoSlice.state.origin.row) + 0.5) * m.cell;
+          const px = m.x + ((laggedPose?.col ?? ninjatoSlice.state.origin.col) + 0.5) * m.cell
+            + coopOffsetX;
+          const py = m.y + ((laggedPose?.row ?? ninjatoSlice.state.origin.row) + 0.5) * m.cell
+            + coopOffsetY;
           ghost.style.left = `${px}px`;
           ghost.style.top = `${py}px`;
           ghost.style.width = `${size}px`;
@@ -15793,8 +16114,17 @@ export default function Game() {
             delete wrap.dataset.rocChargePhase;
             delete wrap.dataset.rocChargeCell;
           }
-          const px = m.x + (visualCol + 0.5) * m.cell;
-          const py = m.y + (visualRow + 0.5) * m.cell;
+          const coopState = stateRef.current;
+          const coopPairLayout = coopState.gameMode === 'coop'
+            && coopState.coopPlayer
+            && coopState.player.col === coopState.coopPlayer.col
+            && coopState.player.row === coopState.coopPlayer.row
+            ? coopState.coopPairLayout
+            : null;
+          const px = m.x + (visualCol + 0.5) * m.cell
+            + (coopPairLayout?.playerX ?? 0) * m.cell * 0.13;
+          const py = m.y + (visualRow + 0.5) * m.cell
+            + (coopPairLayout?.playerY ?? 0) * m.cell * 0.13;
           const rivalSkin = RIVAL_SKILL_IDS.includes(playerSkinRef.current as RivalSkillId)
             || CONCEPT_SKIN_IDS.includes(playerSkinRef.current as (typeof CONCEPT_SKIN_IDS)[number]);
           const sz = Math.round(m.cell * overlayScaleForSkin(playerSkinRef.current));
@@ -16002,25 +16332,41 @@ export default function Game() {
             && npcCanvas.height > 0;
           wrap.style.visibility = compositeHeldRasterNpc ? 'hidden' : '';
           const m = frameMetrics;
-          const npc = stateRef.current.npc;
+          const coopSecondary = stateRef.current.gameMode === 'coop'
+            ? stateRef.current.coopPlayer
+            : null;
+          const secondaryActor = coopSecondary ?? stateRef.current.npc;
           const visual = npcVisualPositionRef.current;
           if (visual.at <= 0) {
-            visual.col = npc.col;
-            visual.row = npc.row;
+            visual.col = secondaryActor.col;
+            visual.row = secondaryActor.row;
             visual.at = ts;
           }
           const visualDt = Math.min(50, Math.max(0, ts - visual.at));
           const positionBlend = 1 - Math.exp(-visualDt / 72);
           if (npcHeldByTharthareon) {
-            visual.col = npc.col;
-            visual.row = npc.row;
+            visual.col = secondaryActor.col;
+            visual.row = secondaryActor.row;
           } else {
-            visual.col += (npc.col - visual.col) * positionBlend;
-            visual.row += (npc.row - visual.row) * positionBlend;
+            visual.col += (secondaryActor.col - visual.col) * positionBlend;
+            visual.row += (secondaryActor.row - visual.row) * positionBlend;
           }
           visual.at = ts;
-          const px = m.x + (3 + visual.col + 0.5) * m.cell;
-          const py = m.y + (visual.row + 0.5) * m.cell;
+          const coopPairLayout = coopSecondary
+            && stateRef.current.player.col === coopSecondary.col
+            && stateRef.current.player.row === coopSecondary.row
+            ? stateRef.current.coopPairLayout
+            : null;
+          const coopVisualCell = coopSecondary
+            ? resolveCoopPartnerVisualCell(
+                { col: visual.col, row: visual.row },
+                coopPairLayout,
+              )
+            : null;
+          const secondaryBoardCol = coopVisualCell?.col ?? 3 + visual.col;
+          const secondaryBoardRow = coopVisualCell?.row ?? visual.row;
+          const px = m.x + (secondaryBoardCol + 0.5) * m.cell;
+          const py = m.y + (secondaryBoardRow + 0.5) * m.cell;
           const sz = Math.round(m.cell * overlayScaleForSkin(npcSkinRef.current));
           const stageWidth = Math.round(sz * overlayAspectForSkin(npcSkinRef.current));
           wrap.style.left = `${px}px`;
@@ -16091,8 +16437,13 @@ export default function Game() {
           if (npcCtx && frame && npcSkinRef.current !== 'assembly') {
             npcCtx.imageSmoothingEnabled = false;
             npcCtx.save();
-            npcCtx.translate(stageWidth, 0);
-            npcCtx.scale(-1, 1);
+            // Player-side artwork is authored facing the enemy grid (right).
+            // Mirror only a VS opponent; the co-op partner stays player-facing
+            // so it attacks toward the enemy instead of looking back at P1.
+            if (stateRef.current.gameMode === 'vs') {
+              npcCtx.translate(stageWidth, 0);
+              npcCtx.scale(-1, 1);
+            }
             if (usingEchoHold && npcEchoChannel === 'brink' && !reducedMotion) {
               npcCtx.translate(Math.sin(ts * 0.085) * sz * 0.018, 0);
             }
@@ -16132,8 +16483,17 @@ export default function Game() {
       positionSkillEffect(skillSouthFxRef.current, 'south');
       const playerSkillFx = skillPlayerFxRef.current;
       if (playerSkillFx) {
-        const px = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
-        const py = metrics.y + (stateRef.current.player.row + 0.5) * metrics.cell;
+        const coopState = stateRef.current;
+        const coopPairLayout = coopState.gameMode === 'coop'
+          && coopState.coopPlayer
+          && coopState.player.col === coopState.coopPlayer.col
+          && coopState.player.row === coopState.coopPlayer.row
+          ? coopState.coopPairLayout
+          : null;
+        const px = metrics.x + (coopState.player.col + 0.5) * metrics.cell
+          + (coopPairLayout?.playerX ?? 0) * metrics.cell * 0.13;
+        const py = metrics.y + (coopState.player.row + 0.5) * metrics.cell
+          + (coopPairLayout?.playerY ?? 0) * metrics.cell * 0.13;
         // The source GIF's visible pixels are centered four pixels left of its
         // 256px frame. Compensate at grid scale and use a square avatar-sized box.
         playerSkillFx.style.left = `${px + metrics.cell * (4 / 256)}px`;
@@ -16148,8 +16508,17 @@ export default function Game() {
         let messageX: number | null = null;
         let messageY: number | null = null;
         if (playerSkillFx) {
-          messageX = metrics.x + (stateRef.current.player.col + 0.5) * metrics.cell;
-          messageY = metrics.y + (stateRef.current.player.row + 0.5) * metrics.cell
+          const coopState = stateRef.current;
+          const coopPairLayout = coopState.gameMode === 'coop'
+            && coopState.coopPlayer
+            && coopState.player.col === coopState.coopPlayer.col
+            && coopState.player.row === coopState.coopPlayer.row
+            ? coopState.coopPairLayout
+            : null;
+          messageX = metrics.x + (coopState.player.col + 0.5) * metrics.cell
+            + (coopPairLayout?.playerX ?? 0) * metrics.cell * 0.13;
+          messageY = metrics.y + (coopState.player.row + 0.5) * metrics.cell
+            + (coopPairLayout?.playerY ?? 0) * metrics.cell * 0.13
             - metrics.cell * 0.68;
         } else {
           const activeCloneCells = (['north', 'south'] as const)
@@ -16229,6 +16598,12 @@ export default function Game() {
     const nextVersusControlMode: VersusControlMode = mode === 'vs'
       ? options.versusControlMode ?? 'human-vs-npc'
       : 'human-vs-npc';
+    if (mode === 'coop') {
+      // VS and campaign bosses also use the secondary-actor skin channel.
+      // Restore the independently saved ally every time co-op starts.
+      npcSkinRef.current = coopPartnerSkinRef.current;
+      setNpcSkin(coopPartnerSkinRef.current);
+    }
     versusControlModeRef.current = nextVersusControlMode;
     setVersusControlMode(nextVersusControlMode);
     setNpcVsNpcMatchResult(null);
@@ -16281,7 +16656,7 @@ export default function Game() {
     stateRef.current = makeInitialState(
       enabledAbilitiesRef.current,
       mode,
-      mode === 'classic' && actionForkExperiment,
+      isCampaignGameMode(mode) && actionForkExperiment,
     );
     lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
       stateRef.current.hp,
@@ -16292,6 +16667,7 @@ export default function Game() {
       npcCounterpartRef.current = null;
       npcAbilityRuntimeRef.current = null;
       npcSignatureRuntimeRef.current = null;
+      npcBossTacticalMemoryRef.current = createBossTacticalMemory(stateRef.current.player.row);
     }
     if (lordAlphaSkillsPreview || nextVersusControlMode === 'npc-vs-npc') {
       stateRef.current.autoBuster = false;
@@ -16309,9 +16685,12 @@ export default function Game() {
     }
     setNpcLordAlphaEvent(null);
     setNpcLordAlphaMotion('idle');
+    const secondaryActor = mode === 'coop' && stateRef.current.coopPlayer
+      ? stateRef.current.coopPlayer
+      : stateRef.current.npc;
     npcVisualPositionRef.current = {
-      col: stateRef.current.npc.col,
-      row: stateRef.current.npc.row,
+      col: secondaryActor.col,
+      row: secondaryActor.row,
       at: 0,
     };
     rivalSkillCooldownRef.current = 0;
@@ -17200,7 +17579,7 @@ export default function Game() {
   const integrityClass = displayedIntegrity.node < 25
     ? 'integrity-critical'
     : displayedIntegrity.node < 55 ? 'integrity-low' : 'integrity-stable';
-  const actionRoutePreviewVisible = actionForkExperiment && hud.gameMode === 'classic';
+  const actionRoutePreviewVisible = actionForkExperiment && isCampaignGameMode(hud.gameMode);
   const actionRouteBossForkReady = actionRoutePromptActive
     && actionRouteBossChoiceRef.current;
   const actionWindowActive = phase === 'playing'
@@ -17388,7 +17767,7 @@ export default function Game() {
   return (
     <div
       id="game"
-      className={`${phase === 'menu' ? 'menu-open ' : ''}${versusControlMode === 'npc-vs-npc' ? 'npc-vs-npc ' : ''}${integrityClass}`}
+      className={`${phase === 'menu' ? 'menu-open ' : ''}${versusControlMode === 'npc-vs-npc' ? 'npc-vs-npc ' : ''}${hud.gameMode === 'coop' ? 'diagonal-coop ' : ''}${integrityClass}`}
       data-lord-alpha-animation={lordAlphaAnimationProfile}
     >
       <canvas
@@ -17557,7 +17936,7 @@ export default function Game() {
                   ? 'SOLID ANIMATION LAB'
                   : lordAlphaSkillsPreview
                     ? 'isolated visual pass'
-                  : hud.gameMode === 'classic' || campaignBossSessionRef.current
+                  : isCampaignGameMode(hud.gameMode) || campaignBossSessionRef.current
                     ? 'campaign free-cast'
                     : 'competitive cooldowns'}
               </small>
@@ -17700,10 +18079,13 @@ export default function Game() {
         </section>
       )}
 
-      {phase === 'playing' && hud.gameMode === 'vs' && npcSkin !== 'default' && (
+      {phase === 'playing'
+        && (hud.gameMode === 'vs' || hud.gameMode === 'coop')
+        && npcSkin !== 'default' && (
         <div
           ref={npcSpriteWrapRef}
-          className="rivalPlayerSprite"
+          className={`rivalPlayerSprite${hud.gameMode === 'coop' ? ' coopPartnerSprite' : ''}`}
+          aria-label={hud.gameMode === 'coop' ? 'Selected co-op partner' : 'Opponent'}
           style={{
             position: 'absolute',
             pointerEvents: 'none',
@@ -17728,9 +18110,9 @@ export default function Game() {
           {npcSkin === LORD_ALPHA_SKIN_ID && (
             <LordAlphaSprite
               form="supreme"
-              // The component keeps the Roc Wing as an anatomical-left
-              // attachment while independently orienting the body toward P1.
-              facing="left"
+              // Keep the Roc Wing anatomically attached while orienting the
+              // secondary actor toward its active opponent.
+              facing={hud.gameMode === 'coop' ? 'right' : 'left'}
               motion={npcLordAlphaMotion}
               pulse={npcLordAlphaMotionPulse}
               eventPulse={npcLordAlphaEventPulse}
@@ -17994,13 +18376,20 @@ export default function Game() {
 
       {/* HUD */}
       <div className="hud" id="hud">
-        <div className="panel">
-          {versusControlMode === 'npc-vs-npc' ? 'NPC A ' : 'HP '}{hud.hp}
+        <div className="panel" id={hud.gameMode === 'coop' ? 'coopTeamPanel' : undefined}>
+          {versusControlMode === 'npc-vs-npc'
+            ? 'NPC A '
+            : hud.gameMode === 'coop' ? 'TEAM HP ' : 'HP '}{hud.hp}
           {versusControlMode === 'npc-vs-npc' ? ' HP' : ''}
           {hud.shieldCharges > 0 && (
             <span id="shieldChargesDisplay">
               {'🛡'.repeat(Math.min(hud.shieldCharges, 9))}
               {hud.shieldCharges > 9 ? ` ×${hud.shieldCharges}` : ''}
+            </span>
+          )}
+          {hud.gameMode === 'coop' && (
+            <span className="coopRulesetBadge">
+              INDEPENDENT · COLLISION PAIR
             </span>
           )}
         </div>
@@ -18504,8 +18893,23 @@ export default function Game() {
                 ▶ PLAY
               </button>
               <button
-                id="menuVsBtn"
+                id="menuCoopBtn"
                 className={menuSelection === 1 ? 'gamepad-selected' : ''}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  menuScreenRef.current = 'coop-select';
+                  vsSelectionRef.current = Math.max(
+                    0,
+                    skinOptions.findIndex(({ id }) => id === coopPartnerSkinRef.current),
+                  );
+                  setMenuScreen('coop-select');
+                }}
+              >
+                ◇ CO-OP (NPC)
+              </button>
+              <button
+                id="menuVsBtn"
+                className={menuSelection === 2 ? 'gamepad-selected' : ''}
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuScreenRef.current = 'vs-select';
@@ -18517,7 +18921,7 @@ export default function Game() {
               </button>
               <button
                 id="menuNpcVsNpcBtn"
-                className={menuSelection === 2 ? 'gamepad-selected' : ''}
+                className={menuSelection === 3 ? 'gamepad-selected' : ''}
                 onClick={(event) => {
                   event.stopPropagation();
                   npcVsNpcSelectionSideRef.current = 'left';
@@ -18531,7 +18935,7 @@ export default function Game() {
               </button>
               <button
                 id="menuCustomBtn"
-                className={menuSelection === 3 ? 'gamepad-selected' : ''}
+                className={menuSelection === 4 ? 'gamepad-selected' : ''}
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuScreenRef.current = 'customization';
@@ -18543,7 +18947,7 @@ export default function Game() {
               </button>
               <button
                 id="menuBestiaryBtn"
-                className={menuSelection === 4 ? 'gamepad-selected' : ''}
+                className={menuSelection === 5 ? 'gamepad-selected' : ''}
                 onClick={(ev) => {
                   ev.stopPropagation();
                   menuScreenRef.current = 'bestiary';
@@ -18556,7 +18960,7 @@ export default function Game() {
               </button>
               <button
                 id="menuOptionsBtn"
-                className={menuSelection === 5 ? 'gamepad-selected' : ''}
+                className={menuSelection === 6 ? 'gamepad-selected' : ''}
                 onClick={(event) => {
                   event.stopPropagation();
                   menuScreenRef.current = 'options';
@@ -18568,9 +18972,76 @@ export default function Game() {
               <div id="menuControls">
                 <div className="menu-control-row"><span>Move</span><span>Tap grid · D-pad · WASD</span></div>
                 <div className="menu-control-row"><span>Fire</span><span>Auto or BUSTER · Space</span></div>
+                <div className="menu-control-row"><span>Co-op</span><span>Ally moves independently · contact pairs both in one tile</span></div>
                 <div className="menu-control-row"><span>Abilities</span><span>Use all 3 cards, then hand resets</span></div>
                 <div className="menu-control-row"><span>Rotate</span><span>ROTATE button or R key — once per hand, then locked until the next deal</span></div>
               </div>
+            </div>
+          ) : menuScreen === 'coop-select' ? (
+            <div id="menuCard" className="customization-card coopPartnerPickerCard">
+              <div id="menuTitle" style={{ fontSize: 'clamp(20px, 5vw, 28px)' }}>
+                Select Co-op NPC
+              </div>
+              <div id="customSubtitle">
+                Choose the autonomous NPC ally who moves and fires beside you
+              </div>
+              <div id="skinPickerRow">
+                {skinOptions.map((skin, index) => (
+                  <button
+                    key={`coop-${skin.id}`}
+                    className={`skin-btn coop-skin-btn ${coopPartnerSkin === skin.id ? 'selected' : ''} ${index === vsSelectionRef.current ? 'gamepad-selected' : ''}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      coopPartnerSkinRef.current = skin.id;
+                      setCoopPartnerSkin(skin.id);
+                      localStorage.setItem(COOP_PARTNER_SKIN_KEY, skin.id);
+                      npcSkinRef.current = skin.id;
+                      setNpcSkin(skin.id);
+                      ensureAudio();
+                      startGame('coop');
+                    }}
+                  >
+                    {skin.id === LORD_ALPHA_SKIN_ID
+                      ? <span className="lordAlphaSkinIcon">
+                          <LordAlphaSprite
+                            form="supreme"
+                            facing="right"
+                            motion="idle"
+                            pulse={0}
+                            compact
+                          />
+                        </span>
+                      : skin.id === 'assembly'
+                      ? <AvatarAssembly
+                          components={avatarComponents}
+                          equipped={equippedAvatarComponents}
+                          className="avatarAssemblySkinIcon"
+                        />
+                      : skin.preview
+                      ? <SkinPreviewCanvas src={skin.preview} />
+                      : <span className="skin-default-icon">🤖</span>}
+                    <span className="skin-label">{skin.label}</span>
+                    {(skin.id in RIVAL_SKILL_LABELS) && (
+                      <small className="skin-skill-label">
+                        {RIVAL_SKILL_LABELS[skin.id as RivalSkillId]}
+                      </small>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button
+                id="menuBackBtn"
+                className="bestiaryBackBtn"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  menuScreenRef.current = 'main';
+                  menuSelectionRef.current = 1;
+                  setMenuSelection(1);
+                  setMenuScreen('main');
+                }}
+              >
+                ← Back
+              </button>
             </div>
           ) : menuScreen === 'vs-select' ? (
             <div id="menuCard" className="customization-card">
@@ -18623,8 +19094,8 @@ export default function Game() {
                 onClick={(event) => {
                   event.stopPropagation();
                   menuScreenRef.current = 'main';
-                  menuSelectionRef.current = 1;
-                  setMenuSelection(1);
+                  menuSelectionRef.current = 2;
+                  setMenuSelection(2);
                   setMenuScreen('main');
                 }}
               >
@@ -18705,8 +19176,8 @@ export default function Game() {
                     return;
                   }
                   menuScreenRef.current = 'main';
-                  menuSelectionRef.current = 2;
-                  setMenuSelection(2);
+                  menuSelectionRef.current = 3;
+                  setMenuSelection(3);
                   setMenuScreen('main');
                 }}
               >
@@ -18722,8 +19193,8 @@ export default function Game() {
                   onClick={(ev) => {
                     ev.stopPropagation();
                     menuScreenRef.current = 'main';
-                    menuSelectionRef.current = 0;
-                    setMenuSelection(0);
+                    menuSelectionRef.current = 4;
+                    setMenuSelection(4);
                     setMenuScreen('main');
                   }}
                 >
@@ -19221,7 +19692,9 @@ export default function Game() {
             <div id="gameOverTitle">
               {versusControlMode === 'npc-vs-npc'
                 ? 'MATCH COMPLETE'
-                : hud.playerWon ? 'SYSTEM OVERRIDE' : 'CONNECTION LOST'}
+                : hud.playerWon
+                  ? 'SYSTEM OVERRIDE'
+                  : hud.gameMode === 'coop' ? 'CO-OP TEAM DOWN' : 'CONNECTION LOST'}
             </div>
             {versusControlMode === 'npc-vs-npc'
               ? <div id="gameOverScore">
@@ -19232,8 +19705,10 @@ export default function Game() {
               : hud.playerWon
               ? <div id="gameOverScore">NPC neutralised — Integrity Work: {hud.integrityWork}</div>
               : <>
-                  <div id="gameOverScore">Integrity Work: {hud.integrityWork}</div>
-                  {hud.gameMode === 'classic' && <div id="gameOverWave">Wave: {hud.wave}</div>}
+                  <div id="gameOverScore">
+                    {hud.gameMode === 'coop' ? 'Team Integrity Work' : 'Integrity Work'}: {hud.integrityWork}
+                  </div>
+                  {isCampaignGameMode(hud.gameMode) && <div id="gameOverWave">Wave: {hud.wave}</div>}
                 </>
             }
             {versusControlMode !== 'npc-vs-npc' && (

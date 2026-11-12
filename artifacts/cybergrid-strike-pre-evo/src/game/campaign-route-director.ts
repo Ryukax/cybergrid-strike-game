@@ -8,38 +8,40 @@ export interface CampaignRouteSelection {
 }
 
 export const CAMPAIGN_ROUTE_BOSS_ROSTER = [
-  { id: 'hijack', label: 'USURPER' },
-  { id: 'chrono', label: 'CHRONA' },
-  { id: 'singularity', label: 'GRAVITAS' },
-  { id: 'override', label: 'CIPHER' },
-  { id: 'architect', label: 'ARTIFEX' },
-  { id: 'apex', label: 'VESPER' },
-  { id: 'counter', label: 'AEGIS' },
-  { id: 'tidal', label: 'TIDAL' },
-  { id: 'mirage', label: 'MIRAGE' },
-  { id: 'phoenix', label: 'EMBER' },
-  { id: 'rift', label: 'MERIDIAN' },
-  { id: 'vector', label: 'QUIVER' },
-  { id: 'gridshift', label: 'TESSERA' },
-  { id: 'resonance', label: 'CHORD' },
-  { id: 'exchange', label: 'PROXY' },
-  { id: 'causality', label: 'AXIOM' },
-  { id: 'tempest', label: 'TEMPEST' },
-  { id: 'arsenal', label: 'FORGE' },
-  { id: 'assimilation', label: 'MELD' },
-  { id: 'null', label: 'QUIETUS' },
-  { id: 'polarity', label: 'DIPOLE' },
-  { id: 'colossus', label: 'BASTION' },
-  { id: 'predator', label: 'TALON' },
-  { id: 'orbital', label: 'ZENITH' },
-  { id: 'phase', label: 'NYX' },
-  { id: 'sovereign', label: 'REGENT' },
-  { id: 'cryo', label: 'CRYO' },
-  { id: 'terra', label: 'TERRA' },
-  { id: 'echo', label: 'ECHO' },
-  { id: 'beacon', label: 'BEACON' },
-  { id: 'swarm', label: 'SWARM' },
-  { id: 'bloom', label: 'BLOOM' },
+  // Route order is the canonical 32-fighter table reversed into an escalating
+  // ladder: competitive rank #32 opens the campaign and rank #1 closes it.
+  { id: 'tempest', label: 'TEMPEST', rank: 32 },
+  { id: 'phase', label: 'NYX', rank: 31 },
+  { id: 'assimilation', label: 'MELD', rank: 30 },
+  { id: 'arsenal', label: 'FORGE', rank: 29 },
+  { id: 'resonance', label: 'CHORD', rank: 28 },
+  { id: 'predator', label: 'TALON', rank: 27 },
+  { id: 'singularity', label: 'GRAVITAS', rank: 26 },
+  { id: 'colossus', label: 'BASTION', rank: 25 },
+  { id: 'beacon', label: 'BEACON', rank: 24 },
+  { id: 'polarity', label: 'DIPOLE', rank: 23 },
+  { id: 'exchange', label: 'PROXY', rank: 22 },
+  { id: 'orbital', label: 'ZENITH', rank: 21 },
+  { id: 'architect', label: 'ARTIFEX', rank: 20 },
+  { id: 'counter', label: 'AEGIS', rank: 19 },
+  { id: 'swarm', label: 'SWARM', rank: 18 },
+  { id: 'bloom', label: 'BLOOM', rank: 17 },
+  { id: 'cryo', label: 'CRYO', rank: 16 },
+  { id: 'sovereign', label: 'REGENT', rank: 15 },
+  { id: 'chrono', label: 'CHRONA', rank: 14 },
+  { id: 'causality', label: 'AXIOM', rank: 13 },
+  { id: 'override', label: 'CIPHER', rank: 12 },
+  { id: 'phoenix', label: 'EMBER', rank: 11 },
+  { id: 'tidal', label: 'TIDAL', rank: 10 },
+  { id: 'null', label: 'QUIETUS', rank: 9 },
+  { id: 'echo', label: 'ECHO', rank: 8 },
+  { id: 'mirage', label: 'MIRAGE', rank: 7 },
+  { id: 'apex', label: 'VESPER', rank: 6 },
+  { id: 'rift', label: 'MERIDIAN', rank: 5 },
+  { id: 'vector', label: 'QUIVER', rank: 4 },
+  { id: 'hijack', label: 'USURPER', rank: 3 },
+  { id: 'gridshift', label: 'TESSERA', rank: 2 },
+  { id: 'terra', label: 'TERRA', rank: 1 },
 ] as const;
 
 export type CampaignRouteBossId = (typeof CAMPAIGN_ROUTE_BOSS_ROSTER)[number]['id'];
@@ -47,6 +49,7 @@ export type CampaignRouteBossId = (typeof CAMPAIGN_ROUTE_BOSS_ROSTER)[number]['i
 export interface CampaignRouteDestination {
   id: CampaignRouteBossId;
   label: string;
+  rank: number;
   bearing: 'NW' | 'NE' | 'SW' | 'SE';
 }
 
@@ -89,25 +92,33 @@ export type CampaignRouteDestinations = Record<
   Record<CampaignRouteDirection, CampaignRouteDestination>
 >;
 
-const BOSS_ROSTER_STRIDE = 5;
+// Each campaign stage owns one contiguous four-boss rank tier. This preserves
+// four meaningful route choices without letting an opening fork jump from the
+// weakest boss directly to an upper-tier opponent.
+export const CAMPAIGN_ROUTE_BOSS_TIER_SIZE = 4;
 const BOSS_ROUTE_OFFSETS = {
-  top: { last: 0, next: 8 },
-  bottom: { last: 16, next: 24 },
+  top: { last: 0, next: 1 },
+  bottom: { last: 2, next: 3 },
 } as const;
 
 function resolveBossAt(completedBosses: number, offset: number): CampaignRouteDestination {
-  const rosterIndex = (
-    Math.max(0, Math.floor(completedBosses)) * BOSS_ROSTER_STRIDE + offset
-  ) % CAMPAIGN_ROUTE_BOSS_ROSTER.length;
+  const completed = Math.max(0, Math.floor(completedBosses));
+  const finalTierStart = CAMPAIGN_ROUTE_BOSS_ROSTER.length - CAMPAIGN_ROUTE_BOSS_TIER_SIZE;
+  const tierStart = Math.min(
+    finalTierStart,
+    Math.floor(completed / CAMPAIGN_ROUTE_BOSS_TIER_SIZE) * CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
+  );
+  const rosterIndex = tierStart + offset;
   const boss = CAMPAIGN_ROUTE_BOSS_ROSTER[rosterIndex];
-  const bearing = offset === 0 ? 'NW' : offset === 8 ? 'NE' : offset === 16 ? 'SW' : 'SE';
+  const bearing = offset === 0 ? 'NW' : offset === 1 ? 'NE' : offset === 2 ? 'SW' : 'SE';
   return { ...boss, bearing };
 }
 
 /**
  * Resolve a stable four-way boss slate for the current completed-boss count.
- * The stride is coprime to the 32-entry roster, so repeatedly choosing any
- * single bearing still encounters all 32 bosses before one repeats.
+ * Four victories clear a tier, after which every bearing advances to the next
+ * stronger quartet. The final #4-#1 tier remains in place after the authored
+ * 32-boss arc instead of wrapping the campaign back to its weakest opponents.
  */
 export function resolveCampaignRouteDestinations(completedBosses = 0): CampaignRouteDestinations {
   return {

@@ -8,6 +8,7 @@ import {
 } from './campaign-director';
 import {
   CAMPAIGN_ROUTE_BOSS_ROSTER,
+  CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
   isCampaignRouteBossForkDue,
   resolveCampaignRouteDestinations,
   resolveCampaignRouteBossEncounter,
@@ -25,6 +26,25 @@ const bossChoices = [
   [2, 'last'],
   [2, 'next'],
 ] as const;
+
+const rankedBossIds = [
+  'tempest', 'phase', 'assimilation', 'arsenal',
+  'resonance', 'predator', 'singularity', 'colossus',
+  'beacon', 'polarity', 'exchange', 'orbital',
+  'architect', 'counter', 'swarm', 'bloom',
+  'cryo', 'sovereign', 'chrono', 'causality',
+  'override', 'phoenix', 'tidal', 'null',
+  'echo', 'mirage', 'apex', 'rift',
+  'vector', 'hijack', 'gridshift', 'terra',
+] as const;
+
+test('campaign route roster is the complete weakest-to-strongest boss ladder', () => {
+  deepStrictEqual(CAMPAIGN_ROUTE_BOSS_ROSTER.map(({ id }) => id), rankedBossIds);
+  deepStrictEqual(
+    CAMPAIGN_ROUTE_BOSS_ROSTER.map(({ rank }) => rank),
+    Array.from({ length: CAMPAIGN_ROUTE_BOSS_ROSTER.length }, (_, index) => 32 - index),
+  );
+});
 
 test('boss encounters remain resolvable while route position and boss ordinal advance independently', () => {
   let segment: number | null = null;
@@ -65,25 +85,40 @@ test('boss encounters remain resolvable while route position and boss ordinal ad
   equal(segment, 50, 'route traversal should remain directional rather than following boss count');
 });
 
-test('each fixed road-fork slot sees every boss exactly once before the roster repeats', () => {
+test('route forks advance through contiguous rank tiers from weakest to strongest', () => {
   equal(CAMPAIGN_ROUTE_BOSS_ROSTER.length, 32);
   equal(new Set(CAMPAIGN_ROUTE_BOSS_ROSTER.map((boss) => boss.id)).size, 32);
+  equal(CAMPAIGN_ROUTE_BOSS_TIER_SIZE, CAMPAIGN_BOSSES_PER_STAGE);
 
-  for (const [row, direction] of bossChoices) {
-    const lane = row === 0 ? 'top' : 'bottom';
-    const firstCycle = Array.from(
-      { length: CAMPAIGN_ROUTE_BOSS_ROSTER.length },
-      (_, completedBosses) => resolveCampaignRouteDestinations(completedBosses)[lane][direction].id,
+  for (let completedBosses = 0;
+    completedBosses < CAMPAIGN_ROUTE_BOSS_ROSTER.length;
+    completedBosses += 1) {
+    const tierStart = Math.floor(completedBosses / CAMPAIGN_ROUTE_BOSS_TIER_SIZE)
+      * CAMPAIGN_ROUTE_BOSS_TIER_SIZE;
+    const expectedTier = rankedBossIds.slice(
+      tierStart,
+      tierStart + CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
     );
-    equal(
-      new Set(firstCycle).size,
-      CAMPAIGN_ROUTE_BOSS_ROSTER.length,
-      `${lane}/${direction} repeated a boss before presenting the complete roster`,
+    const destinations = resolveCampaignRouteDestinations(completedBosses);
+    const displayedTier = bossChoices.map(([row, direction]) => (
+      destinations[row === 0 ? 'top' : 'bottom'][direction].id
+    ));
+    deepStrictEqual(
+      displayedTier,
+      expectedTier,
+      `boss fork ${completedBosses} did not remain inside its contiguous rank tier`,
     );
-    equal(
-      resolveCampaignRouteDestinations(CAMPAIGN_ROUTE_BOSS_ROSTER.length)[lane][direction].id,
-      firstCycle[0],
-      `${lane}/${direction} did not repeat from the start after one complete roster cycle`,
+  }
+
+  const finalTier = rankedBossIds.slice(-CAMPAIGN_ROUTE_BOSS_TIER_SIZE);
+  for (const completedBosses of [32, 33, 64, 128]) {
+    const destinations = resolveCampaignRouteDestinations(completedBosses);
+    deepStrictEqual(
+      bossChoices.map(([row, direction]) => (
+        destinations[row === 0 ? 'top' : 'bottom'][direction].id
+      )),
+      finalTier,
+      `completed campaign ${completedBosses} wrapped back to weaker opponents`,
     );
   }
 });

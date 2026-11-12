@@ -194,6 +194,34 @@ test('live ready-card selection rechecks resources and reactive pressure', () =>
   equal(threatenedChoice, 'returnfire');
 });
 
+test('boss-authored priority ranks only practical cards in the real ready hand', () => {
+  const dealt = dealVersusBossAbilityHand(
+    createVersusBossCounterpart({
+      skinId: 'terra',
+      playableAbilityPreset: ['shield', 'groundwire', 'kineticram'],
+    }),
+    { context: board({ pendingThreats: 0 }), seed: 23 },
+  );
+  const prioritized = selectVersusBossReadyAbility(dealt, {
+    context: board({ pendingThreats: 0, shieldCharges: 0 }),
+    seed: 23,
+    preferredAbilityIds: ['shield', 'kineticram', 'groundwire'],
+    preferAuthoredAbility: true,
+  });
+  equal(prioritized, 'shield');
+
+  const used = useVersusBossAbility(dealt, 'shield');
+  ok(used);
+  const fallback = selectVersusBossReadyAbility(used.counterpart, {
+    context: board({ pendingThreats: 0, shieldCharges: 0 }),
+    seed: 23,
+    preferredAbilityIds: ['shield', 'kineticram', 'groundwire'],
+    preferAuthoredAbility: true,
+  });
+  ok(fallback !== null && fallback !== 'shield');
+  ok(used.counterpart.abilities.hand.includes(fallback));
+});
+
 test('deal cycles surface every practical ready owned card before repeating', () => {
   const pool = ['shotgun', 'bomb', 'barrage', 'surge', 'backdash', 'snipe'] as const;
   const original = createVersusBossCounterpart({

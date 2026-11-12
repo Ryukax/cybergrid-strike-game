@@ -1,6 +1,7 @@
 import type { VersusStatusRuntimePatch } from './versus-status-runtime';
+import type { DiagonalCoopPairLayout } from './diagonal-coop';
 
-export type GameMode = 'classic' | 'vs';
+export type GameMode = 'classic' | 'coop' | 'vs';
 export type EnemyNiche =
   | 'scout' | 'bulwark' | 'hunter' | 'swarm'
   | 'regenerator' | 'phase' | 'symbiote' | 'opportunist';
@@ -299,6 +300,10 @@ export interface GameState {
   usedInHand: string[];   // ability IDs used in the current hand
   // Entities
   player: Player;
+  /** AI-controlled co-op ally moving independently on the player's 3×3 side. */
+  coopPlayer: Player | null;
+  /** Player's diagonal visual slot while both co-op actors share one tile. */
+  coopPairLayout: DiagonalCoopPairLayout | null;
   architectCannons: Array<{
     col: number;
     row: number;
