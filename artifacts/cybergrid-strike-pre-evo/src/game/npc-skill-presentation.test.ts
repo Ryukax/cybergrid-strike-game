@@ -11,6 +11,7 @@ import {
   SKILL_VFX_SEQUENCE,
   resolveNpcAbilityPresentation,
   resolveNpcSignaturePresentation,
+  shouldRenderNpcSkillPresentation,
   type BossSkillId,
 } from './npc-skill-presentation';
 import {
@@ -41,6 +42,29 @@ const contextFor = (skillId: string): VersusNpcContext => ({
   signatureOriginRow: 1,
   signatureOriginCol: 1,
   signatureLastCommand: -1,
+});
+
+test('campaign Boss executions render their full presentation outside Versus mode', () => {
+  equal(shouldRenderNpcSkillPresentation({
+    isPlaying: true,
+    isVersusMode: false,
+    hasCampaignBossEncounter: true,
+    hasPresentation: true,
+  }), true);
+
+  equal(shouldRenderNpcSkillPresentation({
+    isPlaying: true,
+    isVersusMode: false,
+    hasCampaignBossEncounter: false,
+    hasPresentation: true,
+  }), false);
+
+  equal(shouldRenderNpcSkillPresentation({
+    isPlaying: false,
+    isVersusMode: true,
+    hasCampaignBossEncounter: false,
+    hasPresentation: true,
+  }), false);
 });
 
 test('presentation registries cover the complete campaign boss roster', () => {
@@ -96,9 +120,29 @@ test('all boss signature commands preserve command identity and authored motif',
       equal(presentation.source, 'signature');
       equal(presentation.motif, BOSS_SIGNATURE_MOTIFS[bossId][commandIndex]);
       equal(presentation.label, BOSS_SIGNATURE_COMMANDS[bossId][commandIndex]);
+      equal(
+        presentation.action,
+        commandIndex === 0 ? 'primary' : commandIndex === 1 ? 'alternate' : 'defend',
+      );
       ok(SKILL_VFX_SEQUENCE[presentation.motif]);
     }
   }
+});
+
+test('signature posture follows executed intent instead of command slot', () => {
+  const plan: VersusSignaturePlan = {
+    ...resolveVersusNpcAbility('shotgun', contextFor('orbital')),
+    abilityId: 'orbital',
+    commandIndex: 2,
+    intent: 'attack',
+    columnDelta: 0,
+    nextMode: 0,
+    nextCharges: 0,
+    nextPlacements: [],
+    nextOriginRow: 1,
+    nextOriginCol: 1,
+  };
+  equal(resolveNpcSignaturePresentation(plan, 'orbital', 1).action, 'primary');
 });
 
 test('presentation action and anchor communicate each practical plan shape', () => {

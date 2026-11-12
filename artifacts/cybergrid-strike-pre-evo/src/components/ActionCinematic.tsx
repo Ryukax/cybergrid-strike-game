@@ -83,6 +83,22 @@ export function resolveActionFighterX(
   return origin + boundedColumn * ACTION_FIGHTER_COLUMN_STEP;
 }
 
+export type ActionOpponentFrameSource = 'live-npc' | 'route-boss-idle' | 'campaign-enemy';
+
+/**
+ * A route Boss uses the live NPC canvas after its temporary duel starts so
+ * authored attack/skill frames remain visible in the Action Window. The
+ * dedicated idle portrait is only the contact/pre-duel fallback.
+ */
+export function resolveActionOpponentFrameSource(
+  versus: boolean,
+  hasRouteBoss: boolean,
+): ActionOpponentFrameSource {
+  if (versus) return 'live-npc';
+  if (hasRouteBoss) return 'route-boss-idle';
+  return 'campaign-enemy';
+}
+
 export function ActionCinematic(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const playerOverlayRef = useRef<HTMLSpanElement>(null);
@@ -260,18 +276,22 @@ export function ActionCinematic(props: Props) {
       const p = stateRef.current;
       const playerOverlay = playerOverlayRef.current;
       const combat = p.getCombat();
+      const opponentFrameSource = resolveActionOpponentFrameSource(
+        combat.versus,
+        p.routeBoss !== null,
+      );
       if (!p.playerOverlay) {
         cacheValidFrame(p.getPlayerFrame(), playerCache, now, `player:${p.playerSkin}`);
       }
-      if (p.routeBoss) {
+      if (opponentFrameSource === 'live-npc') {
+        cacheValidFrame(p.getNpcFrame(), npcCache, now, `npc:${p.npcSkin}`);
+      } else if (opponentFrameSource === 'route-boss-idle' && p.routeBoss) {
         cacheValidFrame(
           p.getRouteBossFrame?.() ?? null,
           routeBossCache,
           now,
           `boss:${p.routeBoss.destination.id}`,
         );
-      } else if (combat.versus) {
-        cacheValidFrame(p.getNpcFrame(), npcCache, now, `npc:${p.npcSkin}`);
       } else {
         cacheValidFrame(p.getEnemyFrame(), enemyCache, now, 'campaign-enemy');
       }
@@ -401,11 +421,13 @@ export function ActionCinematic(props: Props) {
           if (playerOverlay) playerOverlay.style.display = 'none';
           drawFighter(playerCache, playerX, playerGround, false);
         }
-        const opponentFrame = p.routeBoss ? routeBossCache : combat.versus ? npcCache : enemyCache;
+        const opponentFrame = opponentFrameSource === 'live-npc'
+          ? npcCache
+          : opponentFrameSource === 'route-boss-idle' ? routeBossCache : enemyCache;
         // Live opponent sources retain their battle orientation. Route bosses
         // come from player-authored idle art, so mirror that dedicated frame to
         // make the encountered NPC face back toward the player.
-        drawFighter(opponentFrame, npcX, npcGround, Boolean(p.routeBoss));
+        drawFighter(opponentFrame, npcX, npcGround, opponentFrameSource === 'route-boss-idle');
         if (p.routeBoss) {
           const label = `BOSS CONTACT · RANK #${p.routeBoss.destination.rank} · ${p.routeBoss.destination.label} · ${p.routeBoss.destination.bearing}`;
           ctx.save();

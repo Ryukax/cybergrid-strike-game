@@ -1,7 +1,10 @@
 import { equal, ok } from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { resolveActionFighterX } from './ActionCinematic';
+import {
+  resolveActionFighterX,
+  resolveActionOpponentFrameSource,
+} from './ActionCinematic';
 
 test('Action Window preserves three visibly distinct columns per fighter', () => {
   const player = [0, 1, 2].map((column) => resolveActionFighterX('player', column));
@@ -17,4 +20,10 @@ test('Action Window preserves three visibly distinct columns per fighter', () =>
 test('Action Window fighter columns clamp to their local three-column grid', () => {
   equal(resolveActionFighterX('player', -9), resolveActionFighterX('player', 0));
   equal(resolveActionFighterX('npc', 9), resolveActionFighterX('npc', 2));
+});
+
+test('an active campaign Boss duel uses its live execution frames', () => {
+  equal(resolveActionOpponentFrameSource(true, true), 'live-npc');
+  equal(resolveActionOpponentFrameSource(false, true), 'route-boss-idle');
+  equal(resolveActionOpponentFrameSource(false, false), 'campaign-enemy');
 });

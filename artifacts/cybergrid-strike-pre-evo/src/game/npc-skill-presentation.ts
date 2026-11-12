@@ -170,6 +170,27 @@ export interface NpcSkillPresentation {
   durationMs: number;
 }
 
+export interface NpcSkillPresentationVisibilityContext {
+  isPlaying: boolean;
+  isVersusMode: boolean;
+  hasCampaignBossEncounter: boolean;
+  hasPresentation: boolean;
+}
+
+/**
+ * Boss skill presentations belong to both competitive Versus encounters and
+ * campaign route Boss encounters. Keeping this decision outside the render
+ * tree prevents campaign executions from degrading into announcement text
+ * when their combat plan has already been resolved.
+ */
+export function shouldRenderNpcSkillPresentation(
+  context: NpcSkillPresentationVisibilityContext,
+): boolean {
+  return context.isPlaying
+    && context.hasPresentation
+    && (context.isVersusMode || context.hasCampaignBossEncounter);
+}
+
 function abilityIntent(plan: VersusAbilityPlan): NpcIntent {
   if (plan.shotPattern !== 'none') return 'attack';
   if (plan.recovery > 0) return 'sustain';
@@ -250,7 +271,10 @@ export function resolveNpcSignaturePresentation(
     commandIndex,
     doctrine: plan.doctrine,
     intent: plan.intent,
-    action: (['primary', 'alternate', 'defend'] as const)[commandIndex],
+    // Command slot is identity, not posture. Several third commands are real
+    // attack payoffs, while several first commands are setup/control actions.
+    // Present the plan that actually executes instead of assuming X/Y/B.
+    action: actionForIntent(plan.intent),
     motif: BOSS_SIGNATURE_MOTIFS[bossSkillId][commandIndex],
     anchor: presentationAnchor(plan.intent, targetRows),
     targetRows,

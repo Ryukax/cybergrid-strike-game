@@ -301,6 +301,7 @@ import {
   SKILL_VFX_SEQUENCE,
   resolveNpcAbilityPresentation,
   resolveNpcSignaturePresentation,
+  shouldRenderNpcSkillPresentation,
   type BossSkillId,
   type NpcSkillPresentation,
   type NpcSkillPresentationAnchor,
@@ -3649,7 +3650,10 @@ function SignatureSkillFx({
         x: board.x + (col + 0.5) * board.cell,
         y: board.y + (row + 0.5) * board.cell,
       });
-      const npcActor = actorSide === 'npc' && state.gameMode === 'vs';
+      // `actorSide="npc"` is also used by campaign route Bosses. Restricting
+      // NPC anchoring to Versus mode placed their execution art on LASI (or on
+      // unrelated campaign enemies) even after the presentation was mounted.
+      const npcActor = actorSide === 'npc';
       const leftNpcActor = actorSide === 'player' && state.gameMode === 'vs';
       const player = npcActor
         ? center(3 + state.npc.col, state.npc.row)
@@ -3902,6 +3906,28 @@ function SignatureSkillFx({
             );
             ctx.restore();
           });
+        } else {
+          // Asset decoding can outlive this short execution on a cold mobile
+          // cache. Never collapse a committed Boss action into label-only UI:
+          // show a bounded palette-matched telegraph until the authored sheet
+          // becomes drawable (or for the whole cast if the request fails).
+          const fallbackTarget = anchorOverride === 'self' ? player : target;
+          const fallbackRadius = board.cell * (0.18 + easeOut * 0.38);
+          ring(fallbackTarget.x, fallbackTarget.y, fallbackRadius, primary, 0.9);
+          ring(
+            fallbackTarget.x,
+            fallbackTarget.y,
+            fallbackRadius * 0.68,
+            accent,
+            0.82,
+          );
+          line(player, fallbackTarget, accent, 0.76);
+          node(
+            fallbackTarget.x,
+            fallbackTarget.y,
+            '#f8fafc',
+            board.cell * (0.045 + fade * 0.04),
+          );
         }
 
         // The command's constitution is drawn over the body motion. This is
@@ -4617,6 +4643,9 @@ export default function Game() {
     actionRouteBossFrameRef.current = null;
     const bossId = actionRouteBossEncounter?.destination.id;
     if (!bossId) return undefined;
+    // Begin decoding the selected Boss's exact execution sheets when the
+    // encounter is established, not on the first attack frame.
+    preloadSignatureSkillVfx(bossId);
     const image = new Image();
     image.decoding = 'async';
     image.onload = async () => {
@@ -18243,7 +18272,12 @@ export default function Game() {
         />
       )}
 
-      {phase === 'playing' && hud.gameMode === 'vs' && npcSkillPresentation && (
+      {shouldRenderNpcSkillPresentation({
+        isPlaying: phase === 'playing',
+        isVersusMode: hud.gameMode === 'vs',
+        hasCampaignBossEncounter: actionRouteBossEncounter !== null,
+        hasPresentation: npcSkillPresentation !== null,
+      }) && npcSkillPresentation && (
         <SignatureSkillFx
           id={npcSkillPresentation.bossSkillId}
           stateRef={stateRef}
