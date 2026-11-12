@@ -85,16 +85,15 @@ test('boss encounters remain resolvable while route position and boss ordinal ad
   equal(segment, 50, 'route traversal should remain directional rather than following boss count');
 });
 
-test('route forks advance through contiguous rank tiers from weakest to strongest', () => {
+test('each selected victory advances the route to the next contiguous rank tier', () => {
   equal(CAMPAIGN_ROUTE_BOSS_ROSTER.length, 32);
   equal(new Set(CAMPAIGN_ROUTE_BOSS_ROSTER.map((boss) => boss.id)).size, 32);
-  equal(CAMPAIGN_ROUTE_BOSS_TIER_SIZE, CAMPAIGN_BOSSES_PER_STAGE);
+  equal(CAMPAIGN_ROUTE_BOSS_TIER_SIZE, 4);
 
   for (let completedBosses = 0;
-    completedBosses < CAMPAIGN_ROUTE_BOSS_ROSTER.length;
+    completedBosses < CAMPAIGN_PROVINCES.length;
     completedBosses += 1) {
-    const tierStart = Math.floor(completedBosses / CAMPAIGN_ROUTE_BOSS_TIER_SIZE)
-      * CAMPAIGN_ROUTE_BOSS_TIER_SIZE;
+    const tierStart = completedBosses * CAMPAIGN_ROUTE_BOSS_TIER_SIZE;
     const expectedTier = rankedBossIds.slice(
       tierStart,
       tierStart + CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
@@ -111,7 +110,7 @@ test('route forks advance through contiguous rank tiers from weakest to stronges
   }
 
   const finalTier = rankedBossIds.slice(-CAMPAIGN_ROUTE_BOSS_TIER_SIZE);
-  for (const completedBosses of [32, 33, 64, 128]) {
+  for (const completedBosses of [CAMPAIGN_PROVINCES.length - 1, 8, 32, 128]) {
     const destinations = resolveCampaignRouteDestinations(completedBosses);
     deepStrictEqual(
       bossChoices.map(([row, direction]) => (
@@ -148,19 +147,22 @@ test('each boss fork presents four different candidates backed by encounter reso
   }
 });
 
-test('four completed bosses advance the generated stage and the finite arc holds on stage eight', () => {
-  equal(CAMPAIGN_BOSSES_PER_STAGE, 4);
+test('one selected boss advances the generated stage and the finite arc holds on stage eight', () => {
+  equal(CAMPAIGN_BOSSES_PER_STAGE, 1);
   equal(CAMPAIGN_PROVINCES.length, 8);
-  equal(CAMPAIGN_PROVINCES.length * CAMPAIGN_BOSSES_PER_STAGE, CAMPAIGN_ROUTE_BOSS_ROSTER.length);
+  equal(
+    CAMPAIGN_PROVINCES.length * CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
+    CAMPAIGN_ROUTE_BOSS_ROSTER.length,
+  );
   equal(resolveCampaignBossStageIndex(-100), 0);
 
-  for (let completedBosses = 0; completedBosses < CAMPAIGN_ROUTE_BOSS_ROSTER.length; completedBosses += 1) {
+  for (let completedBosses = 0; completedBosses < CAMPAIGN_PROVINCES.length; completedBosses += 1) {
     equal(
       resolveCampaignBossStageIndex(completedBosses),
       Math.floor(completedBosses / CAMPAIGN_BOSSES_PER_STAGE),
     );
   }
-  for (let completedBosses = CAMPAIGN_ROUTE_BOSS_ROSTER.length;
+  for (let completedBosses = CAMPAIGN_PROVINCES.length;
     completedBosses < CAMPAIGN_ROUTE_BOSS_ROSTER.length * 2;
     completedBosses += 1) {
     equal(

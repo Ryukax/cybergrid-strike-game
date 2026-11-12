@@ -125,7 +125,10 @@ export const CAMPAIGN_PROVINCES: readonly ProvinceTerrain[] = [
   },
 ];
 
-export const CAMPAIGN_BOSSES_PER_STAGE = 4;
+// A road fork presents four alternative Bosses for one stage. Defeating the
+// selected Boss completes that stage; the other three are alternate routes,
+// not additional requirements.
+export const CAMPAIGN_BOSSES_PER_STAGE = 1;
 
 /**
  * Boss victories are monotonic even when the player navigates Last. The final

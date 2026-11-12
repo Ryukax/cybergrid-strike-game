@@ -226,6 +226,7 @@ import {
 } from '../game/campaign-route-targets';
 import {
   CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS,
+  countCampaignRoutePlayerProjectiles,
   createCampaignRouteAutoBusterState,
   getCampaignRouteAimDirectionAtRow,
   registerCampaignProjectileEnemyHit,
@@ -6957,6 +6958,7 @@ export default function Game() {
     presentationPrimary?: boolean;
     presentationVariant?: LordAlphaComboBeat;
     routeDirection?: CampaignRouteDirection;
+    coopOwned?: boolean;
     suppressSecondary?: boolean;
     speedOverride?: number;
     directionOverride?: -1 | 1;
@@ -7055,6 +7057,7 @@ export default function Game() {
         tharthareonCycleElapsed: 0,
       } : {}),
       ...(opts?.routeDirection ? { routeDirection: opts.routeDirection } : {}),
+      ...(opts?.coopOwned ? { coopOwned: true } : {}),
       ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
     });
     if (!suppressSecondary && s.echoTimer > 0) {
@@ -7068,6 +7071,7 @@ export default function Game() {
         pierce: false,
         attackStyle,
         effectSkin: opts?.effectSkinOverride ?? playerSkinRef.current,
+        ...(opts?.coopOwned ? { coopOwned: true } : {}),
         ...(presentationVariant ? { presentationVariant, presentationBirthMs } : {}),
       });
     }
@@ -12555,7 +12559,7 @@ export default function Game() {
           playerRow: s.player.row,
           cooldownAfterTick: s.player.fireCooldown,
           requestedInterval: requestedAutoInterval,
-          activeProjectileCount: s.bullets.length,
+          activeProjectileCount: countCampaignRoutePlayerProjectiles(s.bullets),
         },
       );
       actionRouteAutoBusterStateRef.current = routeAutoDecision.state;
@@ -12627,6 +12631,7 @@ export default function Game() {
         originCol: s.coopPlayer.col,
         directionOverride: 1,
         effectSkinOverride: coopPartnerSkinRef.current,
+        coopOwned: true,
       });
     }
     if (s.gameMode === 'coop' && s.coopPlayer && coopNpcDecision?.moveTo) {
@@ -13584,7 +13589,8 @@ export default function Game() {
       // has a winning direction. Bind internally as candidates become
       // available, but publish only a complete pair. The first direction
       // alternates by route segment.
-      if (!claimedDirection && livingTargets.length > 0 && s.bullets.length === 0) {
+      const playerProjectilesClear = countCampaignRoutePlayerProjectiles(s.bullets) === 0;
+      if (!claimedDirection && livingTargets.length > 0 && playerProjectilesClear) {
         const usedSeeds = new Set<number>();
         for (const direction of directions) {
           const binding = bindings[direction];

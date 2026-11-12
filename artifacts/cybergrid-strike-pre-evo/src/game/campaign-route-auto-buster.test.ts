@@ -7,6 +7,7 @@ import {
   CAMPAIGN_ROUTE_AUTO_BUSTER_MAX_PROJECTILES,
   CAMPAIGN_ROUTE_AUTO_BUSTER_MIN_INTERVAL_SECONDS,
   CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS,
+  countCampaignRoutePlayerProjectiles,
   createCampaignRouteAutoBusterState,
   registerCampaignProjectileEnemyHit,
   resolveCampaignRouteAutoBuster,
@@ -97,6 +98,26 @@ test('acquisition pauses Auto until every prior projectile has drained', () => {
   }));
   equal(drained.targetsMayPublish, true);
   strictEqual(drained.emission, null);
+});
+
+test('co-op shots neither starve route publication nor consume the player carrier budget', () => {
+  const coOpVolley = [{ coopOwned: true }, { coopOwned: true }];
+  equal(countCampaignRoutePlayerProjectiles(coOpVolley), 0);
+
+  const acquiring = resolveCampaignRouteAutoBuster(
+    createCampaignRouteAutoBusterState(1),
+    input({
+      phase: 'acquiring',
+      pair: null,
+      activeProjectileCount: countCampaignRoutePlayerProjectiles(coOpVolley),
+    }),
+  );
+  equal(acquiring.targetsMayPublish, true);
+
+  equal(
+    countCampaignRoutePlayerProjectiles([...coOpVolley, { coopOwned: false }]),
+    1,
+  );
 });
 
 test('a complete pair starts grace once and the same pair does not restart it', () => {

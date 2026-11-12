@@ -114,8 +114,8 @@ test('an armed boss fork displays only destinations backed by the boss gate', ()
   }
 });
 
-test('the visible boss slate advances to the next stronger tier after four victories', () => {
-  const markup = renderFork(true, null, { completedBosses: 4 });
+test('the visible boss slate advances to the next stronger tier after one selected victory', () => {
+  const markup = renderFork(true, null, { completedBosses: 1 });
   for (const destination of [
     'NW rank 28 CHORD',
     'NE rank 27 TALON',
@@ -164,10 +164,10 @@ test('boss choices return on the next eligible fork after a boss is defeated', (
   const markup = renderFork(nextForkDue, null, { completedBosses: 1 });
   match(markup, /BOSS FORK READY/);
   for (const destination of [
-    'NW rank 32 TEMPEST',
-    'NE rank 31 NYX',
-    'SW rank 30 MELD',
-    'SE rank 29 FORGE',
+    'NW rank 28 CHORD',
+    'NE rank 27 TALON',
+    'SW rank 26 GRAVITAS',
+    'SE rank 25 BASTION',
   ]) {
     match(markup, new RegExp(`<button[^>]+aria-label="${destination} boss route"`));
   }
@@ -175,7 +175,7 @@ test('boss choices return on the next eligible fork after a boss is defeated', (
   deepStrictEqual(resolveCampaignRouteBossEncounter(2, 'last', 7, nextForkDue, 1), {
     lane: 'bottom',
     direction: 'last',
-    destination: { id: 'assimilation', label: 'MELD', rank: 30, bearing: 'SW' },
+    destination: { id: 'singularity', label: 'GRAVITAS', rank: 26, bearing: 'SW' },
     segment: 7,
   });
 });

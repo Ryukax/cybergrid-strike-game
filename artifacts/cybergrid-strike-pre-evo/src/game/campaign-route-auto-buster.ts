@@ -77,6 +77,19 @@ export const CAMPAIGN_ROUTE_AUTO_BUSTER_MAX_PROJECTILES = 1;
  */
 export const CAMPAIGN_ROUTE_QUOTA_REQUIRED_CONFIRMED_HITS = 3;
 
+/**
+ * Co-op fire remains real combat collateral, but it cannot reserve the one
+ * projectile slot that belongs to the player's deliberate route carrier.
+ */
+export function countCampaignRoutePlayerProjectiles(
+  projectiles: readonly { coopOwned?: boolean }[],
+): number {
+  return projectiles.reduce(
+    (count, projectile) => count + (projectile.coopOwned ? 0 : 1),
+    0,
+  );
+}
+
 export function createCampaignRouteAutoBusterState(
   playerRow = 1,
 ): CampaignRouteAutoBusterState {

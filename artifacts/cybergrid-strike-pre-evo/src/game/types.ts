@@ -72,6 +72,8 @@ export interface Bullet {
   presentationVariant?: LordAlphaProjectileVariant;
   /** Route identity belongs only to the deliberately aimed primary carrier. */
   routeDirection?: 'last' | 'next';
+  /** Friendly co-op fire must not consume the player's route-shot budget. */
+  coopOwned?: boolean;
   /** Stable enemy identities already resolved by this projectile. */
   hitEnemySeeds?: number[];
   /** A piercing player projectile may resolve against the versus boss once. */

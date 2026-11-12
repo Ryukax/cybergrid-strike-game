@@ -92,9 +92,9 @@ export type CampaignRouteDestinations = Record<
   Record<CampaignRouteDirection, CampaignRouteDestination>
 >;
 
-// Each campaign stage owns one contiguous four-boss rank tier. This preserves
-// four meaningful route choices without letting an opening fork jump from the
-// weakest boss directly to an upper-tier opponent.
+// Each campaign stage owns one contiguous four-boss rank tier. The four bosses
+// are alternative routes through that stage, so defeating any one of them
+// advances the next fork to the following stronger tier.
 export const CAMPAIGN_ROUTE_BOSS_TIER_SIZE = 4;
 const BOSS_ROUTE_OFFSETS = {
   top: { last: 0, next: 1 },
@@ -106,7 +106,7 @@ function resolveBossAt(completedBosses: number, offset: number): CampaignRouteDe
   const finalTierStart = CAMPAIGN_ROUTE_BOSS_ROSTER.length - CAMPAIGN_ROUTE_BOSS_TIER_SIZE;
   const tierStart = Math.min(
     finalTierStart,
-    Math.floor(completed / CAMPAIGN_ROUTE_BOSS_TIER_SIZE) * CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
+    completed * CAMPAIGN_ROUTE_BOSS_TIER_SIZE,
   );
   const rosterIndex = tierStart + offset;
   const boss = CAMPAIGN_ROUTE_BOSS_ROSTER[rosterIndex];
@@ -116,9 +116,9 @@ function resolveBossAt(completedBosses: number, offset: number): CampaignRouteDe
 
 /**
  * Resolve a stable four-way boss slate for the current completed-boss count.
- * Four victories clear a tier, after which every bearing advances to the next
- * stronger quartet. The final #4-#1 tier remains in place after the authored
- * 32-boss arc instead of wrapping the campaign back to its weakest opponents.
+ * One selected victory clears a tier, after which every bearing advances to
+ * the next stronger quartet. The final #4-#1 tier remains in place after the
+ * authored eight-stage arc instead of wrapping back to weaker opponents.
  */
 export function resolveCampaignRouteDestinations(completedBosses = 0): CampaignRouteDestinations {
   return {
