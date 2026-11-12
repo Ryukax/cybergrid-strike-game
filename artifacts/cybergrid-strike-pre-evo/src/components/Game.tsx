@@ -27,6 +27,13 @@ import {
   resolveManualBusterInput,
 } from '../game/responsive-input';
 import {
+  abilityHandCanPublish,
+  abilityHandIsSpent,
+  advanceSkillRecovery,
+  resolveSignatureActionAttempt,
+  startSignatureRecovery,
+} from '../game/skill-cadence';
+import {
   createDiagonalCoopSpawns,
   resolveDiagonalCoopMovement,
   resolveDiagonalCoopPairLayout,
@@ -2951,7 +2958,7 @@ function makeInitialState(
       moveCooldown: 0,
       hp: NPC_HP,
       shieldCharges: 0,
-      abilityCooldown: CARD_CHARGE_TIME,
+      abilityCooldown: COMPETITIVE_RULESET.npcAbilityInterval,
       signatureCooldown: COMPETITIVE_RULESET.signatureSkillCooldown,
       signatureWindow: 0,
       signatureActionCooldown: 0,
@@ -9437,7 +9444,6 @@ export default function Game() {
     chronoR2DilationRef.current = { held: false, startedAt: 0, exhausted: false };
     if (active.id === 'phase') s.ghostTimer = 0;
     if (s.gameMode === 'vs') {
-      rivalSkillCooldownRef.current = VS_SKILL_COOLDOWN;
       // Signature outcomes preserve role identity. Assault converts its finish
       // into damage, control trades damage for tempo, and defense restores a
       // bounded resource instead of receiving arbitrary universal damage.
@@ -9522,20 +9528,29 @@ export default function Game() {
   const resolveRivalSkillAction = useCallback((action: 'primary' | 'alternate' | 'defend') => {
     const active = rivalSkillRef.current;
     if (!active.active || !active.id) return;
-    rivalSkillAnimationCommandRef.current = action === 'primary' ? 0
-      : action === 'alternate' ? 1 : 2;
-    rivalSkillAnimationStartedRef.current = performance.now();
     const s = stateRef.current;
+    const actionStartedAt = performance.now();
     if (s.gameMode === 'vs') {
-      const now = performance.now();
-      if (active.actionTick >= COMPETITIVE_RULESET.signatureMaxActions) {
+      const attempt = resolveSignatureActionAttempt({
+        active: active.active,
+        actionCount: active.actionTick,
+        maxActions: COMPETITIVE_RULESET.signatureMaxActions,
+        nowMs: actionStartedAt,
+        readyAtMs: rivalSkillActionReadyAtRef.current,
+        intervalMs: COMPETITIVE_RULESET.signatureActionInterval * 1000,
+      });
+      if (attempt.reason === 'budget') {
         showMessage('Signature action budget exhausted.', 650);
         return;
       }
-      if (now < rivalSkillActionReadyAtRef.current) return;
-      rivalSkillActionReadyAtRef.current = now
-        + COMPETITIVE_RULESET.signatureActionInterval * 1000;
+      if (!attempt.accepted) return;
+      rivalSkillActionReadyAtRef.current = attempt.nextReadyAtMs;
     }
+    // Rejected inputs must not restart presentation for an action that did not
+    // execute. Commit the animation only after every readiness gate passes.
+    rivalSkillAnimationCommandRef.current = action === 'primary' ? 0
+      : action === 'alternate' ? 1 : 2;
+    rivalSkillAnimationStartedRef.current = actionStartedAt;
     let next = {
       ...active,
       actionTick: active.actionTick + 1,
@@ -10357,6 +10372,13 @@ export default function Game() {
       origin: { col: s.player.col, row: s.player.row, hp: s.hp },
     };
     rivalSkillRef.current = next;
+    // The declared competitive cooldown is activation-to-activation. Let the
+    // active command window consume its share instead of starting a second wait
+    // only after the signature finishes.
+    rivalSkillCooldownRef.current = startSignatureRecovery(
+      s.gameMode,
+      VS_SKILL_COOLDOWN,
+    );
     if (id === 'echo') {
       echoBrinkRef.current = {
         held: false,
@@ -12454,7 +12476,7 @@ export default function Game() {
         if (autoRotateAbilityPresetsRef.current) {
           activateAbilityPreset(activeAbilityPresetRef.current + 1);
         }
-        s.currentCardOptions = randomAbilityOptions(
+        const nextCardOptions = randomAbilityOptions(
           s.currentCardOptions,
           enabledAbilitiesRef.current,
           s.abilityCooldowns,
@@ -12463,35 +12485,41 @@ export default function Game() {
           synchronizedAbilityIdsRef.current,
           s,
         );
-        s.cardsReady = true;
-        s.cardSelectionOpen = true;
-        s.rotateUsedThisHand = false;
-        s.usedInHand = [];
-        playCardReady();
-        showMessage('Ability Cards loaded! Use them, then hand resets.', 2000);
-        updateHud();
+        if (!abilityHandCanPublish(nextCardOptions)) {
+          // A narrow custom preset can have every owned card cooling when the
+          // hand bar fills. Stay in recharge and retry instead of publishing an
+          // empty active hand that can never retire or rotate.
+          s.cardTimer = Math.max(0, CARD_CHARGE_TIME - 0.25);
+          if (cardLabelRef.current) cardLabelRef.current.textContent = 'Skills cooling — synchronizing';
+        } else {
+          s.currentCardOptions = nextCardOptions;
+          s.cardsReady = true;
+          s.cardSelectionOpen = true;
+          s.rotateUsedThisHand = false;
+          s.usedInHand = [];
+          playCardReady();
+          showMessage('Ability Cards loaded! Use them, then hand resets.', 2000);
+          updateHud();
+        }
       }
     } else {
       // Hand is active — bar stays full
       if (cardBarFillRef.current) cardBarFillRef.current.style.width = '100%';
 
-      const allUsed = s.currentCardOptions.every((id) => s.usedInHand.includes(id));
-      const allCooldownsDone = s.currentCardOptions.every((id) => (s.abilityCooldowns[id] ?? 0) === 0);
+      const allUsed = abilityHandIsSpent(s.currentCardOptions, s.usedInHand);
 
       if (cardLabelRef.current) {
         if (allUsed) {
-          const maxCd = Math.max(0, ...s.currentCardOptions.map((id) => s.abilityCooldowns[id] ?? 0));
-          cardLabelRef.current.textContent = maxCd > 0
-            ? `All used — cooling down ${Math.ceil(maxCd)}s`
-            : '';
+          cardLabelRef.current.textContent = 'Hand spent — recharging';
         } else {
           const remaining = s.currentCardOptions.filter((id) => !s.usedInHand.includes(id)).length;
           cardLabelRef.current.textContent = `${remaining} card${remaining !== 1 ? 's' : ''} remaining — ROTATE to reset timer`;
         }
       }
 
-      // Once all used AND all cooldowns expired → reset for next hand
-      if (allUsed && allCooldownsDone) {
+      // Retire a spent hand immediately. Individual card cooldowns keep ticking
+      // while the next hand charges, and the dealer excludes cooling cards.
+      if (allUsed) {
         s.cardsReady = false;
         s.cardSelectionOpen = false;
         s.cardTimer = 0;
@@ -14128,7 +14156,10 @@ export default function Game() {
           );
         }
       }
-      rivalSkillCooldownRef.current = Math.max(0, rivalSkillCooldownRef.current - dt);
+      rivalSkillCooldownRef.current = advanceSkillRecovery(
+        rivalSkillCooldownRef.current,
+        dt,
+      );
       if (npcSignatureRuntimeRef.current) {
         npcSignatureRuntimeRef.current = advanceVersusBossSignatureTime(
           npcSignatureRuntimeRef.current,
@@ -16643,7 +16674,7 @@ export default function Game() {
     setVersusControlMode(nextVersusControlMode);
     setNpcVsNpcMatchResult(null);
     npcVsNpcStrategyStepRef.current = 0;
-    npcVsNpcAbilityCooldownRef.current = CARD_CHARGE_TIME;
+    npcVsNpcAbilityCooldownRef.current = COMPETITIVE_RULESET.npcAbilityInterval;
     npcVsNpcLeftDecisionLockRef.current = 0;
     npcVsNpcLeftAbilityUseCountsRef.current = [];
     npcVsNpcLeftCounterpartRef.current = null;

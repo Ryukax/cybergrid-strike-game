@@ -23,7 +23,12 @@ export const COMPETITIVE_RULESET = Object.freeze({
   npcDodgeRecovery: 0.62,
   /** A dodge briefly commits the body and muzzle to the selected lane. */
   npcDodgeFireRecovery: 0.18,
-  npcAbilityInterval: 12,
+  /**
+   * Short global spacing between different NPC cards. Each card still owns its
+   * authored 7-25 second cooldown, so this is presentation recovery rather than
+   * a second full cooldown layered over the card.
+   */
+  npcAbilityInterval: 2.25,
   /** NPC Overdrive converts verified damage into bounded card-tempo recovery. */
   npcOverdriveCardRecoveryPerDamage: 0.15,
   npcSkillInterval: 20,
