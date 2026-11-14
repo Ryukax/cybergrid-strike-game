@@ -2,9 +2,11 @@ import {
   bossStrategyProfile,
   chooseVersusBasicAttackAim,
   chooseVersusMovementPosition,
-  chooseVersusNpcAbility,
+  chooseVersusNpcSignature,
   isVersusNpcAbilityPractical,
+  rankVersusNpcAbilities,
   resolveVersusNpcAbility,
+  shouldVersusAbilityPrepareSignature,
   type VersusAbilityPlan,
   type VersusBasicAttackAim,
   type VersusNpcContext,
@@ -54,7 +56,14 @@ export interface LeftNpcVersusControllerInput {
   signatureOriginRow?: number;
   signatureOriginCol?: number;
   signatureLastCommand?: number;
+  signatureObjectiveCommand?: number;
   signatureCommandUses?: readonly [number, number, number];
+  signatureAvailable?: boolean;
+  /** False for Lord Alpha, Shadow Clone, and other non-boss-skill signatures. */
+  signaturePlanAvailable?: boolean;
+  signatureCooldownReady?: boolean;
+  signatureWindowActive?: boolean;
+  signaturePrepConsumed?: boolean;
 }
 
 export interface LeftNpcVersusMoveDecision {
@@ -70,6 +79,10 @@ export interface LeftNpcVersusControllerDecision {
   /** Zero-based slot in `abilityIds`, or in the authored profile fallback. */
   cardSlot: number | null;
   ability: VersusAbilityPlan | null;
+  /** Present only when this frame should open the authored signature window. */
+  openSignature?: true;
+  /** Present when the chosen card is the one allowed setup beat for this window. */
+  preparesSignature?: true;
 }
 
 function clampBoardIndex(value: number): number {
@@ -200,14 +213,21 @@ export function createLeftNpcStrategyContext(
     playerMoveCooldown: Math.max(0, input.opponentMoveCooldown),
     cardProgress: Math.max(0, Math.min(1, input.cardProgress)),
     step: Math.trunc(input.step),
-    signatureMode: input.signatureMode ?? 0,
-    signatureCharges: input.signatureCharges ?? 0,
-    signaturePlacements: input.signaturePlacements ?? [],
+    signatureMode: input.signatureWindowActive === false ? 0 : input.signatureMode ?? 0,
+    signatureCharges: input.signatureWindowActive === false ? 0 : input.signatureCharges ?? 0,
+    signaturePlacements: input.signatureWindowActive === false
+      ? []
+      : input.signaturePlacements ?? [],
     signatureOriginRow: clampBoardIndex(input.signatureOriginRow ?? input.selfRow),
     signatureOriginCol: leftColumnToStrategyColumn(
       input.signatureOriginCol ?? input.selfCol,
     ),
-    signatureLastCommand: input.signatureLastCommand ?? -1,
+    signatureLastCommand: input.signatureWindowActive === false
+      ? -1
+      : input.signatureLastCommand ?? -1,
+    signatureObjectiveCommand: input.signatureWindowActive === false
+      ? -1
+      : input.signatureObjectiveCommand ?? -1,
     signatureCommandUses: input.signatureCommandUses,
   };
 }
@@ -262,22 +282,21 @@ function selectAvailableCard(
     .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
   if (practical.length === 0) return null;
 
-  const minimumUseCount = Math.min(...practical.map(({ useCount }) => useCount));
-  const leastUsed = practical.filter(({ useCount }) => useCount === minimumUseCount);
-  const preferred = chooseVersusNpcAbility(context);
-  const preferredCandidate = leastUsed.find(
-    ({ abilityId }) => abilityId === preferred.abilityId,
-  );
-  if (preferredCandidate) {
+  const rankedIds = rankVersusNpcAbilities(context).map(({ abilityId }) => abilityId);
+  const scored = practical.map((candidate) => {
+    const rank = rankedIds.indexOf(candidate.abilityId);
+    const strategyScore = rank >= 0 ? (rankedIds.length - rank) * 3 : 0;
     return {
-      slot: preferredCandidate.slot,
-      plan: preferredCandidate.plan,
+      ...candidate,
+      // Diversity remains a soft pressure, never a veto against the card
+      // that currently prepares this NPC's individual skill.
+      score: strategyScore - candidate.useCount * 2.1,
     };
-  }
-
-  const offset = Math.abs(Math.trunc(input.seed) + Math.trunc(input.step))
-    % leastUsed.length;
-  const selected = leastUsed[offset] ?? leastUsed[0];
+  });
+  const bestScore = Math.max(...scored.map(({ score }) => score));
+  const best = scored.filter(({ score }) => Math.abs(score - bestScore) < 0.0001);
+  const offset = Math.abs(Math.trunc(input.seed) + Math.trunc(input.step)) % best.length;
+  const selected = best[offset] ?? best[0];
   return selected ? { slot: selected.slot, plan: selected.plan } : null;
 }
 
@@ -323,13 +342,34 @@ export function decideLeftNpcVersusAction(
     ? { row: requestedRow, col: nextCol }
     : null;
   const selectedCard = selectAvailableCard(input, context);
+  const signatureReady = Boolean(
+    input.signatureAvailable
+    && input.signatureCooldownReady
+    && !input.signatureWindowActive,
+  );
+  const signaturePlan = (input.signaturePlanAvailable ?? input.signatureAvailable)
+    ? chooseVersusNpcSignature(context)
+    : null;
+  const prepareSignature = Boolean(
+    signatureReady
+    && !input.signaturePrepConsumed
+    && selectedCard
+    && signaturePlan
+    && shouldVersusAbilityPrepareSignature(selectedCard.plan, signaturePlan, context),
+  );
+  const openSignature = signatureReady && !prepareSignature;
+  const ability = input.signatureWindowActive || openSignature
+    ? null
+    : selectedCard?.plan ?? null;
 
   return {
     enabled: true,
     move,
     aim,
     fire: input.selfFireCooldown <= 0 && aim.aligned,
-    cardSlot: selectedCard?.slot ?? null,
-    ability: selectedCard?.plan ?? null,
+    cardSlot: ability ? selectedCard?.slot ?? null : null,
+    ability,
+    ...(openSignature ? { openSignature: true as const } : {}),
+    ...(prepareSignature ? { preparesSignature: true as const } : {}),
   };
 }

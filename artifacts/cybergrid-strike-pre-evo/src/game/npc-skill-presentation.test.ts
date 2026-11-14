@@ -84,7 +84,7 @@ test('every boss loadout ability resolves to an exact authored presentation', ()
   for (const boss of CAMPAIGN_ROUTE_BOSS_ROSTER) {
     const bossId = boss.id as BossSkillId;
     const profile = BOSS_STRATEGY_PROFILES[bossId];
-    const keys = new Set<string>();
+    const visualSignatures = new Set<string>();
     for (const [index, abilityId] of profile.abilities.entries()) {
       ok(BOSS_ABILITY_MOTIFS[abilityId], `${bossId}/${abilityId} lacks a semantic motif`);
       const plan = resolveVersusNpcAbility(abilityId, contextFor(bossId));
@@ -93,9 +93,10 @@ test('every boss loadout ability resolves to an exact authored presentation', ()
       equal(presentation.source, 'ability');
       equal(presentation.label, ABILITY_LOOKUP[abilityId]?.name);
       ok(SKILL_VFX_SEQUENCE[presentation.motif]);
-      keys.add(presentation.presentationKey);
+      ok(presentation.abilityAnimation);
+      visualSignatures.add(presentation.abilityAnimation.visualSignature);
     }
-    equal(keys.size, 3, `${bossId} collapsed its ability presentations`);
+    equal(visualSignatures.size, 3, `${bossId} collapsed its rendered ability identity`);
   }
 });
 
@@ -120,6 +121,7 @@ test('all boss signature commands preserve command identity and authored motif',
       equal(presentation.source, 'signature');
       equal(presentation.motif, BOSS_SIGNATURE_MOTIFS[bossId][commandIndex]);
       equal(presentation.label, BOSS_SIGNATURE_COMMANDS[bossId][commandIndex]);
+      equal(presentation.abilityAnimation, null);
       equal(
         presentation.action,
         commandIndex === 0 ? 'primary' : commandIndex === 1 ? 'alternate' : 'defend',

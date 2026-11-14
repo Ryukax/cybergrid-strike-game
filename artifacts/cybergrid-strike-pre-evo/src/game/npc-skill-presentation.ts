@@ -1,5 +1,11 @@
 import { ABILITY_LOOKUP } from './constants';
 import {
+  ABILITY_EFFECT_MOTIFS,
+  resolveAbilityAnimationProfile,
+  type AbilityAnimationProfile,
+  type AbilityEffectMotif,
+} from './ability-animation';
+import {
   shotRowsForPlan,
   type NpcDoctrine,
   type NpcIntent,
@@ -7,11 +13,7 @@ import {
   type VersusSignaturePlan,
 } from './npc-strategy';
 
-export type SkillExecutionMotif =
-  | 'time' | 'gravity' | 'command' | 'construct' | 'morph' | 'reflect'
-  | 'dash' | 'restore' | 'portal' | 'vector' | 'grid' | 'resonance'
-  | 'exchange' | 'lock' | 'weapon' | 'harvest' | 'suppress' | 'polarity'
-  | 'colossus' | 'target' | 'orbital' | 'sovereign';
+export type SkillExecutionMotif = AbilityEffectMotif;
 
 export type NpcSkillPresentationAction = 'primary' | 'alternate' | 'defend';
 export type NpcSkillPresentationSource = 'ability' | 'signature';
@@ -130,28 +132,7 @@ export const SKILL_VFX_SEQUENCE: Record<SkillExecutionMotif, { sheet: 'a' | 'b' 
   exchange: { sheet: 'c', row: 1 }, restore: { sheet: 'c', row: 2 },
 };
 
-export const BOSS_ABILITY_MOTIFS: Readonly<Record<string, SkillExecutionMotif>> = {
-  acidetch: 'morph', adaptive: 'morph', anchorfield: 'lock', arcweb: 'resonance',
-  armor: 'reflect', backdash: 'dash', barrage: 'weapon', berserk: 'sovereign',
-  blizzard: 'suppress', bloombind: 'construct', bomb: 'weapon', cardflood: 'command',
-  catalyst: 'exchange', chain: 'resonance', circuitarc: 'resonance', clonebreak: 'suppress',
-  cluster: 'orbital', crit: 'target', depthcharge: 'orbital', devolve: 'morph',
-  double: 'resonance', drain: 'harvest', echo: 'time', elementswap: 'exchange',
-  emp: 'suppress', flak: 'weapon', forcedmolt: 'morph', freeze: 'suppress',
-  ghost: 'portal', gravity: 'gravity', groundwire: 'grid', heal: 'restore',
-  hybridtax: 'exchange', interceptor: 'target', kineticram: 'dash', magnet: 'polarity',
-  marksman: 'target', megabomb: 'orbital', mirror: 'reflect', multishot: 'weapon',
-  mutationlock: 'lock', nuke: 'orbital', oilslick: 'grid', overclock: 'dash',
-  overdrive: 'dash', overload: 'weapon', pierce: 'vector', pulse: 'resonance',
-  purge: 'suppress', quarantine: 'suppress', radiantmark: 'target', rearguard: 'reflect',
-  regen: 'restore', returnfire: 'reflect', ricochet: 'vector', rootsnare: 'construct',
-  rowshuffle: 'grid', scramble: 'command', seeker: 'target', separate: 'exchange',
-  shattershot: 'weapon', shield: 'reflect', shotgun: 'weapon', signaljam: 'suppress',
-  snipe: 'target', sonicnet: 'lock', splitter: 'morph', stasisgate: 'portal',
-  surge: 'dash', tailclamp: 'lock', tanglewire: 'construct', thermalshock: 'weapon',
-  time: 'time', trafficjam: 'grid', traittheft: 'harvest', turret: 'construct',
-  undertow: 'vector', voidaperture: 'portal', voltage: 'polarity', warpback: 'portal',
-};
+export const BOSS_ABILITY_MOTIFS = ABILITY_EFFECT_MOTIFS;
 
 export interface NpcSkillPresentation {
   revision: number;
@@ -164,6 +145,8 @@ export interface NpcSkillPresentation {
   intent: NpcIntent;
   action: NpcSkillPresentationAction;
   motif: SkillExecutionMotif;
+  /** Canonical cards carry a renderer-consumed identity beyond their motif. */
+  abilityAnimation: AbilityAnimationProfile | null;
   anchor: NpcSkillPresentationAnchor;
   readonly targetRows: readonly number[];
   label: string;
@@ -232,11 +215,13 @@ export function resolveNpcAbilityPresentation(
   plan: VersusAbilityPlan,
   bossSkillId: BossSkillId,
   revision: number,
+  animationOverride?: AbilityAnimationProfile | null,
 ): NpcSkillPresentation {
   const intent = abilityIntent(plan);
   const targetRows = shotRowsForPlan(plan);
   const abilityName = ABILITY_LOOKUP[plan.abilityId]?.name
     ?? plan.abilityId.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+  const abilityAnimation = animationOverride ?? resolveAbilityAnimationProfile(plan.abilityId);
   return {
     revision,
     presentationKey: `ability:${bossSkillId}:${plan.abilityId}:${revision}`,
@@ -247,7 +232,8 @@ export function resolveNpcAbilityPresentation(
     doctrine: plan.doctrine,
     intent,
     action: actionForIntent(intent),
-    motif: BOSS_ABILITY_MOTIFS[plan.abilityId] ?? fallbackMotif(plan),
+    motif: abilityAnimation?.motif ?? fallbackMotif(plan),
+    abilityAnimation,
     anchor: presentationAnchor(intent, targetRows),
     targetRows,
     label: abilityName,
@@ -276,6 +262,7 @@ export function resolveNpcSignaturePresentation(
     // Present the plan that actually executes instead of assuming X/Y/B.
     action: actionForIntent(plan.intent),
     motif: BOSS_SIGNATURE_MOTIFS[bossSkillId][commandIndex],
+    abilityAnimation: null,
     anchor: presentationAnchor(plan.intent, targetRows),
     targetRows,
     label: BOSS_SIGNATURE_COMMANDS[bossSkillId][commandIndex],

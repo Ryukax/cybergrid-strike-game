@@ -41,6 +41,8 @@ export interface VersusNpcContext {
   signatureOriginRow: number;
   signatureOriginCol: number;
   signatureLastCommand: number;
+  /** Payoff selected for the active skill chain; -1 means choose a new goal. */
+  signatureObjectiveCommand?: number;
   /** Per-command coverage ledger; lower-use legal commands are surfaced first. */
   signatureCommandUses?: readonly [number, number, number];
 }
@@ -82,6 +84,16 @@ export interface BossStrategyProfile {
 export interface VersusSignaturePlan extends VersusAbilityPlan {
   commandIndex: 0 | 1 | 2;
   intent: NpcIntent;
+  /** The authored role of the selected command inside this skill's sequence. */
+  strategyStage?: 'instant' | 'setup' | 'mode' | 'execute';
+  /** The command this beat is building toward (the selected command for a payoff). */
+  objectiveCommandIndex?: 0 | 1 | 2;
+  /** Tactical intent of the objective, which can differ from a setup command's intent. */
+  objectiveIntent?: NpcIntent;
+  /** True only when the selected command is an eligible authored payoff. */
+  payoffReady?: boolean;
+  /** Objective carried into the next beat, or -1 after its payoff resolves. */
+  nextObjectiveCommand?: number;
   columnDelta: number;
   nextMode: number;
   nextCharges: number;
@@ -180,7 +192,7 @@ const SIGNATURE_COMMANDS: Record<string, readonly [SignatureCommandSpec, Signatu
   null: [control(0.95, 0.2, 0.65), mode(), guard(1)],
   polarity: [setup(true), mode(), payoff(attack('adjacent', 2, true), 2, 2)],
   colossus: [attack('target', 3, true), attack('adjacent', 2, true), guard(2, 1)],
-  predator: [setup(false), charged(attack('target', 2, true), 1), guard(1)],
+  predator: [setup(false), payoff(attack('target', 2, true), 1), guard(1)],
   orbital: [setup(true), mode(), payoff(attack('all', 2, true), 2, 2)],
   hijack: [mode(), charged(control(0.55, 0.25, 0.6), 1), payoff(attack('target', 2, true))],
   sovereign: [attack('target', 3, true), charged(control(0.45, 0.3, 0.4), 1), sustain(3, 1)],
@@ -325,6 +337,192 @@ function scoreIntent(
   if (context.signatureLastCommand === commandIndex) score -= 1.25;
 
   return score + stableNoise(`${context.skillId}:${context.step}:${commandIndex}`) * 0.08;
+}
+
+type SignatureStrategyStage = NonNullable<VersusSignaturePlan['strategyStage']>;
+
+interface SignatureCommandChoice {
+  commandIndex: 0 | 1 | 2;
+  objectiveCommandIndex: 0 | 1 | 2;
+  objectiveIntent: NpcIntent;
+  payoffReady: boolean;
+}
+
+function signatureStage(spec: SignatureCommandSpec): SignatureStrategyStage {
+  return spec.stage ?? 'instant';
+}
+
+function signatureRequirementsMet(
+  spec: SignatureCommandSpec,
+  context: VersusNpcContext,
+): boolean {
+  return (spec.requiresCharges ?? 0) <= context.signatureCharges
+    && (spec.requiresPlacements ?? 0) <= context.signaturePlacements.length;
+}
+
+function signatureIsPayoff(spec: SignatureCommandSpec): boolean {
+  return spec.stage === 'execute'
+    || (spec.requiresCharges ?? 0) > 0
+    || (spec.requiresPlacements ?? 0) > 0;
+}
+
+function signatureCommandUseful(
+  spec: SignatureCommandSpec,
+  context: VersusNpcContext,
+): boolean {
+  const totalThreat = context.incomingByRow.reduce((sum, count) => sum + count, 0);
+  const hpRoom = Math.max(0, context.maxHp - context.npcHp);
+  const shieldRoom = Math.max(0, context.maxShields - context.npcShields);
+  if (spec.stage === 'setup') {
+    return ((spec.gainCharges ?? 0) > 0 && context.signatureCharges < 4)
+      || Boolean(spec.place && context.signaturePlacements.length < 4)
+      || Boolean(spec.recordOrigin)
+      || spec.intent === 'attack'
+      || spec.intent === 'control';
+  }
+  if (spec.stage === 'mode' || spec.intent === 'mode') return true;
+  if (spec.intent === 'attack') return (spec.shotPattern ?? 'none') !== 'none';
+  if (spec.intent === 'guard') {
+    return totalThreat > 0
+      || ((spec.shields ?? 0) > 0
+        && shieldRoom > 0
+        && context.npcHp / Math.max(1, context.maxHp) <= 0.55)
+      || ((spec.recovery ?? 0) > 0 && hpRoom > 0);
+  }
+  if (spec.intent === 'sustain') {
+    return ((spec.recovery ?? 0) > 0 && hpRoom > 0)
+      || ((spec.shields ?? 0) > 0 && shieldRoom > 0);
+  }
+  if (spec.intent === 'control') {
+    return (spec.shotPattern ?? 'none') !== 'none'
+      || (spec.fireDisruption ?? 0) > context.playerFireCooldown
+      || (spec.moveDisruption ?? 0) > context.playerMoveCooldown
+      || ((spec.cardPressure ?? 0) > 0 && context.cardProgress > 0);
+  }
+  return true;
+}
+
+function signatureProgressToward(
+  candidate: SignatureCommandSpec,
+  objective: SignatureCommandSpec,
+  context: VersusNpcContext,
+): number {
+  const missingCharges = Math.max(
+    0,
+    (objective.requiresCharges ?? 0) - context.signatureCharges,
+  );
+  const missingPlacements = Math.max(
+    0,
+    (objective.requiresPlacements ?? 0) - context.signaturePlacements.length,
+  );
+  const chargeProgress = Math.min(missingCharges, candidate.gainCharges ?? 0);
+  const placementProgress = candidate.place ? Math.min(1, missingPlacements) : 0;
+  return chargeProgress + placementProgress;
+}
+
+/**
+ * Pick an authored skill beat as a coherent sequence rather than rotating
+ * commands merely because they have been used less often. A ready payoff wins;
+ * otherwise the NPC selects the setup that actually satisfies that payoff.
+ */
+function chooseSignatureCommand(
+  context: VersusNpcContext,
+  specs: readonly [SignatureCommandSpec, SignatureCommandSpec, SignatureCommandSpec],
+): SignatureCommandChoice {
+  const uses = context.signatureCommandUses ?? [0, 0, 0];
+  const indexed = specs.map((spec, index) => ({
+    spec,
+    index: index as 0 | 1 | 2,
+  }));
+  const eligible = indexed.filter(({ spec }) => signatureRequirementsMet(spec, context));
+  const scored = (
+    spec: SignatureCommandSpec,
+    index: 0 | 1 | 2,
+    extra = 0,
+  ) => scoreIntent(spec, context, index)
+    + extra
+    - (uses[index] ?? 0) * 0.42
+    - (context.signatureLastCommand === index ? 0.18 : 0);
+
+  // Compare all useful payoffs before acting. Requirement depth is a small
+  // commitment bonus: a newly legal one-charge command cannot continually
+  // drain the resources being built for a deliberate two-charge command.
+  // Live intent scoring can still choose an urgent lower-cost heal or guard.
+  const payoffObjectives = indexed
+    .filter(({ spec }) => signatureIsPayoff(spec))
+    .filter(({ spec }) => signatureCommandUseful(spec, context))
+    .sort((left, right) => {
+      const objectiveScore = (
+        spec: SignatureCommandSpec,
+        index: 0 | 1 | 2,
+      ) => {
+        const depth = (spec.requiresCharges ?? 0) + (spec.requiresPlacements ?? 0);
+        return scored(spec, index, 2.5 + depth * 1.15 + (spec.stage === 'execute' ? 1 : 0));
+      };
+      return objectiveScore(right.spec, right.index)
+        - objectiveScore(left.spec, left.index);
+    });
+  const stickyObjective = payoffObjectives.find(
+    ({ index }) => index === context.signatureObjectiveCommand,
+  );
+  if (stickyObjective) {
+    payoffObjectives.splice(payoffObjectives.indexOf(stickyObjective), 1);
+    payoffObjectives.unshift(stickyObjective);
+  }
+
+  for (const objective of payoffObjectives) {
+    const usefulAlternativeExists = eligible.some(({ spec, index }) => (
+      index !== objective.index && signatureCommandUseful(spec, context)
+    ));
+    if (!stickyObjective
+      && objective.index === context.signatureLastCommand
+      && usefulAlternativeExists) {
+      continue;
+    }
+    if (signatureRequirementsMet(objective.spec, context)) {
+      return {
+        commandIndex: objective.index,
+        objectiveCommandIndex: objective.index,
+        objectiveIntent: objective.spec.intent,
+        payoffReady: true,
+      };
+    }
+    const progressors = eligible
+      .map((candidate) => ({
+        ...candidate,
+        progress: signatureProgressToward(candidate.spec, objective.spec, context),
+      }))
+      .filter(({ progress }) => progress > 0)
+      .sort((left, right) => (
+        (right.progress * 5 + scored(right.spec, right.index) * 0.25)
+        - (left.progress * 5 + scored(left.spec, left.index) * 0.25)
+      ));
+    const progressor = progressors[0];
+    if (progressor) {
+      return {
+        commandIndex: progressor.index,
+        objectiveCommandIndex: objective.index,
+        objectiveIntent: objective.spec.intent,
+        payoffReady: false,
+      };
+    }
+  }
+
+  const practical = eligible.filter(({ spec }) => signatureCommandUseful(spec, context));
+  const nonRepeating = practical.filter(({ index }) => index !== context.signatureLastCommand);
+  const fallbackPool = nonRepeating.length > 0
+    ? nonRepeating
+    : practical.length > 0 ? practical : eligible.length > 0 ? eligible : indexed;
+  const selected = [...fallbackPool].sort((left, right) => (
+    scored(right.spec, right.index) - scored(left.spec, left.index)
+  ))[0] ?? indexed[0];
+  return {
+    commandIndex: selected.index,
+    objectiveCommandIndex: selected.index,
+    objectiveIntent: selected.spec.intent,
+    payoffReady: signatureIsPayoff(selected.spec)
+      && signatureRequirementsMet(selected.spec, context),
+  };
 }
 
 function rowsForPattern(pattern: ShotPattern, targetRow: number): number[] {
@@ -886,11 +1084,79 @@ export function isVersusNpcAbilityPractical(
   return planChangesBattleState(plan, context);
 }
 
+/** Score how directly an owned card prepares or exploits this exact skill beat. */
+export function scoreVersusAbilitySignatureSynergy(
+  plan: VersusAbilityPlan,
+  signaturePlan: VersusSignaturePlan,
+  context: VersusNpcContext,
+): number {
+  const intent = signaturePlan.objectiveIntent ?? signaturePlan.intent;
+  const stage = signaturePlan.strategyStage ?? 'instant';
+  const shotWeight = rowsForPattern(plan.shotPattern, plan.targetRow).length
+    * Math.max(1, plan.salvo) * Math.max(1, plan.power);
+  const currentThreat = context.incomingByRow[clampLane(context.npcRow)] ?? 0;
+  let score = 0;
+
+  if (stage === 'setup') {
+    // Buy a readable setup beat by pinning fire/movement or protecting the
+    // body that is placing marks, charges, anchors, and recorded origins.
+    score += plan.fireDisruption * 0.9
+      + plan.moveDisruption * 1.35
+      + plan.cardPressure * 0.55
+      + plan.shields * (0.55 + currentThreat * 0.2)
+      + plan.recovery * 0.22
+      + shotWeight * 0.16
+      + (plan.moveToRow !== undefined ? 0.7 : 0);
+  }
+  if (intent === 'attack') {
+    score += shotWeight * 0.13
+      + plan.moveDisruption * 1.25
+      + plan.cardPressure * 0.25;
+  } else if (intent === 'control') {
+    score += plan.fireDisruption * 1.25
+      + plan.moveDisruption * 1.25
+      + plan.cardPressure * 1.05
+      + shotWeight * 0.06;
+  } else if (intent === 'guard') {
+    score += plan.shields * 1.25
+      + plan.recovery * 0.65
+      + plan.leechOnHit * 0.45
+      + (plan.moveToRow !== undefined ? 0.55 : 0);
+  } else if (intent === 'sustain') {
+    score += plan.recovery * 1.1
+      + plan.leechOnHit * 0.8
+      + plan.shields * 0.55;
+  } else if (intent === 'maneuver') {
+    score += (plan.moveToRow !== undefined ? 1.4 : 0)
+      + plan.moveDisruption * 0.55;
+  } else if (intent === 'setup' || intent === 'mode') {
+    score += plan.fireDisruption * 0.55
+      + plan.moveDisruption * 0.75
+      + plan.shields * 0.35;
+  }
+  if (signaturePlan.payoffReady && plan.targetRow === signaturePlan.targetRow) {
+    score += shotWeight > 0 ? 0.45 : 0.15;
+  }
+  return score;
+}
+
+/** A setup card may lead a signature once; payoffs execute without delay. */
+export function shouldVersusAbilityPrepareSignature(
+  plan: VersusAbilityPlan,
+  signaturePlan: VersusSignaturePlan,
+  context: VersusNpcContext,
+): boolean {
+  return !signaturePlan.payoffReady
+    && signaturePlan.strategyStage === 'setup'
+    && scoreVersusAbilitySignatureSynergy(plan, signaturePlan, context) >= 0.45;
+}
+
 function scoreBossAbility(
   plan: VersusAbilityPlan,
   context: VersusNpcContext,
   slot: number,
   preferredSlot: number,
+  signaturePlan: VersusSignaturePlan,
 ): number {
   const hpRatio = context.npcHp / Math.max(1, context.maxHp);
   const playerRatio = context.playerHp / Math.max(1, context.maxHp);
@@ -898,7 +1164,10 @@ function scoreBossAbility(
   const totalThreat = context.incomingByRow.reduce((sum, count) => sum + count, 0);
   const shotWeight = rowsForPattern(plan.shotPattern, plan.targetRow).length
     * Math.max(1, plan.salvo) * Math.max(1, plan.power);
-  let score = slot === preferredSlot ? 6 : 0;
+  const signatureSlot = signaturePlan.objectiveCommandIndex
+    ?? signaturePlan.commandIndex;
+  let score = slot === preferredSlot ? 4.8 : 0;
+  if (slot === signatureSlot) score += 2.6;
   score += (1 - playerRatio) * shotWeight * 0.28;
   score += currentThreat * (plan.shields * 0.9 + (plan.moveToRow !== undefined ? 0.8 : 0));
   score += totalThreat * plan.shields * 0.3;
@@ -910,10 +1179,10 @@ function scoreBossAbility(
   score += (context.playerFireCooldown < 0.3 ? plan.fireDisruption : 0) * 1.4;
   score += (context.playerMoveCooldown < 0.2 ? plan.moveDisruption : 0) * 1.2;
   score += context.cardProgress * plan.cardPressure;
-  if (context.signatureCharges > 0 && slot === 1) score += 0.55;
-  if ((context.signatureMode > 0 || context.signaturePlacements.length > 0) && slot === 2) {
-    score += 0.4;
+  if (REACTIVE_ABILITY_IDS.has(plan.abilityId) && totalThreat > 0) {
+    score += 4 + totalThreat * 2;
   }
+  score += scoreVersusAbilitySignatureSynergy(plan, signaturePlan, context);
   return score + stableNoise(`${context.skillId}:${context.step}:${plan.abilityId}`) * 0.08;
 }
 
@@ -932,19 +1201,20 @@ export function rankVersusNpcAbilities(
   const profile = bossStrategyProfile(context.skillId);
   const phase = bossBattlePhase(context);
   const preferredSlot = phase === 'opening' ? 0 : phase === 'pressure' ? 1 : 2;
+  const signaturePlan = chooseVersusNpcSignature(context);
   const ranked = profile.abilities.flatMap((abilityId, slot) => {
     const candidate = resolveVersusNpcAbility(abilityId, context);
     if (!isVersusNpcAbilityPractical(abilityId, candidate, context)) return [];
     return [{
       plan: candidate,
-      score: scoreBossAbility(candidate, context, slot, preferredSlot),
+      score: scoreBossAbility(candidate, context, slot, preferredSlot, signaturePlan),
       slot,
     }];
   }).sort((left, right) => right.score - left.score || left.slot - right.slot);
 
   return ranked.map(({ plan }) => ({
     ...plan,
-    reason: `${phase}: ${plan.reason}; ${profile.strategy}`,
+    reason: `${phase}: ${plan.reason}; coordinate ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}; ${profile.strategy}`,
   }));
 }
 
@@ -961,31 +1231,8 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
   const doctrine = doctrineForSkill(context.skillId);
   const specs: readonly [SignatureCommandSpec, SignatureCommandSpec, SignatureCommandSpec] =
     SIGNATURE_COMMANDS[context.skillId ?? ''] ?? [attack(), control(), guard()];
-  const eligibleCommands = specs
-    .map((candidate, index) => ({ candidate, index }))
-    .filter(({ candidate }) => (
-      (candidate.requiresCharges ?? 0) <= context.signatureCharges
-      && (candidate.requiresPlacements ?? 0) <= context.signaturePlacements.length
-    ));
-  const commandUses = context.signatureCommandUses ?? [0, 0, 0];
-  const leastUseCount = eligibleCommands.length > 0
-    ? Math.min(...eligibleCommands.map(({ index }) => commandUses[index] ?? 0))
-    : 0;
-  const coverageCommands = eligibleCommands.filter(
-    ({ index }) => (commandUses[index] ?? 0) === leastUseCount,
-  );
-  let commandIndex: 0 | 1 | 2 = 0;
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (const { candidate, index } of coverageCommands) {
-    // A signature is a sequence, not one optimal command spammed repeatedly.
-    // When another legal command exists, force the boss to advance its plan.
-    if (coverageCommands.length > 1 && index === context.signatureLastCommand) continue;
-    const score = scoreIntent(specs[index], context, index);
-    if (score > bestScore) {
-      bestScore = score;
-      commandIndex = index as 0 | 1 | 2;
-    }
-  }
+  const choice = chooseSignatureCommand(context, specs);
+  const { commandIndex } = choice;
   const spec = specs[commandIndex];
   const targetRow = clampLane(context.playerRow);
   let moveToRow = spec.moveTo === 'safe'
@@ -1023,6 +1270,14 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
     doctrine,
     commandIndex,
     intent: spec.intent,
+    strategyStage: signatureStage(spec),
+    objectiveCommandIndex: choice.objectiveCommandIndex,
+    objectiveIntent: choice.objectiveIntent,
+    payoffReady: choice.payoffReady,
+    nextObjectiveCommand: !choice.payoffReady
+      && signatureIsPayoff(specs[choice.objectiveCommandIndex])
+      ? choice.objectiveCommandIndex
+      : -1,
     targetRow,
     shotPattern: spec.shotPattern ?? 'none',
     salvo: 1,
@@ -1041,7 +1296,9 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
     nextPlacements,
     nextOriginRow,
     nextOriginCol,
-    reason: `${doctrine} ${spec.intent}`,
+    reason: choice.objectiveCommandIndex === commandIndex
+      ? `${doctrine} ${signatureStage(spec)} ${spec.intent}`
+      : `${doctrine} ${signatureStage(spec)} ${spec.intent}; prepares command ${choice.objectiveCommandIndex + 1} ${choice.objectiveIntent}`,
   };
 }
 

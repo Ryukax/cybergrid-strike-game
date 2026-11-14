@@ -1,7 +1,9 @@
 import {
   bossStrategyProfile,
+  shouldVersusAbilityPrepareSignature,
   type VersusAbilityPlan,
   type VersusNpcContext,
+  type VersusSignaturePlan,
 } from './npc-strategy';
 
 export type BossTacticalAction =
@@ -50,6 +52,8 @@ export interface BossTacticalDirectorInput {
   readonly signatureCooldownReady: boolean;
   readonly signatureWindowActive: boolean;
   readonly signatureActionReady: boolean;
+  /** Exact authored command the skill planner is preparing or executing. */
+  readonly signaturePlan?: VersusSignaturePlan | null;
   readonly abilityPlan: VersusAbilityPlan | null;
   readonly movementReady: boolean;
   readonly basicReady: boolean;
@@ -143,7 +147,7 @@ function reactiveAbility(plan: VersusAbilityPlan): boolean {
 export function chooseBossTacticalAction(
   input: BossTacticalDirectorInput,
 ): BossTacticalDecision {
-  const { context, memory, abilityPlan } = input;
+  const { context, memory, abilityPlan, signaturePlan } = input;
   const profile = bossStrategyProfile(context.skillId);
   const incoming = context.incomingByRow.reduce((sum, count) => sum + count, 0);
   const critical = context.npcHp / Math.max(1, context.maxHp) <= 0.34;
@@ -216,12 +220,28 @@ export function chooseBossTacticalAction(
     };
   }
 
+  if (input.signatureAvailable
+    && input.signatureCooldownReady
+    && signaturePlan
+    && abilityPlan
+    && memory.lastAction !== 'ability'
+    && shouldVersusAbilityPrepareSignature(abilityPlan, signaturePlan, context)) {
+    return {
+      action: 'ability',
+      focus: 'signature',
+      targetRow: abilityPlan.moveToRow ?? abilityPlan.targetRow,
+      reason: `${reasonPrefix}; ${abilityPlan.abilityId} prepares ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}`,
+    };
+  }
+
   if (input.signatureAvailable && input.signatureCooldownReady) {
     return {
       action: 'signature-open',
       focus: 'signature',
-      targetRow,
-      reason: `${reasonPrefix}; authored signature is ready`,
+      targetRow: signaturePlan?.moveToRow ?? signaturePlan?.targetRow ?? targetRow,
+      reason: signaturePlan
+        ? `${reasonPrefix}; open ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}`
+        : `${reasonPrefix}; authored signature is ready`,
     };
   }
 

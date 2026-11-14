@@ -13,7 +13,6 @@ import {
   resolveVersusNpcAbility,
   shotRowsForPlan,
   type VersusNpcContext,
-  type VersusSignaturePlan,
 } from './npc-strategy';
 import { VERSUS_ABILITY_IDS } from './versus-ability-resolver';
 
@@ -107,25 +106,6 @@ const TACTICAL_CONTEXTS: ReadonlyArray<Partial<VersusNpcContext>> = [
     cardProgress: 0.08,
   },
 ];
-
-function signatureHasEffect(
-  before: VersusNpcContext,
-  plan: VersusSignaturePlan,
-): boolean {
-  return shotRowsForPlan(plan).length > 0
-    || plan.recovery > 0
-    || plan.shields > 0
-    || plan.fireDisruption > 0
-    || plan.moveDisruption > 0
-    || plan.cardPressure > 0
-    || plan.columnDelta !== 0
-    || plan.moveToRow !== undefined
-    || plan.nextMode !== before.signatureMode
-    || plan.nextCharges !== before.signatureCharges
-    || plan.nextOriginRow !== before.signatureOriginRow
-    || plan.nextOriginCol !== before.signatureOriginCol
-    || plan.nextPlacements.join(',') !== before.signaturePlacements.join(',');
-}
 
 test('all 32 campaign bosses own canonical, distinct three-ability strategy profiles', () => {
   equal(BOSS_IDS.length, 32);
@@ -358,103 +338,202 @@ test('unknown ability IDs become an explicit canonical pressure fallback', () =>
   ok(plan.reason.includes('rejected unknown ability not-a-real-ability'));
 });
 
-test('every boss can execute effectful signatures across materially different battle states', () => {
-  const signatureStates: ReadonlyArray<Partial<VersusNpcContext>> = [
+test('Resonance establishes two nodes before releasing its multi-lane payoff', () => {
+  const opening = chooseVersusNpcSignature(contextFor('resonance'));
+  equal(opening.commandIndex, 0);
+  equal(opening.intent, 'setup');
+  equal(opening.strategyStage, 'setup');
+  equal(opening.objectiveCommandIndex, 2);
+  equal(opening.objectiveIntent, 'attack');
+  equal(opening.payoffReady, false);
+  equal(opening.nextCharges, 1);
+  deepStrictEqual(opening.nextPlacements, [5]);
+
+  const secondNode = chooseVersusNpcSignature(contextFor('resonance', {
+    step: 1,
+    signatureCharges: opening.nextCharges,
+    signaturePlacements: opening.nextPlacements,
+    signatureLastCommand: opening.commandIndex,
+  }));
+  equal(secondNode.commandIndex, 1);
+  equal(secondNode.strategyStage, 'setup');
+  equal(secondNode.objectiveCommandIndex, 2);
+  equal(secondNode.payoffReady, false);
+  equal(secondNode.nextCharges, 2);
+  deepStrictEqual(secondNode.nextPlacements, [5, 5]);
+
+  const release = chooseVersusNpcSignature(contextFor('resonance', {
+    step: 2,
+    signatureCharges: secondNode.nextCharges,
+    signaturePlacements: secondNode.nextPlacements,
+    signatureLastCommand: secondNode.commandIndex,
+  }));
+  equal(release.commandIndex, 2);
+  equal(release.intent, 'attack');
+  equal(release.strategyStage, 'execute');
+  equal(release.payoffReady, true);
+  deepStrictEqual(shotRowsForPlan(release), [0, 1, 2]);
+  equal(release.nextCharges, 0);
+  deepStrictEqual(release.nextPlacements, []);
+});
+
+test('Chrono banks one recorded setup before executing its control payoff', () => {
+  const bank = chooseVersusNpcSignature(contextFor('chrono'));
+  equal(bank.commandIndex, 0);
+  equal(bank.intent, 'setup');
+  equal(bank.strategyStage, 'setup');
+  equal(bank.objectiveCommandIndex, 2);
+  equal(bank.objectiveIntent, 'control');
+  equal(bank.payoffReady, false);
+  equal(bank.nextCharges, 1);
+  deepStrictEqual(bank.nextPlacements, [5]);
+
+  const rewind = chooseVersusNpcSignature(contextFor('chrono', {
+    step: 1,
+    signatureCharges: bank.nextCharges,
+    signaturePlacements: bank.nextPlacements,
+    signatureLastCommand: bank.commandIndex,
+  }));
+  equal(rewind.commandIndex, 2);
+  equal(rewind.intent, 'control');
+  equal(rewind.strategyStage, 'execute');
+  equal(rewind.payoffReady, true);
+  ok(rewind.fireDisruption > 0);
+  ok(rewind.moveDisruption > 0);
+  equal(rewind.nextCharges, 0);
+  deepStrictEqual(rewind.nextPlacements, []);
+});
+
+test('Predator Hunts before committing its TARGET payoff', () => {
+  const hunt = chooseVersusNpcSignature(contextFor('predator'));
+  equal(hunt.commandIndex, 0);
+  equal(hunt.intent, 'setup');
+  equal(hunt.strategyStage, 'setup');
+  equal(hunt.objectiveCommandIndex, 1);
+  equal(hunt.objectiveIntent, 'attack');
+  equal(hunt.payoffReady, false);
+  equal(hunt.nextCharges, 1);
+  deepStrictEqual(shotRowsForPlan(hunt), []);
+
+  const target = chooseVersusNpcSignature(contextFor('predator', {
+    step: 1,
+    signatureCharges: hunt.nextCharges,
+    signatureLastCommand: hunt.commandIndex,
+  }));
+  equal(target.commandIndex, 1);
+  equal(target.intent, 'attack');
+  equal(target.strategyStage, 'execute');
+  equal(target.payoffReady, true);
+  equal(target.shotPattern, 'target');
+  deepStrictEqual(shotRowsForPlan(target), [2]);
+  equal(target.power, 2);
+  equal(target.big, true);
+  equal(target.nextCharges, 0);
+});
+
+test('Rift establishes an aperture before prioritizing its placement-gated maneuver', () => {
+  const aperture = chooseVersusNpcSignature(contextFor('rift'));
+  equal(aperture.commandIndex, 0);
+  equal(aperture.intent, 'setup');
+  equal(aperture.strategyStage, 'setup');
+  equal(aperture.objectiveCommandIndex, 1);
+  equal(aperture.objectiveIntent, 'maneuver');
+  equal(aperture.payoffReady, false);
+  equal(aperture.nextObjectiveCommand, 1);
+  deepStrictEqual(aperture.nextPlacements, [5]);
+
+  const fold = chooseVersusNpcSignature(contextFor('rift', {
+    step: 1,
+    signatureCharges: aperture.nextCharges,
+    signaturePlacements: aperture.nextPlacements,
+    signatureLastCommand: aperture.commandIndex,
+    signatureObjectiveCommand: aperture.nextObjectiveCommand,
+  }));
+  equal(fold.commandIndex, 1);
+  equal(fold.intent, 'maneuver');
+  equal(fold.objectiveCommandIndex, 1);
+  equal(fold.payoffReady, true);
+  equal(fold.columnDelta, -1);
+  equal(fold.nextObjectiveCommand, -1);
+});
+
+test('higher-threshold Terra and Tempest objectives stay sticky across setup beats', () => {
+  const cases = [
     {
-      step: 0,
-      npcHp: 100,
-      playerHp: 100,
-      npcShields: 3,
-      npcRow: 1,
-      playerRow: 2,
-      incomingByRow: [0, 0, 0],
-      signatureCharges: 0,
-      signaturePlacements: [],
-      signatureMode: 0,
-      signatureLastCommand: -1,
+      skillId: 'terra',
+      context: { npcHp: 50, incomingByRow: [0, 2, 0] as [number, number, number] },
+      objectiveCommand: 2,
+      objectiveIntent: 'guard',
     },
     {
+      skillId: 'tempest',
+      context: { npcHp: 78, incomingByRow: [0, 0, 0] as [number, number, number] },
+      objectiveCommand: 1,
+      objectiveIntent: 'attack',
+    },
+  ] as const;
+
+  for (const scenario of cases) {
+    const firstSetup = chooseVersusNpcSignature(contextFor(
+      scenario.skillId,
+      scenario.context,
+    ));
+    equal(firstSetup.commandIndex, 0);
+    equal(firstSetup.strategyStage, 'setup');
+    equal(firstSetup.objectiveCommandIndex, scenario.objectiveCommand);
+    equal(firstSetup.objectiveIntent, scenario.objectiveIntent);
+    equal(firstSetup.payoffReady, false);
+    equal(firstSetup.nextCharges, 1);
+    equal(firstSetup.nextObjectiveCommand, scenario.objectiveCommand);
+
+    const secondSetup = chooseVersusNpcSignature(contextFor(scenario.skillId, {
+      ...scenario.context,
       step: 1,
-      npcHp: 80,
-      playerHp: 20,
-      npcShields: 3,
-      npcRow: 0,
-      playerRow: 0,
-      incomingByRow: [0, 0, 0],
-      signatureCharges: 4,
-      signaturePlacements: [0, 1, 2, 3],
-      signatureMode: 1,
-      signatureLastCommand: 0,
-    },
-    {
+      signatureCharges: firstSetup.nextCharges,
+      signaturePlacements: firstSetup.nextPlacements,
+      signatureLastCommand: firstSetup.commandIndex,
+      signatureObjectiveCommand: firstSetup.nextObjectiveCommand,
+    }));
+    equal(secondSetup.commandIndex, 0);
+    equal(secondSetup.strategyStage, 'setup');
+    equal(secondSetup.objectiveCommandIndex, scenario.objectiveCommand);
+    equal(secondSetup.payoffReady, false);
+    equal(secondSetup.nextCharges, 2);
+    equal(secondSetup.nextObjectiveCommand, scenario.objectiveCommand);
+
+    const payoff = chooseVersusNpcSignature(contextFor(scenario.skillId, {
+      ...scenario.context,
       step: 2,
-      npcHp: 25,
-      playerHp: 90,
-      npcShields: 0,
-      npcRow: 2,
-      playerRow: 1,
-      incomingByRow: [4, 0, 2],
-      signatureCharges: 2,
-      signaturePlacements: [0, 4],
-      signatureMode: 2,
-      signatureLastCommand: 2,
-    },
-    {
-      step: 3,
-      npcHp: 55,
-      playerHp: 55,
-      npcShields: 1,
-      npcRow: 1,
-      playerRow: 1,
-      incomingByRow: [0, 1, 0],
-      signatureCharges: 1,
-      signaturePlacements: [5],
-      signatureMode: 0,
-      signatureLastCommand: 1,
-    },
-  ];
-
-  for (const skillId of BOSS_IDS) {
-    const visitedCommands = new Set<number>();
-    for (const signatureState of signatureStates) {
-      const context = contextFor(skillId, signatureState);
-      const plan = chooseVersusNpcSignature(context);
-
-      equal(plan.abilityId, skillId);
-      equal(plan.doctrine, bossStrategyProfile(skillId).doctrine);
-      ok(plan.commandIndex >= 0 && plan.commandIndex <= 2);
-      ok(plan.reason.length > 0, `${skillId} signature needs a tactical reason`);
-      ok(plan.nextCharges >= 0 && plan.nextCharges <= 4);
-      ok(plan.nextPlacements.length <= 4);
-      ok(
-        signatureHasEffect(context, plan),
-        `${skillId} command ${plan.commandIndex} produced no combat or state effect`,
-      );
-      visitedCommands.add(plan.commandIndex);
-    }
-
-    ok(
-      visitedCommands.size >= 2,
-      `${skillId} ignored signature state and only used command ${[...visitedCommands].join(', ')}`,
-    );
+      signatureCharges: secondSetup.nextCharges,
+      signaturePlacements: secondSetup.nextPlacements,
+      signatureLastCommand: secondSetup.commandIndex,
+      signatureObjectiveCommand: secondSetup.nextObjectiveCommand,
+    }));
+    equal(payoff.commandIndex, scenario.objectiveCommand);
+    equal(payoff.intent, scenario.objectiveIntent);
+    equal(payoff.strategyStage, 'execute');
+    equal(payoff.payoffReady, true);
+    equal(payoff.nextObjectiveCommand, -1);
   }
 });
 
-test('signature coverage uses every legal component before repeating one', () => {
-  const commandUses: [number, number, number] = [0, 0, 0];
-  const visited: number[] = [];
-  let lastCommand = -1;
+test('the same pressure state coordinates different owned cards with each exact signature', () => {
+  const expectations = [
+    { skillId: 'resonance', abilityId: 'sonicnet', objective: /coordinate resonance command 3 attack/ },
+    { skillId: 'chrono', abilityId: 'freeze', objective: /coordinate chrono command 3 control/ },
+    { skillId: 'predator', abilityId: 'marksman', objective: /coordinate predator command 2 attack/ },
+  ] as const;
 
-  for (let step = 0; step < 3; step++) {
-    const plan = chooseVersusNpcSignature(contextFor('apex', {
-      step,
-      signatureLastCommand: lastCommand,
-      signatureCommandUses: [...commandUses] as [number, number, number],
+  for (const expectation of expectations) {
+    const ranked = rankVersusNpcAbilities(contextFor(expectation.skillId, {
+      npcHp: 55,
+      playerFireCooldown: 0.1,
+      playerMoveCooldown: 0.1,
+      cardProgress: 0.8,
+      incomingByRow: [0, 0, 0],
     }));
-    visited.push(plan.commandIndex);
-    commandUses[plan.commandIndex] += 1;
-    lastCommand = plan.commandIndex;
+    equal(ranked[0]?.abilityId, expectation.abilityId);
+    match(ranked[0]?.reason ?? '', expectation.objective);
+    ok(bossStrategyProfile(expectation.skillId).abilities.includes(expectation.abilityId));
   }
-
-  deepStrictEqual(new Set(visited), new Set([0, 1, 2]));
 });

@@ -146,6 +146,13 @@ import {
   type AbilityEnemyTag,
 } from '../game/ability-system';
 import {
+  createAbilityAnimationPresentation,
+  createGeneratedAbilityAnimationProfile,
+  resolveAbilityAnimationProfile,
+  type AbilityAnimationPresentation,
+  type AbilityAnimationProfile,
+} from '../game/ability-animation';
+import {
   isVersusAbilityId,
   resolveVersusAbilityEffect,
   type VersusAbilityContext,
@@ -2964,6 +2971,7 @@ function makeInitialState(
       signatureActionCooldown: 0,
       signatureActions: 0,
       signatureLastCommand: -1,
+      signatureObjectiveCommand: -1,
       signatureMode: 0,
       signatureCharges: 0,
       signaturePlacements: [],
@@ -3526,6 +3534,212 @@ function preloadSignatureSkillVfx(id: RivalSkillId) {
   for (const motif of SKILL_EXECUTION_MOTIFS[id]) getSignatureVfxImage(motif);
 }
 
+type AbilityFxPoint = Readonly<{ x: number; y: number }>;
+
+/**
+ * Paint the card identity independently of either combatant's sprite. The
+ * binary rune makes every authored card visibly stable and distinct, while
+ * the semantic motion family communicates how it acts on the board. Nothing
+ * in this layer can alter sprite bounds, body scale, collision, or timing.
+ */
+function paintAbilityAnimationIdentity(
+  ctx: CanvasRenderingContext2D,
+  profile: AbilityAnimationProfile,
+  origin: AbilityFxPoint,
+  targets: readonly AbilityFxPoint[],
+  cell: number,
+  progress: number,
+  fade: number,
+) {
+  const focusTargets = targets.length > 0 ? targets : [origin];
+  const eased = 1 - Math.pow(1 - progress, 3);
+  const beat = profile.rhythm === 'snap'
+    ? Math.min(1, progress * 2.8)
+    : profile.rhythm === 'cascade'
+      ? Math.min(1, progress * 1.45)
+      : profile.rhythm === 'pulse'
+        ? 0.5 + Math.sin(progress * Math.PI * 6) * 0.5
+        : Math.sin(progress * Math.PI);
+  const rotation = profile.rotationDegrees * Math.PI / 180;
+  const lineWidth = Math.max(1.5, cell * 0.032);
+
+  const strokeLine = (
+    from: AbilityFxPoint,
+    to: AbilityFxPoint,
+    color: string,
+    alpha = 0.82,
+  ) => {
+    ctx.globalAlpha = Math.max(0, fade) * alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  };
+
+  const strokeRing = (
+    point: AbilityFxPoint,
+    radius: number,
+    color: string,
+    alpha = 0.82,
+    start = 0,
+    end = Math.PI * 2,
+  ) => {
+    ctx.globalAlpha = Math.max(0, fade) * alpha;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, radius, start, end);
+    ctx.stroke();
+  };
+
+  const drawRune = (point: AbilityFxPoint, targetIndex: number) => {
+    const radius = cell * (focusTargets.length > 1 ? 0.2 : 0.28);
+    const runeRotation = rotation + targetIndex * Math.PI / 6 + eased * Math.PI * 0.45;
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(runeRotation);
+    ctx.globalAlpha = Math.max(0, fade) * 0.88;
+    ctx.strokeStyle = profile.primary;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    for (let side = 0; side <= profile.polygonSides; side++) {
+      const angle = side / profile.polygonSides * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      if (side === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    for (let bit = 0; bit < profile.runeBits; bit++) {
+      const enabled = (profile.runeMask & (1 << bit)) !== 0;
+      const angle = bit / profile.runeBits * Math.PI * 2 - Math.PI / 2;
+      const innerRadius = radius * (enabled ? 0.38 : 0.57);
+      const outerRadius = radius * (enabled ? 0.92 : 0.76);
+      strokeLine(
+        { x: Math.cos(angle) * innerRadius, y: Math.sin(angle) * innerRadius },
+        { x: Math.cos(angle) * outerRadius, y: Math.sin(angle) * outerRadius },
+        enabled ? profile.accent : profile.primary,
+        enabled ? 0.96 : 0.46,
+      );
+    }
+    ctx.restore();
+  };
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowBlur = cell * 0.13;
+  ctx.shadowColor = profile.primary;
+
+  for (const [targetIndex, target] of focusTargets.entries()) {
+    const dx = target.x - origin.x;
+    const dy = target.y - origin.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const ux = dx / length;
+    const uy = dy / length;
+    const normal = { x: -uy, y: ux };
+
+    if (profile.motion === 'salvo') {
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        const offset = (echo - (profile.echoCount - 1) / 2) * cell * 0.055;
+        const head = Math.min(1, Math.max(0, eased - echo * 0.055));
+        const headPoint = {
+          x: origin.x + dx * head + normal.x * offset,
+          y: origin.y + dy * head + normal.y * offset,
+        };
+        strokeLine(
+          { x: headPoint.x - ux * cell * (0.18 + echo * 0.025), y: headPoint.y - uy * cell * (0.18 + echo * 0.025) },
+          headPoint,
+          echo % 2 ? profile.accent : profile.primary,
+          0.88,
+        );
+      }
+    } else if (profile.motion === 'impact') {
+      for (let ray = 0; ray < profile.echoCount + 2; ray++) {
+        const angle = rotation + ray / (profile.echoCount + 2) * Math.PI * 2;
+        const inner = cell * (0.08 + beat * 0.06);
+        const outer = cell * (0.24 + eased * 0.25);
+        strokeLine(
+          { x: target.x + Math.cos(angle) * inner, y: target.y + Math.sin(angle) * inner },
+          { x: target.x + Math.cos(angle) * outer, y: target.y + Math.sin(angle) * outer },
+          ray % 2 ? profile.accent : profile.primary,
+          0.86,
+        );
+      }
+    } else if (profile.motion === 'field') {
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        strokeRing(target, cell * (0.14 + echo * 0.075 + eased * 0.06), echo % 2 ? profile.accent : profile.primary, 0.78 - echo * 0.08);
+      }
+    } else if (profile.motion === 'ward') {
+      const radius = cell * (0.27 + beat * 0.045);
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        const arcOffset = echo / Math.max(1, profile.echoCount - 1) * Math.PI * 0.7;
+        strokeRing(origin, radius + echo * cell * 0.045, echo % 2 ? profile.accent : profile.primary, 0.86 - echo * 0.08, Math.PI + arcOffset * 0.15, Math.PI * 2 - arcOffset * 0.15);
+      }
+    } else if (profile.motion === 'shift') {
+      strokeRing(origin, cell * (0.16 + beat * 0.04), profile.primary, 0.86);
+      strokeRing(target, cell * (0.16 + (1 - beat) * 0.04), profile.accent, 0.86);
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        const position = Math.min(1, Math.max(0, eased - echo * 0.09));
+        strokeRing({ x: origin.x + dx * position, y: origin.y + dy * position }, cell * (0.055 + echo * 0.012), echo % 2 ? profile.accent : profile.primary, 0.74);
+      }
+    } else if (profile.motion === 'bind') {
+      const radius = cell * (0.22 + beat * 0.05);
+      for (let spoke = 0; spoke < profile.polygonSides; spoke++) {
+        const angle = rotation + spoke / profile.polygonSides * Math.PI * 2;
+        strokeLine(target, { x: target.x + Math.cos(angle) * radius, y: target.y + Math.sin(angle) * radius }, spoke % 2 ? profile.accent : profile.primary, 0.8);
+      }
+      strokeRing(target, radius, profile.primary, 0.82);
+    } else if (profile.motion === 'drain') {
+      for (let echo = 0; echo < profile.echoCount + 1; echo++) {
+        const position = (1 - eased + echo / (profile.echoCount + 1)) % 1;
+        strokeRing({ x: origin.x + dx * position, y: origin.y + dy * position }, cell * 0.035, echo % 2 ? profile.accent : profile.primary, 0.9);
+      }
+      strokeLine(target, origin, profile.accent, 0.56);
+    } else if (profile.motion === 'transmute') {
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        const angle = rotation + eased * Math.PI * (echo % 2 ? -1.4 : 1.4) + echo * Math.PI * 2 / profile.echoCount;
+        const radius = cell * (0.14 + echo * 0.045);
+        strokeRing({ x: target.x + Math.cos(angle) * radius, y: target.y + Math.sin(angle) * radius }, cell * 0.045, echo % 2 ? profile.accent : profile.primary, 0.88);
+      }
+    } else if (profile.motion === 'temporal') {
+      const radius = cell * (0.24 + beat * 0.035);
+      strokeRing(target, radius, profile.primary, 0.88);
+      strokeLine(target, {
+        x: target.x + Math.cos(rotation - eased * Math.PI * 1.6) * radius * 0.8,
+        y: target.y + Math.sin(rotation - eased * Math.PI * 1.6) * radius * 0.8,
+      }, profile.accent, 0.94);
+      strokeLine(target, {
+        x: target.x + Math.cos(rotation + eased * Math.PI * 0.7) * radius * 0.54,
+        y: target.y + Math.sin(rotation + eased * Math.PI * 0.7) * radius * 0.54,
+      }, profile.primary, 0.82);
+    } else if (profile.motion === 'wave') {
+      ctx.globalAlpha = Math.max(0, fade) * 0.86;
+      ctx.strokeStyle = profile.primary;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      for (let segment = 0; segment <= 18; segment++) {
+        const amount = segment / 18;
+        const amplitude = Math.sin(amount * Math.PI * profile.echoCount + rotation + eased * Math.PI * 2) * cell * 0.075;
+        const point = { x: origin.x + dx * amount + normal.x * amplitude, y: origin.y + dy * amount + normal.y * amplitude };
+        if (segment === 0) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+      }
+      ctx.stroke();
+    } else {
+      for (let echo = 0; echo < profile.echoCount; echo++) {
+        const angle = rotation + echo * Math.PI * 2 / profile.echoCount + eased * Math.PI * 0.6;
+        const radius = cell * (0.16 + echo * 0.045);
+        strokeLine(origin, { x: origin.x + Math.cos(angle) * radius, y: origin.y + Math.sin(angle) * radius }, echo % 2 ? profile.accent : profile.primary, 0.84);
+      }
+    }
+
+    drawRune(profile.action === 'defend' ? origin : target, targetIndex);
+  }
+  ctx.restore();
+}
+
 // The signature sheets are authored, textured animations. Earlier revisions
 // also painted generic circles, arrows, boxes and polygon sigils over them.
 // That diagnostic-style layer made every discipline look like the same basic
@@ -3547,6 +3761,8 @@ function SignatureSkillFx({
   presentationId,
   presentationCommand,
   startedAtMs,
+  abilityAnimationProfile,
+  durationMs = NPC_SKILL_PRESENTATION_DURATION_MS,
 }: {
   id: RivalSkillId;
   stateRef: MutableRefObject<GameState>;
@@ -3562,6 +3778,8 @@ function SignatureSkillFx({
   presentationId?: string;
   presentationCommand?: number | null;
   startedAtMs?: number;
+  abilityAnimationProfile?: AbilityAnimationProfile | null;
+  durationMs?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const targetRowsKey = targetRows.join(',');
@@ -3629,7 +3847,7 @@ function SignatureSkillFx({
     const render = (now: number) => {
       const execution = executionRef.current;
       const executionAge = (now - execution.startedAt) / 1000;
-      const presentationDurationSeconds = NPC_SKILL_PRESENTATION_DURATION_MS / 1000;
+      const presentationDurationSeconds = durationMs / 1000;
       const executionProgress = Math.min(1, executionAge / presentationDurationSeconds);
       const executing = execution.action !== null
         && executionAge < presentationDurationSeconds;
@@ -3672,13 +3890,13 @@ function SignatureSkillFx({
         : leftNpcActor
           ? [center(3 + state.npc.col, targetRows[0] ?? state.npc.row)]
           : state.enemies.map((enemy) => center(enemy.colPos, enemy.row));
-      const [primaryValue, accentValue] = SIGNATURE_SKILL_COLORS[id];
+      const [skillPrimaryValue, skillAccentValue] = SIGNATURE_SKILL_COLORS[id];
       // Keep the drawing helpers open to every authored boss palette. The
       // imported palette registry is intentionally literal-typed so invalid
       // boss ids remain a compile error, but canvas colors are ordinary CSS
       // strings once selected.
-      const primary: string = primaryValue;
-      const accent: string = accentValue;
+      const primary: string = abilityAnimationProfile?.primary ?? skillPrimaryValue;
+      const accent: string = abilityAnimationProfile?.accent ?? skillAccentValue;
       const t = (now - startedAt) / 1000;
       const pulse = (Math.sin(t * 6) + 1) * 0.5;
       const intro = Math.min(1, (now - startedAt) / 420);
@@ -3855,34 +4073,30 @@ function SignatureSkillFx({
 
         const sequenceMotif = motif ?? SKILL_EXECUTION_MOTIFS[id][0];
         const sheet = getSignatureVfxImage(sequenceMotif);
+        const anchoredTarget = anchorOverride === 'self' ? player : target;
+        const resolvedTarget = anchorOverride
+          ? anchoredTarget
+          : motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
+            ? target
+            : motif === 'dash' || motif === 'weapon'
+              ? {
+                  x: player.x + (target.x - player.x) * Math.min(0.72, easeOut),
+                  y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
+                }
+              : player;
+        // Multi-lane profiles share a target column but preserve the exact
+        // three lane centers, including campaign cards where no Versus actor
+        // owns a fixed opposing column.
+        const vfxTargets = anchorOverride === 'all-lanes'
+          ? (targetRows.length > 0 ? targetRows : [0, 1, 2]).map((row) => ({
+              x: resolvedTarget.x,
+              y: center(0, row).y,
+            }))
+          : [resolvedTarget];
         if (sheet?.complete && sheet.naturalWidth > 0) {
           const sequenceFrame = Math.min(3, Math.floor(executionProgress * 4));
           const sourceWidth = sheet.naturalWidth / 4;
           const sourceHeight = sheet.naturalHeight;
-          const anchoredTarget = anchorOverride === 'self' ? player : target;
-          const resolvedTarget = anchorOverride
-            ? anchoredTarget
-            : motif === 'gravity' || motif === 'reflect' || motif === 'target' || motif === 'orbital'
-              ? target
-              : motif === 'dash' || motif === 'weapon'
-                ? {
-                    x: player.x + (target.x - player.x) * Math.min(0.72, easeOut),
-                    y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
-                  }
-                : player;
-          // Multi-lane plans must identify the exact projectile lanes. A
-          // single oversized image at board center concealed which rows were
-          // actually threatened and made unrelated plans look equivalent.
-          const allLaneTargetColumn = npcActor
-            ? state.player.col
-            : leftNpcActor
-              ? 3 + state.npc.col
-              : null;
-          const vfxTargets = allLaneTargetColumn !== null && anchorOverride === 'all-lanes'
-            ? (targetRows.length > 0 ? targetRows : [0, 1, 2]).map(
-                (row) => center(allLaneTargetColumn, row),
-              )
-            : [resolvedTarget];
           const multiLaneScale = vfxTargets.length > 1 ? 0.78 : 1;
           const baseSize = board.cell
             * (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18)
@@ -3935,6 +4149,18 @@ function SignatureSkillFx({
             fallbackTarget.y,
             '#f8fafc',
             board.cell * (0.045 + fade * 0.04),
+          );
+        }
+
+        if (abilityAnimationProfile) {
+          paintAbilityAnimationIdentity(
+            ctx,
+            abilityAnimationProfile,
+            player,
+            vfxTargets,
+            board.cell,
+            executionProgress,
+            fade,
           );
         }
 
@@ -4285,6 +4511,7 @@ function SignatureSkillFx({
   }, [
     actionTick,
     actorSide,
+    abilityAnimationProfile,
     anchorOverride,
     boardTopFloorRef,
     id,
@@ -4294,6 +4521,7 @@ function SignatureSkillFx({
     stateRef,
     startedAtMs,
     targetRowsKey,
+    durationMs,
   ]);
 
   return (
@@ -4306,6 +4534,8 @@ function SignatureSkillFx({
         ? presentationCommand
         : undefined}
       data-npc-skill-motif={actorSide === 'npc' ? motifOverride : undefined}
+      data-ability-animation-id={presentationId}
+      data-ability-animation-signature={abilityAnimationProfile?.visualSignature}
       aria-hidden="true"
     />
   );
@@ -5077,6 +5307,8 @@ export default function Game() {
     actionCooldown: number;
     actions: number;
     lastCommand: number;
+    objectiveCommand: number;
+    prepConsumed: boolean;
     mode: number;
     charges: number;
     placements: number[];
@@ -5089,6 +5321,8 @@ export default function Game() {
     actionCooldown: 0,
     actions: 0,
     lastCommand: -1,
+    objectiveCommand: -1,
+    prepConsumed: false,
     mode: 0,
     charges: 0,
     placements: [] as number[],
@@ -5488,6 +5722,11 @@ export default function Game() {
   const npcSkillCommandIndexRef = useRef<number | null>(null);
   const npcAttackStartedRef = useRef(-1);
   const npcSkillStartedRef = useRef(-1);
+  const playerAbilityPresentationRevisionRef = useRef(0);
+  const playerAbilityPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [playerAbilityPresentation, setPlayerAbilityPresentation] = useState<
+    (AbilityAnimationPresentation & { revision: number; startedAtMs: number }) | null
+  >(null);
   const npcSkillPresentationRevisionRef = useRef(0);
   const npcSkillPresentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [npcSkillPresentation, setNpcSkillPresentation] = useState<
@@ -5520,6 +5759,23 @@ export default function Game() {
   const rivalSkillRef = useRef<RivalSkillView>(emptyRivalSkillView());
   const [rivalSkillView, setRivalSkillView] = useState<RivalSkillView>(emptyRivalSkillView);
   const [echoChannelView, setEchoChannelView] = useState<'idle' | 'brink' | 'drain'>('idle');
+
+  const publishPlayerAbilityPresentation = useCallback((
+    presentation: AbilityAnimationPresentation,
+  ) => {
+    if (playerAbilityPresentationTimerRef.current) {
+      clearTimeout(playerAbilityPresentationTimerRef.current);
+    }
+    const revision = ++playerAbilityPresentationRevisionRef.current;
+    const startedAtMs = performance.now();
+    setPlayerAbilityPresentation({ ...presentation, revision, startedAtMs });
+    playerAbilityPresentationTimerRef.current = setTimeout(() => {
+      setPlayerAbilityPresentation((current) => (
+        current?.revision === revision ? null : current
+      ));
+      playerAbilityPresentationTimerRef.current = null;
+    }, presentation.durationMs + 80);
+  }, []);
 
   const clearNpcSkillPresentation = useCallback(() => {
     if (npcSkillPresentationTimerRef.current) {
@@ -5564,9 +5820,12 @@ export default function Game() {
     }
     const startedAtMs = performance.now();
     const activePresentation = { ...presentation, startedAtMs };
+    // Ability cards use the shared generic body cast on both NPC sides; only
+    // actual signature commands select one of the three authored command
+    // strips. The per-card overlay carries the individual animation identity.
     rivalSkillAnimationCommandRef.current = presentation.source === 'signature'
       ? presentation.commandIndex ?? 0
-      : presentation.action === 'primary' ? 0 : presentation.action === 'alternate' ? 1 : 2;
+      : -1;
     rivalSkillAnimationStartedRef.current = startedAtMs;
     setNpcLeftSkillPresentation(activePresentation);
     npcLeftSkillPresentationTimerRef.current = setTimeout(() => {
@@ -5578,6 +5837,10 @@ export default function Game() {
   }, []);
 
   useEffect(() => () => {
+    if (playerAbilityPresentationTimerRef.current) {
+      clearTimeout(playerAbilityPresentationTimerRef.current);
+      playerAbilityPresentationTimerRef.current = null;
+    }
     if (npcSkillPresentationTimerRef.current) {
       clearTimeout(npcSkillPresentationTimerRef.current);
       npcSkillPresentationTimerRef.current = null;
@@ -7745,6 +8008,35 @@ export default function Game() {
       registerPlaystyle('abilityUse');
     }
 
+    // A successful card activation commits one presentation event before any
+    // effect branch can return early (Card Flood is the notable case). Direct
+    // Lord Alpha button choreography owns its own animation and is excluded;
+    // ordinary cards still receive their stable per-card identity.
+    if (!lordAlphaDirectInvocation) {
+      const animationProfile = resolveAbilityAnimationProfile(type)
+        ?? (generated
+          ? createGeneratedAbilityAnimationProfile(
+              type,
+              generated.delivery,
+              generated.function,
+              generated.medium,
+            )
+          : null);
+      if (animationProfile) {
+        const presentationTargetRow = s.gameMode === 'vs'
+          ? s.npc.row
+          : [...s.enemies]
+              .filter((enemy) => enemy.colPos > -1 && enemy.hp > 0)
+              .sort((left, right) => left.colPos - right.colPos)[0]?.row
+            ?? s.player.row;
+        publishPlayerAbilityPresentation(createAbilityAnimationPresentation(
+          animationProfile,
+          ability.name,
+          presentationTargetRow,
+        ));
+      }
+    }
+
     const lordAlphaGrappleTarget = lordAlphaGrappleInvocation && s.gameMode !== 'vs'
       ? [...s.enemies]
         .filter((enemy) => enemy.colPos > -1 && enemy.hp > 0)
@@ -8797,7 +9089,7 @@ export default function Game() {
     updateHud();
   }, [fireBullet, addParticles, showMessage, updateHud, registerPlaystyle, resolveAttackStyle,
     endGame, lordAlphaSkillsPreview, triggerLordAlphaPresentation, lordAlphaBoardAnchor,
-    resolveCampaignEnemyDefeat, consumeNpcShadowCloneCharge]);
+    resolveCampaignEnemyDefeat, consumeNpcShadowCloneCharge, publishPlayerAbilityPresentation]);
 
   // Rotate hand: reset the bar timer so it charges up and deals a fresh hand when full
   const rotateHand = useCallback(() => {
@@ -13800,6 +14092,8 @@ export default function Game() {
             actionCooldown: 0,
             actions: 0,
             lastCommand: -1,
+            objectiveCommand: -1,
+            prepConsumed: false,
             mode: 0,
             charges: 0,
             placements: [],
@@ -13822,18 +14116,6 @@ export default function Game() {
         const leftHasSignature = leftCounterpart.signature.kind !== 'none'
           && leftCounterpart.signature.kind !== 'unsupported';
         const leftSignatureActionBudget = npcSignatureActionBudget(leftCounterpart);
-        if (leftHasSignature && leftSignatureState.window <= 0 && leftSignatureState.cooldown <= 0) {
-          leftSignatureState.window = npcSignatureWindowDuration(leftCounterpart);
-          leftSignatureState.actionCooldown = 0;
-          leftSignatureState.actions = 0;
-          leftSignatureState.lastCommand = -1;
-          leftSignatureState.mode = 0;
-          leftSignatureState.charges = 0;
-          leftSignatureState.placements = [];
-          leftSignatureState.originRow = s.player.row;
-          leftSignatureState.originCol = s.player.col;
-          leftSignatureState.cooldown = VS_NPC_SKILL_INTERVAL;
-        }
         const leftRivalSignatureId = leftCounterpart.signature.kind === 'boss-skill'
           ? leftCounterpart.signature.id
           : null;
@@ -13882,7 +14164,14 @@ export default function Game() {
           signatureOriginRow: leftSignatureState.originRow,
           signatureOriginCol: leftSignatureState.originCol,
           signatureLastCommand: leftSignatureState.lastCommand,
+          signatureObjectiveCommand: leftSignatureState.objectiveCommand,
           signatureCommandUses: leftSignatureState.commandUses,
+          signatureAvailable: leftHasSignature,
+          signaturePlanAvailable: Boolean(leftRivalSignatureId),
+          signatureCooldownReady: leftSignatureState.cooldown <= 0
+            && npcVsNpcLeftDecisionLockRef.current <= 0,
+          signatureWindowActive: leftSignatureState.window > 0,
+          signaturePrepConsumed: leftSignatureState.prepConsumed,
           abilityIds: leftCounterpart.abilities.pool,
           abilityUseCounts: npcVsNpcLeftAbilityUseCountsRef.current,
         };
@@ -13890,6 +14179,22 @@ export default function Game() {
           leftControllerInput,
         );
         const leftStrategyContext = createLeftNpcStrategyContext(leftControllerInput);
+
+        if (leftNpcDecision.openSignature) {
+          leftSignatureState.window = npcSignatureWindowDuration(leftCounterpart);
+          leftSignatureState.actionCooldown = 0;
+          leftSignatureState.actions = 0;
+          leftSignatureState.lastCommand = -1;
+          leftSignatureState.objectiveCommand = -1;
+          leftSignatureState.prepConsumed = false;
+          leftSignatureState.mode = 0;
+          leftSignatureState.charges = 0;
+          leftSignatureState.placements = [];
+          leftSignatureState.commandUses = [0, 0, 0];
+          leftSignatureState.originRow = s.player.row;
+          leftSignatureState.originCol = s.player.col;
+          leftSignatureState.cooldown = VS_NPC_SKILL_INTERVAL;
+        }
 
         const applyLeftNpcPlan = (rawPlan: VersusAbilityPlan | VersusSignaturePlan) => {
           const plan = orientVersusPlanForLeft(rawPlan);
@@ -13921,6 +14226,9 @@ export default function Game() {
           leftSignatureState.placements = [...applied.npc.signaturePlacements];
           leftSignatureState.originRow = applied.npc.signatureOriginRow;
           leftSignatureState.originCol = applied.npc.signatureOriginCol;
+          if ('commandIndex' in plan) {
+            leftSignatureState.objectiveCommand = plan.nextObjectiveCommand ?? -1;
+          }
           npc.fireCooldown = Math.max(npc.fireCooldown, applied.player.fireCooldown);
           npc.moveCooldown = Math.max(npc.moveCooldown, applied.player.moveCooldown);
           if (plan.cardPressure > 0 && npc.abilityCooldown > 0) {
@@ -14079,13 +14387,12 @@ export default function Game() {
           && npcVsNpcAbilityCooldownRef.current <= 0) {
           const plan = leftNpcDecision.ability;
           applyLeftNpcPlan(plan);
-          if (leftRivalSignatureId) {
-            publishNpcLeftSkillPresentation(resolveNpcAbilityPresentation(
-              plan,
-              leftRivalSignatureId,
-              ++npcLeftSkillPresentationRevisionRef.current,
-            ));
-          } else if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
+          publishNpcLeftSkillPresentation(resolveNpcAbilityPresentation(
+            plan,
+            leftRivalSignatureId ?? 'apex',
+            ++npcLeftSkillPresentationRevisionRef.current,
+          ));
+          if (!leftRivalSignatureId && playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
             const presentation = getLordAlphaCardPresentation(plan.abilityId);
             if (presentation) {
               npcVsNpcLeftDecisionLockRef.current = Math.max(
@@ -14117,6 +14424,9 @@ export default function Game() {
             COMPETITIVE_RULESET.npcMoveInterval * 0.5,
           );
           npcVsNpcAbilityCooldownRef.current = VS_NPC_ABILITY_INTERVAL;
+          if (leftNpcDecision.preparesSignature) {
+            leftSignatureState.prepConsumed = true;
+          }
           if (leftNpcDecision.cardSlot !== null) {
             npcVsNpcLeftAbilityUseCountsRef.current = recordNpcVersusAbilityUse(
               npcVsNpcLeftAbilityUseCountsRef.current,
@@ -14299,6 +14609,7 @@ export default function Game() {
           signatureOriginRow: npc.signatureOriginRow,
           signatureOriginCol: npc.signatureOriginCol,
           signatureLastCommand: npc.signatureLastCommand,
+          signatureObjectiveCommand: npc.signatureObjectiveCommand ?? -1,
           signatureCommandUses: npcSignatureCommandUsesRef.current,
         };
       };
@@ -14337,6 +14648,9 @@ export default function Game() {
         npc.signaturePlacements = [...applied.npc.signaturePlacements];
         npc.signatureOriginRow = applied.npc.signatureOriginRow;
         npc.signatureOriginCol = applied.npc.signatureOriginCol;
+        if ('commandIndex' in plan) {
+          npc.signatureObjectiveCommand = plan.nextObjectiveCommand ?? -1;
+        }
         s.player.fireCooldown = applied.player.fireCooldown;
         s.player.moveCooldown = applied.player.moveCooldown;
         if (npcVsNpcActive) {
@@ -14693,11 +15007,9 @@ export default function Game() {
       let npcHighLevelActed = false;
       let npcHighLevelColumnActed = false;
       let npcHighLevelMovementContext: VersusNpcContext | null = null;
-      const campaignBossTacticsActive = Boolean(
-        campaignBossSessionRef.current && npcRivalSkill,
-      );
-      const rememberCampaignBossAction = (action: BossTacticalAction) => {
-        if (!campaignBossTacticsActive) return;
+      const npcSkillTacticsActive = Boolean(npcRivalSkill);
+      const rememberNpcTacticalAction = (action: BossTacticalAction) => {
+        if (!npcSkillTacticsActive) return;
         const previous = npcBossTacticalMemoryRef.current;
         const observed = observeBossPlayerPattern(previous, {
           playerRow: s.player.row,
@@ -14730,11 +15042,27 @@ export default function Game() {
       const prospectiveEvasionPlan = npcEchoBracing
         ? null
         : planVersusBossEvasion(evasionContext);
-      const bossStrategyContext = campaignBossTacticsActive
+      const bossStrategyContext = npcSkillTacticsActive
         ? buildNpcContext(npc.strategyStep)
         : null;
-      const rankedBossAbilityPlans = bossStrategyContext
-        ? rankVersusNpcAbilities(bossStrategyContext)
+      // A closed window begins with fresh signature resources. Rank cards
+      // against that exact opening plan rather than stale resources from the
+      // prior window, so cards can prepare this boss's individual skill.
+      const bossPlanningContext = bossStrategyContext && npc.signatureWindow <= 0
+        ? {
+            ...bossStrategyContext,
+            signatureMode: 0,
+            signatureCharges: 0,
+            signaturePlacements: [],
+            signatureLastCommand: -1,
+            signatureObjectiveCommand: -1,
+          }
+        : bossStrategyContext;
+      const bossSignaturePlan = bossPlanningContext && npcRivalSkill
+        ? chooseVersusNpcSignature(bossPlanningContext)
+        : null;
+      const rankedBossAbilityPlans = bossPlanningContext
+        ? rankVersusNpcAbilities(bossPlanningContext)
         : [];
       const bossPreferredAbilityIds = rankedBossAbilityPlans.map(({ abilityId }) => abilityId);
       let preparedBossCounterpart: VersusBossCounterpart | null = null;
@@ -14745,7 +15073,7 @@ export default function Game() {
       // action category. This lets a live counter or critical recovery beat a
       // dodge/signature opening without ever inventing a card or bypassing its
       // cooldown.
-      if (campaignBossTacticsActive
+      if (npcSkillTacticsActive
         && npc.abilityCooldown <= 0
         && npc.signatureWindow <= 0
         && !committedImpact
@@ -14781,7 +15109,7 @@ export default function Game() {
 
       const bossTacticalDecision: BossTacticalDecision | null = bossStrategyContext
         ? chooseBossTacticalAction({
-            context: bossStrategyContext,
+            context: bossPlanningContext ?? bossStrategyContext,
             memory: npcBossTacticalMemoryRef.current,
             impactCommitted: committedImpact,
             decisionLocked: npc.decisionLock > 0,
@@ -14792,6 +15120,7 @@ export default function Game() {
             signatureWindowActive: npc.signatureWindow > 0,
             signatureActionReady: npc.signatureActionCooldown <= 0
               && npc.signatureActions < npcSignatureActionLimit,
+            signaturePlan: bossSignaturePlan,
             abilityPlan: preparedBossAbilityPlan,
             movementReady: npc.moveCooldown <= 0,
             basicReady: npc.fireCooldown <= 0,
@@ -14809,7 +15138,7 @@ export default function Game() {
         npc.decisionLock = Math.max(npc.decisionLock, evasionPlan.fireRecovery);
         npc.strategyStep++;
         npcEvadedThisFrame = true;
-        rememberCampaignBossAction('evade');
+        rememberNpcTacticalAction('evade');
         if (m) addParticles(
           m.x + (npcBoardColBeforeMovement + 0.5) * m.cell,
           m.y + (npc.row + 0.5) * m.cell,
@@ -14823,7 +15152,7 @@ export default function Game() {
         && npc.signatureCooldown <= 0
         && !committedImpact
         && npc.decisionLock <= 0
-        && (!campaignBossTacticsActive
+        && (!npcSkillTacticsActive
           || bossTacticalDecision?.action === 'signature-open')) {
         npc.signatureWindow = npcCounterpart
           ? npcSignatureWindowDuration(npcCounterpart)
@@ -14831,20 +15160,28 @@ export default function Game() {
         npc.signatureActionCooldown = 0;
         npc.signatureActions = 0;
         npc.signatureLastCommand = -1;
+        npc.signatureObjectiveCommand = -1;
         npc.signatureMode = 0;
         npc.signatureCharges = 0;
         npc.signaturePlacements = [];
+        npcSignatureCommandUsesRef.current = [0, 0, 0];
         npc.signatureOriginCol = npc.col;
         npc.signatureOriginRow = npc.row;
         npc.signatureCooldown = VS_NPC_SKILL_INTERVAL;
-        rememberCampaignBossAction('signature-open');
+        rememberNpcTacticalAction('signature-open');
       }
 
       if (npc.abilityCooldown <= 0
         && !npcEchoBracing
         && npc.signatureWindow <= 0
         && !committedImpact
-        && npc.decisionLock <= 0) {
+        && npc.decisionLock <= 0
+        && (!npcSkillTacticsActive
+          || bossTacticalDecision?.action === 'ability'
+          // Generated manifestation cards are real owned cards but are not
+          // members of the three-card authored ranking. They must remain
+          // executable once the signature director yields the action window.
+          || Boolean(preparedBossReadyAbilityId && !preparedBossAbilityPlan))) {
         let activeCounterpart = preparedBossCounterpart ?? npcCounterpartRef.current;
         const refreshRequested = npcAbilityRuntimeRef.current?.npcHandRefreshRequested ?? false;
         if (activeCounterpart && (
@@ -14862,14 +15199,14 @@ export default function Game() {
           }
         }
 
-        const readyAbilityId = campaignBossTacticsActive
+        const readyAbilityId = npcSkillTacticsActive
           && activeCounterpart === preparedBossCounterpart
           ? preparedBossReadyAbilityId
           : activeCounterpart
             ? selectVersusBossReadyAbility(activeCounterpart, {
                 context: buildNpcAbilityBoardContext(),
                 seed: Math.floor(nextNpcRandom() * 0x7fff_ffff),
-                ...(campaignBossTacticsActive
+                ...(npcSkillTacticsActive
                   ? {
                       preferredAbilityIds: bossPreferredAbilityIds,
                       preferAuthoredAbility: true,
@@ -14906,13 +15243,20 @@ export default function Game() {
           }
           const plan = abilityPresentationPlan(abilityUse.abilityId, execution.outcome);
           npcHighLevelMovementContext = context;
-          if (npcRivalSkill) {
-            publishNpcSkillPresentation(resolveNpcAbilityPresentation(
-              plan,
-              npcRivalSkill,
-              ++npcSkillPresentationRevisionRef.current,
-            ));
-          }
+          const npcAnimationOverride = abilityUse.card.kind === 'generated'
+            ? createGeneratedAbilityAnimationProfile(
+                abilityUse.abilityId,
+                abilityUse.card.definition.delivery,
+                abilityUse.card.definition.function,
+                abilityUse.card.definition.medium,
+              )
+            : undefined;
+          publishNpcSkillPresentation(resolveNpcAbilityPresentation(
+            plan,
+            npcRivalSkill ?? 'apex',
+            ++npcSkillPresentationRevisionRef.current,
+            npcAnimationOverride,
+          ));
           showNpcTacticCue(plan);
           const selectedAbility = runtimeAbilityById(abilityUse.abilityId);
           const abilityName = selectedAbility?.name
@@ -14929,7 +15273,7 @@ export default function Game() {
           npc.abilityCooldown = VS_NPC_ABILITY_INTERVAL + nextNpcRandom();
           npc.decisionLock = npcAbilityPresentationDurationMs / 1000;
           npcHighLevelActed = true;
-          rememberCampaignBossAction('ability');
+          rememberNpcTacticalAction('ability');
           updateHud();
           if (s.hp <= 0) {
             if (npcVsNpcActive) npcVsNpcALethalThisFrame = true;
@@ -15166,7 +15510,7 @@ export default function Game() {
           npc.signatureWindow = 0;
         }
         npcHighLevelActed = true;
-        rememberCampaignBossAction('signature-action');
+        rememberNpcTacticalAction('signature-action');
         updateHud();
       }
 
@@ -15191,7 +15535,7 @@ export default function Game() {
         npc.moveCooldown = COMPETITIVE_RULESET.npcMoveInterval;
         const context = buildNpcContext(npc.strategyStep++);
         const position = chooseVersusMovementPosition(context, nextNpcRandom());
-        const adaptiveManeuver = campaignBossTacticsActive
+        const adaptiveManeuver = npcSkillTacticsActive
           && bossTacticalDecision?.action === 'maneuver';
         npc.row = adaptiveManeuver
           ? bossTacticalDecision.targetRow
@@ -15201,7 +15545,7 @@ export default function Game() {
           // Learned lane movement is a deliberate beat, not a free pre-fire
           // teleport. The following decision can then punish the new angle.
           npcHighLevelActed = true;
-          rememberCampaignBossAction('maneuver');
+          rememberNpcTacticalAction('maneuver');
         }
       }
       if (npcSignatureRuntimeRef.current) {
@@ -15230,7 +15574,7 @@ export default function Game() {
           npc.row = aim.nextRow;
           npc.fireCooldown = 0.14;
           npc.moveCooldown = Math.max(npc.moveCooldown, 0.14);
-          rememberCampaignBossAction('maneuver');
+          rememberNpcTacticalAction('maneuver');
         } else {
           const basicLaunch = launchVersusBossBasicProjectile(
             synchronizeNpcAbilityRuntime(),
@@ -15252,7 +15596,7 @@ export default function Game() {
           }
           const hpLead = Math.max(-0.2, Math.min(0.25, (npc.hp - s.hp) / NPC_HP));
           npc.fireCooldown = COMPETITIVE_RULESET.npcFireInterval * (1 + hpLead);
-          rememberCampaignBossAction('basic');
+          rememberNpcTacticalAction('basic');
         }
       }
 
@@ -16685,6 +17029,8 @@ export default function Game() {
       actionCooldown: 0,
       actions: 0,
       lastCommand: -1,
+      objectiveCommand: -1,
+      prepConsumed: false,
       mode: 0,
       charges: 0,
       placements: [],
@@ -18298,6 +18644,24 @@ export default function Game() {
         </>
       )}
 
+      {phase === 'playing' && playerAbilityPresentation && (
+        <SignatureSkillFx
+          id={rivalSkillView.id ?? 'apex'}
+          stateRef={stateRef}
+          actionTick={playerAbilityPresentation.revision}
+          lastAction={playerAbilityPresentation.action}
+          boardTopFloorRef={boardTopFloorRef}
+          motifOverride={playerAbilityPresentation.motif}
+          labelOverride={playerAbilityPresentation.label}
+          anchorOverride={playerAbilityPresentation.anchor}
+          targetRows={playerAbilityPresentation.targetRows}
+          presentationId={playerAbilityPresentation.abilityId}
+          startedAtMs={playerAbilityPresentation.startedAtMs}
+          abilityAnimationProfile={playerAbilityPresentation.profile}
+          durationMs={playerAbilityPresentation.durationMs}
+        />
+      )}
+
       {phase === 'playing' && rivalSkillView.active && rivalSkillView.id
         && rivalSkillView.id !== 'echo' && (
         <SignatureSkillFx
@@ -18330,6 +18694,8 @@ export default function Game() {
           presentationId={npcSkillPresentation.abilityId}
           presentationCommand={npcSkillPresentation.commandIndex}
           startedAtMs={npcSkillPresentation.startedAtMs}
+          abilityAnimationProfile={npcSkillPresentation.abilityAnimation}
+          durationMs={npcSkillPresentation.durationMs}
         />
       )}
 
@@ -18349,6 +18715,8 @@ export default function Game() {
           presentationId={npcLeftSkillPresentation.abilityId}
           presentationCommand={npcLeftSkillPresentation.commandIndex}
           startedAtMs={npcLeftSkillPresentation.startedAtMs}
+          abilityAnimationProfile={npcLeftSkillPresentation.abilityAnimation}
+          durationMs={npcLeftSkillPresentation.durationMs}
         />
       )}
 

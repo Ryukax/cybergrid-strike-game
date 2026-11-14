@@ -10,7 +10,12 @@ import {
   type BossTacticalDirectorInput,
   type BossTacticalMemory,
 } from './boss-tactical-director';
-import { resolveVersusNpcAbility, type VersusNpcContext } from './npc-strategy';
+import {
+  chooseVersusNpcSignature,
+  rankVersusNpcAbilities,
+  resolveVersusNpcAbility,
+  type VersusNpcContext,
+} from './npc-strategy';
 
 function context(overrides: Partial<VersusNpcContext> = {}): VersusNpcContext {
   return {
@@ -138,17 +143,45 @@ test('critical bosses select a ready recovery or guard before a new signature', 
   equal(decision.focus, 'survival');
 });
 
-test('a ready authored signature opens before ordinary ability pressure', () => {
-  const ctx = context({ skillId: 'apex' });
-  const decision = chooseBossTacticalAction(directorInput({
+test('the director uses one owned prep card, then opens the exact setup-stage signature', () => {
+  const ctx = context({
+    skillId: 'chrono',
+    incomingByRow: [0, 0, 0],
+  });
+  const signaturePlan = chooseVersusNpcSignature(ctx);
+  const abilityPlan = rankVersusNpcAbilities(ctx)[0] ?? null;
+
+  equal(signaturePlan.commandIndex, 0);
+  equal(signaturePlan.strategyStage, 'setup');
+  equal(signaturePlan.objectiveCommandIndex, 2);
+  equal(signaturePlan.objectiveIntent, 'control');
+  equal(abilityPlan?.abilityId, 'time');
+
+  const prepare = chooseBossTacticalAction(directorInput({
     context: ctx,
     signatureCooldownReady: true,
-    abilityPlan: resolveVersusNpcAbility('shattershot', ctx),
+    signaturePlan,
+    abilityPlan,
   }));
+  equal(prepare.action, 'ability');
+  equal(prepare.focus, 'signature');
+  match(prepare.reason, /time prepares chrono command 3 control/);
 
-  equal(decision.action, 'signature-open');
-  equal(decision.focus, 'signature');
-  match(decision.reason, /authored signature is ready/);
+  const preparedMemory = recordBossTacticalAction(
+    createBossTacticalMemory(ctx.playerRow),
+    'ability',
+  );
+  const open = chooseBossTacticalAction(directorInput({
+    context: ctx,
+    memory: preparedMemory,
+    signatureCooldownReady: true,
+    signaturePlan,
+    abilityPlan,
+  }));
+  equal(open.action, 'signature-open');
+  equal(open.focus, 'signature');
+  equal(open.targetRow, signaturePlan.targetRow);
+  match(open.reason, /open chrono command 3 control/);
 });
 
 test('boss memory learns repeated lanes from visible player behavior', () => {

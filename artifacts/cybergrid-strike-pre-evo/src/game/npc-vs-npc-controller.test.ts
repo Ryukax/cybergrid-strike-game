@@ -209,65 +209,71 @@ test('ability usage helpers sanitize, rebase, record, and remain immutable', () 
   deepStrictEqual(recordNpcVersusAbilityUse([2, 1], 8, 2), [1, 0]);
 });
 
-test('least-used practical authored slots surface before a tactical repeat', () => {
-  const first = decideLeftNpcVersusAction(input({
-    skillId: 'arsenal',
-    abilityUseCounts: [0, 0, 0],
+test('left NPC delays a ready setup signature for one useful owned prep card', () => {
+  const decision = decideLeftNpcVersusAction(input({
+    skillId: 'chrono',
+    signatureAvailable: true,
+    signatureCooldownReady: true,
+    signatureWindowActive: false,
+    cardsReady: true,
+    selfCardCooldown: 0,
   }));
-  equal(first.cardSlot, 0, 'opening tactics may choose Barrage from an unused tie');
-  equal(first.ability?.abilityId, 'barrage');
 
-  const afterFirst = recordNpcVersusAbilityUse([0, 0, 0], first.cardSlot!, 3);
-  const second = decideLeftNpcVersusAction(input({
-    skillId: 'arsenal',
-    abilityUseCounts: afterFirst,
-  }));
-  ok(second.cardSlot === 1 || second.cardSlot === 2);
-  ok(second.ability?.abilityId === 'shotgun' || second.ability?.abilityId === 'overclock');
-
-  const afterSecond = recordNpcVersusAbilityUse(afterFirst, second.cardSlot!, 3);
-  const third = decideLeftNpcVersusAction(input({
-    skillId: 'arsenal',
-    abilityUseCounts: afterSecond,
-  }));
-  const visited = new Set([first.cardSlot, second.cardSlot, third.cardSlot]);
-  deepStrictEqual([...visited].sort(), [0, 1, 2]);
+  equal(decision.cardSlot, 0);
+  equal(decision.ability?.abilityId, 'time');
+  equal(decision.openSignature, undefined);
+  equal(decision.preparesSignature, true);
 });
 
-test('explicit owned ability pools support more than three components', () => {
-  const abilityIds = [
-    'arcweb',
-    'gravity',
-    'freeze',
-    'stasisgate',
-    'backdash',
-    'nuke',
-    'megabomb',
-  ] as const;
-  let useCounts: readonly number[] = Array(abilityIds.length).fill(0);
-  const visited = new Set<number>();
+test('left NPC opens its ready signature when the prep card is unavailable', () => {
+  const decision = decideLeftNpcVersusAction(input({
+    skillId: 'chrono',
+    signatureAvailable: true,
+    signatureCooldownReady: true,
+    signatureWindowActive: false,
+    cardsReady: false,
+    selfCardCooldown: 0.25,
+  }));
 
-  for (let step = 0; step < abilityIds.length; step++) {
-    const decision = decideLeftNpcVersusAction(input({
-      skillId: 'lord-alpha',
-      abilityIds,
-      abilityUseCounts: useCounts,
-      step,
-      incomingByRow: [1, 1, 1],
-      selfHp: 70,
-      selfRow: 0,
-      opponentRow: 2,
-    }));
-    ok(decision.cardSlot !== null);
-    visited.add(decision.cardSlot);
-    useCounts = recordNpcVersusAbilityUse(
-      useCounts,
-      decision.cardSlot,
-      abilityIds.length,
-    );
-  }
+  equal(decision.cardSlot, null);
+  equal(decision.ability, null);
+  equal(decision.openSignature, true);
+});
 
-  deepStrictEqual([...visited].sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6]);
+test('left NPC opens after consuming its single prep beat even when the card remains ready', () => {
+  const decision = decideLeftNpcVersusAction(input({
+    skillId: 'chrono',
+    signatureAvailable: true,
+    signaturePlanAvailable: true,
+    signatureCooldownReady: true,
+    signatureWindowActive: false,
+    signaturePrepConsumed: true,
+    cardsReady: true,
+    selfCardCooldown: 0,
+  }));
+
+  equal(decision.cardSlot, null);
+  equal(decision.ability, null);
+  equal(decision.preparesSignature, undefined);
+  equal(decision.openSignature, true);
+});
+
+test('left NPC opens a special signature without inventing a boss-skill prep plan', () => {
+  const decision = decideLeftNpcVersusAction(input({
+    skillId: 'lord-alpha',
+    signatureAvailable: true,
+    signaturePlanAvailable: false,
+    signatureCooldownReady: true,
+    signatureWindowActive: false,
+    signaturePrepConsumed: false,
+    cardsReady: true,
+    selfCardCooldown: 0,
+  }));
+
+  equal(decision.cardSlot, null);
+  equal(decision.ability, null);
+  equal(decision.preparesSignature, undefined);
+  equal(decision.openSignature, true);
 });
 
 test('the same fixed-step snapshot always produces the same immutable decision', () => {

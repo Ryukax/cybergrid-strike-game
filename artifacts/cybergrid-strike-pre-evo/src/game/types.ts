@@ -208,6 +208,7 @@ export interface NpcAgent {
   signatureActionCooldown: number;
   signatureActions: number;
   signatureLastCommand: number;
+  signatureObjectiveCommand?: number;
   signatureMode: number;
   signatureCharges: number;
   signaturePlacements: number[];
