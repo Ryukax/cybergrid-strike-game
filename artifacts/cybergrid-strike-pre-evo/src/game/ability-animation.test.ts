@@ -8,6 +8,8 @@ import {
   ABILITY_EFFECT_MOTIFS,
   createAbilityAnimationPresentation,
   createGeneratedAbilityAnimationProfile,
+  resolveAbilityAnimationDrawPlan,
+  resolveAbilityAnimationFootprint,
   resolveAbilityAnimationProfile,
 } from './ability-animation';
 
@@ -60,6 +62,60 @@ test('presentation placement follows the authored profile without changing ident
   deepStrictEqual(createAbilityAnimationPresentation(nuke, 'NUKE', 2).targetRows, [0, 1, 2]);
   deepStrictEqual(createAbilityAnimationPresentation(heal, 'RECOVER', 2).targetRows, []);
   equal(createAbilityAnimationPresentation(nuke, 'NUKE', 2).profile, nuke);
+});
+
+test('multi-cell animation footprints compose one ordered unified span', () => {
+  deepStrictEqual(resolveAbilityAnimationFootprint([2, 0, 1]), {
+    rows: [0, 1, 2],
+    minRow: 0,
+    maxRow: 2,
+    centerRow: 1,
+    spanRows: 3,
+    mode: 'unified-span',
+  });
+});
+
+test('animation footprints clamp and deduplicate rows without changing hit coverage', () => {
+  deepStrictEqual(resolveAbilityAnimationFootprint([3, 2, -4, 2]), {
+    rows: [0, 2],
+    minRow: 0,
+    maxRow: 2,
+    centerRow: 1,
+    spanRows: 3,
+    mode: 'unified-span',
+  });
+  deepStrictEqual(resolveAbilityAnimationFootprint([], 7), {
+    rows: [2],
+    minRow: 2,
+    maxRow: 2,
+    centerRow: 2,
+    spanRows: 1,
+    mode: 'single',
+  });
+  deepStrictEqual(resolveAbilityAnimationFootprint([Number.NaN, 1, Number.POSITIVE_INFINITY]), {
+    rows: [1],
+    minRow: 1,
+    maxRow: 1,
+    centerRow: 1,
+    spanRows: 1,
+    mode: 'single',
+  });
+});
+
+test('multi-cell draw plans always place one authored image while preserving exact aim cells', () => {
+  for (const rows of [[0, 1], [1, 2], [0, 1, 2], [0, 2]]) {
+    const plan = resolveAbilityAnimationDrawPlan(rows, 2);
+    equal(plan.imagePlacements.length, 1);
+    deepStrictEqual(plan.maskRows, rows);
+  }
+  deepStrictEqual(resolveAbilityAnimationDrawPlan([0, 1]).imagePlacements, [{
+    centerRow: 0.5,
+    spanRows: 2,
+  }]);
+  deepStrictEqual(resolveAbilityAnimationDrawPlan([0, 2], 2).imagePlacements, [{
+    centerRow: 2,
+    spanRows: 3,
+  }]);
 });
 
 test('generated cards resolve compositionally and deterministically', () => {

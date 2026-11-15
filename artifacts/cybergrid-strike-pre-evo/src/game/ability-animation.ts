@@ -70,6 +70,82 @@ export interface AbilityAnimationPresentation {
   readonly durationMs: number;
 }
 
+export type AbilityAnimationFootprintMode = 'single' | 'unified-span';
+
+/**
+ * Visual-only layout for an ability's targeted rows. Combat continues to
+ * resolve against every entry in `rows`; the renderer uses the remaining
+ * fields to compose one coherent effect instead of cloning it per cell.
+ */
+export interface AbilityAnimationFootprint {
+  readonly rows: readonly number[];
+  readonly minRow: number;
+  readonly maxRow: number;
+  readonly centerRow: number;
+  readonly spanRows: number;
+  readonly mode: AbilityAnimationFootprintMode;
+}
+
+export interface AbilityAnimationImagePlacement {
+  readonly centerRow: number;
+  readonly spanRows: number;
+}
+
+export interface AbilityAnimationDrawPlan {
+  readonly footprint: AbilityAnimationFootprint;
+  /** Exactly one authored image placement, regardless of targeted-cell count. */
+  readonly imagePlacements: readonly AbilityAnimationImagePlacement[];
+  /** Exact hit cells retained for the footprint carrier and aim mask. */
+  readonly maskRows: readonly number[];
+}
+
+export function resolveAbilityAnimationFootprint(
+  targetRows: readonly number[],
+  fallbackRow = 1,
+): AbilityAnimationFootprint {
+  const safeFallbackRow = Number.isFinite(fallbackRow) ? fallbackRow : 1;
+  const normalizedRows = [...new Set(targetRows
+    .filter((row) => Number.isFinite(row))
+    .map((row) => Math.max(0, Math.min(2, Math.round(row)))))].sort(
+      (left, right) => left - right,
+    );
+  const rows = normalizedRows.length > 0
+    ? normalizedRows
+    : [Math.max(0, Math.min(2, Math.round(safeFallbackRow)))];
+  const minRow = rows[0];
+  const maxRow = rows[rows.length - 1];
+  return Object.freeze({
+    rows: Object.freeze(rows),
+    minRow,
+    maxRow,
+    centerRow: (minRow + maxRow) / 2,
+    spanRows: maxRow - minRow + 1,
+    mode: rows.length > 1 ? 'unified-span' : 'single',
+  });
+}
+
+export function resolveAbilityAnimationDrawPlan(
+  targetRows: readonly number[],
+  fallbackRow = 1,
+): AbilityAnimationDrawPlan {
+  const safeFallbackRow = Number.isFinite(fallbackRow) ? fallbackRow : 1;
+  const footprint = resolveAbilityAnimationFootprint(targetRows, safeFallbackRow);
+  const contiguous = footprint.rows.length === footprint.spanRows;
+  const anchorRow = contiguous
+    ? footprint.centerRow
+    : footprint.rows.reduce((closest, row) => (
+        Math.abs(row - safeFallbackRow) < Math.abs(closest - safeFallbackRow) ? row : closest
+      ), footprint.rows[0]);
+  return Object.freeze({
+    footprint,
+    imagePlacements: Object.freeze([Object.freeze({
+      centerRow: anchorRow,
+      spanRows: footprint.spanRows,
+    })]),
+    maskRows: footprint.rows,
+  });
+}
+
 /**
  * Closed authored mapping. Unknown ids never acquire a generic canonical
  * presentation by accident; generated cards use the separate composition

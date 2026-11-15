@@ -148,9 +148,11 @@ import {
 import {
   createAbilityAnimationPresentation,
   createGeneratedAbilityAnimationProfile,
+  resolveAbilityAnimationDrawPlan,
   resolveAbilityAnimationProfile,
   type AbilityAnimationPresentation,
   type AbilityAnimationProfile,
+  type AbilityMotionFamily,
 } from '../game/ability-animation';
 import {
   abilityImagegenFrameIndex,
@@ -3619,6 +3621,130 @@ function preloadAbilityImagegenVfx(abilityId: string) {
 
 type AbilityFxPoint = Readonly<{ x: number; y: number }>;
 
+/** Paints one continuous, motion-specific carrier across exact target cells. */
+function paintUnifiedAbilityFootprint(
+  ctx: CanvasRenderingContext2D,
+  targets: readonly AbilityFxPoint[],
+  cell: number,
+  progress: number,
+  fade: number,
+  primary: string,
+  accent: string,
+  motion: AbilityMotionFamily | 'signature',
+) {
+  if (targets.length < 2) return;
+  const ordered = [...targets].sort((left, right) => left.y - right.y);
+  const centerX = ordered.reduce((sum, target) => sum + target.x, 0) / ordered.length;
+  const top = ordered[0].y - cell * 0.46;
+  const bottom = ordered[ordered.length - 1].y + cell * 0.46;
+  const width = cell * 0.88;
+  const eased = 1 - Math.pow(1 - progress, 3);
+  const pulse = 0.5 + Math.sin(progress * Math.PI * 5) * 0.5;
+  const lineWidth = Math.max(1.25, cell * 0.025);
+  const segments: AbilityFxPoint[][] = [];
+  for (const target of ordered) {
+    const segment = segments[segments.length - 1];
+    if (!segment || target.y - segment[segment.length - 1].y > cell * 1.25) {
+      segments.push([target]);
+    } else {
+      segment.push(target);
+    }
+  }
+
+  const traceCapsule = (segment: readonly AbilityFxPoint[]) => {
+    const segmentTop = segment[0].y - cell * 0.46;
+    const segmentBottom = segment[segment.length - 1].y + cell * 0.46;
+    const left = centerX - width / 2;
+    const right = centerX + width / 2;
+    const radius = Math.min(width * 0.24, (segmentBottom - segmentTop) * 0.24);
+    ctx.moveTo(left + radius, segmentTop);
+    ctx.lineTo(right - radius, segmentTop);
+    ctx.quadraticCurveTo(right, segmentTop, right, segmentTop + radius);
+    ctx.lineTo(right, segmentBottom - radius);
+    ctx.quadraticCurveTo(right, segmentBottom, right - radius, segmentBottom);
+    ctx.lineTo(left + radius, segmentBottom);
+    ctx.quadraticCurveTo(left, segmentBottom, left, segmentBottom - radius);
+    ctx.lineTo(left, segmentTop + radius);
+    ctx.quadraticCurveTo(left, segmentTop, left + radius, segmentTop);
+    ctx.closePath();
+  };
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const gradient = ctx.createLinearGradient(centerX, top, centerX, bottom);
+  gradient.addColorStop(0, primary);
+  gradient.addColorStop(0.5, accent);
+  gradient.addColorStop(1, primary);
+  ctx.beginPath();
+  for (const target of ordered) {
+    ctx.rect(target.x - width / 2, target.y - cell * 0.46, width, cell * 0.92);
+  }
+  ctx.globalAlpha = Math.max(0, fade) * (0.07 + pulse * 0.06);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  ctx.beginPath();
+  for (const segment of segments) traceCapsule(segment);
+  ctx.globalAlpha = Math.max(0, fade) * 0.66;
+  ctx.strokeStyle = primary;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+
+  if (segments.length > 1) {
+    // Connect sparse selections without filling the untargeted cells.
+    ctx.beginPath();
+    ctx.moveTo(centerX, ordered[0].y);
+    ctx.lineTo(centerX, ordered[ordered.length - 1].y);
+    ctx.globalAlpha = Math.max(0, fade) * 0.38;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = lineWidth * 0.75;
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = Math.max(0, fade) * 0.78;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = lineWidth * 1.25;
+  ctx.beginPath();
+  if (motion === 'bind') {
+    const left = centerX - width * 0.38;
+    const right = centerX + width * 0.38;
+    ctx.moveTo(left, top);
+    ctx.lineTo(right, bottom);
+    ctx.moveTo(right, top);
+    ctx.lineTo(left, bottom);
+    for (const target of ordered) {
+      ctx.moveTo(left, target.y);
+      ctx.lineTo(right, target.y);
+    }
+  } else if (motion === 'impact') {
+    ctx.moveTo(centerX, top);
+    ctx.lineTo(centerX, bottom);
+    const impactY = top + (bottom - top) * eased;
+    ctx.moveTo(centerX - width * 0.42, impactY);
+    ctx.lineTo(centerX + width * 0.42, impactY);
+  } else if (motion === 'salvo' || motion === 'wave') {
+    for (let segment = 0; segment <= 20; segment++) {
+      const amount = segment / 20;
+      const y = top + (bottom - top) * amount;
+      const x = centerX
+        + Math.sin(amount * Math.PI * (motion === 'wave' ? 3 : 5) + eased * Math.PI * 2)
+          * width * (motion === 'wave' ? 0.3 : 0.17);
+      if (segment === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+  } else {
+    ctx.moveTo(centerX, top);
+    ctx.lineTo(centerX, bottom);
+    const scanY = top + (bottom - top) * eased;
+    ctx.moveTo(centerX - width * 0.3, scanY);
+    ctx.lineTo(centerX + width * 0.3, scanY);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 /**
  * Cold-load/error fallback for a card's ImageGen sheet, plus the compositional
  * identity used by open-ended generated manifestations. Nothing in this layer
@@ -3633,7 +3759,20 @@ function paintAbilityAnimationIdentity(
   progress: number,
   fade: number,
 ) {
-  const focusTargets = targets.length > 0 ? targets : [origin];
+  const footprintTargets = targets.length > 0 ? targets : [origin];
+  const unifiedFootprint = footprintTargets.length > 1;
+  const footprintTotal = footprintTargets.reduce(
+    (center, target) => ({ x: center.x + target.x, y: center.y + target.y }),
+    { x: 0, y: 0 },
+  );
+  const footprintCenter = {
+    x: footprintTotal.x / footprintTargets.length,
+    y: footprintTotal.y / footprintTargets.length,
+  };
+  // A multi-cell cast is one composition over its complete footprint. The
+  // target list still retains every hit cell, but the visual identity is no
+  // longer stamped once into every adjacent pane.
+  const focusTargets = unifiedFootprint ? [footprintCenter] : footprintTargets;
   const eased = 1 - Math.pow(1 - progress, 3);
   const beat = profile.rhythm === 'snap'
     ? Math.min(1, progress * 2.8)
@@ -3714,6 +3853,45 @@ function paintAbilityAnimationIdentity(
   ctx.lineJoin = 'round';
   ctx.shadowBlur = cell * 0.13;
   ctx.shadowColor = profile.primary;
+
+  if (unifiedFootprint) {
+    const orderedTargets = [...footprintTargets].sort((left, right) => left.y - right.y);
+    const top = orderedTargets[0].y - cell * 0.49;
+    const bottom = orderedTargets[orderedTargets.length - 1].y + cell * 0.49;
+    const fieldWidth = cell * 0.92;
+    ctx.save();
+    ctx.beginPath();
+    for (const target of orderedTargets) {
+      ctx.rect(
+        target.x - fieldWidth / 2,
+        target.y - cell * 0.49,
+        fieldWidth,
+        cell * 0.98,
+      );
+    }
+    ctx.clip();
+    const fieldGradient = ctx.createLinearGradient(footprintCenter.x, top, footprintCenter.x, bottom);
+    fieldGradient.addColorStop(0, profile.primary);
+    fieldGradient.addColorStop(0.5, profile.accent);
+    fieldGradient.addColorStop(1, profile.primary);
+    ctx.globalAlpha = Math.max(0, fade) * (0.09 + beat * 0.08);
+    ctx.fillStyle = fieldGradient;
+    ctx.fillRect(footprintCenter.x - fieldWidth / 2, top, fieldWidth, bottom - top);
+    ctx.globalAlpha = Math.max(0, fade) * 0.72;
+    ctx.strokeStyle = profile.accent;
+    ctx.lineWidth = lineWidth * 1.35;
+    ctx.beginPath();
+    for (let segment = 0; segment <= 18; segment++) {
+      const amount = segment / 18;
+      const y = top + (bottom - top) * amount;
+      const x = footprintCenter.x
+        + Math.sin(amount * Math.PI * (profile.echoCount + 1) + eased * Math.PI * 2)
+          * cell * 0.09;
+      if (segment === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
 
   for (const [targetIndex, target] of focusTargets.entries()) {
     const dx = target.x - origin.x;
@@ -4174,15 +4352,29 @@ function SignatureSkillFx({
                   y: player.y + (target.y - player.y) * Math.min(0.72, easeOut),
                 }
               : player;
-        // Multi-lane profiles share a target column but preserve the exact
-        // three lane centers, including campaign cards where no Versus actor
-        // owns a fixed opposing column.
-        const vfxTargets = anchorOverride === 'all-lanes'
-          ? (targetRows.length > 0 ? targetRows : [0, 1, 2]).map((row) => ({
+        // Multi-cell profiles retain every combat row while composing one
+        // visual across the complete footprint. This prevents an all-lane
+        // cast from looking like three adjacent copies of the same animation.
+        const abilityDrawPlan = anchorOverride === 'all-lanes'
+          ? resolveAbilityAnimationDrawPlan(
+              targetRows.length > 0 ? targetRows : [0, 1, 2],
+              (resolvedTarget.y - board.y) / board.cell - 0.5,
+            )
+          : null;
+        const abilityFootprint = abilityDrawPlan?.footprint ?? null;
+        const vfxTargets = abilityDrawPlan
+          ? abilityDrawPlan.maskRows.map((row) => ({
               x: resolvedTarget.x,
               y: center(0, row).y,
             }))
           : [resolvedTarget];
+        const imagePlacement = abilityDrawPlan?.imagePlacements[0];
+        const vfxCenter = imagePlacement
+          ? {
+              x: resolvedTarget.x,
+              y: center(0, imagePlacement.centerRow).y,
+            }
+          : resolvedTarget;
         const sheetDrawable = Boolean(sheet?.complete && sheet.naturalWidth > 0);
         if (sheet && sheetDrawable) {
           const sequenceFrame = imagegenAsset
@@ -4194,46 +4386,56 @@ function SignatureSkillFx({
           const sourceHeight = sheet.naturalHeight / rows;
           const sourceX = (sequenceFrame % columns) * sourceWidth;
           const sourceY = Math.floor(sequenceFrame / columns) * sourceHeight;
-          const multiLaneScale = vfxTargets.length > 1 ? 0.78 : 1;
           const baseSize = board.cell
             * (imagegenAsset?.displayScale
-              ?? (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18))
-            * multiLaneScale;
+              ?? (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18));
           // Keep authored sheets at one gameplay size. Their geometry already
           // constructs frame-by-frame; scaling the complete image from 55% to
           // 110% made every cast visibly shrink/grow and amplified frame-size
           // differences in the source art.
+          const sourceAspect = sourceWidth / sourceHeight;
           const drawWidth = baseSize;
-          const drawHeight = drawWidth * (sourceHeight / sourceWidth);
-          vfxTargets.forEach((vfxTarget) => {
-            ctx.save();
-            ctx.globalCompositeOperation = 'screen';
-            ctx.globalAlpha = Math.min(0.96, fade * 1.35);
-            ctx.imageSmoothingEnabled = false;
-            ctx.translate(vfxTarget.x, vfxTarget.y);
-            if (!imagegenAsset && motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
-            if (!imagegenAsset && motif === 'reflect') {
-              ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
-            }
-            ctx.drawImage(
-              sheet,
-              sourceX,
-              sourceY,
-              sourceWidth,
-              sourceHeight,
-              -drawWidth / 2,
-              -drawHeight / 2,
-              drawWidth,
-              drawHeight,
+          const drawHeight = drawWidth / sourceAspect;
+          if (abilityFootprint?.mode === 'unified-span'
+            && abilityAnimationProfile?.source !== 'generated') {
+            paintUnifiedAbilityFootprint(
+              ctx,
+              vfxTargets,
+              board.cell,
+              executionProgress,
+              fade,
+              primary,
+              accent,
+              abilityAnimationProfile?.motion ?? 'signature',
             );
-            ctx.restore();
-          });
+          }
+          ctx.save();
+          ctx.globalCompositeOperation = 'screen';
+          ctx.globalAlpha = Math.min(0.96, fade * 1.35);
+          ctx.imageSmoothingEnabled = true;
+          ctx.translate(vfxCenter.x, vfxCenter.y);
+          if (!imagegenAsset && motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
+          if (!imagegenAsset && motif === 'reflect') {
+            ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
+          }
+          ctx.drawImage(
+            sheet,
+            sourceX,
+            sourceY,
+            sourceWidth,
+            sourceHeight,
+            -drawWidth / 2,
+            -drawHeight / 2,
+            drawWidth,
+            drawHeight,
+          );
+          ctx.restore();
         } else {
           // Asset decoding can outlive this short execution on a cold mobile
           // cache. Never collapse a committed Boss action into label-only UI:
           // show a bounded palette-matched telegraph until the authored sheet
           // becomes drawable (or for the whole cast if the request fails).
-          const fallbackTarget = anchorOverride === 'self' ? player : target;
+          const fallbackTarget = anchorOverride === 'self' ? player : vfxCenter;
           const fallbackRadius = board.cell * (0.18 + easeOut * 0.38);
           ring(fallbackTarget.x, fallbackTarget.y, fallbackRadius, primary, 0.9);
           ring(
