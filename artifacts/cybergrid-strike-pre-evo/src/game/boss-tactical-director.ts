@@ -1,6 +1,5 @@
 import {
   bossStrategyProfile,
-  shouldVersusAbilityPrepareSignature,
   type VersusAbilityPlan,
   type VersusNpcContext,
   type VersusSignaturePlan,
@@ -154,6 +153,24 @@ export function chooseBossTacticalAction(
   const targetRow = dominantObservedPlayerRow(memory);
   const reasonPrefix = `${profile.skillId}: ${profile.strategy}`;
 
+  // Opening a ready signature only establishes its command window; it does not
+  // execute a command, move the boss, or invalidate an already committed hit.
+  // Give that bookkeeping step priority so sustained pressure cannot starve a
+  // boss's authored signature forever. Once the window is active, the existing
+  // lock, impact, and evasion rules below still govern every real command.
+  if (!input.signatureWindowActive
+    && input.signatureAvailable
+    && input.signatureCooldownReady) {
+    return {
+      action: 'signature-open',
+      focus: 'signature',
+      targetRow: signaturePlan?.moveToRow ?? signaturePlan?.targetRow ?? targetRow,
+      reason: signaturePlan
+        ? `${reasonPrefix}; open ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}`
+        : `${reasonPrefix}; authored signature is ready`,
+    };
+  }
+
   if (input.decisionLocked || input.impactCommitted) {
     return {
       action: 'hold',
@@ -217,31 +234,6 @@ export function chooseBossTacticalAction(
       focus: 'survival',
       targetRow: abilityPlan.moveToRow ?? abilityPlan.targetRow,
       reason: `${reasonPrefix}; ${abilityPlan.abilityId} protects critical integrity`,
-    };
-  }
-
-  if (input.signatureAvailable
-    && input.signatureCooldownReady
-    && signaturePlan
-    && abilityPlan
-    && memory.lastAction !== 'ability'
-    && shouldVersusAbilityPrepareSignature(abilityPlan, signaturePlan, context)) {
-    return {
-      action: 'ability',
-      focus: 'signature',
-      targetRow: abilityPlan.moveToRow ?? abilityPlan.targetRow,
-      reason: `${reasonPrefix}; ${abilityPlan.abilityId} prepares ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}`,
-    };
-  }
-
-  if (input.signatureAvailable && input.signatureCooldownReady) {
-    return {
-      action: 'signature-open',
-      focus: 'signature',
-      targetRow: signaturePlan?.moveToRow ?? signaturePlan?.targetRow ?? targetRow,
-      reason: signaturePlan
-        ? `${reasonPrefix}; open ${profile.skillId} command ${(signaturePlan.objectiveCommandIndex ?? signaturePlan.commandIndex) + 1} ${signaturePlan.objectiveIntent ?? signaturePlan.intent}`
-        : `${reasonPrefix}; authored signature is ready`,
     };
   }
 

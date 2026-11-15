@@ -84,6 +84,12 @@ export interface BossStrategyProfile {
 export interface VersusSignaturePlan extends VersusAbilityPlan {
   commandIndex: 0 | 1 | 2;
   intent: NpcIntent;
+  /**
+   * Exact lanes owned by an authored mark/placement payoff. When present,
+   * projectile materialization uses these rows instead of expanding the
+   * generic shot pattern around `targetRow`.
+   */
+  authoredTargetRows?: readonly number[];
   /** The authored role of the selected command inside this skill's sequence. */
   strategyStage?: 'instant' | 'setup' | 'mode' | 'execute';
   /** The command this beat is building toward (the selected command for a payoff). */
@@ -122,6 +128,8 @@ interface SignatureCommandSpec {
   recordOrigin?: boolean;
   spendAll?: boolean;
   clearPlacements?: boolean;
+  /** Return to the origin recorded by an earlier setup beat. */
+  returnToOrigin?: boolean;
 }
 
 const attack = (
@@ -175,18 +183,18 @@ const payoff = (
 const SIGNATURE_COMMANDS: Record<string, readonly [SignatureCommandSpec, SignatureCommandSpec, SignatureCommandSpec]> = {
   chrono: [setup(true), maneuver(-1), payoff(control(0.45, 0.65, 0.8), 1, 1)],
   singularity: [charged(control(0.45, 0.35), 1), payoff(attack('adjacent', 2, true)), guard(1)],
-  override: [setup(false, true), mode(), payoff(guard(1, 2))],
+  override: [setup(false, true), mode(), { ...payoff(guard(1, 2)), returnToOrigin: true }],
   architect: [charged(attack('target', 1, false), 1, true), setup(true), payoff(guard(2), 2, 2)],
   apex: [mode(), attack('target', 3, true), guard(1, 1)],
   counter: [charged(control(0.25, 0.15), 1), mode(), payoff(attack('target', 2, true))],
-  phase: [setup(false, true), payoff(attack('target', 3, true)), maneuver(1)],
-  phoenix: [setup(false, true), payoff(attack('all', 1, true)), payoff(sustain(3, 1))],
+  phase: [setup(false, true), payoff(attack('target', 3, true)), { ...maneuver(1), returnToOrigin: true }],
+  phoenix: [setup(false, true), { ...payoff(attack('all', 1, true)), returnToOrigin: true }, payoff(sustain(3, 1))],
   rift: [setup(true), { ...maneuver(-1), requiresPlacements: 1 }, guard(1)],
   vector: [control(0.4, 0.7), attack('adjacent', 2, true), control(0.55, 0.6)],
   gridshift: [mode(), control(0.55, 0.5, 0.45), guard(1)],
   resonance: [setup(true), setup(true), payoff(attack('all', 1, true), 2, 2)],
   exchange: [mode(), charged(control(0.45, 0.25, 0.55), 1), payoff(sustain(2, 1))],
-  causality: [mode(), setup(false, true), payoff(attack('adjacent', 2, true))],
+  causality: [mode(), setup(false, true), { ...payoff(attack('adjacent', 2, true)), returnToOrigin: true }],
   arsenal: [charged(attack('target', 2, true), 1), charged(guard(1), 1), charged(maneuver(-1), 1)],
   assimilation: [charged(attack('target', 1, false), 1), mode(), payoff(attack('all', 2, true), 2)],
   null: [control(0.95, 0.2, 0.65), mode(), guard(1)],
@@ -269,6 +277,35 @@ export function bossStrategyProfile(skillId?: string): BossStrategyProfile {
 
 function clampLane(row: number): number {
   return Math.max(0, Math.min(2, Math.round(row)));
+}
+
+function uniqueBoundedRows(rows: readonly number[]): number[] {
+  const bounded: number[] = [];
+  for (const row of rows) {
+    if (!Number.isFinite(row)) continue;
+    const lane = clampLane(row);
+    if (!bounded.includes(lane)) bounded.push(lane);
+  }
+  return bounded;
+}
+
+function signatureModeRow(row: number, mode: number): number {
+  const normalizedMode = Number.isFinite(mode)
+    ? ((Math.trunc(mode) % 3) + 3) % 3
+    : 0;
+  return (clampLane(row) + normalizedMode) % 3;
+}
+
+function signaturePlacementRows(
+  placements: readonly number[],
+  mode: number,
+): number[] {
+  const encodedRows = placements.flatMap((placement) => {
+    if (!Number.isFinite(placement)) return [];
+    const boundedCell = Math.max(0, Math.min(8, Math.trunc(placement)));
+    return [boundedCell % 3];
+  });
+  return uniqueBoundedRows(encodedRows.map((row) => signatureModeRow(row, mode)));
 }
 
 function stableNoise(key: string): number {
@@ -1234,12 +1271,20 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
   const choice = chooseSignatureCommand(context, specs);
   const { commandIndex } = choice;
   const spec = specs[commandIndex];
-  const targetRow = clampLane(context.playerRow);
+  // Mode is a real three-state geometry phase: direct lane, one lane ahead,
+  // or two lanes ahead. The mode command changes the following beat because
+  // the next plan receives `nextMode` through the combat runtime.
+  const targetRow = signatureModeRow(context.playerRow, context.signatureMode);
   let moveToRow = spec.moveTo === 'safe'
     ? safestLane(context.incomingByRow, context.step)
     : spec.moveTo === 'target' ? targetRow : undefined;
   if (spec.stage === 'setup' && spec.place) {
     moveToRow = (clampLane(context.npcRow) + 1) % 3;
+  }
+  let columnDelta = spec.columnDelta ?? 0;
+  if (spec.returnToOrigin) {
+    moveToRow = clampLane(context.signatureOriginRow);
+    columnDelta = clampLane(context.signatureOriginCol) - clampLane(context.npcCol);
   }
   let nextMode = context.signatureMode;
   let nextCharges = context.signatureCharges;
@@ -1250,7 +1295,8 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
     nextCharges = Math.min(4, nextCharges + (spec.gainCharges ?? 0));
     if (spec.place) {
       const placementRow = moveToRow ?? clampLane(context.npcRow);
-      nextPlacements = [...nextPlacements, context.npcCol * 3 + placementRow].slice(-4);
+      const placementCol = clampLane(context.npcCol);
+      nextPlacements = [...nextPlacements, placementCol * 3 + placementRow].slice(-4);
     }
     if (spec.recordOrigin) {
       nextOriginRow = clampLane(context.npcRow);
@@ -1265,6 +1311,10 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
   const storedPower = spec.stage === 'execute'
     ? Math.min(1, Math.floor(context.signatureCharges / 2))
     : 0;
+  const placementTargetRows = signatureIsPayoff(spec)
+    && (spec.shotPattern ?? 'none') !== 'none'
+    ? signaturePlacementRows(context.signaturePlacements, context.signatureMode)
+    : [];
   return {
     abilityId: context.skillId ?? 'adaptive',
     doctrine,
@@ -1279,6 +1329,9 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
       ? choice.objectiveCommandIndex
       : -1,
     targetRow,
+    ...(placementTargetRows.length > 0
+      ? { authoredTargetRows: placementTargetRows }
+      : {}),
     shotPattern: spec.shotPattern ?? 'none',
     salvo: 1,
     power: Math.min(3, (spec.power ?? 1) + storedPower),
@@ -1289,7 +1342,7 @@ export function chooseVersusNpcSignature(context: VersusNpcContext): VersusSigna
     fireDisruption: spec.fireDisruption ?? 0,
     moveDisruption: spec.moveDisruption ?? 0,
     cardPressure: spec.cardPressure ?? 0,
-    columnDelta: spec.columnDelta ?? 0,
+    columnDelta,
     moveToRow,
     nextMode,
     nextCharges,
@@ -1583,6 +1636,13 @@ export function planCampaignNpc(context: CampaignNpcContext): CampaignNpcPlan {
   };
 }
 
-export function shotRowsForPlan(plan: Pick<VersusAbilityPlan, 'shotPattern' | 'targetRow'>): number[] {
+export function shotRowsForPlan(
+  plan: Pick<VersusAbilityPlan, 'shotPattern' | 'targetRow'> & {
+    readonly authoredTargetRows?: readonly number[];
+  },
+): number[] {
+  if (plan.authoredTargetRows !== undefined) {
+    return uniqueBoundedRows(plan.authoredTargetRows);
+  }
   return rowsForPattern(plan.shotPattern, plan.targetRow);
 }

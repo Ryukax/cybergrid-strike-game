@@ -115,7 +115,7 @@ test('a visible projectile can reactively interrupt a skill plan, but committed 
   match(committed.reason, /committed impact/);
 });
 
-test('reactive owned cards answer live pressure before opening a new signature', () => {
+test('continuous incoming pressure cannot starve a ready signature opening', () => {
   const threatened = context({ incomingByRow: [0, 2, 0] });
   const returnFire = resolveVersusNpcAbility('returnfire', threatened);
   const decision = chooseBossTacticalAction(directorInput({
@@ -125,12 +125,12 @@ test('reactive owned cards answer live pressure before opening a new signature',
     abilityPlan: returnFire,
   }));
 
-  equal(decision.action, 'ability');
-  equal(decision.focus, 'counter');
-  match(decision.reason, /returnfire answers live pressure/);
+  equal(decision.action, 'signature-open');
+  equal(decision.focus, 'signature');
+  match(decision.reason, /authored signature is ready/);
 });
 
-test('critical bosses select a ready recovery or guard before a new signature', () => {
+test('a ready signature opens before a critical recovery card', () => {
   const critical = context({ skillId: 'bloom', npcHp: 20 });
   const recovery = resolveVersusNpcAbility('heal', critical);
   const decision = chooseBossTacticalAction(directorInput({
@@ -139,11 +139,11 @@ test('critical bosses select a ready recovery or guard before a new signature', 
     abilityPlan: recovery,
   }));
 
-  equal(decision.action, 'ability');
-  equal(decision.focus, 'survival');
+  equal(decision.action, 'signature-open');
+  equal(decision.focus, 'signature');
 });
 
-test('the director uses one owned prep card, then opens the exact setup-stage signature', () => {
+test('the director opens the exact setup-stage signature as soon as it is ready', () => {
   const ctx = context({
     skillId: 'chrono',
     incomingByRow: [0, 0, 0],
@@ -157,23 +157,8 @@ test('the director uses one owned prep card, then opens the exact setup-stage si
   equal(signaturePlan.objectiveIntent, 'control');
   equal(abilityPlan?.abilityId, 'time');
 
-  const prepare = chooseBossTacticalAction(directorInput({
-    context: ctx,
-    signatureCooldownReady: true,
-    signaturePlan,
-    abilityPlan,
-  }));
-  equal(prepare.action, 'ability');
-  equal(prepare.focus, 'signature');
-  match(prepare.reason, /time prepares chrono command 3 control/);
-
-  const preparedMemory = recordBossTacticalAction(
-    createBossTacticalMemory(ctx.playerRow),
-    'ability',
-  );
   const open = chooseBossTacticalAction(directorInput({
     context: ctx,
-    memory: preparedMemory,
     signatureCooldownReady: true,
     signaturePlan,
     abilityPlan,
@@ -182,6 +167,34 @@ test('the director uses one owned prep card, then opens the exact setup-stage si
   equal(open.focus, 'signature');
   equal(open.targetRow, signaturePlan.targetRow);
   match(open.reason, /open chrono command 3 control/);
+});
+
+test('committed pressure can open bookkeeping, but cannot execute an active signature command', () => {
+  const threatened = context({ incomingByRow: [0, 3, 0] });
+  const opening = chooseBossTacticalAction(directorInput({
+    context: threatened,
+    impactCommitted: true,
+    decisionLocked: true,
+    evasionAvailable: true,
+    signatureCooldownReady: true,
+  }));
+
+  equal(opening.action, 'signature-open');
+  equal(opening.focus, 'signature');
+
+  const active = chooseBossTacticalAction(directorInput({
+    context: threatened,
+    impactCommitted: true,
+    decisionLocked: true,
+    evasionAvailable: true,
+    signatureCooldownReady: true,
+    signatureWindowActive: true,
+    signatureActionReady: true,
+  }));
+
+  equal(active.action, 'hold');
+  equal(active.focus, 'hold');
+  match(active.reason, /committed impact/);
 });
 
 test('boss memory learns repeated lanes from visible player behavior', () => {

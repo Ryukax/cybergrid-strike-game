@@ -10,7 +10,9 @@ import {
 } from './npc-combat-runtime';
 import {
   bossStrategyProfile,
+  chooseVersusNpcSignature,
   resolveVersusNpcAbility,
+  shotRowsForPlan,
   type VersusNpcContext,
   type VersusSignaturePlan,
 } from './npc-strategy';
@@ -178,6 +180,85 @@ test('leech remains projectile metadata and never heals merely because it was ca
     equal(applied.projectiles.length, 1);
     equal(applied.projectiles[0]?.leechOnHit, 2);
   }
+});
+
+test('signature placement payoffs fire through the exact saved rows', () => {
+  const context = contextFor('resonance');
+  context.incomingByRow = [0, 0, 0];
+  context.signatureCharges = 2;
+  context.signaturePlacements = [0, 5, 8];
+  context.signatureLastCommand = 1;
+  context.signatureObjectiveCommand = 2;
+
+  const plan = chooseVersusNpcSignature(context);
+  equal(plan.commandIndex, 2);
+  deepStrictEqual(plan.authoredTargetRows, [0, 2]);
+  deepStrictEqual(shotRowsForPlan(plan), [0, 2]);
+
+  const applied = applyVersusNpcCombatPlan(plan, runtimeState());
+  deepStrictEqual(applied.projectiles.map(({ row }) => row), [0, 2]);
+  ok(applied.projectiles.every(({ row }) => row >= 0 && row <= 2));
+});
+
+test('signature mode rotates the following command geometry', () => {
+  const directContext = contextFor('apex');
+  directContext.npcHp = 100;
+  directContext.playerHp = 60;
+  directContext.incomingByRow = [0, 0, 0];
+  directContext.signatureMode = 0;
+  const phasedContext = { ...directContext, signatureMode: 1 };
+
+  const direct = chooseVersusNpcSignature(directContext);
+  const phased = chooseVersusNpcSignature(phasedContext);
+  equal(direct.commandIndex, 1);
+  equal(phased.commandIndex, direct.commandIndex);
+  deepStrictEqual(shotRowsForPlan(direct), [2]);
+  deepStrictEqual(shotRowsForPlan(phased), [0]);
+
+  const applied = applyVersusNpcCombatPlan(phased, runtimeState());
+  deepStrictEqual(applied.projectiles.map(({ row }) => row), [0]);
+});
+
+test('recorded origin returns a later execute beat across rows and columns', () => {
+  const setupContext = contextFor('causality');
+  setupContext.npcRow = 0;
+  setupContext.npcCol = 0;
+  setupContext.incomingByRow = [0, 0, 0];
+  const setup = chooseVersusNpcSignature(setupContext);
+  equal(setup.commandIndex, 1);
+  equal(setup.nextOriginRow, 0);
+  equal(setup.nextOriginCol, 0);
+
+  const executeContext = contextFor('causality');
+  executeContext.npcRow = 2;
+  executeContext.npcCol = 2;
+  executeContext.incomingByRow = [0, 0, 0];
+  executeContext.signatureCharges = setup.nextCharges;
+  executeContext.signatureOriginRow = setup.nextOriginRow;
+  executeContext.signatureOriginCol = setup.nextOriginCol;
+  executeContext.signatureLastCommand = setup.commandIndex;
+  executeContext.signatureObjectiveCommand = 2;
+  const execute = chooseVersusNpcSignature(executeContext);
+
+  equal(execute.commandIndex, 2);
+  equal(execute.moveToRow, 0);
+  equal(execute.columnDelta, -2);
+
+  const applied = applyVersusNpcCombatPlan(execute, runtimeState({
+    npc: {
+      row: 2,
+      col: 2,
+      hp: 54,
+      shieldCharges: 0,
+      signatureMode: 0,
+      signatureCharges: setup.nextCharges,
+      signaturePlacements: [],
+      signatureOriginRow: 0,
+      signatureOriginCol: 0,
+    },
+  }));
+  equal(applied.npc.row, 0);
+  equal(applied.npc.col, 0);
 });
 
 test('all 32 bosses have three authored ability plans that apply concretely', () => {

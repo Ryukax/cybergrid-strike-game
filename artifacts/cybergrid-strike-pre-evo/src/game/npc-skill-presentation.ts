@@ -156,6 +156,8 @@ export interface NpcSkillPresentation {
 export interface NpcSkillPresentationVisibilityContext {
   isPlaying: boolean;
   isVersusMode: boolean;
+  /** Friendly NPC partners use the same authored execution overlay. */
+  isCoopMode?: boolean;
   hasCampaignBossEncounter: boolean;
   hasPresentation: boolean;
 }
@@ -171,7 +173,7 @@ export function shouldRenderNpcSkillPresentation(
 ): boolean {
   return context.isPlaying
     && context.hasPresentation
-    && (context.isVersusMode || context.hasCampaignBossEncounter);
+    && (context.isVersusMode || context.isCoopMode || context.hasCampaignBossEncounter);
 }
 
 function abilityIntent(plan: VersusAbilityPlan): NpcIntent {

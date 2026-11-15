@@ -55,6 +55,14 @@ test('campaign Boss executions render their full presentation outside Versus mod
   equal(shouldRenderNpcSkillPresentation({
     isPlaying: true,
     isVersusMode: false,
+    isCoopMode: true,
+    hasCampaignBossEncounter: false,
+    hasPresentation: true,
+  }), true);
+
+  equal(shouldRenderNpcSkillPresentation({
+    isPlaying: true,
+    isVersusMode: false,
     hasCampaignBossEncounter: false,
     hasPresentation: true,
   }), false);

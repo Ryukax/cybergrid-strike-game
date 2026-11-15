@@ -351,6 +351,7 @@ test('Resonance establishes two nodes before releasing its multi-lane payoff', (
 
   const secondNode = chooseVersusNpcSignature(contextFor('resonance', {
     step: 1,
+    npcRow: opening.moveToRow,
     signatureCharges: opening.nextCharges,
     signaturePlacements: opening.nextPlacements,
     signatureLastCommand: opening.commandIndex,
@@ -360,10 +361,11 @@ test('Resonance establishes two nodes before releasing its multi-lane payoff', (
   equal(secondNode.objectiveCommandIndex, 2);
   equal(secondNode.payoffReady, false);
   equal(secondNode.nextCharges, 2);
-  deepStrictEqual(secondNode.nextPlacements, [5, 5]);
+  deepStrictEqual(secondNode.nextPlacements, [5, 3]);
 
   const release = chooseVersusNpcSignature(contextFor('resonance', {
     step: 2,
+    npcRow: secondNode.moveToRow,
     signatureCharges: secondNode.nextCharges,
     signaturePlacements: secondNode.nextPlacements,
     signatureLastCommand: secondNode.commandIndex,
@@ -372,7 +374,8 @@ test('Resonance establishes two nodes before releasing its multi-lane payoff', (
   equal(release.intent, 'attack');
   equal(release.strategyStage, 'execute');
   equal(release.payoffReady, true);
-  deepStrictEqual(shotRowsForPlan(release), [0, 1, 2]);
+  deepStrictEqual(release.authoredTargetRows, [2, 0]);
+  deepStrictEqual(shotRowsForPlan(release), [2, 0]);
   equal(release.nextCharges, 0);
   deepStrictEqual(release.nextPlacements, []);
 });

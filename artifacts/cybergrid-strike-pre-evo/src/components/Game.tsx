@@ -2970,7 +2970,11 @@ function makeInitialState(
       hp: NPC_HP,
       shieldCharges: 0,
       abilityCooldown: COMPETITIVE_RULESET.npcAbilityInterval,
-      signatureCooldown: COMPETITIVE_RULESET.signatureSkillCooldown,
+      // Every NPC-controlled opponent gets the same readable opening window.
+      // The former 14-second generic delay meant the right NPC frequently
+      // finished a short duel before its first signature while campaign/left
+      // NPCs began at the six-second boss cadence.
+      signatureCooldown: COMPETITIVE_RULESET.bossOpeningSignatureDelay,
       signatureWindow: 0,
       signatureActionCooldown: 0,
       signatureActions: 0,
@@ -3260,7 +3264,10 @@ function npcSignatureWindowDuration(counterpart: VersusBossCounterpart): number 
   );
   return Math.max(
     COMPETITIVE_RULESET.signatureWindow,
-    npcSignatureActionBudget(counterpart) * actionDuration + 0.15,
+    // Leave room for one readable evade/impact resolution. Without this
+    // allowance a six-beat signature used nearly the entire seven-second
+    // window on presentation alone and could lose its authored payoff.
+    npcSignatureActionBudget(counterpart) * actionDuration + 1.5,
   );
 }
 const NPC_ECHO_BRINK_HOLD_SECONDS = 0.72;
@@ -3269,6 +3276,42 @@ const NPC_ECHO_DRAIN_HOLD_SECONDS = 1.1;
 interface NpcEchoChannelClock {
   remaining: number;
   next: 'brink' | 'drain';
+}
+
+interface NpcSignatureSequenceState {
+  cooldown: number;
+  window: number;
+  actionCooldown: number;
+  actions: number;
+  lastCommand: number;
+  objectiveCommand: number;
+  mode: number;
+  charges: number;
+  placements: number[];
+  originRow: number;
+  originCol: number;
+  commandUses: [number, number, number];
+}
+
+function createNpcSignatureSequenceState(
+  originRow = 1,
+  originCol = 1,
+  cooldown = COMPETITIVE_RULESET.bossOpeningSignatureDelay,
+): NpcSignatureSequenceState {
+  return {
+    cooldown,
+    window: 0,
+    actionCooldown: 0,
+    actions: 0,
+    lastCommand: -1,
+    objectiveCommand: -1,
+    mode: 0,
+    charges: 0,
+    placements: [],
+    originRow,
+    originCol,
+    commandUses: [0, 0, 0],
+  };
 }
 
 const VS_NATIVE_PROJECTILE_ABILITIES = new Set([
@@ -5773,6 +5816,11 @@ export default function Game() {
   const npcSignatureCommandUsesRef = useRef<[number, number, number]>([0, 0, 0]);
   const npcBossTacticalMemoryRef = useRef(createBossTacticalMemory());
   const npcRegenerationTickRef = useRef(0);
+  const coopSignatureCounterpartRef = useRef<VersusBossCounterpart | null>(null);
+  const coopSignatureRuntimeRef = useRef<VersusBossSignatureRuntimeState | null>(null);
+  const coopSignatureStateRef = useRef<NpcSignatureSequenceState>(
+    createNpcSignatureSequenceState(),
+  );
   const npcSpriteWrapRef = useRef<HTMLDivElement | null>(null);
   const npcSpriteCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const npcFrameRef = useRef<ImageBitmap | null>(null);
@@ -12080,6 +12128,20 @@ export default function Game() {
     if (s.coopPlayer) {
       s.coopPlayer.fireCooldown = Math.max(0, s.coopPlayer.fireCooldown - dt);
       s.coopPlayer.moveCooldown = Math.max(0, (s.coopPlayer.moveCooldown ?? 0) - dt);
+      const allySignature = coopSignatureStateRef.current;
+      allySignature.cooldown = Math.max(0, allySignature.cooldown - dt);
+      allySignature.window = Math.max(0, allySignature.window - dt);
+      allySignature.actionCooldown = Math.max(0, allySignature.actionCooldown - dt);
+      if (coopSignatureRuntimeRef.current) {
+        coopSignatureRuntimeRef.current = advanceVersusBossSignatureTime(
+          coopSignatureRuntimeRef.current,
+          dt * 1000,
+        );
+        coopSignatureRuntimeRef.current = recordVersusBossSignaturePosition(
+          coopSignatureRuntimeRef.current,
+          { col: s.coopPlayer.col, row: s.coopPlayer.row },
+        );
+      }
     }
 
     // Route selection is a post-wave intermission rather than live combat.
@@ -12974,9 +13036,271 @@ export default function Game() {
       }
     }
 
-    // The friendly co-op NPC owns its own targeting and fire cooldown. Player
-    // Auto Buster settings remain player-owned; the ally fires autonomously
-    // only when a living threat is currently in its lane.
+    // The friendly co-op NPC owns a real counterpart signature runtime. This
+    // used to jump directly from movement to Basic Buster, so selecting a boss
+    // persona as the ally could never execute that persona's defining skill.
+    let coopNpcUsedSignature = false;
+    const coopCounterpart = s.gameMode === 'coop'
+      ? coopSignatureCounterpartRef.current
+      : null;
+    if (s.gameMode === 'coop' && s.coopPlayer && coopCounterpart) {
+      const ally = s.coopPlayer;
+      const signatureState = coopSignatureStateRef.current;
+      const hasSignature = coopCounterpart.signature.kind !== 'none'
+        && coopCounterpart.signature.kind !== 'unsupported';
+      const rivalSkillId = coopCounterpart.signature.kind === 'boss-skill'
+        ? coopCounterpart.signature.id
+        : null;
+      const actionBudget = npcSignatureActionBudget(coopCounterpart);
+      const livingThreats = s.enemies.filter((enemy) => enemy.colPos >= -1 && enemy.hp > 0);
+
+      if (hasSignature
+        && livingThreats.length > 0
+        && signatureState.window <= 0
+        && signatureState.cooldown <= 0
+        && !slowMotionActive) {
+        signatureState.window = npcSignatureWindowDuration(coopCounterpart);
+        signatureState.actionCooldown = 0;
+        signatureState.actions = 0;
+        signatureState.lastCommand = -1;
+        signatureState.objectiveCommand = -1;
+        signatureState.mode = 0;
+        signatureState.charges = 0;
+        signatureState.placements = [];
+        signatureState.originRow = ally.row;
+        signatureState.originCol = ally.col;
+        signatureState.commandUses = [0, 0, 0];
+        signatureState.cooldown = VS_NPC_SKILL_INTERVAL;
+      }
+
+      if (hasSignature
+        && livingThreats.length > 0
+        && signatureState.window > 0
+        && signatureState.actionCooldown <= 0
+        && signatureState.actions < actionBudget
+        && !slowMotionActive) {
+        const target = livingThreats.reduce<(typeof livingThreats)[number] | null>(
+          (nearest, enemy) => !nearest || enemy.colPos < nearest.colPos ? enemy : nearest,
+          null,
+        );
+        const incomingByRow: [number, number, number] = [0, 0, 0];
+        for (const enemy of livingThreats) {
+          if (enemy.colPos <= ally.col + 3.25) {
+            incomingByRow[enemy.row] += Math.max(1, Math.round(enemy.hp));
+          }
+        }
+        const context: VersusNpcContext = {
+          skillId: rivalSkillId ?? undefined,
+          npcHp: s.hp,
+          playerHp: target?.hp ?? 1,
+          maxHp: Math.max(5, s.hp, target?.hp ?? 1),
+          npcShields: s.shieldCharges,
+          maxShields: VS_NPC_MAX_SHIELDS,
+          npcRow: ally.row,
+          playerRow: target?.row ?? ally.row,
+          npcCol: ally.col,
+          incomingByRow,
+          playerFireCooldown: 0,
+          playerMoveCooldown: 0,
+          cardProgress: 0,
+          step: signatureState.actions,
+          signatureMode: signatureState.mode,
+          signatureCharges: signatureState.charges,
+          signaturePlacements: signatureState.placements,
+          signatureOriginRow: signatureState.originRow,
+          signatureOriginCol: signatureState.originCol,
+          signatureLastCommand: signatureState.lastCommand,
+          signatureObjectiveCommand: signatureState.objectiveCommand,
+          signatureCommandUses: signatureState.commandUses,
+        };
+        const signaturePlan = rivalSkillId ? chooseVersusNpcSignature(context) : null;
+        const runtime = coopSignatureRuntimeRef.current
+          ?? createVersusBossSignatureRuntimeState(
+            coopCounterpart,
+            { col: ally.col, row: ally.row },
+          );
+        const signature = dispatchVersusBossSignature({
+          counterpart: coopCounterpart,
+          state: runtime,
+          commandIndex: signaturePlan?.commandIndex ?? 0,
+          currentPosition: { col: ally.col, row: ally.row },
+        });
+        coopSignatureRuntimeRef.current = signature.state;
+        let presentationDurationMs = NPC_SKILL_ANIMATION_DURATION;
+
+        const moveAllyTo = (col: number, row: number) => {
+          const current = diagonalCoopPositionsForState(s);
+          if (!current) return;
+          const movement = resolveDiagonalCoopMovement(
+            current,
+            {
+              p2: {
+                col: Math.max(0, Math.min(2, Math.round(col))),
+                row: Math.max(0, Math.min(2, Math.round(row))),
+              },
+            },
+            s.coopPairLayout,
+          );
+          ally.col = movement.positions.p2.col;
+          ally.row = movement.positions.p2.row;
+          s.coopPairLayout = movement.layout;
+          if (movement.moved.p2) ally.moveCooldown = Math.max(ally.moveCooldown, 0.32);
+        };
+
+        const applyAllyPlan = (plan: VersusAbilityPlan | VersusSignaturePlan) => {
+          const applied = applyVersusNpcCombatPlan(plan, {
+            npc: {
+              row: ally.row,
+              col: ally.col,
+              hp: s.hp,
+              shieldCharges: s.shieldCharges,
+              signatureMode: signatureState.mode,
+              signatureCharges: signatureState.charges,
+              signaturePlacements: signatureState.placements,
+              signatureOriginRow: signatureState.originRow,
+              signatureOriginCol: signatureState.originCol,
+            },
+            player: { fireCooldown: 0, moveCooldown: 0 },
+            cardsReady: true,
+            cardTimer: 0,
+          });
+          moveAllyTo(applied.npc.col, applied.npc.row);
+          s.hp = applied.npc.hp;
+          s.shieldCharges = applied.npc.shieldCharges;
+          signatureState.mode = applied.npc.signatureMode;
+          signatureState.charges = applied.npc.signatureCharges;
+          signatureState.placements = [...applied.npc.signaturePlacements];
+          signatureState.originRow = applied.npc.signatureOriginRow;
+          signatureState.originCol = applied.npc.signatureOriginCol;
+          if ('commandIndex' in plan) {
+            signatureState.objectiveCommand = plan.nextObjectiveCommand ?? -1;
+          }
+          let firstProjectile = true;
+          for (const projectile of applied.projectiles) {
+            fireBullet(projectile.row, {
+              originCol: ally.col - projectile.salvoIndex * 0.18,
+              directionOverride: 1,
+              power: projectile.power,
+              big: projectile.big,
+              leechOnHit: projectile.leechOnHit,
+              effectSkinOverride: coopPartnerSkinRef.current,
+              coopOwned: true,
+              presentationPrimary: firstProjectile,
+              suppressSecondary: true,
+            });
+            firstProjectile = false;
+          }
+          return applied;
+        };
+
+        if (signature.kind === 'rival-command' && signaturePlan && rivalSkillId) {
+          applyAllyPlan(signaturePlan);
+          const authoredEffect = signature.authoredEffect;
+          if (authoredEffect?.kind === 'step' || authoredEffect?.kind === 'displace') {
+            moveAllyTo(authoredEffect.destination.col, authoredEffect.destination.row);
+          } else if (authoredEffect?.kind === 'rewind' && authoredEffect.phase === 'begin') {
+            const destination = signature.state.chrona?.recordedPositions[0];
+            if (destination) moveAllyTo(destination.col, destination.row);
+            const released = dispatchVersusBossSignature({
+              counterpart: coopCounterpart,
+              state: signature.state,
+              commandIndex: signaturePlan.commandIndex,
+              currentPosition: { col: ally.col, row: ally.row },
+              rewindHeld: false,
+            });
+            coopSignatureRuntimeRef.current = released.state;
+          } else if (authoredEffect?.kind === 'replay') {
+            for (const [index, origin] of authoredEffect.origins.entries()) {
+              fireBullet(origin.row, {
+                originCol: Math.max(0, Math.min(2, origin.col)) - index * 0.12,
+                directionOverride: 1,
+                power: 1,
+                big: false,
+                effectSkinOverride: coopPartnerSkinRef.current,
+                coopOwned: true,
+                presentationPrimary: false,
+                suppressSecondary: true,
+              });
+            }
+          }
+          signatureState.lastCommand = signature.command.commandIndex;
+          signatureState.commandUses[signature.command.commandIndex] += 1;
+          publishNpcSkillPresentation(resolveNpcSignaturePresentation(
+            signaturePlan,
+            rivalSkillId,
+            ++npcSkillPresentationRevisionRef.current,
+          ));
+          showMessage(
+            `ALLY ${RIVAL_SKILL_LABELS[rivalSkillId]} · ${RIVAL_SKILL_COMMANDS[rivalSkillId][signaturePlan.commandIndex]}`,
+            1100,
+          );
+        } else if (signature.kind === 'canonical-ability') {
+          const plan = resolveVersusNpcAbility(signature.action.abilityId, context);
+          applyAllyPlan(plan);
+          const presentationAction = LORD_ALPHA_SKILL_PREVIEW_ACTIONS.find(
+            ({ id }) => id === signature.action.actionId,
+          );
+          if (presentationAction) {
+            presentationDurationMs = presentationAction.presentation.durationMs;
+            triggerNpcLordAlphaPresentation(
+              presentationAction.presentation.kind,
+              'skill',
+              presentationAction.presentation.durationMs,
+              {
+                subtype: presentationAction.presentation.subtype,
+                origin: lordAlphaBoardAnchor(ally.col, ally.row),
+                target: target
+                  ? lordAlphaBoardAnchor(Math.max(3, target.colPos), target.row)
+                  : undefined,
+              },
+            );
+          }
+          showMessage(`ALLY LORD ALPHA · ${signature.action.label}`, 1100);
+        } else if (signature.kind === 'shadow-clone') {
+          const targetRow = target?.row ?? ally.row;
+          for (const row of [targetRow, (targetRow + 1) % 3]) {
+            fireBullet(row, {
+              originCol: ally.col,
+              directionOverride: 1,
+              effectSkinOverride: coopPartnerSkinRef.current,
+              coopOwned: true,
+              presentationPrimary: row === targetRow,
+              suppressSecondary: true,
+            });
+          }
+          signatureState.window = 0;
+          showMessage(`ALLY SHADOW CLONE x${signature.grantedCharges}`, 1100);
+        } else if (signature.kind === 'equip-latency'
+          || signature.kind === 'presentation-only') {
+          presentationDurationMs = signature.action.durationMs;
+          triggerNpcLordAlphaPresentation(
+            'equip',
+            'skill',
+            signature.action.durationMs,
+            {
+              subtype: 'equip-assembly',
+              origin: lordAlphaBoardAnchor(ally.col, ally.row),
+            },
+          );
+          showMessage(`ALLY LORD ALPHA · ${signature.action.label}`, 1100);
+        } else if (signature.kind === 'unavailable') {
+          signatureState.window = 0;
+        }
+
+        signatureState.actions += 1;
+        signatureState.actionCooldown = Math.max(
+          COMPETITIVE_RULESET.signatureActionInterval,
+          presentationDurationMs / 1000,
+        );
+        ally.fireCooldown = Math.max(ally.fireCooldown, signatureState.actionCooldown);
+        if (signatureState.actions >= actionBudget) signatureState.window = 0;
+        coopNpcUsedSignature = true;
+        updateHud();
+      }
+    }
+
+    // Player Auto Buster settings remain player-owned; between authored
+    // signature beats the ally fires only when a living threat is in its lane.
     const coopNpcDecision = s.gameMode === 'coop' && s.coopPlayer
       ? chooseDiagonalCoopNpcDecision({
         player: s.player,
@@ -12988,7 +13312,8 @@ export default function Game() {
         canFire: s.coopPlayer.fireCooldown <= 0 && !slowMotionActive,
       })
       : null;
-    if (s.gameMode === 'coop' && s.coopPlayer && coopNpcDecision?.shouldFire) {
+    if (s.gameMode === 'coop' && s.coopPlayer
+      && !coopNpcUsedSignature && coopNpcDecision?.shouldFire) {
       const rapidScale = (1 + (s.runUpgrades.rapidBuster ?? 0) * 0.1)
         * milestoneFireRateMultiplier(s.runUpgrades);
       const interval = (
@@ -13017,7 +13342,8 @@ export default function Game() {
         coopOwned: true,
       });
     }
-    if (s.gameMode === 'coop' && s.coopPlayer && coopNpcDecision?.moveTo) {
+    if (s.gameMode === 'coop' && s.coopPlayer
+      && !coopNpcUsedSignature && coopNpcDecision?.moveTo) {
       const current = diagonalCoopPositionsForState(s);
       if (current) {
         const movement = resolveDiagonalCoopMovement(
@@ -14354,6 +14680,26 @@ export default function Game() {
                 s.player.col = destination.col;
                 s.player.row = destination.row;
               }
+              const released = dispatchVersusBossSignature({
+                counterpart: leftCounterpart,
+                state: signature.state,
+                commandIndex: rivalPlan.commandIndex,
+                currentPosition: { col: s.player.col, row: s.player.row },
+                rewindHeld: false,
+              });
+              npcVsNpcLeftSignatureRuntimeRef.current = released.state;
+            } else if (authoredEffect?.kind === 'replay') {
+              authoredEffect.origins.forEach((origin, index) => {
+                fireBullet(origin.row, {
+                  power: 1,
+                  big: false,
+                  pierce: false,
+                  originCol: origin.col - index * 0.12,
+                  presentationPrimary: false,
+                  suppressSecondary: true,
+                  speedOverride: 6.4,
+                });
+              });
             }
             leftSignatureState.lastCommand = signature.command.commandIndex;
             leftSignatureState.commandUses[signature.command.commandIndex] += 1;
@@ -15214,7 +15560,6 @@ export default function Game() {
         && !npcEchoBracing
         && npc.signatureWindow <= 0
         && npc.signatureCooldown <= 0
-        && !committedImpact
         && npc.decisionLock <= 0
         && (!npcSkillTacticsActive
           || bossTacticalDecision?.action === 'signature-open')) {
@@ -15424,6 +15769,26 @@ export default function Game() {
               npc.row = destination.row;
               npcHighLevelColumnActed = true;
             }
+            const released = dispatchVersusBossSignature({
+              counterpart: npcCounterpart,
+              state: exactSignature.state,
+              commandIndex: plan.commandIndex,
+              currentPosition: { col: npc.col, row: npc.row },
+              rewindHeld: false,
+            });
+            npcSignatureRuntimeRef.current = released.state;
+          } else if (authoredEffect?.kind === 'replay') {
+            authoredEffect.origins.forEach((origin, index) => {
+              launchNpcShot(
+                origin.row,
+                1,
+                false,
+                index,
+                0,
+                false,
+                origin.col,
+              );
+            });
           }
           publishNpcSkillPresentation(resolveNpcSignaturePresentation(
             plan,
@@ -17091,6 +17456,9 @@ export default function Game() {
     npcVsNpcLeftAbilityUseCountsRef.current = [];
     npcVsNpcLeftCounterpartRef.current = null;
     npcVsNpcLeftSignatureRuntimeRef.current = null;
+    coopSignatureCounterpartRef.current = null;
+    coopSignatureRuntimeRef.current = null;
+    coopSignatureStateRef.current = createNpcSignatureSequenceState();
     npcVsNpcLeftSignatureStateRef.current = {
       cooldown: COMPETITIVE_RULESET.bossOpeningSignatureDelay,
       window: 0,
@@ -17141,6 +17509,37 @@ export default function Game() {
     lordAlphaIdleRecoveryRef.current = createLordAlphaIdleRecoveryState(
       stateRef.current.hp,
     );
+    if (mode === 'coop' && stateRef.current.coopPlayer) {
+      const allySkin = coopPartnerSkinRef.current;
+      const allySkillId = allySkin === 'assembly'
+        ? assemblySkillRef.current
+        : allySkin;
+      const allyAbilityPreset = npcAuthoredAbilityPreset(allySkin, allySkillId);
+      allyAbilityPreset.forEach(preloadAbilityImagegenVfx);
+      const allyCounterpart = createVersusBossCounterpart({
+        skinId: allySkin,
+        playableAbilityPreset: allyAbilityPreset,
+        ...(allySkin === 'assembly'
+          ? { assemblySkillId: assemblySkillRef.current }
+          : {}),
+      });
+      coopSignatureCounterpartRef.current = allyCounterpart;
+      coopSignatureRuntimeRef.current = createVersusBossSignatureRuntimeState(
+        allyCounterpart,
+        {
+          col: stateRef.current.coopPlayer.col,
+          row: stateRef.current.coopPlayer.row,
+        },
+      );
+      coopSignatureStateRef.current = createNpcSignatureSequenceState(
+        stateRef.current.coopPlayer.row,
+        stateRef.current.coopPlayer.col,
+      );
+    } else {
+      coopSignatureCounterpartRef.current = null;
+      coopSignatureRuntimeRef.current = null;
+      coopSignatureStateRef.current = createNpcSignatureSequenceState();
+    }
     if (mode === 'vs') {
       resetVersusBossCounterpart(npcSkinRef.current, stateRef.current);
     } else {
@@ -17268,6 +17667,7 @@ export default function Game() {
     }
     if (options.startAudio !== false) startMusic(() => stateRef.current.running);
   }, [actionForkExperiment, updateHud, showMessage, resetActionRouteProgress, resetVersusBossCounterpart,
+    npcAuthoredAbilityPreset,
     setActionRoutePrompt, clearNpcSkillPresentation, clearNpcLeftSkillPresentation, clearLordAlphaAfterimageStep,
     lordAlphaSkillsPreview, lordAlphaForm, triggerLordAlphaPresentation, lordAlphaBoardAnchor,
     resetLordAlphaL2TapGesture, resetLordAlphaR2TapGesture, resetTharthareonGesture,
@@ -18744,6 +19144,7 @@ export default function Game() {
       {shouldRenderNpcSkillPresentation({
         isPlaying: phase === 'playing',
         isVersusMode: hud.gameMode === 'vs',
+        isCoopMode: hud.gameMode === 'coop',
         hasCampaignBossEncounter: actionRouteBossEncounter !== null,
         hasPresentation: npcSkillPresentation !== null,
       }) && npcSkillPresentation && (
