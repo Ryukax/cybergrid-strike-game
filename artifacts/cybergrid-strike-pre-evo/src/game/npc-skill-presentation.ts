@@ -237,7 +237,7 @@ export function resolveNpcAbilityPresentation(
     anchor: presentationAnchor(intent, targetRows),
     targetRows,
     label: abilityName,
-    durationMs: NPC_SKILL_PRESENTATION_DURATION_MS,
+    durationMs: abilityAnimation?.durationMs ?? NPC_SKILL_PRESENTATION_DURATION_MS,
   };
 }
 

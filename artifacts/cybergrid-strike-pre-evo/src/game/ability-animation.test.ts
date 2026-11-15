@@ -26,8 +26,9 @@ test('all canonical cards have renderer-effective unique animation signatures', 
   for (const abilityId of CANONICAL_ABILITY_IDS) {
     const profile = resolveAbilityAnimationProfile(abilityId);
     ok(profile, `${abilityId} lacks an animation profile`);
-    equal(profile.source, 'authored');
+    equal(profile.source, 'imagegen');
     equal(profile.abilityId, abilityId);
+    equal(profile.imagegenAsset?.abilityId, abilityId);
     // The signature intentionally excludes ability id, label, revision, side,
     // and data attributes. Every field below is consumed by the renderer.
     signatures.add(profile.visualSignature);
@@ -81,6 +82,7 @@ test('generated cards resolve compositionally and deterministically', () => {
     'phase',
   );
   equal(first.source, 'generated');
+  equal(first.imagegenAsset, null);
   deepStrictEqual(first, repeated);
   notEqual(first.visualSignature, other.visualSignature);
 });

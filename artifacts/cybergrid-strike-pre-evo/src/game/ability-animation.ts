@@ -5,6 +5,10 @@ import {
   type AbilityRole,
   type AbilityTarget,
 } from './ability-system';
+import {
+  ABILITY_IMAGEGEN_VFX_ASSETS,
+  type AbilityImagegenVfxAsset,
+} from './ability-vfx-manifest';
 
 /**
  * The semantic effect language shared by player cards and NPC counterparts.
@@ -35,8 +39,9 @@ export type AbilityAnimationAnchor = 'self' | 'player' | 'lane' | 'all-lanes';
 export type AbilityAnimationRhythm = 'snap' | 'cascade' | 'pulse' | 'sustain';
 
 export interface AbilityAnimationProfile {
-  readonly source: 'authored' | 'generated';
+  readonly source: 'imagegen' | 'generated';
   readonly abilityId: string;
+  readonly imagegenAsset: AbilityImagegenVfxAsset | null;
   readonly motif: AbilityEffectMotif;
   readonly motion: AbilityMotionFamily;
   readonly action: AbilityAnimationAction;
@@ -151,7 +156,10 @@ function createCanonicalProfile(abilityId: AbilityId, index: number): AbilityAni
   const rotationDegrees = Math.round((index * 137.5) % 360);
   const primary = hueColor(hue, 64);
   const accent = hueColor(accentHue, 73);
+  const imagegenAsset = ABILITY_IMAGEGEN_VFX_ASSETS[abilityId];
   const visualSignature = [
+    imagegenAsset.suffix,
+    imagegenAsset.frameHoldMs.join(','),
     motif,
     motion,
     action,
@@ -166,8 +174,9 @@ function createCanonicalProfile(abilityId: AbilityId, index: number): AbilityAni
     rotationDegrees,
   ].join('|');
   return Object.freeze({
-    source: 'authored' as const,
+    source: 'imagegen' as const,
     abilityId,
+    imagegenAsset,
     motif,
     motion,
     action,
@@ -181,7 +190,7 @@ function createCanonicalProfile(abilityId: AbilityId, index: number): AbilityAni
     echoCount,
     rotationDegrees,
     visualSignature,
-    durationMs: 1_050,
+    durationMs: imagegenAsset.durationMs,
   });
 }
 
@@ -261,6 +270,7 @@ export function createGeneratedAbilityAnimationProfile(
   return Object.freeze({
     source: 'generated',
     abilityId,
+    imagegenAsset: null,
     motif,
     motion,
     action,

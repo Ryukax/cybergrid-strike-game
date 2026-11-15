@@ -94,6 +94,7 @@ test('every boss loadout ability resolves to an exact authored presentation', ()
       equal(presentation.label, ABILITY_LOOKUP[abilityId]?.name);
       ok(SKILL_VFX_SEQUENCE[presentation.motif]);
       ok(presentation.abilityAnimation);
+      equal(presentation.durationMs, presentation.abilityAnimation.durationMs);
       visualSignatures.add(presentation.abilityAnimation.visualSignature);
     }
     equal(visualSignatures.size, 3, `${bossId} collapsed its rendered ability identity`);

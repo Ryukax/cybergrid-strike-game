@@ -153,6 +153,10 @@ import {
   type AbilityAnimationProfile,
 } from '../game/ability-animation';
 import {
+  abilityImagegenFrameIndex,
+  abilityImagegenVfxUrl,
+} from '../game/ability-vfx-manifest';
+import {
   isVersusAbilityId,
   resolveVersusAbilityEffect,
   type VersusAbilityContext,
@@ -3504,6 +3508,8 @@ function SkillGuidePanel({ id }: { id: RivalSkillId }) {
 }
 
 const signatureVfxImages = new Map<string, HTMLImageElement>();
+const abilityImagegenVfxImages = new Map<string, HTMLImageElement>();
+const ABILITY_IMAGEGEN_VFX_CACHE_LIMIT = 8;
 
 function signatureVfxAsset(motif: SkillExecutionMotif) {
   const sequence = SKILL_VFX_SEQUENCE[motif];
@@ -3534,13 +3540,46 @@ function preloadSignatureSkillVfx(id: RivalSkillId) {
   for (const motif of SKILL_EXECUTION_MOTIFS[id]) getSignatureVfxImage(motif);
 }
 
+function getAbilityImagegenVfxImage(profile: AbilityAnimationProfile) {
+  const asset = profile.imagegenAsset;
+  if (!asset) return null;
+  const cached = abilityImagegenVfxImages.get(asset.suffix);
+  if (cached) {
+    // Refresh insertion order so the cache remains a small LRU instead of
+    // retaining every decoded 2x2 sheet over a long campaign on mobile.
+    abilityImagegenVfxImages.delete(asset.suffix);
+    abilityImagegenVfxImages.set(asset.suffix, cached);
+    return cached;
+  }
+  const image = new Image();
+  image.decoding = 'async';
+  image.addEventListener('error', () => {
+    if (abilityImagegenVfxImages.get(asset.suffix) === image) {
+      abilityImagegenVfxImages.delete(asset.suffix);
+    }
+  }, { once: true });
+  image.src = abilityImagegenVfxUrl(asset, import.meta.env.BASE_URL);
+  abilityImagegenVfxImages.set(asset.suffix, image);
+  while (abilityImagegenVfxImages.size > ABILITY_IMAGEGEN_VFX_CACHE_LIMIT) {
+    const oldestKey = abilityImagegenVfxImages.keys().next().value;
+    if (oldestKey === undefined) break;
+    abilityImagegenVfxImages.delete(oldestKey);
+  }
+  void image.decode().catch(() => undefined);
+  return image;
+}
+
+function preloadAbilityImagegenVfx(abilityId: string) {
+  const profile = resolveAbilityAnimationProfile(abilityId);
+  if (profile?.imagegenAsset) getAbilityImagegenVfxImage(profile);
+}
+
 type AbilityFxPoint = Readonly<{ x: number; y: number }>;
 
 /**
- * Paint the card identity independently of either combatant's sprite. The
- * binary rune makes every authored card visibly stable and distinct, while
- * the semantic motion family communicates how it acts on the board. Nothing
- * in this layer can alter sprite bounds, body scale, collision, or timing.
+ * Cold-load/error fallback for a card's ImageGen sheet, plus the compositional
+ * identity used by open-ended generated manifestations. Nothing in this layer
+ * can alter sprite bounds, body scale, collision, or timing.
  */
 function paintAbilityAnimationIdentity(
   ctx: CanvasRenderingContext2D,
@@ -3792,9 +3831,13 @@ function SignatureSkillFx({
   });
 
   useEffect(() => {
+    if (abilityAnimationProfile?.imagegenAsset) {
+      getAbilityImagegenVfxImage(abilityAnimationProfile);
+      return;
+    }
     preloadSignatureSkillVfx(id);
     if (motifOverride) getSignatureVfxImage(motifOverride);
-  }, [id, motifOverride]);
+  }, [abilityAnimationProfile, id, motifOverride]);
 
   useEffect(() => {
     executionRef.current = {
@@ -3825,6 +3868,7 @@ function SignatureSkillFx({
     let height = 1;
     let dpr = 1;
     const coarsePointer = window.matchMedia('(pointer: coarse)');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     const syncCanvasSurface = () => {
       width = Math.max(1, window.innerWidth);
@@ -4072,7 +4116,10 @@ function SignatureSkillFx({
         }
 
         const sequenceMotif = motif ?? SKILL_EXECUTION_MOTIFS[id][0];
-        const sheet = getSignatureVfxImage(sequenceMotif);
+        const imagegenAsset = abilityAnimationProfile?.imagegenAsset ?? null;
+        const sheet = imagegenAsset && abilityAnimationProfile
+          ? getAbilityImagegenVfxImage(abilityAnimationProfile)
+          : getSignatureVfxImage(sequenceMotif);
         const anchoredTarget = anchorOverride === 'self' ? player : target;
         const resolvedTarget = anchorOverride
           ? anchoredTarget
@@ -4093,13 +4140,21 @@ function SignatureSkillFx({
               y: center(0, row).y,
             }))
           : [resolvedTarget];
-        if (sheet?.complete && sheet.naturalWidth > 0) {
-          const sequenceFrame = Math.min(3, Math.floor(executionProgress * 4));
-          const sourceWidth = sheet.naturalWidth / 4;
-          const sourceHeight = sheet.naturalHeight;
+        const sheetDrawable = Boolean(sheet?.complete && sheet.naturalWidth > 0);
+        if (sheet && sheetDrawable) {
+          const sequenceFrame = imagegenAsset
+            ? abilityImagegenFrameIndex(imagegenAsset, executionProgress, reducedMotion.matches)
+            : Math.min(3, Math.floor(executionProgress * 4));
+          const columns = imagegenAsset?.columns ?? 4;
+          const rows = imagegenAsset?.rows ?? 1;
+          const sourceWidth = sheet.naturalWidth / columns;
+          const sourceHeight = sheet.naturalHeight / rows;
+          const sourceX = (sequenceFrame % columns) * sourceWidth;
+          const sourceY = Math.floor(sequenceFrame / columns) * sourceHeight;
           const multiLaneScale = vfxTargets.length > 1 ? 0.78 : 1;
           const baseSize = board.cell
-            * (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18)
+            * (imagegenAsset?.displayScale
+              ?? (motif === 'grid' || motif === 'construct' || motif === 'orbital' ? 1.55 : 1.18))
             * multiLaneScale;
           // Keep authored sheets at one gameplay size. Their geometry already
           // constructs frame-by-frame; scaling the complete image from 55% to
@@ -4113,12 +4168,14 @@ function SignatureSkillFx({
             ctx.globalAlpha = Math.min(0.96, fade * 1.35);
             ctx.imageSmoothingEnabled = false;
             ctx.translate(vfxTarget.x, vfxTarget.y);
-            if (motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
-            if (motif === 'reflect') ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
+            if (!imagegenAsset && motif === 'time') ctx.rotate(-easeOut * Math.PI * 0.28);
+            if (!imagegenAsset && motif === 'reflect') {
+              ctx.scale(execution.action === 'primary' ? -1 : 1, 1);
+            }
             ctx.drawImage(
               sheet,
-              sequenceFrame * sourceWidth,
-              0,
+              sourceX,
+              sourceY,
               sourceWidth,
               sourceHeight,
               -drawWidth / 2,
@@ -4152,7 +4209,7 @@ function SignatureSkillFx({
           );
         }
 
-        if (abilityAnimationProfile) {
+        if (abilityAnimationProfile && (!imagegenAsset || !sheetDrawable)) {
           paintAbilityAnimationIdentity(
             ctx,
             abilityAnimationProfile,
@@ -4536,6 +4593,7 @@ function SignatureSkillFx({
       data-npc-skill-motif={actorSide === 'npc' ? motifOverride : undefined}
       data-ability-animation-id={presentationId}
       data-ability-animation-signature={abilityAnimationProfile?.visualSignature}
+      data-ability-imagegen-asset={abilityAnimationProfile?.imagegenAsset?.suffix}
       aria-hidden="true"
     />
   );
@@ -4594,6 +4652,9 @@ export default function Game() {
   const stateRef = useRef<GameState>(
     makeInitialState(undefined, 'classic', actionForkExperiment),
   );
+  useEffect(() => {
+    stateRef.current.currentCardOptions.forEach(preloadAbilityImagegenVfx);
+  }, []);
   const chronoHistoryRef = useRef<Array<{ at: number; state: GameState }>>([]);
   const chronoLastCaptureRef = useRef(0);
   const chronoLastHudUpdateRef = useRef(0);
@@ -6755,6 +6816,7 @@ export default function Game() {
     const playableAbilityPreset = encounterManifestation
       ? [...authoredAbilityPreset, encounterManifestation.id]
       : authoredAbilityPreset;
+    playableAbilityPreset.forEach(preloadAbilityImagegenVfx);
     const counterpart = createVersusBossCounterpart({
       skinId,
       playableAbilityPreset,
@@ -12785,6 +12847,7 @@ export default function Game() {
           if (cardLabelRef.current) cardLabelRef.current.textContent = 'Skills cooling — synchronizing';
         } else {
           s.currentCardOptions = nextCardOptions;
+          nextCardOptions.forEach(preloadAbilityImagegenVfx);
           s.cardsReady = true;
           s.cardSelectionOpen = true;
           s.rotateUsedThisHand = false;
@@ -14074,6 +14137,7 @@ export default function Game() {
             playerSkinRef.current,
             leftSkillId,
           );
+          leftAuthoredAbilityPreset.forEach(preloadAbilityImagegenVfx);
           leftCounterpart = createVersusBossCounterpart({
             skinId: playerSkinRef.current,
             playableAbilityPreset: leftAuthoredAbilityPreset,
@@ -15251,12 +15315,16 @@ export default function Game() {
                 abilityUse.card.definition.medium,
               )
             : undefined;
-          publishNpcSkillPresentation(resolveNpcAbilityPresentation(
+          const npcAbilityPresentation = resolveNpcAbilityPresentation(
             plan,
             npcRivalSkill ?? 'apex',
             ++npcSkillPresentationRevisionRef.current,
             npcAnimationOverride,
-          ));
+          );
+          publishNpcSkillPresentation(npcAbilityPresentation);
+          if (npcSkinRef.current !== LORD_ALPHA_SKIN_ID) {
+            npcAbilityPresentationDurationMs = npcAbilityPresentation.durationMs;
+          }
           showNpcTacticCue(plan);
           const selectedAbility = runtimeAbilityById(abilityUse.abilityId);
           const abilityName = selectedAbility?.name
