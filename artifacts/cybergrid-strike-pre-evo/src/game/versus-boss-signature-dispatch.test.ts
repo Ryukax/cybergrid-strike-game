@@ -59,7 +59,7 @@ test('Assembly Shadow Clone grants the exact two-body interception counterpart',
   equal(consumeVersusBossShadowClone(result.state).shadowCloneCharges, 1);
 });
 
-test('Lord Alpha cycles all nine canonical actions without a generic substitute', () => {
+test('Lord Alpha cycles all nine canonical slots while preserving authored gesture variants', () => {
   const counterpart = createVersusBossCounterpart({
     skinId: LORD_ALPHA_SKIN_ID,
     playableAbilityPreset: [],
@@ -76,7 +76,9 @@ test('Lord Alpha cycles all nine canonical actions without a generic substitute'
     });
     state = result.state;
     kinds.push(result.kind);
-    if (result.kind === 'canonical-ability' || result.kind === 'equip-latency') {
+    if (result.kind === 'canonical-ability'
+      || result.kind === 'authored-technique'
+      || result.kind === 'equip-latency') {
       actions.push(result.action.actionId);
     } else if (result.kind === 'shadow-clone') {
       actions.push(result.command.actionId);
@@ -84,9 +86,9 @@ test('Lord Alpha cycles all nine canonical actions without a generic substitute'
   }
   deepStrictEqual(actions, LORD_ALPHA_SKILL_PREVIEW_ACTIONS.map(({ id }) => id));
   deepStrictEqual(kinds, [
-    'canonical-ability', 'canonical-ability', 'canonical-ability',
+    'canonical-ability', 'canonical-ability', 'authored-technique',
     'canonical-ability', 'canonical-ability', 'shadow-clone',
-    'canonical-ability', 'canonical-ability', 'equip-latency',
+    'authored-technique', 'canonical-ability', 'equip-latency',
   ]);
   equal(state.lordAlphaActionIndex, 0, 'the authored bank wraps only after all nine actions');
   equal(state.lordAlphaEquip.phase, 'equipping');
@@ -99,6 +101,36 @@ test('Lord Alpha cycles all nine canonical actions without a generic substitute'
   state = advanceVersusBossSignatureTime(state, state.lordAlphaEquip.durationMs);
   equal(state.lordAlphaEquip.phase, 'equipped');
   equal(state.lordAlphaEquip.telegraphedActionId, null);
+});
+
+test('Lord Alpha NPC dispatch reaches R1 lane branches, R2 double/triple, and all X gestures', () => {
+  const counterpart = createVersusBossCounterpart({
+    skinId: LORD_ALPHA_SKIN_ID,
+    playableAbilityPreset: [],
+  });
+  let state = createVersusBossSignatureRuntimeState(counterpart, ORIGIN);
+  const techniques: string[] = [];
+
+  for (let index = 0; index < LORD_ALPHA_SKILL_PREVIEW_ACTIONS.length * 3; index++) {
+    const result = dispatchVersusBossSignature({
+      counterpart,
+      state,
+      commandIndex: 0,
+      currentPosition: ORIGIN,
+    });
+    state = result.state;
+    if (result.kind === 'authored-technique') techniques.push(result.action.techniqueId);
+  }
+
+  deepStrictEqual(techniques, [
+    'roc-wing-cross', 'tharthareon-fireball',
+    'roc-wing-lane-up', 'ninjato-phase-slice', 'tharthareon-headbutt',
+    'roc-wing-lane-down', 'ninjato-back-thrust', 'tharthareon-bite',
+  ]);
+  equal(state.lordAlphaActionIndex, 0);
+  equal(state.lordAlphaRocVariantIndex, 0);
+  equal(state.lordAlphaR2VariantIndex, 0);
+  equal(state.lordAlphaTharthareonVariantIndex, 0);
 });
 
 test('Chrona uses an NPC-owned history and Assembly retains ownership when delegating it', () => {

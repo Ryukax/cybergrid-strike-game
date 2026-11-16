@@ -1,9 +1,20 @@
 import { COMPETITIVE_RULESET } from './competitive-balance';
 import {
+  LORD_ALPHA_EVENT_TIMINGS_MS,
+  LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS,
+  LORD_ALPHA_ROC_CHARGE_DURATION_MS,
   LORD_ALPHA_SKILL_PREVIEW_ACTIONS,
   resolveLordAlphaSkillAction,
+  type LordAlphaPresentationEventKind,
+  type LordAlphaPresentationSubtype,
   type LordAlphaSkillActionId,
 } from './lord-alpha';
+import { LORD_ALPHA_NINJATO_SLICE_DURATION_MS } from './lord-alpha-ninjato-slice';
+import { LORD_ALPHA_NINJATO_THRUST_DURATION_MS } from './lord-alpha-ninjato-thrust';
+import {
+  THARTHAREON_HEADBUTT_SEQUENCE_DURATION_SECONDS,
+  THARTHAREON_TARGET_HOLD_MAX_SECONDS,
+} from './tharthareon-bite';
 import {
   BOSS_SIGNATURE_COMMANDS,
   type BossSkillId,
@@ -46,6 +57,44 @@ export interface ShadowCloneSignatureCommand {
   readonly label: 'Shadow Clone';
 }
 
+export type LordAlphaNpcTechniqueId =
+  | 'roc-wing-cross'
+  | 'roc-wing-lane-up'
+  | 'roc-wing-lane-down'
+  | 'ninjato-phase-slice'
+  | 'ninjato-back-thrust'
+  | 'tharthareon-fireball'
+  | 'tharthareon-headbutt'
+  | 'tharthareon-bite';
+
+export type LordAlphaNpcInputSequence =
+  | 'R1'
+  | 'R1 -> R2 + Up'
+  | 'R1 -> R2 + Down'
+  | 'R2 -> R2'
+  | 'R2 -> R2 -> R2'
+  | 'X'
+  | 'X -> X'
+  | 'Hold X';
+
+export interface LordAlphaNpcTechniqueAction {
+  readonly kind: 'authored-technique';
+  readonly ownerSkinId: 'lord-alpha';
+  readonly actionId: LordAlphaSkillActionId;
+  readonly techniqueId: LordAlphaNpcTechniqueId;
+  readonly inputSequence: LordAlphaNpcInputSequence;
+  readonly label: string;
+  readonly abilityId: VersusAbilityId;
+  readonly laneDelta: -1 | 0 | 1;
+  /** Roc Wing crosses the center line visually, then recovers on its own side. */
+  readonly crossesOpponentSide: boolean;
+  readonly presentation: {
+    readonly kind: LordAlphaPresentationEventKind;
+    readonly subtype: LordAlphaPresentationSubtype;
+    readonly durationMs: number;
+  };
+}
+
 export type LordAlphaNpcAction =
   | {
       readonly kind: 'canonical-ability';
@@ -55,6 +104,7 @@ export type LordAlphaNpcAction =
       readonly abilityId: VersusAbilityId;
     }
   | ShadowCloneSignatureCommand
+  | LordAlphaNpcTechniqueAction
   | {
       readonly kind: 'equip-latency';
       readonly ownerSkinId: 'lord-alpha';
@@ -64,6 +114,125 @@ export type LordAlphaNpcAction =
       /** Equip remains a telegraphed form change, never an input lock. */
       readonly controlsLive: true;
     };
+
+const technique = (
+  action: Omit<LordAlphaNpcTechniqueAction, 'kind' | 'ownerSkinId'>,
+): LordAlphaNpcTechniqueAction => ({
+  kind: 'authored-technique',
+  ownerSkinId: 'lord-alpha',
+  ...action,
+});
+
+/**
+ * Resolve the gesture branch attached to one of LASI's canonical NPC slots.
+ * The variant is NPC-owned state, so no player gesture timer or cooldown is
+ * reused. Invalid edge-lane requests turn toward the only legal adjacent lane
+ * rather than wrapping across the board.
+ */
+export function resolveLordAlphaNpcTechnique(
+  actionId: LordAlphaSkillActionId,
+  variantIndex: number,
+  currentPosition: BossSignatureCell,
+): LordAlphaNpcTechniqueAction | null {
+  const variant = Math.abs(Math.trunc(Number.isFinite(variantIndex) ? variantIndex : 0)) % 3;
+  const row = Math.max(0, Math.min(2, Math.round(currentPosition.row)));
+  if (actionId === 'roc-stun') {
+    if (variant === 0) {
+      return technique({
+        actionId,
+        techniqueId: 'roc-wing-cross',
+        inputSequence: 'R1',
+        label: 'Roc Wing Cross',
+        abilityId: 'kineticram',
+        laneDelta: 0,
+        crossesOpponentSide: true,
+        presentation: {
+          kind: 'move',
+          subtype: 'roc-stun',
+          durationMs: LORD_ALPHA_ROC_CHARGE_DURATION_MS,
+        },
+      });
+    }
+    const requestedDelta: -1 | 1 = variant === 1 ? -1 : 1;
+    const laneDelta: -1 | 1 = row + requestedDelta < 0 || row + requestedDelta > 2
+      ? requestedDelta === -1 ? 1 : -1
+      : requestedDelta;
+    const laneUp = laneDelta === -1;
+    return technique({
+      actionId,
+      techniqueId: laneUp ? 'roc-wing-lane-up' : 'roc-wing-lane-down',
+      inputSequence: laneUp ? 'R1 -> R2 + Up' : 'R1 -> R2 + Down',
+      label: laneUp ? 'Roc Wing Spin Up' : 'Roc Wing Spin Down',
+      abilityId: 'kineticram',
+      laneDelta,
+      crossesOpponentSide: true,
+      presentation: {
+        kind: 'move',
+        subtype: 'roc-wing-spin',
+        durationMs: LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS,
+      },
+    });
+  }
+
+  if (actionId === 'afterimage-step') {
+    if (variant === 0) return null;
+    const slice = variant === 1;
+    return technique({
+      actionId,
+      techniqueId: slice ? 'ninjato-phase-slice' : 'ninjato-back-thrust',
+      inputSequence: slice ? 'R2 -> R2' : 'R2 -> R2 -> R2',
+      label: slice ? 'Ninjatō Phase Slice' : 'Ninjatō Back Thrust',
+      abilityId: slice ? 'separate' : 'pierce',
+      laneDelta: 0,
+      crossesOpponentSide: slice,
+      presentation: {
+        kind: 'move',
+        subtype: slice ? 'ninjato-phase-slice' : 'ninjato-back-thrust',
+        durationMs: slice
+          ? LORD_ALPHA_NINJATO_SLICE_DURATION_MS
+          : LORD_ALPHA_NINJATO_THRUST_DURATION_MS,
+      },
+    });
+  }
+
+  if (actionId === 'tharthareon') {
+    if (variant === 0) {
+      return technique({
+        actionId,
+        techniqueId: 'tharthareon-fireball',
+        inputSequence: 'X',
+        label: 'Tharthareon Fireball',
+        abilityId: 'bomb',
+        laneDelta: 0,
+        crossesOpponentSide: false,
+        presentation: {
+          kind: 'tharthareon',
+          subtype: 'tharthareon-fireball',
+          durationMs: LORD_ALPHA_EVENT_TIMINGS_MS.tharthareon,
+        },
+      });
+    }
+    const headbutt = variant === 1;
+    return technique({
+      actionId,
+      techniqueId: headbutt ? 'tharthareon-headbutt' : 'tharthareon-bite',
+      inputSequence: headbutt ? 'X -> X' : 'Hold X',
+      label: headbutt ? 'Tharthareon Headbutt' : 'Tharthareon Hold Bite',
+      abilityId: headbutt ? 'kineticram' : 'tailclamp',
+      laneDelta: 0,
+      crossesOpponentSide: false,
+      presentation: {
+        kind: 'tharthareon',
+        subtype: 'tharthareon-bite-lunge',
+        durationMs: headbutt
+          ? THARTHAREON_HEADBUTT_SEQUENCE_DURATION_SECONDS * 1_000
+          : THARTHAREON_TARGET_HOLD_MAX_SECONDS * 1_000,
+      },
+    });
+  }
+
+  return null;
+}
 
 const COMMAND_ACTIONS = ['primary', 'alternate', 'defend'] as const;
 const BOSS_SKILL_IDS = new Set<string>(Object.keys(BOSS_SIGNATURE_COMMANDS));
@@ -260,6 +429,98 @@ export interface ChronaNpcSignatureState {
   readonly rewinding: boolean;
 }
 
+/**
+ * Chrona's NPC rewind owns a compact combat timeline.  Keeping this separate
+ * from the player's GameState prevents an NPC rewind from resurrecting route
+ * progression/UI state while still reversing the boss's actual body state.
+ */
+export interface ChronaNpcCombatSnapshot {
+  readonly atMs: number;
+  readonly position: BossSignatureCell;
+  readonly hp: number;
+  readonly shields: number;
+  readonly fireCooldown: number;
+  readonly moveCooldown: number;
+}
+
+export const CHRONA_NPC_REWIND_WINDOW_MS = 3_000;
+export const CHRONA_NPC_REWIND_TARGET_MS = 1_500;
+export const CHRONA_NPC_SLOW_RECOVERY_SCALE = 0.18;
+
+function finiteFloor(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? Math.floor(value) : fallback;
+}
+
+function finiteCooldown(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
+function normalizedChronaSnapshot(
+  snapshot: ChronaNpcCombatSnapshot,
+): ChronaNpcCombatSnapshot {
+  return {
+    atMs: Number.isFinite(snapshot.atMs) ? snapshot.atMs : 0,
+    position: boundedCell(snapshot.position),
+    hp: Math.max(0, finiteFloor(snapshot.hp)),
+    shields: Math.max(0, finiteFloor(snapshot.shields)),
+    fireCooldown: finiteCooldown(snapshot.fireCooldown),
+    moveCooldown: finiteCooldown(snapshot.moveCooldown),
+  };
+}
+
+/** Record a bounded three-second history of Chrona's own live combat state. */
+export function recordChronaNpcCombatSnapshot(
+  history: readonly ChronaNpcCombatSnapshot[],
+  snapshot: ChronaNpcCombatSnapshot,
+): readonly ChronaNpcCombatSnapshot[] {
+  const next = normalizedChronaSnapshot(snapshot);
+  const retained = history
+    .map(normalizedChronaSnapshot)
+    .filter(({ atMs }) => atMs <= next.atMs && next.atMs - atMs <= CHRONA_NPC_REWIND_WINDOW_MS);
+  const previous = retained[retained.length - 1];
+  if (previous && previous.atMs === next.atMs) retained[retained.length - 1] = next;
+  else retained.push(next);
+  // Player Chrona captures at roughly 60 ms. Use the same bounded density so
+  // an NPC cannot grow an unbounded timeline during a long encounter.
+  return retained.slice(-52);
+}
+
+/**
+ * Select the real snapshot reached by Reverse.  It aims 1.5 seconds backward
+ * and falls back to the oldest still-valid sample when the window is younger.
+ */
+export function resolveChronaNpcRewindSnapshot(
+  history: readonly ChronaNpcCombatSnapshot[],
+  nowMs: number,
+): ChronaNpcCombatSnapshot | null {
+  const boundedNow = Number.isFinite(nowMs) ? nowMs : 0;
+  const eligible = history
+    .map(normalizedChronaSnapshot)
+    .filter(({ atMs }) => atMs <= boundedNow && boundedNow - atMs <= CHRONA_NPC_REWIND_WINDOW_MS)
+    .sort((left, right) => left.atMs - right.atMs);
+  if (eligible.length < 2) return null;
+  const targetAt = boundedNow - CHRONA_NPC_REWIND_TARGET_MS;
+  let selected = eligible[0];
+  for (const snapshot of eligible) {
+    if (snapshot.atMs > targetAt) break;
+    selected = snapshot;
+  }
+  // A rewind must move to a prior sample, never return the current capture.
+  return selected.atMs < eligible[eligible.length - 1].atMs ? selected : eligible[0];
+}
+
+export interface ChronaNpcSlowDecisionContext {
+  readonly channelActive: boolean;
+  readonly signatureActionIndex: number;
+}
+
+/** Hold R2 once at the opening of each Chrona command window. */
+export function shouldChronaNpcHoldSlow(
+  context: ChronaNpcSlowDecisionContext,
+): boolean {
+  return !context.channelActive && context.signatureActionIndex === 0;
+}
+
 export type ChronaNpcSignatureEffect =
   | { readonly kind: 'queue'; readonly origin: BossSignatureCell }
   | { readonly kind: 'step'; readonly destination: BossSignatureCell }
@@ -343,6 +604,32 @@ export function executeChronaNpcCommand(
 }
 
 export type EchoNpcChannel = 'idle' | 'brink' | 'drain';
+
+export interface EchoNpcHeldTechniqueContext {
+  readonly channel: EchoNpcChannel;
+  readonly signatureActionIndex: number;
+  readonly currentHp: number;
+  readonly maxHp: number;
+  readonly incomingDamage: number;
+  readonly preferred: Exclude<EchoNpcChannel, 'idle'>;
+}
+
+/**
+ * Pick Echo's held controls as actual tactical techniques, not a cosmetic
+ * alternation. Drain answers a live incoming carrier (especially while hurt),
+ * while Brink is the proactive fixed-intercept option when Echo can pay 1 HP.
+ */
+export function chooseEchoNpcHeldTechnique(
+  context: EchoNpcHeldTechniqueContext,
+): Exclude<EchoNpcChannel, 'idle'> | null {
+  if (context.channel !== 'idle' || context.signatureActionIndex !== 0) return null;
+  const hp = Math.max(0, finiteFloor(context.currentHp));
+  const maxHp = Math.max(1, finiteFloor(context.maxHp, 1));
+  const incomingDamage = Math.max(0, finiteFloor(context.incomingDamage));
+  if (incomingDamage > 0 && (hp < maxHp || context.preferred === 'drain')) return 'drain';
+  if (hp > 1) return 'brink';
+  return incomingDamage > 0 ? 'drain' : null;
+}
 
 export interface EchoNpcSignatureState {
   readonly traces: readonly BossSignatureCell[];

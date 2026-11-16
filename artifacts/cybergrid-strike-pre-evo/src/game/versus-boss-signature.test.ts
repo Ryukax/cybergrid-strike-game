@@ -10,6 +10,7 @@ import {
   advanceLordAlphaEquipLatency,
   beginLordAlphaEquipLatency,
   beginEchoNpcChannel,
+  chooseEchoNpcHeldTechnique,
   createChronaNpcSignatureState,
   createEchoNpcSignatureState,
   createLordAlphaEquipLatencyState,
@@ -17,14 +18,18 @@ import {
   executeChronaNpcCommand,
   executeEchoNpcCommand,
   lockEchoNpcBrinkTarget,
+  recordChronaNpcCombatSnapshot,
   recordChronaNpcPosition,
   releaseEchoNpcBrink,
   releaseEchoNpcDrain,
   resolveAssemblyNpcSignature,
+  resolveChronaNpcRewindSnapshot,
   resolveEchoNpcDrainCollision,
   resolveExactRivalSignatureCommand,
   resolveLordAlphaNpcAction,
   resolveLordAlphaNpcBankSlot,
+  resolveLordAlphaNpcTechnique,
+  shouldChronaNpcHoldSlow,
 } from './versus-boss-signature';
 
 test('exact rival signatures retain their skin command instead of falling back', () => {
@@ -101,6 +106,43 @@ test('Lord Alpha exposes exactly the canonical nine actions and no substitute ac
   );
 });
 
+test('Lord Alpha NPC gesture families resolve every authored R1, R2, and X branch', () => {
+  const middle = { col: 1, row: 1 } as const;
+  deepStrictEqual(
+    [0, 1, 2].map((variant) =>
+      resolveLordAlphaNpcTechnique('roc-stun', variant, middle)?.techniqueId),
+    ['roc-wing-cross', 'roc-wing-lane-up', 'roc-wing-lane-down'],
+  );
+  deepStrictEqual(
+    [0, 1, 2].map((variant) =>
+      resolveLordAlphaNpcTechnique('afterimage-step', variant, middle)?.techniqueId ?? null),
+    [null, 'ninjato-phase-slice', 'ninjato-back-thrust'],
+  );
+  deepStrictEqual(
+    [0, 1, 2].map((variant) =>
+      resolveLordAlphaNpcTechnique('tharthareon', variant, middle)?.techniqueId),
+    ['tharthareon-fireball', 'tharthareon-headbutt', 'tharthareon-bite'],
+  );
+  deepStrictEqual(
+    [0, 1, 2].map((variant) =>
+      resolveLordAlphaNpcTechnique('tharthareon', variant, middle)?.inputSequence),
+    ['X', 'X -> X', 'Hold X'],
+  );
+  const holdBite = resolveLordAlphaNpcTechnique('tharthareon', 2, middle);
+  equal(holdBite?.abilityId, 'tailclamp');
+  equal(holdBite?.presentation.durationMs, 3_000);
+});
+
+test('Lord Alpha NPC Roc lane branches never wrap at the top or bottom edge', () => {
+  const topRequest = resolveLordAlphaNpcTechnique('roc-stun', 1, { col: 2, row: 0 });
+  const bottomRequest = resolveLordAlphaNpcTechnique('roc-stun', 2, { col: 2, row: 2 });
+  equal(topRequest?.techniqueId, 'roc-wing-lane-down');
+  equal(topRequest?.laneDelta, 1);
+  equal(bottomRequest?.techniqueId, 'roc-wing-lane-up');
+  equal(bottomRequest?.laneDelta, -1);
+  equal(resolveLordAlphaNpcTechnique('web-shot', 0, { col: 1, row: 1 }), null);
+});
+
 test('Lord Alpha Equip Latency telegraphs without modifying balance or locking controls', () => {
   const equip = resolveLordAlphaNpcAction('equip');
   equal(equip.kind, 'equip-latency');
@@ -170,6 +212,56 @@ test('Chrona owns an independent queue, movement history, and held rewind state'
   deepStrictEqual(rewindRelease.effect, { kind: 'rewind', phase: 'release' });
 });
 
+test('Chrona Reverse restores a bounded prior combat snapshot instead of only announcing rewind', () => {
+  let history = recordChronaNpcCombatSnapshot([], {
+    atMs: 1_000,
+    position: { col: 2, row: 0 },
+    hp: 5,
+    shields: 1,
+    fireCooldown: 0.7,
+    moveCooldown: 0.4,
+  });
+  history = recordChronaNpcCombatSnapshot(history, {
+    atMs: 2_500,
+    position: { col: 1, row: 1 },
+    hp: 3,
+    shields: 0,
+    fireCooldown: 0.1,
+    moveCooldown: 0,
+  });
+  history = recordChronaNpcCombatSnapshot(history, {
+    atMs: 3_000,
+    position: { col: 0, row: 2 },
+    hp: 2,
+    shields: 0,
+    fireCooldown: 0,
+    moveCooldown: 0,
+  });
+
+  deepStrictEqual(resolveChronaNpcRewindSnapshot(history, 3_000), {
+    atMs: 1_000,
+    position: { col: 2, row: 0 },
+    hp: 5,
+    shields: 1,
+    fireCooldown: 0.7,
+    moveCooldown: 0.4,
+  });
+  equal(shouldChronaNpcHoldSlow({ channelActive: false, signatureActionIndex: 0 }), true);
+  equal(shouldChronaNpcHoldSlow({ channelActive: true, signatureActionIndex: 0 }), false);
+  equal(shouldChronaNpcHoldSlow({ channelActive: false, signatureActionIndex: 1 }), false);
+
+  const pruned = recordChronaNpcCombatSnapshot(history, {
+    atMs: 6_100,
+    position: { col: 1, row: 2 },
+    hp: 1,
+    shields: 0,
+    fireCooldown: 0,
+    moveCooldown: 0,
+  });
+  equal(pruned.length, 1, 'combat history cannot outlive Chrona\'s three-second window');
+  equal(resolveChronaNpcRewindSnapshot(pruned, 6_100), null);
+});
+
 test('Echo TRACE, REPLAY, and DISPLACE retain their authored state chain', () => {
   let state = createEchoNpcSignatureState();
   const missingDisplace = executeEchoNpcCommand(state, 2, { col: 2, row: 1 });
@@ -187,6 +279,49 @@ test('Echo TRACE, REPLAY, and DISPLACE retain their authored state chain', () =>
   const displaced = executeEchoNpcCommand(state, 2, { col: 1, row: 1 });
   equal(displaced.command.label, 'DISPLACE');
   deepStrictEqual(displaced.effect, { kind: 'displace', destination: { col: 2, row: 0 } });
+});
+
+test('Echo strategically reaches held Brink and Drain without replacing its command bank', () => {
+  equal(chooseEchoNpcHeldTechnique({
+    channel: 'idle',
+    signatureActionIndex: 0,
+    currentHp: 7,
+    maxHp: 10,
+    incomingDamage: 3,
+    preferred: 'brink',
+  }), 'drain', 'an injured Echo drains a verified incoming carrier');
+  equal(chooseEchoNpcHeldTechnique({
+    channel: 'idle',
+    signatureActionIndex: 0,
+    currentHp: 10,
+    maxHp: 10,
+    incomingDamage: 0,
+    preferred: 'drain',
+  }), 'brink', 'Brink is the proactive option when no carrier can feed Drain');
+  equal(chooseEchoNpcHeldTechnique({
+    channel: 'idle',
+    signatureActionIndex: 0,
+    currentHp: 1,
+    maxHp: 10,
+    incomingDamage: 0,
+    preferred: 'brink',
+  }), null, 'Echo cannot spend its final HP on Brink');
+  equal(chooseEchoNpcHeldTechnique({
+    channel: 'drain',
+    signatureActionIndex: 0,
+    currentHp: 4,
+    maxHp: 10,
+    incomingDamage: 3,
+    preferred: 'brink',
+  }), null, 'a held channel cannot be restarted');
+  equal(chooseEchoNpcHeldTechnique({
+    channel: 'idle',
+    signatureActionIndex: 1,
+    currentHp: 4,
+    maxHp: 10,
+    incomingDamage: 3,
+    preferred: 'drain',
+  }), null, 'later beats remain available to TRACE / REPLAY / DISPLACE');
 });
 
 test('Echo Brink locks movement and attacks, spends to an HP floor, and releases only 2-3-5 partitions', () => {

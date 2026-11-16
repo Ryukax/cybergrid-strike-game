@@ -47,6 +47,12 @@ import {
 } from '../game/coop-partner';
 import { normalizeSpriteFrameBank } from '../game/sprite-frame-normalization';
 import {
+  isUsurperIdleSheetUrl,
+  resolveUsurperSheetFrame,
+  USURPER_ATTACK_SHEET_PATH,
+  USURPER_IDLE_SHEET_PATH,
+} from '../game/usurper-sprite';
+import {
   cloneBrowserValue,
   readBrowserViewport,
   safeLocalStorage as localStorage,
@@ -57,10 +63,19 @@ import {
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
-// Usurper's idle source sheet includes a separate discarded head below the
-// intact character. End the subject window immediately before that artifact
-// (source y=100) so it cannot be retained as a nearby anatomy island.
-const USURPER_IDLE_SUBJECT_WINDOW = [4, 24, 188, 76] as const;
+async function extractUsurperSheetPose(sheet: ImageBitmap): Promise<ImageBitmap> {
+  const frame = resolveUsurperSheetFrame(sheet.width, sheet.height);
+  if (!frame) return sheet;
+  const pose = await createImageBitmap(
+    sheet,
+    frame.x,
+    frame.y,
+    frame.width,
+    frame.height,
+  );
+  sheet.close();
+  return pose;
+}
 
 // Static one-time render of a GIF's first frame with white-background removed.
 // The img is never added to the DOM — no element shows through transparent pixels —
@@ -77,16 +92,17 @@ function SkinPreviewCanvas({ src }: { src: string }) {
       if (!ctx) return;
       let frame: CanvasImageSource = img;
       let disposable: ImageBitmap | undefined;
-      if (src.includes('/skins/skill-') || src.includes('skins/skill-')) {
+      const usurperSheet = isUsurperIdleSheetUrl(src);
+      if (src.includes('/skins/skill-') || src.includes('skins/skill-') || usurperSheet) {
         let bitmap = await createImageBitmap(img);
-        // These three authored sheets contain extra artwork connected to the
+        if (usurperSheet) bitmap = await extractUsurperSheetPose(bitmap);
+        // These authored sheets contain extra artwork connected to the
         // primary alpha island. Crop to their intentional subject window
         // before connected-component cleanup so the debris cannot win or
         // survive the island analysis.
         const subjectWindows: Record<string, readonly [number, number, number, number]> = {
           override: [34, 20, 154, 140],
           apex: [27, 20, 194, 140],
-          hijack: USURPER_IDLE_SUBJECT_WINDOW,
         };
         const skinMatch = src.match(/skill-([a-z]+)-idle/i);
         const subject = skinMatch ? subjectWindows[skinMatch[1]] : undefined;
@@ -103,7 +119,10 @@ function SkinPreviewCanvas({ src }: { src: string }) {
           bitmap.close();
           bitmap = cropped;
         }
-        disposable = await sanitizeRivalSkinFrame(bitmap, true);
+        // Usurper's clean authored pose is intentionally composed from several
+        // nearby armor/head islands. Keep those pieces together; preview-only
+        // largest-island cleanup would remove the head again.
+        disposable = await sanitizeRivalSkinFrame(bitmap, !usurperSheet);
         frame = disposable;
       }
       if (cancelled) {
@@ -364,7 +383,15 @@ import {
   recordVersusBossSignaturePosition,
   type VersusBossSignatureRuntimeState,
 } from '../game/versus-boss-signature-dispatch';
-import type { EchoNpcChannelEvent } from '../game/versus-boss-signature';
+import {
+  CHRONA_NPC_SLOW_RECOVERY_SCALE,
+  chooseEchoNpcHeldTechnique,
+  recordChronaNpcCombatSnapshot,
+  resolveChronaNpcRewindSnapshot,
+  shouldChronaNpcHoldSlow,
+  type ChronaNpcCombatSnapshot,
+  type EchoNpcChannelEvent,
+} from '../game/versus-boss-signature';
 import {
   LORD_ALPHA_FORM_IDS,
   LORD_ALPHA_FORMS,
@@ -515,6 +542,44 @@ interface LordAlphaRocChargeRuntime {
   impactApplied: boolean;
   lastCellIndex: number;
 }
+
+interface LordAlphaNpcTechniqueRouteRuntime {
+  readonly cells: readonly LordAlphaRocChargeCell[];
+  readonly turnIndex: number;
+  readonly startedAtMs: number;
+  readonly durationMs: number;
+}
+
+const createLordAlphaNpcTechniqueRoute = (
+  origin: LordAlphaRocChargeCell,
+  target: LordAlphaRocChargeCell,
+  laneDelta: -1 | 0 | 1,
+  durationMs: number,
+  startedAtMs = performance.now(),
+): LordAlphaNpcTechniqueRouteRuntime => {
+  const baseCells = buildLordAlphaRocChargeCells(origin, target);
+  const route = laneDelta === 0
+    ? { cells: baseCells, turnIndex: Math.floor(baseCells.length / 2) }
+    : branchLordAlphaRocChargeCells(baseCells, {
+        col: origin.col,
+        row: Math.max(0, Math.min(2, origin.row + laneDelta)),
+      });
+  return {
+    cells: route.cells,
+    turnIndex: route.turnIndex,
+    startedAtMs,
+    durationMs: Math.max(1, durationMs),
+  };
+};
+
+const sampleLordAlphaNpcTechniqueRoute = (
+  runtime: LordAlphaNpcTechniqueRouteRuntime,
+  nowMs: number,
+) => resolveLordAlphaRocChargePose(
+  runtime.cells,
+  Math.max(0, Math.min(1, (nowMs - runtime.startedAtMs) / runtime.durationMs)),
+  runtime.turnIndex,
+);
 
 const lordAlphaRocRuntimeProgress = (
   runtime: LordAlphaRocChargeRuntime,
@@ -3274,11 +3339,25 @@ function npcSignatureWindowDuration(counterpart: VersusBossCounterpart): number 
 }
 const NPC_ECHO_BRINK_HOLD_SECONDS = 0.72;
 const NPC_ECHO_DRAIN_HOLD_SECONDS = 1.1;
+const NPC_CHRONA_SLOW_HOLD_SECONDS = 1.5;
+const NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS = 0.55;
 
 interface NpcEchoChannelClock {
   remaining: number;
   next: 'brink' | 'drain';
 }
+
+interface NpcChronaTimelineClock {
+  history: readonly ChronaNpcCombatSnapshot[];
+  lastCaptureAt: number;
+  slowRemaining: number;
+}
+
+const createNpcChronaTimelineClock = (): NpcChronaTimelineClock => ({
+  history: [],
+  lastCaptureAt: 0,
+  slowRemaining: 0,
+});
 
 interface NpcSignatureSequenceState {
   cooldown: number;
@@ -5195,10 +5274,10 @@ export default function Game() {
     image.onload = async () => {
       try {
         let bitmap = await createImageBitmap(image);
+        if (bossId === 'hijack') bitmap = await extractUsurperSheetPose(bitmap);
         const subjectWindows: Partial<Record<CampaignRouteBossEncounter['destination']['id'], readonly [number, number, number, number]>> = {
           override: [34, 20, 154, 140],
           apex: [27, 20, 194, 140],
-          hijack: USURPER_IDLE_SUBJECT_WINDOW,
         };
         const subject = subjectWindows[bossId];
         if (subject) {
@@ -5231,7 +5310,9 @@ export default function Game() {
         actionRouteBossFrameRef.current = null;
       }
     };
-    image.src = `${import.meta.env.BASE_URL}skins/skill-${bossId}-idle.png`;
+    image.src = bossId === 'hijack'
+      ? `${import.meta.env.BASE_URL}${USURPER_IDLE_SHEET_PATH}`
+      : `${import.meta.env.BASE_URL}skins/skill-${bossId}-idle.png`;
     return () => {
       cancelled = true;
     };
@@ -5607,6 +5688,13 @@ export default function Game() {
   const npcVsNpcLeftAbilityUseCountsRef = useRef<number[]>([]);
   const npcVsNpcLeftCounterpartRef = useRef<VersusBossCounterpart | null>(null);
   const npcVsNpcLeftSignatureRuntimeRef = useRef<VersusBossSignatureRuntimeState | null>(null);
+  const npcVsNpcLeftChronaTimelineRef = useRef<NpcChronaTimelineClock>(
+    createNpcChronaTimelineClock(),
+  );
+  const npcVsNpcLeftEchoChannelClockRef = useRef<NpcEchoChannelClock>({
+    remaining: 0,
+    next: 'brink',
+  });
   const npcVsNpcLeftSignatureStateRef = useRef<{
     cooldown: number;
     window: number;
@@ -6020,6 +6108,13 @@ export default function Game() {
   const npcRegenerationTickRef = useRef(0);
   const coopSignatureCounterpartRef = useRef<VersusBossCounterpart | null>(null);
   const coopSignatureRuntimeRef = useRef<VersusBossSignatureRuntimeState | null>(null);
+  const coopChronaTimelineRef = useRef<NpcChronaTimelineClock>(
+    createNpcChronaTimelineClock(),
+  );
+  const coopEchoChannelClockRef = useRef<NpcEchoChannelClock>({
+    remaining: 0,
+    next: 'brink',
+  });
   const coopSignatureStateRef = useRef<NpcSignatureSequenceState>(
     createNpcSignatureSequenceState(),
   );
@@ -6058,7 +6153,13 @@ export default function Game() {
     remaining: 0,
     next: 'brink',
   });
+  const npcChronaTimelineRef = useRef<NpcChronaTimelineClock>(
+    createNpcChronaTimelineClock(),
+  );
   const npcVisualPositionRef = useRef({ col: 0, row: 1, at: 0 });
+  /** Board-space routes for NPC LASI bodies; never mutate combat hitboxes mid-flight. */
+  const npcLordAlphaTechniqueRouteRef = useRef<LordAlphaNpcTechniqueRouteRuntime | null>(null);
+  const leftNpcLordAlphaTechniqueRouteRef = useRef<LordAlphaNpcTechniqueRouteRuntime | null>(null);
   const storedAssemblySkill = localStorage.getItem(ASSEMBLY_SKILL_KEY) ?? 'shadow';
   const savedAssemblySkill: AssemblySkillId = storedAssemblySkill === 'shadow'
     || RIVAL_SKILL_IDS.includes(storedAssemblySkill as RivalSkillId)
@@ -6294,7 +6395,7 @@ export default function Game() {
     { id: 'colossus', label: 'Bastion', preview: `${import.meta.env.BASE_URL}skins/skill-colossus-idle.png` },
     { id: 'predator', label: 'Talon', preview: `${import.meta.env.BASE_URL}skins/skill-predator-idle.png` },
     { id: 'orbital', label: 'Zenith', preview: `${import.meta.env.BASE_URL}skins/skill-orbital-idle.png` },
-    { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}skins/skill-hijack-idle.png` },
+    { id: 'hijack', label: 'Usurper', preview: `${import.meta.env.BASE_URL}${USURPER_IDLE_SHEET_PATH}` },
     { id: 'sovereign', label: 'Regent', preview: `${import.meta.env.BASE_URL}skins/skill-sovereign-idle.png` },
     { id: 'tempest', label: 'Tempest', preview: `${import.meta.env.BASE_URL}skins/skill-tempest-idle.png` },
     { id: 'cryo', label: 'Cryo', preview: `${import.meta.env.BASE_URL}skins/skill-cryo-idle.png` },
@@ -6548,33 +6649,33 @@ export default function Game() {
         }
         if (rivalSkin) {
           const alphaVersion = playerSkin === 'architect' ? 'v3' : 'v2';
+          const usurper = playerSkin === 'hijack';
           let [rawIdle, rawAttack] = await Promise.all([
-            loadBitmap(`${base}skins/skill-${playerSkin}-idle.png?alpha=${alphaVersion}`),
-            loadBitmap(`${base}skins/skill-${playerSkin}-attack.png?alpha=${alphaVersion}`),
+            loadBitmap(usurper
+              ? `${base}${USURPER_IDLE_SHEET_PATH}`
+              : `${base}skins/skill-${playerSkin}-idle.png?alpha=${alphaVersion}`),
+            loadBitmap(usurper
+              ? `${base}${USURPER_ATTACK_SHEET_PATH}`
+              : `${base}skins/skill-${playerSkin}-attack.png?alpha=${alphaVersion}`),
           ]);
-          if (playerSkin === 'hijack') {
-            const [idleX, idleY, idleWidth, idleHeight] = USURPER_IDLE_SUBJECT_WINDOW;
-            const idleCrop = await createImageBitmap(
-              rawIdle,
-              Math.round(rawIdle.width * idleX / 240),
-              Math.round(rawIdle.height * idleY / 160),
-              Math.round(rawIdle.width * idleWidth / 240),
-              Math.round(rawIdle.height * idleHeight / 160),
-            );
-            const attackCrop = await createImageBitmap(
-              rawAttack,
-              0,
-              Math.round(rawAttack.height * 18 / 160),
-              Math.round(rawAttack.width * 142 / 240),
-              Math.round(rawAttack.height * 82 / 160),
-            );
-            rawIdle.close();
-            rawAttack.close();
-            rawIdle = idleCrop;
-            rawAttack = attackCrop;
+          if (usurper) {
+            [rawIdle, rawAttack] = await Promise.all([
+              extractUsurperSheetPose(rawIdle),
+              extractUsurperSheetPose(rawAttack),
+            ]);
           }
           let pair: { idle: ImageBitmap; attack: ImageBitmap };
-          if (playerSkin === 'architect') {
+          if (usurper) {
+            // The complete authored poses are multi-island figures (helmet,
+            // armor, and cloak). Sanitize each full pose independently rather
+            // than applying pair matching that used to select the headless
+            // torso as the sole idle body.
+            const [idle, attack] = await Promise.all([
+              sanitizeRivalSkinFrame(rawIdle),
+              sanitizeRivalSkinFrame(rawAttack),
+            ]);
+            pair = { idle, attack };
+          } else if (playerSkin === 'architect') {
             // Artifex's authored attack is a deliberately wide, two-part
             // composition: the builder on the left and the manifested grid on
             // the right. The generic island matcher can mistake the construct
@@ -6845,30 +6946,26 @@ export default function Game() {
           ]);
           [...rawIdleFrames, ...rawAttackFrames].forEach((frame) => frame.close());
         } else {
+          const usurper = npcSkin === 'hijack';
           let [idle, attack] = await Promise.all([
-            loadBitmap(`${base}skins/skill-${npcSkin}-idle.png`),
-            loadBitmap(`${base}skins/skill-${npcSkin}-attack.png`),
+            loadBitmap(usurper
+              ? `${base}${USURPER_IDLE_SHEET_PATH}`
+              : `${base}skins/skill-${npcSkin}-idle.png`),
+            loadBitmap(usurper
+              ? `${base}${USURPER_ATTACK_SHEET_PATH}`
+              : `${base}skins/skill-${npcSkin}-attack.png`),
           ]);
           let authoredAttackFrames: ImageBitmap[] | null = null;
           if (RIVAL_SKILL_IDS.includes(npcSkin as RivalSkillId)) {
-            if (npcSkin === 'hijack') {
-              const [idleX, idleY, idleWidth, idleHeight] = USURPER_IDLE_SUBJECT_WINDOW;
-              const idleCrop = await createImageBitmap(
-                idle,
-                Math.round(idle.width * idleX / 240),
-                Math.round(idle.height * idleY / 160),
-                Math.round(idle.width * idleWidth / 240),
-                Math.round(idle.height * idleHeight / 160),
-              );
-              const attackCrop = await createImageBitmap(
-                attack, 0, Math.round(attack.height * 18 / 160),
-                Math.round(attack.width * 142 / 240), Math.round(attack.height * 82 / 160),
-              );
-              idle.close();
-              attack.close();
-              const cleaned = await sanitizeRivalSkinPair(idleCrop, attackCrop);
-              idle = cleaned.idle;
-              attack = cleaned.attack;
+            if (usurper) {
+              [idle, attack] = await Promise.all([
+                extractUsurperSheetPose(idle),
+                extractUsurperSheetPose(attack),
+              ]);
+              [idle, attack] = await Promise.all([
+                sanitizeRivalSkinFrame(idle),
+                sanitizeRivalSkinFrame(attack),
+              ]);
             } else if (npcSkin === 'architect' || npcSkin === 'chrono') {
               const normalizedAttack = document.createElement('canvas');
               normalizedAttack.width = 160;
@@ -7050,6 +7147,8 @@ export default function Game() {
     skinId: PlayerSkin,
     state: GameState,
   ) => {
+    npcLordAlphaTechniqueRouteRef.current = null;
+    leftNpcLordAlphaTechniqueRouteRef.current = null;
     const selectedSkillId = skinId === 'assembly'
       ? assemblySkillRef.current
       : skinId;
@@ -7106,6 +7205,8 @@ export default function Game() {
       counterpart,
       { col: state.npc.col, row: state.npc.row },
     );
+    npcChronaTimelineRef.current = createNpcChronaTimelineClock();
+    npcEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
     npcSignatureCommandUsesRef.current = [0, 0, 0];
     npcBossTacticalMemoryRef.current = createBossTacticalMemory(state.player.row);
     npcRegenerationTickRef.current = 0;
@@ -8159,6 +8260,8 @@ export default function Game() {
     manualBusterBufferedUntilRef.current = 0;
     lordAlphaRocChargeRef.current = null;
     lordAlphaRocLaneHighlightRef.current = null;
+    npcLordAlphaTechniqueRouteRef.current = null;
+    leftNpcLordAlphaTechniqueRouteRef.current = null;
     resetLordAlphaR2TapGesture();
     clearLordAlphaNinjatoSlice();
     clearLordAlphaNinjatoThrustCombo();
@@ -12303,6 +12406,27 @@ export default function Game() {
     if (!s.running) return;
     const npcVsNpcActive = s.gameMode === 'vs'
       && versusControlModeRef.current === 'npc-vs-npc';
+    const npcChronaSlowActive = npcChronaTimelineRef.current.slowRemaining > 0;
+    npcChronaTimelineRef.current.slowRemaining = Math.max(
+      0,
+      npcChronaTimelineRef.current.slowRemaining - dt,
+    );
+    const leftNpcChronaSlowActive = npcVsNpcActive
+      && npcVsNpcLeftChronaTimelineRef.current.slowRemaining > 0;
+    npcVsNpcLeftChronaTimelineRef.current.slowRemaining = Math.max(
+      0,
+      npcVsNpcLeftChronaTimelineRef.current.slowRemaining - dt,
+    );
+    coopChronaTimelineRef.current.slowRemaining = Math.max(
+      0,
+      coopChronaTimelineRef.current.slowRemaining - dt,
+    );
+    const playerRecoveryScale = npcChronaSlowActive
+      ? CHRONA_NPC_SLOW_RECOVERY_SCALE
+      : 1;
+    const rightNpcRecoveryScale = leftNpcChronaSlowActive
+      ? CHRONA_NPC_SLOW_RECOVERY_SCALE
+      : 1;
     let npcVsNpcLeftActedThisFrame = false;
     let npcVsNpcALethalThisFrame = false;
     let npcVsNpcBLethalThisFrame = false;
@@ -12326,7 +12450,10 @@ export default function Game() {
 
     handleGamepad();
     const evolutionSelectionActive = s.upgradeSelectionOpen;
-    s.player.moveCooldown = Math.max(0, (s.player.moveCooldown ?? 0) - dt);
+    s.player.moveCooldown = Math.max(
+      0,
+      (s.player.moveCooldown ?? 0) - dt * playerRecoveryScale,
+    );
     if (s.coopPlayer) {
       s.coopPlayer.fireCooldown = Math.max(0, s.coopPlayer.fireCooldown - dt);
       s.coopPlayer.moveCooldown = Math.max(0, (s.coopPlayer.moveCooldown ?? 0) - dt);
@@ -13081,7 +13208,10 @@ export default function Game() {
       const capacitorMultiplier = (1 + (s.runUpgrades.capacitor ?? 0) * 0.15)
         * milestoneCardRechargeMultiplier(s.runUpgrades);
       const assistedRecharge = (s.hp <= 2 || s.directorCritical ? 1.55 : 1) * capacitorMultiplier;
-      s.cardTimer = Math.min(CARD_CHARGE_TIME, s.cardTimer + dt * assistedRecharge);
+      s.cardTimer = Math.min(
+        CARD_CHARGE_TIME,
+        s.cardTimer + dt * assistedRecharge * playerRecoveryScale,
+      );
       const pct = (s.cardTimer / CARD_CHARGE_TIME) * 100;
       if (cardBarFillRef.current) cardBarFillRef.current.style.width = `${pct.toFixed(2)}%`;
       if (cardLabelRef.current) {
@@ -13150,7 +13280,7 @@ export default function Game() {
     const npcGrantedPlayerFireRate = s.gameMode === 'vs'
       ? versusBossPlayerFireRecoveryMultiplier(npcAbilityRuntimeRef.current)
       : 1;
-    s.player.fireCooldown -= dt * npcGrantedPlayerFireRate;
+    s.player.fireCooldown -= dt * npcGrantedPlayerFireRate * playerRecoveryScale;
     if (npcVsNpcActive) {
       manualBusterBufferedUntilRef.current = 0;
     } else {
@@ -13242,6 +13372,7 @@ export default function Game() {
     // used to jump directly from movement to Basic Buster, so selecting a boss
     // persona as the ally could never execute that persona's defining skill.
     let coopNpcUsedSignature = false;
+    let coopEchoBracing = false;
     const coopCounterpart = s.gameMode === 'coop'
       ? coopSignatureCounterpartRef.current
       : null;
@@ -13256,10 +13387,89 @@ export default function Game() {
       const actionBudget = npcSignatureActionBudget(coopCounterpart);
       const livingThreats = s.enemies.filter((enemy) => enemy.colPos >= -1 && enemy.hp > 0);
 
+      if (rivalSkillId === 'chrono') {
+        const captureAt = performance.now();
+        if (captureAt - coopChronaTimelineRef.current.lastCaptureAt >= 60) {
+          coopChronaTimelineRef.current.history = recordChronaNpcCombatSnapshot(
+            coopChronaTimelineRef.current.history,
+            {
+              atMs: captureAt,
+              position: { col: ally.col, row: ally.row },
+              hp: s.hp,
+              shields: s.shieldCharges,
+              fireCooldown: ally.fireCooldown,
+              moveCooldown: ally.moveCooldown,
+            },
+          );
+          coopChronaTimelineRef.current.lastCaptureAt = captureAt;
+        }
+      } else if (coopChronaTimelineRef.current.history.length > 0) {
+        coopChronaTimelineRef.current = createNpcChronaTimelineClock();
+      }
+
+      const dispatchCoopEchoChannelEvent = (event: EchoNpcChannelEvent) => {
+        const runtime = coopSignatureRuntimeRef.current
+          ?? createVersusBossSignatureRuntimeState(
+            coopCounterpart,
+            { col: ally.col, row: ally.row },
+          );
+        const result = dispatchVersusBossSignature({
+          counterpart: coopCounterpart,
+          state: runtime,
+          commandIndex: 0,
+          currentPosition: { col: ally.col, row: ally.row },
+          echoEvent: event,
+        });
+        coopSignatureRuntimeRef.current = result.state;
+        return result.kind === 'echo-channel' ? result : null;
+      };
+
+      const activeCoopEchoChannel = coopSignatureRuntimeRef.current?.echo?.channel ?? 'idle';
+      if (activeCoopEchoChannel !== 'idle') {
+        coopNpcUsedSignature = true;
+        coopEchoChannelClockRef.current.remaining = Math.max(
+          0,
+          coopEchoChannelClockRef.current.remaining - dt,
+        );
+        if (coopEchoChannelClockRef.current.remaining <= 0) {
+          const release = dispatchCoopEchoChannelEvent(
+            activeCoopEchoChannel === 'brink'
+              ? { kind: 'release-brink' }
+              : { kind: 'release-drain' },
+          );
+          if (release?.effect.kind === 'brink-release') {
+            let hitCount = 0;
+            for (const strike of release.effect.strikes) {
+              const targetSeed = Number(strike.target.id);
+              const target = livingThreats.find((enemy) => (
+                getEnemyVisualSeed(enemy) === targetSeed
+                && Math.round(enemy.colPos) === strike.target.col
+                && enemy.row === strike.target.row
+              ));
+              if (!target) continue;
+              hitCount++;
+              target.hp -= competitiveProjectileDamage(1);
+              target.flash = 0.16;
+              if (target.hp <= 0) resolveCampaignEnemyDefeat(s, target);
+            }
+            showMessage(
+              hitCount > 0 ? 'ALLY ECHO · BRINK RELEASE HIT' : 'ALLY ECHO · BRINK EVADED',
+              900,
+            );
+            updateHud();
+          } else if (release?.effect.kind === 'drain-release') {
+            showMessage('ALLY ECHO · DRAIN RELEASE', 700);
+          }
+        }
+      }
+      coopEchoBracing = (coopSignatureRuntimeRef.current?.echo?.channel ?? 'idle') !== 'idle';
+
       if (hasSignature
         && livingThreats.length > 0
+        && !coopNpcUsedSignature
         && signatureState.window <= 0
         && signatureState.cooldown <= 0
+        && !coopEchoBracing
         && !slowMotionActive) {
         signatureState.window = npcSignatureWindowDuration(coopCounterpart);
         signatureState.actionCooldown = 0;
@@ -13277,9 +13487,11 @@ export default function Game() {
 
       if (hasSignature
         && livingThreats.length > 0
+        && !coopNpcUsedSignature
         && signatureState.window > 0
         && signatureState.actionCooldown <= 0
         && signatureState.actions < actionBudget
+        && !coopEchoBracing
         && !slowMotionActive) {
         const target = livingThreats.reduce<(typeof livingThreats)[number] | null>(
           (nearest, enemy) => !nearest || enemy.colPos < nearest.colPos ? enemy : nearest,
@@ -13321,12 +13533,60 @@ export default function Game() {
             coopCounterpart,
             { col: ally.col, row: ally.row },
           );
-        const signature = dispatchVersusBossSignature({
+        const echoTechnique = rivalSkillId === 'echo'
+          ? chooseEchoNpcHeldTechnique({
+              channel: runtime.echo?.channel ?? 'idle',
+              signatureActionIndex: signatureState.actions,
+              currentHp: s.hp,
+              maxHp: Math.max(COMPETITIVE_RULESET.maxHp, s.hp),
+              incomingDamage: incomingByRow[ally.row] ?? 0,
+              preferred: coopEchoChannelClockRef.current.next,
+            })
+          : null;
+        const chronaSlowStarted = rivalSkillId === 'chrono'
+          && shouldChronaNpcHoldSlow({
+            channelActive: coopChronaTimelineRef.current.slowRemaining > 0,
+            signatureActionIndex: signatureState.actions,
+          });
+        if (chronaSlowStarted) {
+          coopChronaTimelineRef.current.slowRemaining = NPC_CHRONA_SLOW_HOLD_SECONDS;
+          // Campaign Slow is already the authoritative movement-time effect.
+          // Reuse it so the co-op ally's held R2 affects real viruses rather
+          // than introducing a second, visual-only clock.
+          s.slowTimer = Math.max(s.slowTimer, NPC_CHRONA_SLOW_HOLD_SECONDS);
+        }
+        let signature = dispatchVersusBossSignature({
           counterpart: coopCounterpart,
           state: runtime,
           commandIndex: signaturePlan?.commandIndex ?? 0,
           currentPosition: { col: ally.col, row: ally.row },
+          ...(echoTechnique
+            ? {
+                echoEvent: echoTechnique === 'brink'
+                  ? { kind: 'begin-brink' as const }
+                  : { kind: 'begin-drain' as const },
+              }
+            : {}),
         });
+        if (signature.kind === 'echo-channel'
+          && signature.effect.kind === 'brink-hold'
+          && target) {
+          signature = dispatchVersusBossSignature({
+            counterpart: coopCounterpart,
+            state: signature.state,
+            commandIndex: signaturePlan?.commandIndex ?? 0,
+            currentPosition: { col: ally.col, row: ally.row },
+            echoEvent: {
+              kind: 'lock-brink-target',
+              target: {
+                id: String(getEnemyVisualSeed(target)),
+                col: Math.round(target.colPos),
+                row: target.row,
+              },
+              currentHp: s.hp,
+            },
+          });
+        }
         coopSignatureRuntimeRef.current = signature.state;
         let presentationDurationMs = NPC_SKILL_ANIMATION_DURATION;
 
@@ -13395,14 +13655,52 @@ export default function Game() {
           return applied;
         };
 
-        if (signature.kind === 'rival-command' && signaturePlan && rivalSkillId) {
+        if (signature.kind === 'echo-channel') {
+          if (signaturePlan && rivalSkillId) {
+            publishNpcSkillPresentation(resolveNpcSignaturePresentation(
+              signaturePlan,
+              rivalSkillId,
+              ++npcSkillPresentationRevisionRef.current,
+            ));
+          }
+          if (signature.effect.kind === 'brink-lock') {
+            s.hp = signature.effect.hpAfter;
+            coopEchoChannelClockRef.current = {
+              remaining: NPC_ECHO_BRINK_HOLD_SECONDS,
+              next: 'drain',
+            };
+            showMessage(
+              signature.effect.accepted
+                ? 'ALLY ECHO · BRINK LOCKED'
+                : `ALLY ECHO · ${signature.effect.reason ?? 'BRINK HELD'}`,
+              1000,
+            );
+          } else if (signature.effect.kind === 'drain-hold') {
+            coopEchoChannelClockRef.current = {
+              remaining: NPC_ECHO_DRAIN_HOLD_SECONDS,
+              next: 'brink',
+            };
+            showMessage('ALLY ECHO · DRAIN HELD · CONTACT ABSORBS', 1100);
+          }
+        } else if (signature.kind === 'rival-command' && signaturePlan && rivalSkillId) {
           applyAllyPlan(signaturePlan);
           const authoredEffect = signature.authoredEffect;
           if (authoredEffect?.kind === 'step' || authoredEffect?.kind === 'displace') {
             moveAllyTo(authoredEffect.destination.col, authoredEffect.destination.row);
           } else if (authoredEffect?.kind === 'rewind' && authoredEffect.phase === 'begin') {
-            const destination = signature.state.chrona?.recordedPositions[0];
-            if (destination) moveAllyTo(destination.col, destination.row);
+            const rewindSnapshot = resolveChronaNpcRewindSnapshot(
+              coopChronaTimelineRef.current.history,
+              performance.now(),
+            );
+            if (rewindSnapshot) {
+              moveAllyTo(rewindSnapshot.position.col, rewindSnapshot.position.row);
+              s.hp = rewindSnapshot.hp;
+              s.shieldCharges = rewindSnapshot.shields;
+              ally.fireCooldown = rewindSnapshot.fireCooldown;
+              ally.moveCooldown = rewindSnapshot.moveCooldown;
+              coopChronaTimelineRef.current.history = [rewindSnapshot];
+              coopChronaTimelineRef.current.lastCaptureAt = rewindSnapshot.atMs;
+            }
             const released = dispatchVersusBossSignature({
               counterpart: coopCounterpart,
               state: signature.state,
@@ -13433,7 +13731,7 @@ export default function Game() {
             ++npcSkillPresentationRevisionRef.current,
           ));
           showMessage(
-            `ALLY ${RIVAL_SKILL_LABELS[rivalSkillId]} · ${RIVAL_SKILL_COMMANDS[rivalSkillId][signaturePlan.commandIndex]}`,
+            `ALLY ${RIVAL_SKILL_LABELS[rivalSkillId]} · ${RIVAL_SKILL_COMMANDS[rivalSkillId][signaturePlan.commandIndex]}${chronaSlowStarted ? ' · HOLD R2 SLOW' : ''}`,
             1100,
           );
         } else if (signature.kind === 'canonical-ability') {
@@ -13458,6 +13756,52 @@ export default function Game() {
             );
           }
           showMessage(`ALLY LORD ALPHA · ${signature.action.label}`, 1100);
+        } else if (signature.kind === 'authored-technique') {
+          const technique = signature.action;
+          const originCol = ally.col;
+          const originRow = ally.row;
+          if (technique.crossesOpponentSide) {
+            npcLordAlphaTechniqueRouteRef.current = createLordAlphaNpcTechniqueRoute(
+              { col: originCol, row: originRow },
+              {
+                col: Math.max(3, Math.round(target?.colPos ?? 3)),
+                row: target?.row ?? originRow,
+              },
+              technique.laneDelta,
+              technique.presentation.durationMs,
+            );
+          }
+          const resolvedPlan = resolveVersusNpcAbility(technique.abilityId, context);
+          const plan = technique.techniqueId === 'tharthareon-bite'
+            ? {
+                ...resolvedPlan,
+                moveDisruption: Math.max(
+                  resolvedPlan.moveDisruption,
+                  THARTHAREON_TARGET_HOLD_MAX_SECONDS,
+                ),
+              }
+            : resolvedPlan;
+          applyAllyPlan(plan);
+          if (technique.laneDelta !== 0) {
+            moveAllyTo(ally.col, Math.max(0, Math.min(2, originRow + technique.laneDelta)));
+          }
+          presentationDurationMs = technique.presentation.durationMs;
+          triggerNpcLordAlphaPresentation(
+            technique.presentation.kind,
+            'skill',
+            technique.presentation.durationMs,
+            {
+              subtype: technique.presentation.subtype,
+              origin: lordAlphaBoardAnchor(ally.col, originRow),
+              target: target
+                ? lordAlphaBoardAnchor(Math.max(3, target.colPos), target.row)
+                : undefined,
+            },
+          );
+          showMessage(
+            `ALLY LORD ALPHA · ${technique.inputSequence} · ${technique.label}`,
+            1100,
+          );
         } else if (signature.kind === 'shadow-clone') {
           const targetRow = target?.row ?? ally.row;
           for (const row of [targetRow, (targetRow + 1) % 3]) {
@@ -13510,8 +13854,8 @@ export default function Game() {
         threats: s.enemies
           .filter((enemy) => enemy.colPos >= -1)
           .map((enemy) => ({ col: enemy.colPos, row: enemy.row, hp: enemy.hp })),
-        canMove: s.coopPlayer.moveCooldown <= 0 && !slowMotionActive,
-        canFire: s.coopPlayer.fireCooldown <= 0 && !slowMotionActive,
+        canMove: s.coopPlayer.moveCooldown <= 0 && !coopEchoBracing && !slowMotionActive,
+        canFire: s.coopPlayer.fireCooldown <= 0 && !coopEchoBracing && !slowMotionActive,
       })
       : null;
     if (s.gameMode === 'coop' && s.coopPlayer
@@ -14053,7 +14397,43 @@ export default function Game() {
         const eloIsIntangible = hitsPlayerOne
           && playerSkinRef.current === 'gem' && !s.autoBuster;
         const counter = rivalSkillRef.current;
-        if (hitsPlayerOne && isLordAlphaAfterimageEvading()) {
+        const coopEchoDrainHeld = hitsPlayerTwo
+          && coopSignatureRuntimeRef.current?.echo?.channel === 'drain'
+          && coopSignatureCounterpartRef.current !== null;
+        if (coopEchoDrainHeld) {
+          const drain = dispatchVersusBossSignature({
+            counterpart: coopSignatureCounterpartRef.current!,
+            state: coopSignatureRuntimeRef.current!,
+            commandIndex: 0,
+            currentPosition: {
+              col: s.coopPlayer?.col ?? 1,
+              row: s.coopPlayer?.row ?? 1,
+            },
+            echoEvent: {
+              kind: 'drain-collision',
+              damageDealt: 1,
+              currentHp: s.hp,
+              maxHp: Math.max(COMPETITIVE_RULESET.maxHp, s.hp),
+            },
+          });
+          coopSignatureRuntimeRef.current = drain.state;
+          if (drain.kind === 'echo-channel'
+            && drain.effect.kind === 'drain-collision'
+            && drain.effect.collisionAccepted) {
+            s.hp = drain.effect.hpAfter;
+            e.colPos = -9;
+            playHit();
+            if (m) {
+              addParticles(
+                m.x + ((s.coopPlayer?.col ?? 1) + 0.5) * m.cell,
+                m.y + ((s.coopPlayer?.row ?? 1) + 0.5) * m.cell,
+                '#86efac',
+              );
+            }
+            showMessage(`ALLY ECHO · DRAIN +${drain.effect.appliedHealing}`, 650);
+            updateHud();
+          }
+        } else if (hitsPlayerOne && isLordAlphaAfterimageEvading()) {
           // Resolve this carrier as a miss once. Removing it without defeat
           // credit prevents the same overlap from becoming a delayed hit on the
           // first frame after the evasion window closes.
@@ -14634,11 +15014,11 @@ export default function Game() {
       if (npcVsNpcActive) {
         npcVsNpcAbilityCooldownRef.current = Math.max(
           0,
-          npcVsNpcAbilityCooldownRef.current - dt,
+          npcVsNpcAbilityCooldownRef.current - dt * playerRecoveryScale,
         );
         npcVsNpcLeftDecisionLockRef.current = Math.max(
           0,
-          npcVsNpcLeftDecisionLockRef.current - dt,
+          npcVsNpcLeftDecisionLockRef.current - dt * playerRecoveryScale,
         );
         const leftBoardCol = s.player.col;
         const incomingByRow: [number, number, number] = [0, 0, 0];
@@ -14678,6 +15058,8 @@ export default function Game() {
             leftCounterpart,
             { col: s.player.col, row: s.player.row },
           );
+          npcVsNpcLeftChronaTimelineRef.current = createNpcChronaTimelineClock();
+          npcVsNpcLeftEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
           npcVsNpcLeftSignatureStateRef.current = {
             cooldown: COMPETITIVE_RULESET.bossOpeningSignatureDelay,
             window: 0,
@@ -14696,9 +15078,15 @@ export default function Game() {
           npcVsNpcLeftAbilityUseCountsRef.current = [];
         }
         const leftSignatureState = npcVsNpcLeftSignatureStateRef.current;
-        leftSignatureState.cooldown = Math.max(0, leftSignatureState.cooldown - dt);
+        leftSignatureState.cooldown = Math.max(
+          0,
+          leftSignatureState.cooldown - dt * playerRecoveryScale,
+        );
         leftSignatureState.window = Math.max(0, leftSignatureState.window - dt);
-        leftSignatureState.actionCooldown = Math.max(0, leftSignatureState.actionCooldown - dt);
+        leftSignatureState.actionCooldown = Math.max(
+          0,
+          leftSignatureState.actionCooldown - dt * playerRecoveryScale,
+        );
         if (npcVsNpcLeftSignatureRuntimeRef.current) {
           npcVsNpcLeftSignatureRuntimeRef.current = advanceVersusBossSignatureTime(
             npcVsNpcLeftSignatureRuntimeRef.current,
@@ -14711,6 +15099,81 @@ export default function Game() {
         const leftRivalSignatureId = leftCounterpart.signature.kind === 'boss-skill'
           ? leftCounterpart.signature.id
           : null;
+        if (leftRivalSignatureId === 'chrono') {
+          const captureAt = performance.now();
+          if (captureAt - npcVsNpcLeftChronaTimelineRef.current.lastCaptureAt >= 60) {
+            npcVsNpcLeftChronaTimelineRef.current.history = recordChronaNpcCombatSnapshot(
+              npcVsNpcLeftChronaTimelineRef.current.history,
+              {
+                atMs: captureAt,
+                position: { col: s.player.col, row: s.player.row },
+                hp: s.hp,
+                shields: s.shieldCharges,
+                fireCooldown: s.player.fireCooldown,
+                moveCooldown: s.player.moveCooldown,
+              },
+            );
+            npcVsNpcLeftChronaTimelineRef.current.lastCaptureAt = captureAt;
+          }
+        } else if (npcVsNpcLeftChronaTimelineRef.current.history.length > 0) {
+          npcVsNpcLeftChronaTimelineRef.current = createNpcChronaTimelineClock();
+        }
+        const dispatchLeftNpcEchoChannelEvent = (event: EchoNpcChannelEvent) => {
+          const runtime = npcVsNpcLeftSignatureRuntimeRef.current
+            ?? createVersusBossSignatureRuntimeState(
+              leftCounterpart,
+              { col: s.player.col, row: s.player.row },
+            );
+          const result = dispatchVersusBossSignature({
+            counterpart: leftCounterpart,
+            state: runtime,
+            commandIndex: 0,
+            currentPosition: { col: s.player.col, row: s.player.row },
+            echoEvent: event,
+          });
+          npcVsNpcLeftSignatureRuntimeRef.current = result.state;
+          return result.kind === 'echo-channel' ? result : null;
+        };
+        const leftEchoChannel = npcVsNpcLeftSignatureRuntimeRef.current?.echo?.channel ?? 'idle';
+        if (leftEchoChannel !== 'idle') {
+          npcVsNpcLeftEchoChannelClockRef.current.remaining = Math.max(
+            0,
+            npcVsNpcLeftEchoChannelClockRef.current.remaining - dt,
+          );
+          if (npcVsNpcLeftEchoChannelClockRef.current.remaining <= 0) {
+            const release = dispatchLeftNpcEchoChannelEvent(
+              leftEchoChannel === 'brink'
+                ? { kind: 'release-brink' }
+                : { kind: 'release-drain' },
+            );
+            if (release?.effect.kind === 'brink-release') {
+              let hitCount = 0;
+              for (const strike of release.effect.strikes) {
+                if (strike.target.col !== npc.col || strike.target.row !== npc.row) continue;
+                hitCount++;
+                if (npcIsInvulnerable()) continue;
+                if (consumeNpcShadowCloneCharge()) continue;
+                if (npc.shieldCharges > 0) npc.shieldCharges--;
+                else npc.hp = Math.max(0, npc.hp - competitiveProjectileDamage(1));
+              }
+              if (npcAbilityRuntimeRef.current) {
+                npcAbilityRuntimeRef.current.npc.hp = npc.hp;
+                npcAbilityRuntimeRef.current.npc.shields = npc.shieldCharges;
+              }
+              showMessage(
+                hitCount > 0 ? 'NPC A ECHO - BRINK RELEASE HIT' : 'NPC A ECHO - BRINK EVADED',
+                900,
+              );
+              if (npc.hp <= 0) npcVsNpcBLethalThisFrame = true;
+              updateHud();
+            } else if (release?.effect.kind === 'drain-release') {
+              showMessage('NPC A ECHO - DRAIN RELEASE', 700);
+            }
+          }
+        }
+        const leftEchoBracing = (
+          npcVsNpcLeftSignatureRuntimeRef.current?.echo?.channel ?? 'idle'
+        ) !== 'idle';
         const leftControllerInput: LeftNpcVersusControllerInput = {
           active: true,
           running: s.running,
@@ -14744,7 +15207,7 @@ export default function Game() {
           step: npcVsNpcStrategyStepRef.current,
           seed: s.competitiveSeed,
           cardCount: 3,
-          cardsReady: npcVsNpcAbilityCooldownRef.current <= 0
+          cardsReady: !leftEchoBracing && npcVsNpcAbilityCooldownRef.current <= 0
             && npcVsNpcLeftDecisionLockRef.current <= 0,
           cardProgress: 1 - Math.min(
             1,
@@ -14772,7 +15235,7 @@ export default function Game() {
         );
         const leftStrategyContext = createLeftNpcStrategyContext(leftControllerInput);
 
-        if (leftNpcDecision.openSignature) {
+        if (!leftEchoBracing && leftNpcDecision.openSignature) {
           leftSignatureState.window = npcSignatureWindowDuration(leftCounterpart);
           leftSignatureState.actionCooldown = 0;
           leftSignatureState.actions = 0;
@@ -14849,7 +15312,8 @@ export default function Game() {
         };
 
         let leftNpcUsedSignature = false;
-        if (leftHasSignature
+        if (!leftEchoBracing
+          && leftHasSignature
           && leftSignatureState.window > 0
           && leftSignatureState.actionCooldown <= 0
           && npcVsNpcLeftDecisionLockRef.current <= 0
@@ -14863,12 +15327,61 @@ export default function Game() {
               leftCounterpart,
               { col: s.player.col, row: s.player.row },
             );
-          const signature = dispatchVersusBossSignature({
+          const leftEchoTechnique = leftRivalSignatureId === 'echo'
+            ? chooseEchoNpcHeldTechnique({
+                channel: signatureRuntime.echo?.channel ?? 'idle',
+                signatureActionIndex: leftSignatureState.actions,
+                currentHp: s.hp,
+                maxHp: COMPETITIVE_RULESET.maxHp,
+                incomingDamage: incomingByRow[s.player.row] ?? 0,
+                preferred: npcVsNpcLeftEchoChannelClockRef.current.next,
+              })
+            : null;
+          const leftChronaSlowStarted = leftRivalSignatureId === 'chrono'
+            && shouldChronaNpcHoldSlow({
+              channelActive: npcVsNpcLeftChronaTimelineRef.current.slowRemaining > 0,
+              signatureActionIndex: leftSignatureState.actions,
+            });
+          if (leftChronaSlowStarted) {
+            npcVsNpcLeftChronaTimelineRef.current.slowRemaining = NPC_CHRONA_SLOW_HOLD_SECONDS;
+            npc.fireCooldown = Math.max(npc.fireCooldown, NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS);
+            npc.moveCooldown = Math.max(npc.moveCooldown, NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS);
+            npc.abilityCooldown = Math.max(npc.abilityCooldown, NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS);
+            if (m) {
+              addParticles(
+                m.x + (s.player.col + 0.5) * m.cell,
+                m.y + (s.player.row + 0.5) * m.cell,
+                '#93c5fd',
+              );
+            }
+          }
+          let signature = dispatchVersusBossSignature({
             counterpart: leftCounterpart,
             state: signatureRuntime,
             commandIndex: rivalPlan?.commandIndex ?? 0,
             currentPosition: { col: s.player.col, row: s.player.row },
+            ...(leftEchoTechnique
+              ? {
+                  echoEvent: leftEchoTechnique === 'brink'
+                    ? { kind: 'begin-brink' as const }
+                    : { kind: 'begin-drain' as const },
+                }
+              : {}),
           });
+          if (signature.kind === 'echo-channel'
+            && signature.effect.kind === 'brink-hold') {
+            signature = dispatchVersusBossSignature({
+              counterpart: leftCounterpart,
+              state: signature.state,
+              commandIndex: rivalPlan?.commandIndex ?? 0,
+              currentPosition: { col: s.player.col, row: s.player.row },
+              echoEvent: {
+                kind: 'lock-brink-target',
+                target: { id: 'npc-b', col: npc.col, row: npc.row },
+                currentHp: s.hp,
+              },
+            });
+          }
           npcVsNpcLeftSignatureRuntimeRef.current = signature.state;
           if (signature.kind === 'rival-command' && rivalPlan && leftRivalSignatureId) {
             applyLeftNpcPlan(rivalPlan);
@@ -14877,10 +15390,19 @@ export default function Game() {
               s.player.col = authoredEffect.destination.col;
               s.player.row = authoredEffect.destination.row;
             } else if (authoredEffect?.kind === 'rewind' && authoredEffect.phase === 'begin') {
-              const destination = signature.state.chrona?.recordedPositions[0];
-              if (destination) {
-                s.player.col = destination.col;
-                s.player.row = destination.row;
+              const rewindSnapshot = resolveChronaNpcRewindSnapshot(
+                npcVsNpcLeftChronaTimelineRef.current.history,
+                performance.now(),
+              );
+              if (rewindSnapshot) {
+                s.player.col = rewindSnapshot.position.col;
+                s.player.row = rewindSnapshot.position.row;
+                s.hp = rewindSnapshot.hp;
+                s.shieldCharges = rewindSnapshot.shields;
+                s.player.fireCooldown = rewindSnapshot.fireCooldown;
+                s.player.moveCooldown = rewindSnapshot.moveCooldown;
+                npcVsNpcLeftChronaTimelineRef.current.history = [rewindSnapshot];
+                npcVsNpcLeftChronaTimelineRef.current.lastCaptureAt = rewindSnapshot.atMs;
               }
               const released = dispatchVersusBossSignature({
                 counterpart: leftCounterpart,
@@ -14911,9 +15433,37 @@ export default function Game() {
               ++npcLeftSkillPresentationRevisionRef.current,
             ));
             showMessage(
-              `NPC A ${RIVAL_SKILL_LABELS[leftRivalSignatureId]} Â· ${RIVAL_SKILL_COMMANDS[leftRivalSignatureId][rivalPlan.commandIndex]}`,
+              `NPC A ${RIVAL_SKILL_LABELS[leftRivalSignatureId]} · ${RIVAL_SKILL_COMMANDS[leftRivalSignatureId][rivalPlan.commandIndex]}${leftChronaSlowStarted ? ' + HOLD R2 SLOW' : ''}`,
               1100,
             );
+          } else if (signature.kind === 'echo-channel') {
+            publishNpcLeftSkillPresentation(resolveNpcSignaturePresentation(
+              rivalPlan ?? chooseVersusNpcSignature(leftStrategyContext),
+              'echo',
+              ++npcLeftSkillPresentationRevisionRef.current,
+            ));
+            if (signature.effect.kind === 'brink-lock') {
+              s.hp = signature.effect.hpAfter;
+              npcVsNpcLeftEchoChannelClockRef.current = {
+                remaining: NPC_ECHO_BRINK_HOLD_SECONDS,
+                next: 'drain',
+              };
+              showMessage(
+                signature.effect.accepted
+                  ? 'NPC A ECHO - BRINK LOCKED'
+                  : `NPC A ECHO - ${signature.effect.reason ?? 'BRINK HELD'}`,
+                1000,
+              );
+            } else if (signature.effect.kind === 'drain-hold') {
+              npcVsNpcLeftEchoChannelClockRef.current = {
+                remaining: NPC_ECHO_DRAIN_HOLD_SECONDS,
+                next: 'brink',
+              };
+              showMessage('NPC A ECHO - DRAIN HELD', 1000);
+            }
+            // The left actor owns its own HP; the right NPC runtime remains
+            // intact while the shared HUD receives the Brink cost/Drain pose.
+            updateHud();
           } else if (signature.kind === 'canonical-ability') {
             const plan = resolveVersusNpcAbility(signature.action.abilityId, leftStrategyContext);
             applyLeftNpcPlan(plan);
@@ -14933,7 +15483,51 @@ export default function Game() {
                 },
               );
             }
-            showMessage(`NPC A LORD ALPHA Â· ${signature.action.label}`, 1100);
+            showMessage(`NPC A LORD ALPHA · ${signature.action.label}`, 1100);
+          } else if (signature.kind === 'authored-technique') {
+            const technique = signature.action;
+            const originCol = s.player.col;
+            const originRow = s.player.row;
+            if (technique.crossesOpponentSide) {
+              leftNpcLordAlphaTechniqueRouteRef.current = createLordAlphaNpcTechniqueRoute(
+                { col: originCol, row: originRow },
+                { col: 3 + npc.col, row: npc.row },
+                technique.laneDelta,
+                technique.presentation.durationMs,
+              );
+            }
+            const resolvedPlan = resolveVersusNpcAbility(
+              technique.abilityId,
+              leftStrategyContext,
+            );
+            const plan = technique.techniqueId === 'tharthareon-bite'
+              ? {
+                  ...resolvedPlan,
+                  moveDisruption: Math.max(
+                    resolvedPlan.moveDisruption,
+                    THARTHAREON_TARGET_HOLD_MAX_SECONDS,
+                  ),
+                }
+              : resolvedPlan;
+            applyLeftNpcPlan(plan);
+            if (technique.laneDelta !== 0) {
+              s.player.row = Math.max(0, Math.min(2, originRow + technique.laneDelta));
+            }
+            leftActionPresentationDurationMs = technique.presentation.durationMs;
+            triggerLordAlphaPresentation(
+              technique.presentation.kind,
+              'skill',
+              technique.presentation.durationMs,
+              {
+                subtype: technique.presentation.subtype,
+                origin: lordAlphaBoardAnchor(s.player.col, originRow),
+                target: lordAlphaBoardAnchor(3 + npc.col, npc.row),
+              },
+            );
+            showMessage(
+              `NPC A LORD ALPHA · ${technique.inputSequence} · ${technique.label}`,
+              1100,
+            );
           } else if (signature.kind === 'shadow-clone') {
             showMessage(`NPC A SHADOW CLONE x${signature.grantedCharges}`, 1100);
             if (leftCounterpart.signature.kind === 'assembly-shadow') {
@@ -14951,7 +15545,7 @@ export default function Game() {
                 origin: lordAlphaBoardAnchor(s.player.col, s.player.row),
               },
             );
-            showMessage(`NPC A LORD ALPHA Â· ${signature.action.label}`, 1100);
+            showMessage(`NPC A LORD ALPHA · ${signature.action.label}`, 1100);
           } else if (signature.kind === 'unavailable') {
             leftSignatureState.window = 0;
           }
@@ -14974,6 +15568,7 @@ export default function Game() {
         }
 
         if (leftNpcDecision.enabled
+          && !leftEchoBracing
           && !leftNpcUsedSignature
           && !leftNpcDecision.ability
           && s.player.moveCooldown <= 0) {
@@ -14994,6 +15589,7 @@ export default function Game() {
 
         let leftNpcUsedAbility = false;
         if (leftNpcDecision.enabled
+          && !leftEchoBracing
           && !leftNpcUsedSignature
           && leftNpcDecision.ability
           && npcVsNpcAbilityCooldownRef.current <= 0) {
@@ -15057,6 +15653,7 @@ export default function Game() {
         }
 
         if (leftNpcDecision.enabled
+          && !leftEchoBracing
           && !leftNpcUsedSignature
           && !leftNpcUsedAbility
           && leftNpcDecision.fire
@@ -15091,14 +15688,26 @@ export default function Game() {
       if (npcCounterpartRef.current) {
         npcCounterpartRef.current = advanceVersusBossAbilityCooldowns(
           npcCounterpartRef.current,
-          dt * npcCardRecoveryRate,
+          dt * npcCardRecoveryRate * rightNpcRecoveryScale,
         );
       }
-      npc.abilityCooldown = Math.max(0, npc.abilityCooldown - dt * npcCardRecoveryRate);
-      npc.signatureCooldown = Math.max(0, npc.signatureCooldown - dt);
+      npc.abilityCooldown = Math.max(
+        0,
+        npc.abilityCooldown - dt * npcCardRecoveryRate * rightNpcRecoveryScale,
+      );
+      npc.signatureCooldown = Math.max(
+        0,
+        npc.signatureCooldown - dt * rightNpcRecoveryScale,
+      );
       npc.signatureWindow = Math.max(0, npc.signatureWindow - dt);
-      npc.signatureActionCooldown = Math.max(0, npc.signatureActionCooldown - dt);
-      npc.decisionLock = Math.max(0, npc.decisionLock - dt);
+      npc.signatureActionCooldown = Math.max(
+        0,
+        npc.signatureActionCooldown - dt * rightNpcRecoveryScale,
+      );
+      npc.decisionLock = Math.max(
+        0,
+        npc.decisionLock - dt * rightNpcRecoveryScale,
+      );
 
       const npcRegeneration = npcCasterWindows.regeneration;
       if (npcRegeneration && npc.hp < NPC_HP) {
@@ -15179,6 +15788,25 @@ export default function Game() {
       const npcRivalSkill = npcCounterpart?.signature.kind === 'boss-skill'
         ? npcCounterpart.signature.id
         : undefined;
+      if (npcRivalSkill === 'chrono') {
+        const captureAt = performance.now();
+        if (captureAt - npcChronaTimelineRef.current.lastCaptureAt >= 60) {
+          npcChronaTimelineRef.current.history = recordChronaNpcCombatSnapshot(
+            npcChronaTimelineRef.current.history,
+            {
+              atMs: captureAt,
+              position: { col: npc.col, row: npc.row },
+              hp: npc.hp,
+              shields: npc.shieldCharges,
+              fireCooldown: npc.fireCooldown,
+              moveCooldown: npc.moveCooldown,
+            },
+          );
+          npcChronaTimelineRef.current.lastCaptureAt = captureAt;
+        }
+      } else if (npcChronaTimelineRef.current.history.length > 0) {
+        npcChronaTimelineRef.current = createNpcChronaTimelineClock();
+      }
       const npcHasSignatureCounterpart = !!npcCounterpart
         && npcCounterpart.signature.kind !== 'none'
         && npcCounterpart.signature.kind !== 'unsupported';
@@ -15635,7 +16263,7 @@ export default function Game() {
       // A visible projectile has defensive priority, just as it does for a
       // human opponent. The ETA window prevents spawn-reading; the recovery
       // leaves the chosen destination open to the following predicted shot.
-      npc.moveCooldown -= dt * npcMoveRecoveryRate;
+      npc.moveCooldown -= dt * npcMoveRecoveryRate * rightNpcRecoveryScale;
       const npcBoardColBeforeMovement = 3 + npc.col;
       const evasionContext = {
         npcRow: npc.row,
@@ -15927,14 +16555,58 @@ export default function Game() {
             npcCounterpart,
             { col: npc.col, row: npc.row },
           );
+        const echoTechnique = npcRivalSkill === 'echo'
+          ? chooseEchoNpcHeldTechnique({
+              channel: signatureRuntime.echo?.channel ?? 'idle',
+              signatureActionIndex: npc.signatureActions,
+              currentHp: npc.hp,
+              maxHp: NPC_HP,
+              incomingDamage: context.incomingByRow[npc.row] ?? 0,
+              preferred: npcEchoChannelClockRef.current.next,
+            })
+          : null;
+        const chronaSlowStarted = npcRivalSkill === 'chrono'
+          && shouldChronaNpcHoldSlow({
+            channelActive: npcChronaTimelineRef.current.slowRemaining > 0,
+            signatureActionIndex: npc.signatureActions,
+          });
+        if (chronaSlowStarted) {
+          npcChronaTimelineRef.current.slowRemaining = NPC_CHRONA_SLOW_HOLD_SECONDS;
+          s.player.fireCooldown = Math.max(
+            s.player.fireCooldown,
+            NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS,
+          );
+          s.player.moveCooldown = Math.max(
+            s.player.moveCooldown,
+            NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS,
+          );
+          if (npcVsNpcActive) {
+            npcVsNpcAbilityCooldownRef.current = Math.max(
+              npcVsNpcAbilityCooldownRef.current,
+              NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS,
+            );
+          } else if (!s.cardsReady) {
+            s.cardTimer = Math.max(
+              0,
+              s.cardTimer - NPC_CHRONA_SLOW_ENTRY_LOCK_SECONDS,
+            );
+          }
+          if (m) {
+            addParticles(
+              m.x + (3 + npc.col + 0.5) * m.cell,
+              m.y + (npc.row + 0.5) * m.cell,
+              '#93c5fd',
+            );
+          }
+        }
         let exactSignature = dispatchVersusBossSignature({
           counterpart: npcCounterpart,
           state: signatureRuntime,
           commandIndex: plan?.commandIndex ?? 0,
           currentPosition: { col: npc.col, row: npc.row },
-          ...(npcRivalSkill === 'echo' && npc.signatureActions === 0
+          ...(echoTechnique
             ? {
-                echoEvent: npcEchoChannelClockRef.current.next === 'brink'
+                echoEvent: echoTechnique === 'brink'
                   ? { kind: 'begin-brink' as const }
                   : { kind: 'begin-drain' as const },
               }
@@ -15965,10 +16637,25 @@ export default function Game() {
             npc.row = authoredEffect.destination.row;
             npcHighLevelColumnActed = true;
           } else if (authoredEffect?.kind === 'rewind' && authoredEffect.phase === 'begin') {
-            const destination = exactSignature.state.chrona?.recordedPositions[0];
-            if (destination) {
-              npc.col = destination.col;
-              npc.row = destination.row;
+            const rewindSnapshot = resolveChronaNpcRewindSnapshot(
+              npcChronaTimelineRef.current.history,
+              performance.now(),
+            );
+            if (rewindSnapshot) {
+              npc.col = rewindSnapshot.position.col;
+              npc.row = rewindSnapshot.position.row;
+              npc.hp = rewindSnapshot.hp;
+              npc.shieldCharges = rewindSnapshot.shields;
+              npc.fireCooldown = rewindSnapshot.fireCooldown;
+              npc.moveCooldown = rewindSnapshot.moveCooldown;
+              if (npcAbilityRuntimeRef.current) {
+                npcAbilityRuntimeRef.current.npc.hp = npc.hp;
+                npcAbilityRuntimeRef.current.npc.shields = npc.shieldCharges;
+                npcAbilityRuntimeRef.current.npc.row = npc.row;
+                npcAbilityRuntimeRef.current.npc.column = npc.col;
+              }
+              npcChronaTimelineRef.current.history = [rewindSnapshot];
+              npcChronaTimelineRef.current.lastCaptureAt = rewindSnapshot.atMs;
               npcHighLevelColumnActed = true;
             }
             const released = dispatchVersusBossSignature({
@@ -16001,7 +16688,7 @@ export default function Game() {
           npc.signatureLastCommand = exactSignature.command.commandIndex;
           npcSignatureCommandUsesRef.current[exactSignature.command.commandIndex] += 1;
           showMessage(
-          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${plan.intent.toUpperCase()} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][plan.commandIndex]}`,
+          `NPC ${RIVAL_SKILL_LABELS[npcRivalSkill]} · ${plan.intent.toUpperCase()} · ${RIVAL_SKILL_COMMANDS[npcRivalSkill][plan.commandIndex]}${chronaSlowStarted ? ' + HOLD R2 SLOW' : ''}`,
             1350,
           );
         } else if (exactSignature.kind === 'echo-channel') {
@@ -16066,6 +16753,60 @@ export default function Game() {
             execution.missedDuringAfterimage
               ? 'AFTERIMAGE STEP · NPC ABILITY MISSED'
               : `NPC LORD ALPHA - ${exactSignature.action.label}`,
+            1350,
+          );
+          if (s.hp <= 0) {
+            updateHud();
+            if (npcVsNpcActive) npcVsNpcALethalThisFrame = true;
+            else { endGame(false); return; }
+          }
+        } else if (exactSignature.kind === 'authored-technique') {
+          const technique = exactSignature.action;
+          const originCol = 3 + npc.col;
+          const originRow = npc.row;
+          if (technique.crossesOpponentSide) {
+            npcLordAlphaTechniqueRouteRef.current = createLordAlphaNpcTechniqueRoute(
+              { col: originCol, row: originRow },
+              { col: s.player.col, row: s.player.row },
+              technique.laneDelta,
+              technique.presentation.durationMs,
+            );
+          }
+          npcSignaturePresentationDurationMs = technique.presentation.durationMs;
+          triggerNpcLordAlphaPresentation(
+            technique.presentation.kind,
+            'skill',
+            technique.presentation.durationMs,
+            {
+              subtype: technique.presentation.subtype,
+              origin: lordAlphaBoardAnchor(originCol, originRow),
+              target: lordAlphaBoardAnchor(s.player.col, s.player.row),
+            },
+          );
+          const resolvedTechniquePlan = resolveVersusNpcAbility(
+            technique.abilityId,
+            context,
+          );
+          const techniquePlan = technique.techniqueId === 'tharthareon-bite'
+            ? {
+                ...resolvedTechniquePlan,
+                moveDisruption: Math.max(
+                  resolvedTechniquePlan.moveDisruption,
+                  THARTHAREON_TARGET_HOLD_MAX_SECONDS,
+                ),
+              }
+            : resolvedTechniquePlan;
+          applyNpcPlan(techniquePlan);
+          if (technique.laneDelta !== 0) {
+            npc.row = Math.max(0, Math.min(2, originRow + technique.laneDelta));
+          }
+          npcHighLevelMovementContext = context;
+          // Crossing techniques own their complete out-and-back horizontal
+          // route. Ordinary doctrine movement must not replace the recovery.
+          npcHighLevelColumnActed = technique.crossesOpponentSide;
+          showNpcTacticCue(techniquePlan);
+          showMessage(
+            `NPC LORD ALPHA - ${technique.inputSequence} - ${technique.label}`,
             1350,
           );
           if (s.hp <= 0) {
@@ -16192,7 +16933,7 @@ export default function Game() {
 
       // Basic fire first acquires the player's live lane, then releases from
       // that same row. Authored ability/signature patterns remain independent.
-      npc.fireCooldown -= dt * npcFireRecoveryRate;
+      npc.fireCooldown -= dt * npcFireRecoveryRate * rightNpcRecoveryScale;
       if (!npcEvadedThisFrame
         && !npcEchoBracing
         && !committedImpact
@@ -16514,7 +17255,7 @@ export default function Game() {
               leftSignatureRuntime,
             );
             showMessage(
-              `NPC A SHADOW CLONE INTERCEPT Â· ${leftSignatureRuntime.shadowCloneCharges - 1} REMAIN`,
+              `NPC A SHADOW CLONE INTERCEPT · ${leftSignatureRuntime.shadowCloneCharges - 1} REMAIN`,
               800,
             );
             updateHud();
@@ -16526,7 +17267,27 @@ export default function Game() {
             baseDamage,
           );
           const playerHpBeforeImpact = s.hp;
-          if (echoBrinkRef.current.drainHeld) {
+          const leftNpcEchoDrainHeld = npcVsNpcActive
+            && npcVsNpcLeftSignatureRuntimeRef.current?.echo?.channel === 'drain';
+          if (leftNpcEchoDrainHeld) {
+            const drain = dispatchVersusBossSignature({
+              counterpart: npcVsNpcLeftCounterpartRef.current!,
+              state: npcVsNpcLeftSignatureRuntimeRef.current!,
+              commandIndex: 0,
+              currentPosition: { col: s.player.col, row: s.player.row },
+              echoEvent: {
+                kind: 'drain-collision',
+                damageDealt: resolvedDamage,
+                currentHp: s.hp,
+                maxHp: COMPETITIVE_RULESET.maxHp,
+              },
+            });
+            npcVsNpcLeftSignatureRuntimeRef.current = drain.state;
+            if (drain.kind === 'echo-channel' && drain.effect.kind === 'drain-collision') {
+              s.hp = drain.effect.hpAfter;
+              showMessage(`NPC A ECHO - DRAIN +${drain.effect.appliedHealing}`, 650);
+            }
+          } else if (echoBrinkRef.current.drainHeld) {
             s.hp += resolvedDamage;
           } else if (s.shieldCharges > 0) {
             s.shieldCharges--;
@@ -17085,10 +17846,37 @@ export default function Game() {
           const m  = frameMetrics;
           let visualCol = stateRef.current.player.col;
           let visualRow = stateRef.current.player.row;
+          const leftNpcTechniqueRoute = playerSkinRef.current === LORD_ALPHA_SKIN_ID
+            && versusControlModeRef.current === 'npc-vs-npc'
+            ? leftNpcLordAlphaTechniqueRouteRef.current
+            : null;
+          const activeLeftNpcTechniqueRoute = leftNpcTechniqueRoute
+            && ts < leftNpcTechniqueRoute.startedAtMs + leftNpcTechniqueRoute.durationMs
+            ? leftNpcTechniqueRoute
+            : null;
+          if (leftNpcTechniqueRoute && !activeLeftNpcTechniqueRoute) {
+            leftNpcLordAlphaTechniqueRouteRef.current = null;
+            wrap.style.opacity = '1';
+            wrap.style.transition = 'opacity 150ms ease, filter 150ms ease';
+          }
+          if (!activeLeftNpcTechniqueRoute) {
+            delete wrap.dataset.npcTechniqueRoutePhase;
+          }
           const rocCharge = playerSkinRef.current === LORD_ALPHA_SKIN_ID
             ? lordAlphaRocChargeRef.current
             : null;
-          if (ninjatoThrust) {
+          if (activeLeftNpcTechniqueRoute) {
+            const pose = sampleLordAlphaNpcTechniqueRoute(activeLeftNpcTechniqueRoute, ts);
+            visualCol = pose.col;
+            visualRow = pose.row;
+            wrap.style.opacity = '1';
+            wrap.style.transition = 'none';
+            delete wrap.dataset.ninjatoThrustPhase;
+            delete wrap.dataset.ninjatoSlicePhase;
+            wrap.dataset.rocChargePhase = pose.phase;
+            wrap.dataset.rocChargeCell = String(pose.cellIndex);
+            wrap.dataset.npcTechniqueRoutePhase = pose.phase;
+          } else if (ninjatoThrust) {
             const pose = resolveLordAlphaNinjatoThrustPose(
               ninjatoThrust.state,
               ts,
@@ -17402,14 +18190,29 @@ export default function Game() {
             && stateRef.current.player.row === coopSecondary.row
             ? stateRef.current.coopPairLayout
             : null;
+          const npcTechniqueRoute = npcLordAlphaTechniqueRouteRef.current;
+          const activeNpcTechniqueRoute = npcTechniqueRoute
+            && ts < npcTechniqueRoute.startedAtMs + npcTechniqueRoute.durationMs
+            ? npcTechniqueRoute
+            : null;
+          if (npcTechniqueRoute && !activeNpcTechniqueRoute) {
+            npcLordAlphaTechniqueRouteRef.current = null;
+          }
+          const npcTechniquePose = activeNpcTechniqueRoute
+            ? sampleLordAlphaNpcTechniqueRoute(activeNpcTechniqueRoute, ts)
+            : null;
           const coopVisualCell = coopSecondary
             ? resolveCoopPartnerVisualCell(
                 { col: visual.col, row: visual.row },
                 coopPairLayout,
               )
             : null;
-          const secondaryBoardCol = coopVisualCell?.col ?? 3 + visual.col;
-          const secondaryBoardRow = coopVisualCell?.row ?? visual.row;
+          const secondaryBoardCol = npcTechniquePose?.col
+            ?? coopVisualCell?.col
+            ?? 3 + visual.col;
+          const secondaryBoardRow = npcTechniquePose?.row
+            ?? coopVisualCell?.row
+            ?? visual.row;
           const px = m.x + (secondaryBoardCol + 0.5) * m.cell;
           const py = m.y + (secondaryBoardRow + 0.5) * m.cell;
           const sz = Math.round(m.cell * overlayScaleForSkin(npcSkinRef.current));
@@ -17443,7 +18246,10 @@ export default function Game() {
             : ts;
           const attackElapsed = npcAnimationNow - npcAttackStartedRef.current;
           const skillElapsed = npcAnimationNow - npcSkillStartedRef.current;
-          const npcEchoChannel = npcSignatureRuntimeRef.current?.echo?.channel ?? 'idle';
+          const visibleNpcSignatureRuntime = stateRef.current.gameMode === 'coop'
+            ? coopSignatureRuntimeRef.current
+            : npcSignatureRuntimeRef.current;
+          const npcEchoChannel = visibleNpcSignatureRuntime?.echo?.channel ?? 'idle';
           const usingEchoHold = npcEchoChannel !== 'idle';
           const usingSkill = usingEchoHold || (
             npcSkillStartedRef.current >= 0
@@ -17658,6 +18464,12 @@ export default function Game() {
     npcVsNpcLeftAbilityUseCountsRef.current = [];
     npcVsNpcLeftCounterpartRef.current = null;
     npcVsNpcLeftSignatureRuntimeRef.current = null;
+    npcVsNpcLeftChronaTimelineRef.current = createNpcChronaTimelineClock();
+    npcVsNpcLeftEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    npcChronaTimelineRef.current = createNpcChronaTimelineClock();
+    npcEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    coopChronaTimelineRef.current = createNpcChronaTimelineClock();
+    coopEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
     coopSignatureCounterpartRef.current = null;
     coopSignatureRuntimeRef.current = null;
     coopSignatureStateRef.current = createNpcSignatureSequenceState();
@@ -17681,6 +18493,8 @@ export default function Game() {
     resetTharthareonGesture();
     lordAlphaRocChargeRef.current = null;
     lordAlphaRocLaneHighlightRef.current = null;
+    npcLordAlphaTechniqueRouteRef.current = null;
+    leftNpcLordAlphaTechniqueRouteRef.current = null;
     clearLordAlphaNinjatoSlice();
     clearLordAlphaNinjatoThrustCombo();
     clearLordAlphaAfterimageStep();
@@ -17737,9 +18551,13 @@ export default function Game() {
         stateRef.current.coopPlayer.row,
         stateRef.current.coopPlayer.col,
       );
+      coopChronaTimelineRef.current = createNpcChronaTimelineClock();
+      coopEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
     } else {
       coopSignatureCounterpartRef.current = null;
       coopSignatureRuntimeRef.current = null;
+      coopChronaTimelineRef.current = createNpcChronaTimelineClock();
+      coopEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
       coopSignatureStateRef.current = createNpcSignatureSequenceState();
     }
     if (mode === 'vs') {
@@ -17913,6 +18731,12 @@ export default function Game() {
     npcVsNpcLeftAbilityUseCountsRef.current = [];
     npcVsNpcLeftCounterpartRef.current = null;
     npcVsNpcLeftSignatureRuntimeRef.current = null;
+    npcVsNpcLeftChronaTimelineRef.current = createNpcChronaTimelineClock();
+    npcVsNpcLeftEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    npcChronaTimelineRef.current = createNpcChronaTimelineClock();
+    npcEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
+    coopChronaTimelineRef.current = createNpcChronaTimelineClock();
+    coopEchoChannelClockRef.current = { remaining: 0, next: 'brink' };
     resetLordAlphaL2TapGesture();
     resetLordAlphaR2TapGesture();
     resetTharthareonGesture();

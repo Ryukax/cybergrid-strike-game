@@ -12,6 +12,7 @@ import {
   resolveAssemblyNpcSignature,
   resolveExactRivalSignatureCommand,
   resolveLordAlphaNpcAction,
+  resolveLordAlphaNpcTechnique,
   type BossSignatureCell,
   type BossSignatureCommandIndex,
   type ChronaNpcSignatureEffect,
@@ -22,6 +23,7 @@ import {
   type EchoNpcSignatureState,
   type ExactRivalSignatureCommand,
   type LordAlphaNpcAction,
+  type LordAlphaNpcTechniqueAction,
   type LordAlphaEquipLatencyState,
   type ShadowCloneSignatureCommand,
 } from './versus-boss-signature';
@@ -36,6 +38,10 @@ export interface VersusBossSignatureRuntimeState {
   readonly echo: EchoNpcSignatureState | null;
   readonly shadowCloneCharges: number;
   readonly lordAlphaActionIndex: number;
+  /** Each authored input family advances only when its canonical bank slot runs. */
+  readonly lordAlphaRocVariantIndex: number;
+  readonly lordAlphaR2VariantIndex: number;
+  readonly lordAlphaTharthareonVariantIndex: number;
   readonly lordAlphaEquip: LordAlphaEquipLatencyState;
 }
 
@@ -56,6 +62,11 @@ export type VersusBossSignatureDispatch =
       readonly kind: 'canonical-ability';
       readonly state: VersusBossSignatureRuntimeState;
       readonly action: Extract<LordAlphaNpcAction, { kind: 'canonical-ability' }>;
+    }
+  | {
+      readonly kind: 'authored-technique';
+      readonly state: VersusBossSignatureRuntimeState;
+      readonly action: LordAlphaNpcTechniqueAction;
     }
   | {
       readonly kind: 'equip-latency';
@@ -106,6 +117,9 @@ export function createVersusBossSignatureRuntimeState(
     echo: skillId === 'echo' ? createEchoNpcSignatureState() : null,
     shadowCloneCharges: 0,
     lordAlphaActionIndex: 0,
+    lordAlphaRocVariantIndex: 0,
+    lordAlphaR2VariantIndex: 0,
+    lordAlphaTharthareonVariantIndex: 0,
     lordAlphaEquip: createLordAlphaEquipLatencyState(),
   };
 }
@@ -197,14 +211,40 @@ export function dispatchVersusBossSignature(
       return { kind: 'unavailable', state: runtimeState, reason: 'Lord Alpha has no actions.' };
     }
     const actionIndex = runtimeState.lordAlphaActionIndex % signature.actionIds.length;
-    const action = resolveLordAlphaNpcAction(signature.actionIds[actionIndex]);
+    const actionId = signature.actionIds[actionIndex];
+    const techniqueVariant = actionId === 'roc-stun'
+      ? runtimeState.lordAlphaRocVariantIndex
+      : actionId === 'afterimage-step'
+        ? runtimeState.lordAlphaR2VariantIndex
+        : actionId === 'tharthareon'
+          ? runtimeState.lordAlphaTharthareonVariantIndex
+          : null;
+    const techniqueAction = techniqueVariant === null
+      ? null
+      : resolveLordAlphaNpcTechnique(actionId, techniqueVariant, currentPosition);
+    const action = techniqueAction ?? resolveLordAlphaNpcAction(actionId);
     let state = {
       ...runtimeState,
       lordAlphaActionIndex: (actionIndex + 1) % signature.actionIds.length,
+      ...(actionId === 'roc-stun'
+        ? { lordAlphaRocVariantIndex: (runtimeState.lordAlphaRocVariantIndex + 1) % 3 }
+        : {}),
+      ...(actionId === 'afterimage-step'
+        ? { lordAlphaR2VariantIndex: (runtimeState.lordAlphaR2VariantIndex + 1) % 3 }
+        : {}),
+      ...(actionId === 'tharthareon'
+        ? {
+            lordAlphaTharthareonVariantIndex:
+              (runtimeState.lordAlphaTharthareonVariantIndex + 1) % 3,
+          }
+        : {}),
     };
     if (action.kind === 'shadow-clone') return grantShadowClones(state, action);
     if (action.kind === 'canonical-ability') {
       return { kind: 'canonical-ability', state, action };
+    }
+    if (action.kind === 'authored-technique') {
+      return { kind: 'authored-technique', state, action };
     }
     const telegraphedActionId = signature.actionIds[state.lordAlphaActionIndex];
     const lordAlphaEquip = beginLordAlphaEquipLatency(
