@@ -22,6 +22,7 @@ import {
   LORD_ALPHA_GAMEPLAY_BALANCE_CHANGES,
   LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS,
   LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS,
+  LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
   LORD_ALPHA_HITBOX_CHANGES,
   LORD_ALPHA_PRESENTATION_EVENT_KINDS,
   LORD_ALPHA_PRESENTATION_TIMINGS_MS,
@@ -58,6 +59,7 @@ import {
   createLordAlphaComboState,
   createLordAlphaDimensionalNetMorph,
   createLordAlphaGrapplePullMotion,
+  createLordAlphaVersusGrapplePull,
   createLordAlphaPresentationEvent,
   createLordAlphaTopologyMorph,
   generateLordAlphaTopology,
@@ -151,6 +153,34 @@ test("Lord Alpha grapple attaches, then pulls exactly one cell toward its caster
   );
   equal(completed.column, 3);
   equal(completed.motion, null);
+});
+
+test("Lord Alpha VS grapple reels local NPC columns and preserves a settle window", () => {
+  const far = createLordAlphaVersusGrapplePull(2, 1);
+  ok(far.motion);
+  equal(far.motion.startColumn, 2);
+  equal(far.motion.endColumn, 1);
+
+  const middle = createLordAlphaVersusGrapplePull(1, 1);
+  ok(middle.motion);
+  equal(middle.motion.startColumn, 1);
+  equal(middle.motion.endColumn, 0);
+  equal(
+    middle.controlLockSeconds,
+    LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS
+      + LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS
+      + LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
+  );
+  ok(
+    middle.controlLockSeconds
+      > LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS + LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS,
+  );
+
+  const nearest = createLordAlphaVersusGrapplePull(0, 1);
+  ok(nearest.motion);
+  equal(nearest.motion.startColumn, 0);
+  equal(nearest.motion.endColumn, -1);
+  equal(nearest.controlLockSeconds, middle.controlLockSeconds);
 });
 
 test("Roc Stun traverses every cell to its target and retraces the route home", () => {

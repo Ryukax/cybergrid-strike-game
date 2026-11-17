@@ -1139,6 +1139,14 @@ export const LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS = 0.38;
 /** A short but readable board-space slide, driven by the simulation clock. */
 export const LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS = 0.34;
 export const LORD_ALPHA_GRAPPLE_PULL_CELLS = 1;
+/** Keep a reeled VS target on the destination pane long enough to read the pull. */
+export const LORD_ALPHA_GRAPPLE_SETTLE_SECONDS = 0.42;
+
+export interface LordAlphaVersusGrapplePull {
+  readonly motion: GridColumnPullMotion | null;
+  /** Movement/decision lock including the attach, pull, and destination settle. */
+  readonly controlLockSeconds: number;
+}
 
 export function resolveLordAlphaGrapplePullColumn(
   targetColumn: number,
@@ -1184,6 +1192,42 @@ export function createLordAlphaGrapplePullMotion(
     elapsed: 0,
     delay: LORD_ALPHA_GRAPPLE_ATTACH_DELAY_SECONDS,
     duration: LORD_ALPHA_GRAPPLE_PULL_DURATION_SECONDS,
+  };
+}
+
+/**
+ * Convert the right-side NPC's local 0-2 column into board space for the reel,
+ * then return a local-column motion for the VS simulation. The settle window
+ * prevents normal NPC doctrine from replacing the destination on contact.
+ */
+export function createLordAlphaVersusGrapplePull(
+  targetLocalColumn: number,
+  casterBoardColumn: number,
+): LordAlphaVersusGrapplePull {
+  const localColumn = Number.isFinite(targetLocalColumn)
+    ? Math.min(2, Math.max(0, targetLocalColumn))
+    : 0;
+  const boardOffset = 3;
+  const boardMotion = createLordAlphaGrapplePullMotion(
+    boardOffset + localColumn,
+    casterBoardColumn,
+    // A target already touching the center seam still has one pane available
+    // toward LASI. Permit that temporary cross-seam destination instead of
+    // playing a connected web-line whose mechanical pull is a no-op.
+    boardOffset - 1,
+    boardOffset + 2,
+  );
+  if (!boardMotion) return { motion: null, controlLockSeconds: 0 };
+
+  return {
+    motion: {
+      ...boardMotion,
+      startColumn: boardMotion.startColumn - boardOffset,
+      endColumn: boardMotion.endColumn - boardOffset,
+    },
+    controlLockSeconds: boardMotion.delay
+      + boardMotion.duration
+      + LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
   };
 }
 

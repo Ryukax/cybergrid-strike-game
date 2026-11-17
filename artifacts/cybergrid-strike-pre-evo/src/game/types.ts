@@ -194,7 +194,7 @@ export interface Player {
 }
 
 export interface NpcAgent {
-  /** Column within the right half (0–2); actual board col = 3 + this. */
+  /** Column within the right half (0–2); a live web reel may briefly reach -1. */
   col: number;
   row: number;
   fireCooldown: number;
@@ -216,7 +216,7 @@ export interface NpcAgent {
   signatureOriginRow: number;
   strategyStep: number;
   decisionLock: number;
-  /** Lord Alpha's attached grapple; columns remain local to the NPC half. */
+  /** Lord Alpha's attached grapple; local columns may cross the seam to -1. */
   grapplePull?: GridColumnPullMotion;
 }
 

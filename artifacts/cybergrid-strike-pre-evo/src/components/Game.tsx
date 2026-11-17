@@ -433,10 +433,12 @@ import {
   LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS,
   LORD_ALPHA_ROC_CHARGE_PHASES,
   LORD_ALPHA_THARTHAREON_FIREBALL_RELEASE_MS,
+  LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
   LORD_ALPHA_VFX_TIMINGS_MS,
   advanceLordAlphaGrapplePullMotion,
   advanceLordAlphaCombo,
   createLordAlphaGrapplePullMotion,
+  createLordAlphaVersusGrapplePull,
   createLordAlphaComboState,
   createLordAlphaPresentationEvent,
   buildLordAlphaRocChargeCells,
@@ -8702,7 +8704,7 @@ export default function Game() {
           : s.gameMode === 'vs'
             ? s.npc.row
             : closestEnemy?.row ?? s.player.row;
-        const minimumPullColumn = s.gameMode === 'vs' ? 3 : 0;
+        const minimumPullColumn = s.gameMode === 'vs' ? 2 : 0;
         const destinationColumn = lordAlphaGrappleInvocation
           ? createLordAlphaGrapplePullMotion(
             targetColumn,
@@ -9093,24 +9095,24 @@ export default function Game() {
     } else if (type === 'gravity') {
       if (lordAlphaGrappleInvocation) {
         if (s.gameMode === 'vs') {
-          const boardColumn = 3 + s.npc.col;
-          const boardMotion = createLordAlphaGrapplePullMotion(
-            boardColumn,
+          const pull = createLordAlphaVersusGrapplePull(
+            s.npc.col,
             s.player.col,
-            3,
-            5,
           );
-          s.npc.grapplePull = boardMotion ? {
-            ...boardMotion,
-            startColumn: boardMotion.startColumn - 3,
-            endColumn: boardMotion.endColumn - 3,
-          } : undefined;
+          s.npc.grapplePull = pull.motion ?? undefined;
           s.npc.moveCooldown = Math.max(
             s.npc.moveCooldown,
-            (boardMotion?.delay ?? 0) + (boardMotion?.duration ?? 0),
+            pull.controlLockSeconds,
           );
+          s.npc.decisionLock = Math.max(s.npc.decisionLock, pull.controlLockSeconds);
+          if (npcAbilityRuntimeRef.current) {
+            npcAbilityRuntimeRef.current.npc.moveCooldown = Math.max(
+              npcAbilityRuntimeRef.current.npc.moveCooldown,
+              pull.controlLockSeconds,
+            );
+          }
           showMessage(
-            boardMotion
+            pull.motion
               ? 'GRAPPLE ATTACHED · PULLING RIVAL ONE CELL'
               : 'GRAPPLE ATTACHED · RIVAL AT NEAREST CELL',
             1500,
@@ -17340,8 +17342,25 @@ export default function Game() {
         const pullFrame = advanceLordAlphaGrapplePullMotion(npc.grapplePull, dt);
         npc.col = pullFrame.column;
         npc.grapplePull = pullFrame.motion ?? undefined;
+        if (!pullFrame.motion) {
+          // Pull completion must remain visible. Without a settle lock, normal
+          // NPC doctrine can choose a fresh column before the next rendered
+          // frame and make a successful reel appear to do nothing.
+          npc.moveCooldown = Math.max(
+            npc.moveCooldown,
+            LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
+          );
+          npc.decisionLock = Math.max(
+            npc.decisionLock,
+            LORD_ALPHA_GRAPPLE_SETTLE_SECONDS,
+          );
+        }
         if (npcAbilityRuntimeRef.current) {
           npcAbilityRuntimeRef.current.npc.column = npc.col;
+          npcAbilityRuntimeRef.current.npc.moveCooldown = Math.max(
+            npcAbilityRuntimeRef.current.npc.moveCooldown,
+            npc.moveCooldown,
+          );
         }
       }
 
