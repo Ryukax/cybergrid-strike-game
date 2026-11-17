@@ -6,6 +6,11 @@ import {
   type CampaignRouteBossEncounter,
   type CampaignRouteDirection,
 } from '../game/campaign-route-director';
+import {
+  beginPointerIntent,
+  updatePointerIntent,
+  type PointerIntent,
+} from '../game/pointer-intent';
 
 export interface CampaignRouteEnemyVisual {
   id: string;
@@ -70,6 +75,7 @@ export function CampaignRouteFork({
 }: CampaignRouteForkProps) {
   const lastCanvasRef = useRef<HTMLCanvasElement>(null);
   const nextCanvasRef = useRef<HTMLCanvasElement>(null);
+  const routePointerIntentsRef = useRef<Map<string, PointerIntent>>(new Map());
   const [position, setPosition] = useState(emptyPosition);
   const enemies = getRouteEnemies();
   const bossDestinations = resolveCampaignRouteDestinations(completedBosses);
@@ -122,6 +128,59 @@ export function CampaignRouteFork({
     available[direction] || bossEncounter?.direction === direction
   );
   const npcImage = (id: string) => `${import.meta.env?.BASE_URL ?? '/'}skins/skill-${id}-idle.png`;
+  const guardedRoutePointer = (
+    key: string,
+    select: () => void,
+  ) => ({
+    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      routePointerIntentsRef.current.set(key, beginPointerIntent({
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        atMs: performance.now(),
+      }));
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLButtonElement>) => {
+      const intent = routePointerIntentsRef.current.get(key);
+      if (!intent) return;
+      routePointerIntentsRef.current.set(key, updatePointerIntent(intent, {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        atMs: performance.now(),
+      }));
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
+      const intent = routePointerIntentsRef.current.get(key);
+      if (!intent) return;
+      routePointerIntentsRef.current.set(key, updatePointerIntent(intent, {
+        pointerId: event.pointerId,
+        pointerType: event.pointerType,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        atMs: performance.now(),
+      }));
+    },
+    onPointerCancel: () => routePointerIntentsRef.current.delete(key),
+    onPointerLeave: () => routePointerIntentsRef.current.delete(key),
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      // Keyboard and assistive activation has no pointer click detail and
+      // remains available. Pointer activation requires an armed, non-dragged
+      // release so scrolling across a route card cannot select it.
+      if (event.detail === 0) {
+        select();
+        return;
+      }
+      const intent = routePointerIntentsRef.current.get(key);
+      routePointerIntentsRef.current.delete(key);
+      if (intent && !intent.cancelled) select();
+    },
+  });
 
   return (
     <section className={`campaignRouteFork${unlocked ? ' unlocked' : bossActive ? ' bossActive' : ' locked'}${quotaPending ? ' quotaPending' : ''}${bossForkReady ? ' bossForkReady' : ''}`}
@@ -174,17 +233,10 @@ export function CampaignRouteFork({
               <button type="button"
                 className={`routeNpc last${routeIsAvailable('last') ? ' available' : ' unavailable'}${lastSelected ? ' selected' : ''}`}
                 disabled={!unlocked || !routeIsAvailable('last')}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onSelect?.(lane === 'top' ? 0 : 2, 'last');
-                }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  // Preserve native keyboard/screen-reader activation. The
-                  // live route gate rejects the pointer-up duplicate after
-                  // pointer-down has already committed the route.
-                  onSelect?.(lane === 'top' ? 0 : 2, 'last');
-                }}
+                {...guardedRoutePointer(
+                  `${lane}-last`,
+                  () => onSelect?.(lane === 'top' ? 0 : 2, 'last'),
+                )}
                 aria-label={`${destinations.last.bearing} rank ${destinations.last.rank} ${destinations.last.label} boss route`}>
                 <img src={npcImage(destinations.last.id)} alt="" />
                 <small>{destinations.last.bearing} · #{destinations.last.rank} {destinations.last.label}</small>
@@ -195,14 +247,10 @@ export function CampaignRouteFork({
               <button type="button"
                 className={`routeNpc next${routeIsAvailable('next') ? ' available' : ' unavailable'}${nextSelected ? ' selected' : ''}`}
                 disabled={!unlocked || !routeIsAvailable('next')}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onSelect?.(lane === 'top' ? 0 : 2, 'next');
-                }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSelect?.(lane === 'top' ? 0 : 2, 'next');
-                }}
+                {...guardedRoutePointer(
+                  `${lane}-next`,
+                  () => onSelect?.(lane === 'top' ? 0 : 2, 'next'),
+                )}
                 aria-label={`${destinations.next.bearing} rank ${destinations.next.rank} ${destinations.next.label} boss route`}>
                 <img src={npcImage(destinations.next.id)} alt="" />
                 <small>{destinations.next.bearing} · #{destinations.next.rank} {destinations.next.label}</small>

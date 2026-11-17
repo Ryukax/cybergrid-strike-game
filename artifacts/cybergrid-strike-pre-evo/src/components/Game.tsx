@@ -1,4 +1,12 @@
-import { useRef, useEffect, useLayoutEffect, useState, useCallback, type MutableRefObject } from 'react';
+import {
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  type MutableRefObject,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { ChainPanel } from './ChainPanel';
 import { IntegrityConstruct } from './IntegrityConstruct';
 import { HudLayoutItem, type HudLayoutRect } from './HudLayoutItem';
@@ -60,6 +68,22 @@ import {
   tryReleasePointerCapture,
   trySetPointerCapture,
 } from '../game/browser-compat';
+import {
+  beginPointerIntent,
+  cancelPointerIntent,
+  commitPointerIntent,
+  POINTER_INTENT_MOUSE_HOLD_DELAY_MS,
+  shouldBeginPointerHold,
+  shouldCommitPointerOnRelease,
+  updatePointerIntent,
+  type PointerIntent,
+  type PointerIntentSample,
+} from '../game/pointer-intent';
+import {
+  CHRONO_REWIND_MAX_MS,
+  resolveChronoReleaseTargetAt,
+  selectChronoRewindSnapshot,
+} from '../game/chrono-rewind';
 import { heartbeatPresence, leavePresence, readPresence, type PresenceSnapshot } from '../ecosystem/presence';
 import { RewardAccumulator, type KillRecord } from '@/blockchain/rewards';
 
@@ -4935,6 +4959,42 @@ const emptyCloneView = (): CloneView => ({
   cols: { north: null, south: null },
 });
 
+type GuardedPointerActionOptions = Readonly<{
+  stopPropagation?: boolean;
+  preventDefault?: boolean;
+}>;
+
+type GuardedPointerHoldRuntime = {
+  intent: PointerIntent;
+  timer: ReturnType<typeof setTimeout> | null;
+  started: boolean;
+  onStart: () => void;
+  onRelease: () => void;
+  onTap: () => void;
+  onCancel: () => void;
+};
+
+type GuardedPointerHoldOptions = GuardedPointerActionOptions & Readonly<{
+  mouseDelayMs?: number;
+  onArm?: () => void;
+  onStart: () => void;
+  onRelease: () => void;
+  onTap: () => void;
+  onCancel?: () => void;
+}>;
+
+function pointerIntentSample(
+  event: Pick<PointerEvent, 'pointerId' | 'pointerType' | 'clientX' | 'clientY'>,
+): PointerIntentSample {
+  return {
+    pointerId: event.pointerId,
+    pointerType: event.pointerType,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    atMs: performance.now(),
+  };
+}
+
 export default function Game() {
   const actionForkParameters = new URLSearchParams(window.location.search);
   const lordAlphaSkillsPreview = useRef(
@@ -4959,6 +5019,152 @@ export default function Game() {
     ? Math.floor(requestedActionForkStart)
     : lordAlphaSkillsPreview ? 1 : CAMPAIGN_ROUTE_FORK_START_WAVE;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pointerActionIntentsRef = useRef<Map<number, PointerIntent>>(new Map());
+  const pointerHoldRuntimesRef = useRef<Map<number, GuardedPointerHoldRuntime>>(new Map());
+  const guardedPointerAction = useCallback(
+    function createGuardedPointerAction<T extends HTMLElement>(
+      action: (event: ReactPointerEvent<T>) => void,
+      options: GuardedPointerActionOptions = {},
+    ) {
+      const prepareEvent = (event: ReactPointerEvent<T>) => {
+        if (options.stopPropagation) event.stopPropagation();
+        if (options.preventDefault) event.preventDefault();
+      };
+      return {
+        onPointerDown: (event: ReactPointerEvent<T>) => {
+          prepareEvent(event);
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          const intent = beginPointerIntent(pointerIntentSample(event));
+          pointerActionIntentsRef.current.set(event.pointerId, intent);
+          trySetPointerCapture(event.currentTarget, event.pointerId);
+          if (intent.immediateContact) {
+            pointerActionIntentsRef.current.set(
+              event.pointerId,
+              commitPointerIntent(intent),
+            );
+            action(event);
+          }
+        },
+        onPointerMove: (event: ReactPointerEvent<T>) => {
+          const intent = pointerActionIntentsRef.current.get(event.pointerId);
+          if (!intent) return;
+          const updated = updatePointerIntent(intent, pointerIntentSample(event));
+          pointerActionIntentsRef.current.set(event.pointerId, updated);
+          if (updated.cancelled) {
+            tryReleasePointerCapture(event.currentTarget, event.pointerId);
+          }
+        },
+        onPointerUp: (event: ReactPointerEvent<T>) => {
+          prepareEvent(event);
+          const intent = pointerActionIntentsRef.current.get(event.pointerId);
+          pointerActionIntentsRef.current.delete(event.pointerId);
+          tryReleasePointerCapture(event.currentTarget, event.pointerId);
+          if (!intent) return;
+          const updated = updatePointerIntent(intent, pointerIntentSample(event));
+          if (shouldCommitPointerOnRelease(updated, pointerIntentSample(event))) {
+            action(event);
+          }
+        },
+        onPointerCancel: (event: ReactPointerEvent<T>) => {
+          const intent = pointerActionIntentsRef.current.get(event.pointerId);
+          if (intent) {
+            pointerActionIntentsRef.current.set(event.pointerId, cancelPointerIntent(intent));
+          }
+          pointerActionIntentsRef.current.delete(event.pointerId);
+        },
+        onLostPointerCapture: (event: ReactPointerEvent<T>) => {
+          pointerActionIntentsRef.current.delete(event.pointerId);
+        },
+      };
+    },
+    [],
+  );
+  const guardedPointerHold = useCallback(
+    function createGuardedPointerHold<T extends HTMLElement>(
+      options: GuardedPointerHoldOptions,
+    ) {
+      const prepareEvent = (event: ReactPointerEvent<T>) => {
+        if (options.stopPropagation) event.stopPropagation();
+        if (options.preventDefault) event.preventDefault();
+      };
+      const finish = (
+        event: ReactPointerEvent<T>,
+        kind: 'release' | 'cancel',
+      ) => {
+        prepareEvent(event);
+        const runtime = pointerHoldRuntimesRef.current.get(event.pointerId);
+        pointerHoldRuntimesRef.current.delete(event.pointerId);
+        if (!runtime) return;
+        if (runtime.timer) clearTimeout(runtime.timer);
+        const updated = updatePointerIntent(runtime.intent, pointerIntentSample(event));
+        runtime.intent = kind === 'cancel' ? cancelPointerIntent(updated) : updated;
+        if (kind === 'cancel' || runtime.intent.cancelled) {
+          runtime.onCancel();
+        } else if (runtime.started) {
+          runtime.onRelease();
+        } else if (shouldCommitPointerOnRelease(runtime.intent, pointerIntentSample(event))) {
+          runtime.onTap();
+        }
+        tryReleasePointerCapture(event.currentTarget, event.pointerId);
+      };
+      return {
+        onPointerDown: (event: ReactPointerEvent<T>) => {
+          prepareEvent(event);
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          const intent = beginPointerIntent(pointerIntentSample(event));
+          const runtime: GuardedPointerHoldRuntime = {
+            intent,
+            timer: null,
+            started: false,
+            onStart: options.onStart,
+            onRelease: options.onRelease,
+            onTap: options.onTap,
+            onCancel: options.onCancel ?? options.onRelease,
+          };
+          pointerHoldRuntimesRef.current.set(event.pointerId, runtime);
+          trySetPointerCapture(event.currentTarget, event.pointerId);
+          options.onArm?.();
+          if (intent.immediateContact) {
+            runtime.started = true;
+            runtime.onStart();
+            return;
+          }
+          runtime.timer = setTimeout(() => {
+            const current = pointerHoldRuntimesRef.current.get(event.pointerId);
+            if (current !== runtime) return;
+            runtime.timer = null;
+            if (shouldBeginPointerHold(
+              runtime.intent,
+              performance.now(),
+              options.mouseDelayMs ?? POINTER_INTENT_MOUSE_HOLD_DELAY_MS,
+            )) {
+              runtime.started = true;
+              runtime.onStart();
+            }
+          }, options.mouseDelayMs ?? POINTER_INTENT_MOUSE_HOLD_DELAY_MS);
+        },
+        onPointerMove: (event: ReactPointerEvent<T>) => {
+          const runtime = pointerHoldRuntimesRef.current.get(event.pointerId);
+          if (!runtime) return;
+          // Touchscreen and pen holds were immediate before the Deck mouse
+          // guard. Preserve that behavior instead of cancelling them for
+          // ordinary finger/stylus drift after the hold has already begun.
+          if (runtime.intent.immediateContact) return;
+          runtime.intent = updatePointerIntent(runtime.intent, pointerIntentSample(event));
+          if (!runtime.intent.cancelled) return;
+          if (runtime.timer) clearTimeout(runtime.timer);
+          runtime.timer = null;
+          pointerHoldRuntimesRef.current.delete(event.pointerId);
+          runtime.onCancel();
+          tryReleasePointerCapture(event.currentTarget, event.pointerId);
+        },
+        onPointerUp: (event: ReactPointerEvent<T>) => finish(event, 'release'),
+        onPointerCancel: (event: ReactPointerEvent<T>) => finish(event, 'cancel'),
+        onLostPointerCapture: (event: ReactPointerEvent<T>) => finish(event, 'cancel'),
+      };
+    },
+    [],
+  );
   // Keep CSS viewport measurements out of the animation hot path. Reading
   // offsetWidth/offsetHeight after moving DOM-backed sprites can force layout
   // before every canvas frame, which is especially expensive in mobile Safari.
@@ -6511,6 +6717,12 @@ export default function Game() {
     resetLordAlphaL2TapGesture();
     resetLordAlphaR2TapGesture();
     resetTharthareonGesture();
+    pointerActionIntentsRef.current.clear();
+    for (const runtime of pointerHoldRuntimesRef.current.values()) {
+      if (runtime.timer) clearTimeout(runtime.timer);
+      runtime.onCancel();
+    }
+    pointerHoldRuntimesRef.current.clear();
     lordAlphaNinjatoSliceRef.current = null;
     lordAlphaNinjatoThrustRef.current = null;
     lordAlphaNinjatoThrustFollowupRef.current = null;
@@ -11008,16 +11220,86 @@ export default function Game() {
     showMessage('REWINDING GRID… hold up to 3 seconds', 900);
   }, [showMessage]);
 
+  const applyChronoRewindTarget = useCallback((targetAt: number): boolean => {
+    const current = stateRef.current;
+    const snapshot = selectChronoRewindSnapshot(
+      chronoHistoryRef.current,
+      targetAt,
+      current.milestoneWorldSteps,
+    );
+    if (!snapshot) return false;
+
+    const restored = cloneBrowserValue(snapshot.state);
+    // Chrono Break rewinds battlefield state, not modal/UI history. Preserve
+    // committed Evolution lifecycle state so a rewind cannot resurrect a
+    // selection menu or replay an installed milestone.
+    restored.upgradePromptOpen = current.upgradePromptOpen;
+    restored.upgradePromptTimer = current.upgradePromptTimer;
+    restored.upgradeSelectionOpen = false;
+    restored.upgradeOptions = current.upgradeOptions;
+    restored.upgradeRetryWave = current.upgradeRetryWave;
+    restored.nextUpgradeWave = current.nextUpgradeWave;
+    restored.runUpgrades = { ...current.runUpgrades };
+    restored.milestoneTraversalDriven = current.milestoneTraversalDriven;
+    restored.milestoneWorldSteps = current.milestoneWorldSteps;
+    restored.milestonePierceProgress = current.milestonePierceProgress;
+    restored.milestoneShieldProgress = current.milestoneShieldProgress;
+    stateRef.current = restored;
+    // Use the actual retained snapshot time. If the requested target predates
+    // available history, keeping the earlier requested time would discard the
+    // oldest snapshot on release and make the next Rewind appear empty.
+    chronoRewindRef.current.cursorAt = snapshot.at;
+
+    // The VS ability adapter owns a separate combatant mirror. Keep its actor
+    // values aligned with the restored grid immediately so the next NPC action
+    // cannot reapply future HP, position, or cooldown values.
+    const runtime = npcAbilityRuntimeRef.current;
+    if (restored.gameMode === 'vs' && runtime) {
+      npcAbilityRuntimeRef.current = {
+        ...runtime,
+        npc: {
+          ...runtime.npc,
+          hp: restored.npc.hp,
+          shields: restored.npc.shieldCharges,
+          row: restored.npc.row,
+          column: restored.npc.col,
+          fireCooldown: restored.npc.fireCooldown,
+          moveCooldown: restored.npc.moveCooldown,
+          cardCooldown: restored.npc.abilityCooldown,
+        },
+        player: {
+          ...runtime.player,
+          hp: restored.hp,
+          shields: restored.shieldCharges,
+          row: restored.player.row,
+          column: restored.player.col,
+          fireCooldown: restored.player.fireCooldown,
+          moveCooldown: restored.player.moveCooldown,
+          cardCooldown: restored.cardsReady
+            ? 0
+            : Math.max(0, CARD_CHARGE_TIME - restored.cardTimer),
+        },
+      };
+    }
+    return true;
+  }, []);
+
   const stopChronoRewind = useCallback((exhausted = false) => {
     const rewind = chronoRewindRef.current;
     chronoRewindExhaustedRef.current = exhausted;
     if (!rewind.held) return;
+    const now = performance.now();
+    applyChronoRewindTarget(resolveChronoReleaseTargetAt({
+      sourceAt: rewind.sourceAt,
+      startedAt: rewind.startedAt,
+      releasedAt: now,
+      exhausted,
+    }));
     rewind.held = false;
     if (chronoRewindTimerRef.current) {
       clearTimeout(chronoRewindTimerRef.current);
       chronoRewindTimerRef.current = null;
     }
-    const now = performance.now();
     chronoHistoryRef.current = chronoHistoryRef.current
       .filter((snapshot) => snapshot.at <= rewind.cursorAt)
       .map((snapshot) => ({ ...snapshot, at: now - (rewind.cursorAt - snapshot.at) }));
@@ -11026,7 +11308,7 @@ export default function Game() {
     lastRenderTimeRef.current = 0;
     showMessage('Timeline resumed.', 650);
     updateHud();
-  }, [showMessage, updateHud]);
+  }, [applyChronoRewindTarget, showMessage, updateHud]);
   stopChronoRewindRef.current = stopChronoRewind;
 
   const activateRivalSkill = useCallback((id: RivalSkillId) => {
@@ -17402,51 +17684,15 @@ export default function Game() {
         handleGamepad();
         if (rewind.input === 'gamepad' && !gamepadRef.current.cardB) stopChronoRewind();
         if (rewind.held) {
-          const elapsed = Math.min(3000, ts - rewind.startedAt);
+          const elapsed = Math.min(CHRONO_REWIND_MAX_MS, ts - rewind.startedAt);
           const targetAt = rewind.sourceAt - elapsed;
-          const history = chronoHistoryRef.current;
-          // A secured world step is a progression transaction boundary. Limit
-          // Reverse to snapshots on the current side of that boundary so the
-          // traversal reward cannot be erased or replayed, while ordinary HP,
-          // shields, hand charge, and ability resources still rewind normally.
-          const currentWorldSteps = stateRef.current.milestoneWorldSteps;
-          const eligibleHistory = history.filter(
-            (entry) => entry.state.milestoneWorldSteps === currentWorldSteps,
-          );
-          let snapshot = eligibleHistory[0];
-          for (let index = eligibleHistory.length - 1; index >= 0; index--) {
-            if (eligibleHistory[index].at <= targetAt) {
-              snapshot = eligibleHistory[index];
-              break;
-            }
-          }
-          if (snapshot) {
-            const current = stateRef.current;
-            const restored = cloneBrowserValue(snapshot.state);
-            // Chrono Break rewinds battlefield state, not modal/UI history.
-            // Preserve the live Evolution lifecycle so a snapshot captured
-            // around a milestone cannot resurrect its selection menu.
-            restored.upgradePromptOpen = current.upgradePromptOpen;
-            restored.upgradePromptTimer = current.upgradePromptTimer;
-            restored.upgradeSelectionOpen = false;
-            restored.upgradeOptions = current.upgradeOptions;
-            restored.upgradeRetryWave = current.upgradeRetryWave;
-            restored.nextUpgradeWave = current.nextUpgradeWave;
-            restored.runUpgrades = { ...current.runUpgrades };
-            // Traversal rewards are monotonic run progression, not battlefield
-            // state. Reverse may not replay old world steps to duplicate them.
-            restored.milestoneTraversalDriven = current.milestoneTraversalDriven;
-            restored.milestoneWorldSteps = current.milestoneWorldSteps;
-            restored.milestonePierceProgress = current.milestonePierceProgress;
-            restored.milestoneShieldProgress = current.milestoneShieldProgress;
-            stateRef.current = restored;
-            rewind.cursorAt = targetAt;
+          if (applyChronoRewindTarget(targetAt)) {
             if (ts - chronoLastHudUpdateRef.current >= 100) {
               updateHud();
               chronoLastHudUpdateRef.current = ts;
             }
           }
-          if (elapsed >= 3000) stopChronoRewind(true);
+          if (elapsed >= CHRONO_REWIND_MAX_MS) stopChronoRewind(true);
         }
       } else {
         const chronoEquipped = playerSkinRef.current === 'chrono'
@@ -18422,7 +18668,8 @@ export default function Game() {
     }
 
     animRef.current = requestAnimationFrame(loop);
-  }, [actionForkExperiment, update, updateHud, handleGamepad, stopChronoRewind, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
+  }, [actionForkExperiment, update, updateHud, handleGamepad, applyChronoRewindTarget,
+    stopChronoRewind, moveBestiarySelection, scrollMenuByDpad, scrollMenuTargetIntoView]);
 
   // Resize canvas to match DPR
   const resizeCanvas = useCallback(() => {
@@ -18871,21 +19118,57 @@ export default function Game() {
   const setupDpad = useCallback((dir: keyof typeof touchDpadRef.current, el: HTMLElement) => {
     const setTrue  = () => { touchDpadRef.current[dir] = true; };
     const setFalse = () => { touchDpadRef.current[dir] = false; };
+    let intent: PointerIntent | null = null;
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearHoldTimer = () => {
+      if (holdTimer) clearTimeout(holdTimer);
+      holdTimer = null;
+    };
     const onDown = (ev: PointerEvent) => {
       ev.preventDefault();
       ensureAudio();
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
       trySetPointerCapture(el, ev.pointerId);
-      setTrue();
+      intent = beginPointerIntent(pointerIntentSample(ev));
+      if (intent.immediateContact) {
+        setTrue();
+        return;
+      }
+      holdTimer = setTimeout(() => {
+        holdTimer = null;
+        if (intent && shouldBeginPointerHold(intent, performance.now())) setTrue();
+      }, POINTER_INTENT_MOUSE_HOLD_DELAY_MS);
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (!intent || intent.pointerId !== ev.pointerId) return;
+      if (intent.immediateContact) return;
+      intent = updatePointerIntent(intent, pointerIntentSample(ev));
+      if (!intent.cancelled) return;
+      clearHoldTimer();
+      setFalse();
+      intent = null;
+      tryReleasePointerCapture(el, ev.pointerId);
+    };
+    const onEnd = (ev: PointerEvent) => {
+      if (intent?.pointerId !== ev.pointerId) return;
+      clearHoldTimer();
+      setFalse();
+      intent = null;
+      tryReleasePointerCapture(el, ev.pointerId);
     };
     el.addEventListener('pointerdown', onDown);
-    el.addEventListener('pointerup', setFalse);
-    el.addEventListener('pointercancel', setFalse);
-    el.addEventListener('lostpointercapture', setFalse);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onEnd);
+    el.addEventListener('pointercancel', onEnd);
+    el.addEventListener('lostpointercapture', onEnd);
     return () => {
+      clearHoldTimer();
+      setFalse();
       el.removeEventListener('pointerdown', onDown);
-      el.removeEventListener('pointerup', setFalse);
-      el.removeEventListener('pointercancel', setFalse);
-      el.removeEventListener('lostpointercapture', setFalse);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onEnd);
+      el.removeEventListener('pointercancel', onEnd);
+      el.removeEventListener('lostpointercapture', onEnd);
     };
   }, []);
 
@@ -19073,14 +19356,46 @@ export default function Game() {
     // D-pad center = fire
     const center = document.getElementById('dpadCenter');
     if (center) {
+      let centerIntent: PointerIntent | null = null;
       const onDown = (ev: PointerEvent) => {
         ev.preventDefault();
         ensureAudio();
+        if (ev.pointerType === 'mouse' && ev.button !== 0) return;
         trySetPointerCapture(center, ev.pointerId);
-        manualBuster();
+        centerIntent = beginPointerIntent(pointerIntentSample(ev));
+        if (centerIntent.immediateContact) {
+          centerIntent = commitPointerIntent(centerIntent);
+          manualBuster();
+        }
+      };
+      const onMove = (ev: PointerEvent) => {
+        if (!centerIntent || centerIntent.pointerId !== ev.pointerId) return;
+        centerIntent = updatePointerIntent(centerIntent, pointerIntentSample(ev));
+        if (centerIntent.cancelled) tryReleasePointerCapture(center, ev.pointerId);
+      };
+      const onUp = (ev: PointerEvent) => {
+        if (!centerIntent || centerIntent.pointerId !== ev.pointerId) return;
+        const released = updatePointerIntent(centerIntent, pointerIntentSample(ev));
+        centerIntent = null;
+        tryReleasePointerCapture(center, ev.pointerId);
+        if (shouldCommitPointerOnRelease(released, pointerIntentSample(ev))) manualBuster();
+      };
+      const onCancel = (ev: PointerEvent) => {
+        if (centerIntent?.pointerId !== ev.pointerId) return;
+        centerIntent = null;
       };
       center.addEventListener('pointerdown', onDown);
-      cleanups.push(() => center.removeEventListener('pointerdown', onDown));
+      center.addEventListener('pointermove', onMove);
+      center.addEventListener('pointerup', onUp);
+      center.addEventListener('pointercancel', onCancel);
+      center.addEventListener('lostpointercapture', onCancel);
+      cleanups.push(() => {
+        center.removeEventListener('pointerdown', onDown);
+        center.removeEventListener('pointermove', onMove);
+        center.removeEventListener('pointerup', onUp);
+        center.removeEventListener('pointercancel', onCancel);
+        center.removeEventListener('lostpointercapture', onCancel);
+      });
     }
 
     // Start input/render scheduling immediately. Static menus keep the last
@@ -19123,6 +19438,76 @@ export default function Game() {
     playAutoToggle();
     stateRef.current.autoBuster = !stateRef.current.autoBuster;
     updateHud();
+  };
+
+  const armSkillButtonGesture = () => {
+    chronoSkillHoldRef.current = false;
+    echoSkillDrainHoldRef.current = false;
+    skillButtonHoldingRef.current = false;
+    skillButtonDoubleTapRef.current = Boolean(skillButtonTapTimerRef.current);
+    if (skillButtonTapTimerRef.current) {
+      clearTimeout(skillButtonTapTimerRef.current);
+      skillButtonTapTimerRef.current = null;
+    }
+  };
+
+  const beginSkillButtonHold = () => {
+    if (skillButtonDoubleTapRef.current
+      && rivalSkillRef.current.active
+      && rivalSkillRef.current.id === 'echo') {
+      // The held second press is Echo's alternate on-screen channel:
+      // double-tap then hold sustains Drain, while a single hold sustains Brink.
+      skillButtonHoldTimerRef.current = setTimeout(() => {
+        skillButtonHoldTimerRef.current = null;
+        skillButtonHoldingRef.current = true;
+        chronoSkillHoldRef.current = false;
+        echoSkillDrainHoldRef.current = true;
+      }, 180);
+    } else if (rivalSkillRef.current.active
+      && (rivalSkillRef.current.id === 'chrono' || rivalSkillRef.current.id === 'echo')) {
+      skillButtonHoldTimerRef.current = setTimeout(() => {
+        skillButtonHoldTimerRef.current = null;
+        skillButtonHoldingRef.current = true;
+        echoSkillDrainHoldRef.current = false;
+        chronoSkillHoldRef.current = true;
+      }, 180);
+    }
+  };
+
+  const releaseSkillButtonGesture = () => {
+    if (skillButtonHoldTimerRef.current) {
+      clearTimeout(skillButtonHoldTimerRef.current);
+      skillButtonHoldTimerRef.current = null;
+    }
+    chronoSkillHoldRef.current = false;
+    echoSkillDrainHoldRef.current = false;
+    if (skillButtonHoldingRef.current) {
+      skillButtonHoldingRef.current = false;
+      skillButtonDoubleTapRef.current = false;
+      return;
+    }
+    if (skillButtonDoubleTapRef.current) {
+      skillButtonDoubleTapRef.current = false;
+      playSkillAnimation();
+      return;
+    }
+    const skillWasActive = rivalSkillRef.current.active;
+    skillButtonTapTimerRef.current = setTimeout(() => {
+      skillButtonTapTimerRef.current = null;
+      // Commit a one-tap action only after the double-tap window. Starting an
+      // inactive signature remains L2; an active skill maps it to R2.
+      if (skillWasActive) performSkillButtonR2Tap();
+      else playSkillAnimation();
+    }, 260);
+  };
+
+  const cancelSkillButtonGesture = () => {
+    if (skillButtonHoldTimerRef.current) clearTimeout(skillButtonHoldTimerRef.current);
+    skillButtonHoldTimerRef.current = null;
+    skillButtonHoldingRef.current = false;
+    skillButtonDoubleTapRef.current = false;
+    chronoSkillHoldRef.current = false;
+    echoSkillDrainHoldRef.current = false;
   };
 
   const toggleVirtualDpad = () => {
@@ -19679,7 +20064,7 @@ export default function Game() {
       <canvas
         ref={canvasRef}
         id="canvas"
-        onPointerDown={handleCanvasPointer}
+        {...guardedPointerAction<HTMLCanvasElement>(handleCanvasPointer)}
       />
       <video
         ref={pipVideoRef}
@@ -19860,10 +20245,10 @@ export default function Game() {
               type="button"
               className="lordAlphaSkillModeToggle"
               aria-pressed={lordAlphaSkillModeOpen}
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                toggleLordAlphaSkillMode();
-              }}
+              {...guardedPointerAction<HTMLButtonElement>(
+                () => toggleLordAlphaSkillMode(),
+                { stopPropagation: true },
+              )}
             >
               <kbd>V</kbd><small>L2</small>{lordAlphaSkillModeOpen ? 'CLOSE' : 'OPEN'}
             </button>
@@ -19874,10 +20259,10 @@ export default function Game() {
                 <button
                   type="button"
                   aria-label="Previous Lord Alpha skill bank, triple-tap L2"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    cycleLordAlphaSkillBank(-1);
-                  }}
+                  {...guardedPointerAction<HTMLButtonElement>(
+                    () => cycleLordAlphaSkillBank(-1),
+                    { stopPropagation: true },
+                  )}
                 >
                   <kbd>L2</kbd><small>×3 · [</small>
                 </button>
@@ -19885,10 +20270,10 @@ export default function Game() {
                 <button
                   type="button"
                   aria-label="Next Lord Alpha skill bank, double-tap L2"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    cycleLordAlphaSkillBank(1);
-                  }}
+                  {...guardedPointerAction<HTMLButtonElement>(
+                    () => cycleLordAlphaSkillBank(1),
+                    { stopPropagation: true },
+                  )}
                 >
                   <kbd>L2</kbd><small>×2 · ]</small>
                 </button>
@@ -19921,32 +20306,32 @@ export default function Game() {
                         ? ` · direct ${directGamepadBinding}`
                         : ''}`}
                       disabled={cooldown > 0}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                        if (action.id === 'tharthareon') {
-                          trySetPointerCapture(event.currentTarget, event.pointerId);
-                          dispatchTharthareonGesture(
-                            { type: 'press', atMs: performance.now() },
-                            action,
-                          );
-                          return;
-                        }
-                        executeLordAlphaSkill(action);
-                      }}
-                      onPointerUp={() => {
-                        if (action.id === 'tharthareon') {
-                          dispatchTharthareonGesture(
-                            { type: 'release', atMs: performance.now() },
-                            action,
-                          );
-                        }
-                      }}
-                      onPointerCancel={() => {
-                        if (action.id === 'tharthareon') cancelTharthareonGesture();
-                      }}
-                      onLostPointerCapture={() => {
-                        if (action.id === 'tharthareon') cancelTharthareonGesture();
-                      }}
+                      {...(action.id === 'tharthareon'
+                        ? guardedPointerHold<HTMLButtonElement>({
+                            stopPropagation: true,
+                            // Its gesture reducer owns a further 180 ms hold
+                            // threshold, so 80 + 180 preserves the 260 ms
+                            // stationary mouse-intent guard.
+                            mouseDelayMs: 80,
+                            onStart: () => dispatchTharthareonGesture(
+                              { type: 'press', atMs: performance.now() },
+                              action,
+                            ),
+                            onRelease: () => dispatchTharthareonGesture(
+                              { type: 'release', atMs: performance.now() },
+                              action,
+                            ),
+                            onTap: () => {
+                              const atMs = performance.now();
+                              dispatchTharthareonGesture({ type: 'press', atMs }, action);
+                              dispatchTharthareonGesture({ type: 'release', atMs }, action);
+                            },
+                            onCancel: cancelTharthareonGesture,
+                          })
+                        : guardedPointerAction<HTMLButtonElement>(
+                            () => executeLordAlphaSkill(action),
+                            { stopPropagation: true },
+                          ))}
                     >
                       <span className="lordAlphaSkillBinding">
                         <kbd>{displayedGamepadBinding}</kbd>
@@ -20232,35 +20617,44 @@ export default function Game() {
             {RIVAL_SKILL_LABELS[rivalSkillView.id]}
             <small>{Math.max(0, Math.ceil((rivalSkillView.expiresAt - performance.now()) / 1000))}s</small>
           </div>
-          <button className="cloneActionBtn attack" onPointerDown={(event) => {
-            event.stopPropagation();
-            resolveRivalSkillAction('primary');
-          }}>
+          <button
+            className="cloneActionBtn attack"
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => resolveRivalSkillAction('primary'),
+              { stopPropagation: true },
+            )}
+          >
             <b>X</b>
             {RIVAL_SKILL_COMMANDS[rivalSkillView.id][0]}
           </button>
-          <button className="cloneActionBtn switch" onPointerDown={(event) => {
-            event.stopPropagation();
-            resolveRivalSkillAction('alternate');
-          }}>
+          <button
+            className="cloneActionBtn switch"
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => resolveRivalSkillAction('alternate'),
+              { stopPropagation: true },
+            )}
+          >
             <b>Y</b>
             {RIVAL_SKILL_COMMANDS[rivalSkillView.id][1]}
           </button>
-          <button className="cloneActionBtn defend" onPointerDown={(event) => {
-            event.stopPropagation();
-            if (rivalSkillView.id === 'chrono') {
-              trySetPointerCapture(event.currentTarget, event.pointerId);
-              startChronoRewind('pointer');
-            } else {
-              resolveRivalSkillAction('defend');
-            }
-          }} onPointerUp={() => {
-            if (rivalSkillView.id === 'chrono') stopChronoRewind();
-          }} onPointerCancel={() => {
-            if (rivalSkillView.id === 'chrono') stopChronoRewind();
-          }} onLostPointerCapture={() => {
-            if (rivalSkillView.id === 'chrono') stopChronoRewind();
-          }}>
+          <button
+            className="cloneActionBtn defend"
+            {...(rivalSkillView.id === 'chrono'
+              ? guardedPointerHold<HTMLButtonElement>({
+                  stopPropagation: true,
+                  onStart: () => startChronoRewind('pointer'),
+                  onRelease: () => stopChronoRewind(),
+                  onTap: () => {
+                    startChronoRewind('pointer');
+                    stopChronoRewind();
+                  },
+                  onCancel: () => stopChronoRewind(),
+                })
+              : guardedPointerAction<HTMLButtonElement>(
+                  () => resolveRivalSkillAction('defend'),
+                  { stopPropagation: true },
+                ))}
+          >
             <b>B</b>
             {RIVAL_SKILL_COMMANDS[rivalSkillView.id][2]}
           </button>
@@ -20274,10 +20668,10 @@ export default function Game() {
         >
           <button
             className="cloneActionBtn attack"
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              resolveCloneAction('attack');
-            }}
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => resolveCloneAction('attack'),
+              { stopPropagation: true },
+            )}
           >
             <b>X</b>
             ATTACK
@@ -20287,20 +20681,20 @@ export default function Game() {
             disabled={cloneView.rows[cloneView.controlled === 'north' ? 'south' : 'north'] === null
               || cloneView.statuses[cloneView.controlled === 'north' ? 'south' : 'north'] === 'gone'
               || cloneView.statuses[cloneView.controlled === 'north' ? 'south' : 'north'] === 'dispersing'}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              switchCloneControl();
-            }}
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => switchCloneControl(),
+              { stopPropagation: true },
+            )}
           >
             <b>Y</b>
             SWITCH
           </button>
           <button
             className="cloneActionBtn defend"
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              resolveCloneAction('defend');
-            }}
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => resolveCloneAction('defend'),
+              { stopPropagation: true },
+            )}
           >
             <b>B</b>
             DEFEND
@@ -20618,11 +21012,13 @@ export default function Game() {
                     key={id}
                     className={`card-btn${used ? ' used' : ''}${!practical ? ' unavailable' : ''}`}
                     disabled={disabled}
-                    onPointerDown={(ev) => {
-                      ev.stopPropagation();
-                      ensureAudio();
-                      useCard(id);
-                    }}
+                    {...guardedPointerAction<HTMLButtonElement>(
+                      () => {
+                        ensureAudio();
+                        useCard(id);
+                      },
+                      { stopPropagation: true },
+                    )}
                   >
                     {ability.name}<br />
                     <small>{cardContext.label}</small><br />
@@ -20649,10 +21045,10 @@ export default function Game() {
               && hud.cardOptions.length > 0
               && hud.cardOptions.every((id) => hud.usedInHand.includes(id))
             )}
-            onPointerDown={(ev) => {
-              ev.stopPropagation();
-              rotateHand();
-            }}
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => rotateHand(),
+              { stopPropagation: true },
+            )}
           >
             {hud.rotateUsedThisHand ? 'ROTATE USED' : '↻ ROTATE'}
           </button>
@@ -20679,10 +21075,10 @@ export default function Game() {
               && hud.cardOptions.length > 0
               && hud.cardOptions.every((id) => hud.usedInHand.includes(id))
             )}
-            onPointerDown={(ev) => {
-              ev.stopPropagation();
-              rotateHand();
-            }}
+            {...guardedPointerAction<HTMLButtonElement>(
+              () => rotateHand(),
+              { stopPropagation: true },
+            )}
           >
             {hud.rotateUsedThisHand ? 'ROTATE USED' : '↻ ROTATE'}
           </button>
@@ -20692,86 +21088,26 @@ export default function Game() {
           <button
             id="skillBtn"
             className="control-btn"
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
-                toggleLordAlphaSkillMode();
-                return;
-              }
-              trySetPointerCapture(event.currentTarget, event.pointerId);
-              chronoSkillHoldRef.current = false;
-              echoSkillDrainHoldRef.current = false;
-              skillButtonHoldingRef.current = false;
-              skillButtonDoubleTapRef.current = Boolean(skillButtonTapTimerRef.current);
-              if (skillButtonTapTimerRef.current) {
-                clearTimeout(skillButtonTapTimerRef.current);
-                skillButtonTapTimerRef.current = null;
-              }
-              if (skillButtonDoubleTapRef.current
-                && rivalSkillRef.current.active
-                && rivalSkillRef.current.id === 'echo') {
-                // The held second press is Echo's alternate on-screen channel:
-                // double-tap then hold sustains Drain, while a single hold
-                // below sustains Brink.
-                skillButtonHoldTimerRef.current = setTimeout(() => {
-                  skillButtonHoldTimerRef.current = null;
-                  skillButtonHoldingRef.current = true;
-                  chronoSkillHoldRef.current = false;
-                  echoSkillDrainHoldRef.current = true;
-                }, 180);
-              } else if (rivalSkillRef.current.active
-                && (rivalSkillRef.current.id === 'chrono' || rivalSkillRef.current.id === 'echo')) {
-                skillButtonHoldTimerRef.current = setTimeout(() => {
-                  skillButtonHoldTimerRef.current = null;
-                  skillButtonHoldingRef.current = true;
-                  echoSkillDrainHoldRef.current = false;
-                  chronoSkillHoldRef.current = true;
-                }, 180);
-              }
-            }}
-            onPointerUp={(event) => {
-              event.stopPropagation();
-              if (playerSkinRef.current === LORD_ALPHA_SKIN_ID) {
-                return;
-              }
-              if (skillButtonHoldTimerRef.current) {
-                clearTimeout(skillButtonHoldTimerRef.current);
-                skillButtonHoldTimerRef.current = null;
-              }
-              chronoSkillHoldRef.current = false;
-              echoSkillDrainHoldRef.current = false;
-              if (skillButtonHoldingRef.current) {
-                skillButtonHoldingRef.current = false;
-                skillButtonDoubleTapRef.current = false;
-                return;
-              }
-              if (skillButtonDoubleTapRef.current) {
-                skillButtonDoubleTapRef.current = false;
-                playSkillAnimation();
-                return;
-              }
-              const skillWasActive = rivalSkillRef.current.active;
-              skillButtonTapTimerRef.current = setTimeout(() => {
-                skillButtonTapTimerRef.current = null;
-                // Commit a one-tap action only after the double-tap window.
-                // Starting an inactive signature remains L2; an active skill
-                // maps the same single tap to R2.
-                if (skillWasActive) performSkillButtonR2Tap();
-                else playSkillAnimation();
-              }, 260);
-            }}
-            onPointerCancel={() => {
-              if (skillButtonHoldTimerRef.current) clearTimeout(skillButtonHoldTimerRef.current);
-              skillButtonHoldTimerRef.current = null;
-              skillButtonHoldingRef.current = false;
-              skillButtonDoubleTapRef.current = false;
-              chronoSkillHoldRef.current = false;
-              echoSkillDrainHoldRef.current = false;
-            }}
-            onLostPointerCapture={() => {
-              chronoSkillHoldRef.current = false;
-              echoSkillDrainHoldRef.current = false;
-            }}
+            {...(playerSkinRef.current === LORD_ALPHA_SKIN_ID
+              ? guardedPointerAction<HTMLButtonElement>(
+                  () => toggleLordAlphaSkillMode(),
+                  { stopPropagation: true },
+                )
+              : guardedPointerHold<HTMLButtonElement>({
+                  stopPropagation: true,
+                  // The original hold threshold remains 180 ms. Mouse-shaped
+                  // Deck contact first waits 80 ms, for a 260 ms stationary
+                  // intent gate before a held skill can become active.
+                  mouseDelayMs: 80,
+                  // Arm at actual contact time so a legitimate second click
+                  // still lands inside the original double-tap window. Only
+                  // the hold effect waits for the Deck mouse dwell gate.
+                  onArm: armSkillButtonGesture,
+                  onStart: beginSkillButtonHold,
+                  onRelease: releaseSkillButtonGesture,
+                  onTap: releaseSkillButtonGesture,
+                  onCancel: cancelSkillButtonGesture,
+                }))}
           >
             {playerSkin === LORD_ALPHA_SKIN_ID
               ? lordAlphaSkillModeOpen ? 'SKILLS OPEN' : 'LORD ALPHA SKILLS'
@@ -20783,7 +21119,10 @@ export default function Game() {
         <button
           id="autoToggle"
           className={`control-btn ${hud.autoBuster ? 'on' : 'off'}`}
-          onPointerDown={(ev) => { ev.stopPropagation(); toggleAuto(); }}
+          {...guardedPointerAction<HTMLButtonElement>(
+            () => toggleAuto(),
+            { stopPropagation: true },
+          )}
         >
           Auto: {hud.autoBuster ? 'ON' : 'OFF'}
         </button>
@@ -20791,7 +21130,13 @@ export default function Game() {
         <button
           id="busterBtn"
           className="control-btn"
-          onPointerDown={(ev) => { ev.stopPropagation(); ensureAudio(); manualBuster(); }}
+          {...guardedPointerAction<HTMLButtonElement>(
+            () => {
+              ensureAudio();
+              manualBuster();
+            },
+            { stopPropagation: true },
+          )}
         >
           BUSTER
           {playerSkin === LORD_ALPHA_SKIN_ID && (
@@ -20805,7 +21150,10 @@ export default function Game() {
         <button
           id="pauseBtn"
           className="control-btn"
-          onPointerDown={(ev) => { ev.stopPropagation(); togglePause(); }}
+          {...guardedPointerAction<HTMLButtonElement>(
+            () => togglePause(),
+            { stopPropagation: true },
+          )}
         >
           {paused ? '▶ RESUME' : '⏸ PAUSE'}
         </button>
@@ -21485,10 +21833,10 @@ export default function Game() {
       {phase === 'playing' && hud.upgradePromptOpen && !hud.upgradeSelectionOpen && (
         <button
           id="upgradePrompt"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            openUpgradeSelection();
-          }}
+          {...guardedPointerAction<HTMLButtonElement>(
+            () => openUpgradeSelection(),
+            { stopPropagation: true },
+          )}
         >
           <strong>EVOLUTION READY · {Math.max(0, Math.ceil(hud.upgradePromptTimer))}s</strong>
           <span>
@@ -21511,10 +21859,10 @@ export default function Game() {
             <button
               id="upgradeClose"
               aria-label="Close Evolve menu"
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                closeUpgradeSelection();
-              }}
+              {...guardedPointerAction<HTMLButtonElement>(
+                () => closeUpgradeSelection(),
+                { stopPropagation: true },
+              )}
             >
               ×
             </button>
@@ -21531,10 +21879,10 @@ export default function Game() {
                     id={`upgradeChoice${index}`}
                     key={id}
                     className={`upgradeChoice${upgradeSelection === index ? ' gamepad-selected' : ''}`}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      chooseRunUpgrade(id);
-                    }}
+                    {...guardedPointerAction<HTMLButtonElement>(
+                      () => chooseRunUpgrade(id),
+                      { stopPropagation: true },
+                    )}
                   >
                     <span className="upgradeLevel">
                       {upgrade.longForm ? 'RANK' : 'LV'} {currentLevel} → {currentLevel + 1}
