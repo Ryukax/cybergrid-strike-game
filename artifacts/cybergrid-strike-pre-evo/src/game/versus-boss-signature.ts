@@ -88,6 +88,11 @@ export interface LordAlphaNpcTechniqueAction {
   readonly laneDelta: -1 | 0 | 1;
   /** Roc Wing crosses the center line visually, then recovers on its own side. */
   readonly crossesOpponentSide: boolean;
+  /**
+   * Optional authored projectile skin carried through the generic combat plan.
+   * Only tap-X Fireball uses this; ordinary Bomb cards remain generic.
+   */
+  readonly projectileVisualKind?: 'tharthareon-fireball';
   readonly presentation: {
     readonly kind: LordAlphaPresentationEventKind;
     readonly subtype: LordAlphaPresentationSubtype;
@@ -205,6 +210,7 @@ export function resolveLordAlphaNpcTechnique(
         abilityId: 'bomb',
         laneDelta: 0,
         crossesOpponentSide: false,
+        projectileVisualKind: 'tharthareon-fireball',
         presentation: {
           kind: 'tharthareon',
           subtype: 'tharthareon-fireball',

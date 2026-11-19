@@ -15546,7 +15546,10 @@ export default function Game() {
           leftSignatureState.cooldown = VS_NPC_SKILL_INTERVAL;
         }
 
-        const applyLeftNpcPlan = (rawPlan: VersusAbilityPlan | VersusSignaturePlan) => {
+        const applyLeftNpcPlan = (
+          rawPlan: VersusAbilityPlan | VersusSignaturePlan,
+          projectileVisualKind?: Bullet['visualKind'],
+        ) => {
           const plan = orientVersusPlanForLeft(rawPlan);
           const applied = applyVersusNpcCombatPlan(plan, {
             npc: {
@@ -15600,6 +15603,7 @@ export default function Game() {
               presentationPrimary: firstProjectile,
               suppressSecondary: true,
               speedOverride: projectile.big ? 5.7 : 6.4,
+              ...(projectileVisualKind ? { visualKind: projectileVisualKind } : {}),
             });
             firstProjectile = false;
           }
@@ -15804,7 +15808,7 @@ export default function Game() {
                   ),
                 }
               : resolvedPlan;
-            applyLeftNpcPlan(plan);
+            applyLeftNpcPlan(plan, technique.projectileVisualKind);
             if (technique.laneDelta !== 0) {
               s.player.row = Math.max(0, Math.min(2, originRow + technique.laneDelta));
             }
@@ -16057,6 +16061,7 @@ export default function Game() {
         originCol = npc.col,
         homing = false,
         direction: -1 | 1 = -1,
+        visualKind?: Bullet['visualKind'],
       ) => {
         const animationNow = performance.now();
         // Do not let rapid autofire continually restart an authored skill or
@@ -16076,6 +16081,7 @@ export default function Game() {
           attackStyle: resolveAttackStyle(npcSkinRef.current),
           effectSkin: npcSkinRef.current,
           ...(leechOnHit > 0 ? { leechOnHit } : {}),
+          ...(visualKind ? { visualKind } : {}),
         });
       };
 
@@ -16148,7 +16154,10 @@ export default function Game() {
           signatureCommandUses: npcSignatureCommandUsesRef.current,
         };
       };
-      const applyNpcPlan = (plan: VersusAbilityPlan | VersusSignaturePlan) => {
+      const applyNpcPlan = (
+        plan: VersusAbilityPlan | VersusSignaturePlan,
+        projectileVisualKind?: Bullet['visualKind'],
+      ) => {
         const leftCardTimer = npcVsNpcActive
           ? VS_NPC_ABILITY_INTERVAL - npcVsNpcAbilityCooldownRef.current
           : s.cardTimer;
@@ -16204,6 +16213,11 @@ export default function Game() {
             projectile.big,
             projectile.salvoIndex,
             projectile.leechOnHit,
+            false,
+            npc.col,
+            false,
+            -1,
+            projectileVisualKind,
           );
         }
         return applied;
@@ -17091,7 +17105,7 @@ export default function Game() {
                 ),
               }
             : resolvedTechniquePlan;
-          applyNpcPlan(techniquePlan);
+          applyNpcPlan(techniquePlan, technique.projectileVisualKind);
           if (technique.laneDelta !== 0) {
             npc.row = Math.max(0, Math.min(2, originRow + technique.laneDelta));
           }

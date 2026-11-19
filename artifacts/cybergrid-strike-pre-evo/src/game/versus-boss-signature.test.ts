@@ -128,6 +128,12 @@ test('Lord Alpha NPC gesture families resolve every authored R1, R2, and X branc
       resolveLordAlphaNpcTechnique('tharthareon', variant, middle)?.inputSequence),
     ['X', 'X -> X', 'Hold X'],
   );
+  deepStrictEqual(
+    [0, 1, 2].map((variant) =>
+      resolveLordAlphaNpcTechnique('tharthareon', variant, middle)?.projectileVisualKind),
+    ['tharthareon-fireball', undefined, undefined],
+    'only tap-X Fireball may decorate the generic Bomb projectile',
+  );
   const holdBite = resolveLordAlphaNpcTechnique('tharthareon', 2, middle);
   equal(holdBite?.abilityId, 'tailclamp');
   equal(holdBite?.presentation.durationMs, 3_000);
