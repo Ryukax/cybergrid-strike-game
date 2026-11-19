@@ -419,6 +419,8 @@ import {
 import {
   LORD_ALPHA_FORM_IDS,
   LORD_ALPHA_FORMS,
+  LORD_ALPHA_COSTUME_IDS,
+  LORD_ALPHA_COSTUMES,
   LORD_ALPHA_ASSET_REVISION,
   LORD_ALPHA_SKIN_ID,
   LORD_ALPHA_COMBO_PRESENTATIONS,
@@ -466,6 +468,7 @@ import {
   shouldResolveLordAlphaRocBranchImpact,
   wrapLordAlphaSkillBank,
   type LordAlphaComboBeat,
+  type LordAlphaCostume,
   type LordAlphaForm,
   type LordAlphaPresentationEvent,
   type LordAlphaPresentationEventKind,
@@ -671,6 +674,7 @@ const AVATAR_COMPONENTS_KEY = 'cgs_avatar_components_v1';
 const EQUIPPED_COMPONENTS_KEY = 'cgs_equipped_components_v1';
 const ASSEMBLY_SKILL_KEY = 'cgs_assembly_skill_v1';
 const LORD_ALPHA_FORM_KEY = 'cgs_lord_alpha_form_v1';
+const LORD_ALPHA_COSTUME_KEY = 'cgs_lord_alpha_costume_v1';
 const LORD_ALPHA_SKILL_PANEL_POSITION_KEY = 'cgs_lord_alpha_skill_panel_position_v1';
 const LORD_ALPHA_SKILL_PANEL_SIZE_KEY = 'cgs_lord_alpha_skill_panel_size_v1';
 const LORD_ALPHA_SKILL_PANEL_MIN_SIZE: MovablePanelSize = { width: 236, height: 150 };
@@ -5939,6 +5943,13 @@ export default function Game() {
       ? storedLordAlphaForm as LordAlphaForm
       : 'supreme';
   const [lordAlphaForm, setLordAlphaForm] = useState<LordAlphaForm>(savedLordAlphaForm);
+  const storedLordAlphaCostume = localStorage.getItem(LORD_ALPHA_COSTUME_KEY);
+  const savedLordAlphaCostume: LordAlphaCostume = LORD_ALPHA_COSTUME_IDS.includes(
+    storedLordAlphaCostume as LordAlphaCostume,
+  )
+    ? storedLordAlphaCostume as LordAlphaCostume
+    : 'base';
+  const [lordAlphaCostume, setLordAlphaCostume] = useState<LordAlphaCostume>(savedLordAlphaCostume);
   const [lordAlphaMotion, setLordAlphaMotion] = useState<LordAlphaMotion>('idle');
   const [lordAlphaMotionPulse, setLordAlphaMotionPulse] = useState(0);
   const [lordAlphaEventPulse, setLordAlphaEventPulse] = useState(0);
@@ -20106,6 +20117,7 @@ export default function Game() {
             >
               <LordAlphaSprite
                 form={lordAlphaForm}
+                costume={lordAlphaCostume}
                 facing="right"
                 motion="move"
                 pulse={lordAlphaAfterimagePulse + index}
@@ -20131,6 +20143,7 @@ export default function Game() {
             >
               <LordAlphaSprite
                 form={lordAlphaForm}
+                costume={lordAlphaCostume}
                 facing="right"
                 motion="skill"
                 pulse={lordAlphaMotionPulse + index}
@@ -20191,6 +20204,7 @@ export default function Game() {
           {playerSkin === LORD_ALPHA_SKIN_ID && (
             <LordAlphaSprite
               form={lordAlphaForm}
+              costume={lordAlphaCostume}
               facing="right"
               motion={lordAlphaMotion}
               pulse={lordAlphaMotionPulse}
@@ -20506,6 +20520,7 @@ export default function Game() {
                 {playerSkin === LORD_ALPHA_SKIN_ID && (
                   <LordAlphaSprite
                     form={lordAlphaForm}
+                    costume={lordAlphaCostume}
                     facing="right"
                     motion={attacking || autofiring ? 'attack' : defending ? 'hit' : 'idle'}
                     pulse={lordAlphaMotionPulse + (attacking ? 1 : 0)}
@@ -20838,6 +20853,7 @@ export default function Game() {
                 playerOverlay={playerSkin === LORD_ALPHA_SKIN_ID ? (
                   <LordAlphaSprite
                     form={lordAlphaForm}
+                    costume={lordAlphaCostume}
                     facing="right"
                     motion={lordAlphaMotion}
                     pulse={lordAlphaMotionPulse}
@@ -21525,6 +21541,7 @@ export default function Game() {
                       ? <span className="lordAlphaSkinIcon">
                           <LordAlphaSprite
                             form={lordAlphaForm}
+                            costume={lordAlphaCostume}
                             facing="right"
                             motion="idle"
                             pulse={0}
@@ -21551,8 +21568,8 @@ export default function Game() {
               </div>
 
               {playerSkin === LORD_ALPHA_SKIN_ID && (
-                <section className="lordAlphaFormPanel" aria-label="Lord Alpha presentation">
-                  <div id="customSubtitle">Presentation state</div>
+                <section className="lordAlphaFormPanel" aria-label="Lord Alpha Presentation Slate">
+                  <div id="customSubtitle">Presentation Slate</div>
                   <div className="lordAlphaFormPicker">
                     {LORD_ALPHA_FORM_IDS.map((form) => (
                       <button
@@ -21569,6 +21586,7 @@ export default function Game() {
                         <span className="lordAlphaFormPreview">
                           <LordAlphaSprite
                             form={form}
+                            costume={lordAlphaCostume}
                             facing="right"
                             motion="idle"
                             pulse={0}
@@ -21577,13 +21595,48 @@ export default function Game() {
                         </span>
                         <strong>{LORD_ALPHA_FORMS[form].label}</strong>
                         <small>{form === 'relaxed'
-                          ? 'Relaxed hair · tactical base'
+                          ? `Straight hair · ${LORD_ALPHA_COSTUMES[lordAlphaCostume].label}`
                           : form === 'afro'
-                            ? 'Afro · tactical base'
+                            ? `Afro · ${LORD_ALPHA_COSTUMES[lordAlphaCostume].label}`
                             : 'Lord Alpha Supreme I · equipped'}</small>
                       </button>
                     ))}
                   </div>
+                  {lordAlphaForm !== 'supreme' && (
+                    <div className="lordAlphaCostumeSection">
+                      <div className="lordAlphaCostumeLabel">Costume</div>
+                      <div className="lordAlphaCostumePicker">
+                        {LORD_ALPHA_COSTUME_IDS.map((costume) => (
+                          <button
+                            key={costume}
+                            type="button"
+                            className={`lordAlphaFormBtn lordAlphaCostumeBtn ${lordAlphaCostume === costume ? 'selected' : ''}`}
+                            aria-pressed={lordAlphaCostume === costume}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setLordAlphaCostume(costume);
+                              localStorage.setItem(LORD_ALPHA_COSTUME_KEY, costume);
+                            }}
+                          >
+                            <span className="lordAlphaFormPreview lordAlphaCostumePreview">
+                              <LordAlphaSprite
+                                form={lordAlphaForm}
+                                costume={costume}
+                                facing="right"
+                                motion="idle"
+                                pulse={0}
+                                compact
+                              />
+                            </span>
+                            <strong>{LORD_ALPHA_COSTUMES[costume].label}</strong>
+                            <small>{costume === 'base'
+                              ? 'Original black tactical suit'
+                              : 'Indigo segmented tactical suit'}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <p className="lordAlphaFormNote">
                     Advanced skin only · original hitbox, movement, damage, controls, and Shadow Clone timing retained.
                   </p>

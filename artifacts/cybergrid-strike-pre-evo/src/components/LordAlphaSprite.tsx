@@ -8,9 +8,11 @@ import {
   anatomicalLeftScreenSide,
   lordAlphaAssetUrl,
   resolveLordAlphaAttackSequence,
+  resolveLordAlphaFormAssets,
   resolveLordAlphaSkillSequence,
   rocWingPlacement,
   type LordAlphaComboBeat,
+  type LordAlphaCostume,
   type LordAlphaFacing,
   type LordAlphaFrameSequenceAssetManifest,
   type LordAlphaForm,
@@ -29,6 +31,8 @@ export type LordAlphaMotion =
 export interface LordAlphaSpriteProps {
   baseUrl?: string;
   form: LordAlphaForm;
+  /** Presentation-only civilian outfit; Supreme keeps its authored armor. */
+  costume?: LordAlphaCostume;
   facing: LordAlphaFacing;
   motion: LordAlphaMotion;
   /** Increment this value to restart body motion without changing gameplay state. */
@@ -439,6 +443,7 @@ function useLordAlphaSpriteStyles(): void {
 export function LordAlphaSprite({
   baseUrl = import.meta.env.BASE_URL,
   form,
+  costume = 'base',
   facing,
   motion,
   pulse,
@@ -457,7 +462,7 @@ export function LordAlphaSprite({
   useEffect(() => {
     if (form === 'supreme') preloadLordAlphaSkillSequences(baseUrl);
   }, [baseUrl, form]);
-  const formAssets = LORD_ALPHA_ASSETS.forms[form];
+  const formAssets = resolveLordAlphaFormAssets(form, costume);
   const eventKind = event?.kind ?? null;
   const eventSubtype = event?.subtype ?? null;
   const skillSequence = form === 'supreme' && motion === 'skill'
@@ -505,7 +510,7 @@ export function LordAlphaSprite({
   const equipBaseForm = equipSourceForm ?? (form === 'supreme' ? 'relaxed' : form);
   const bodyUrl = lordAlphaAssetUrl(
     baseUrl,
-    equipping ? LORD_ALPHA_ASSETS.forms[equipBaseForm].idleSuffix : bodySuffix,
+    equipping ? resolveLordAlphaFormAssets(equipBaseForm, costume).idleSuffix : bodySuffix,
   );
   const equippedBodyUrl = lordAlphaAssetUrl(
     baseUrl,
@@ -577,6 +582,7 @@ export function LordAlphaSprite({
       className={['lordAlphaSprite', className].filter(Boolean).join(' ')}
       style={wrapperStyle}
       data-form={form}
+      data-costume={costume}
       data-facing={facing}
       data-motion={motion}
       data-pulse={pulse}
@@ -589,7 +595,7 @@ export function LordAlphaSprite({
       data-compact={compact || undefined}
       data-force-motion={forceMotion || undefined}
       role="img"
-      aria-label={`Lord Alpha ${form} form`}
+      aria-label={`Lord Alpha ${form} form, ${costume} costume`}
     >
       <span
         key={`motion-${motion}-${frameSequence?.id ?? 'base'}-${pulse}-${eventPulse}`}

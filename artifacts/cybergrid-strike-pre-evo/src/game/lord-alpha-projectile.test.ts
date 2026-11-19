@@ -594,10 +594,16 @@ test("Tharthareon defensive leftward geometry preserves authored orientation", (
 });
 
 test("Lord Alpha manifest resolves to source PNGs at supported dimensions", () => {
-  const expectedAssets = LORD_ALPHA_FORM_IDS.flatMap((form) => {
-    const entry = LORD_ALPHA_ASSETS.forms[form];
-    return [entry.idleSuffix, entry.attackSuffix];
-  });
+  const expectedAssets = [
+    ...LORD_ALPHA_FORM_IDS.flatMap((form) => {
+      const entry = LORD_ALPHA_ASSETS.forms[form];
+      return [entry.idleSuffix, entry.attackSuffix];
+    }),
+    ...Object.values(LORD_ALPHA_ASSETS.alternateTacticalForms).flatMap((form) => [
+      form.idleSuffix,
+      form.attackSuffix,
+    ]),
+  ];
 
   for (const suffix of expectedAssets) {
     const path = join(publicRoot, ...suffix.split("/"));

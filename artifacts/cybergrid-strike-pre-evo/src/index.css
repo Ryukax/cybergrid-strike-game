@@ -4117,6 +4117,24 @@ canvas#canvas {
   gap: 8px;
   margin-top: 8px;
 }
+.lordAlphaCostumeSection {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(125, 211, 252, 0.18);
+}
+.lordAlphaCostumeLabel {
+  color: rgba(224, 242, 254, 0.72);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lordAlphaCostumePicker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
 .lordAlphaFormBtn {
   min-width: 0;
   min-height: 116px;
@@ -4132,6 +4150,12 @@ canvas#canvas {
   border-radius: 10px;
   background: rgba(2, 6, 23, 0.72);
   touch-action: manipulation;
+}
+.lordAlphaCostumeBtn {
+  min-height: 108px;
+}
+.lordAlphaCostumePreview {
+  width: 72px;
 }
 .lordAlphaFormBtn.selected {
   border-color: #fde68a;
@@ -4167,7 +4191,9 @@ canvas#canvas {
 }
 @media (max-width: 520px) {
   .lordAlphaFormPicker { gap: 5px; }
+  .lordAlphaCostumePicker { gap: 5px; }
   .lordAlphaFormBtn { min-height: 108px; padding-inline: 2px; }
+  .lordAlphaCostumeBtn { min-height: 102px; }
   .lordAlphaFormPreview { transform: scale(0.72); }
 }
 @media (prefers-reduced-motion: reduce) {

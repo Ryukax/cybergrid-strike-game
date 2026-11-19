@@ -14,6 +14,23 @@ export const LORD_ALPHA_FORM_IDS = ["relaxed", "afro", "supreme"] as const;
 export type LordAlphaForm = (typeof LORD_ALPHA_FORM_IDS)[number];
 export type LordAlphaFormId = LordAlphaForm;
 
+export const LORD_ALPHA_COSTUME_IDS = ["base", "alternate-tactical"] as const;
+export type LordAlphaCostume = (typeof LORD_ALPHA_COSTUME_IDS)[number];
+
+export const LORD_ALPHA_COSTUMES = {
+  base: {
+    id: "base",
+    label: "Base",
+  },
+  "alternate-tactical": {
+    id: "alternate-tactical",
+    label: "Alternate Tactical",
+  },
+} as const satisfies Record<LordAlphaCostume, {
+  readonly id: LordAlphaCostume;
+  readonly label: string;
+}>;
+
 export interface LordAlphaFormAssetManifest {
   readonly id: LordAlphaForm;
   readonly label: string;
@@ -24,7 +41,7 @@ export interface LordAlphaFormAssetManifest {
 export const LORD_ALPHA_FORMS = {
   relaxed: {
     id: "relaxed",
-    label: "Relaxed Hair",
+    label: "Straight Hair",
     idleSuffix: "skins/lord-alpha/relaxed-idle.png",
     attackSuffix: "skins/lord-alpha/relaxed-attack.png",
   },
@@ -41,6 +58,31 @@ export const LORD_ALPHA_FORMS = {
     attackSuffix: "skins/lord-alpha/supreme-attack.png",
   },
 } as const satisfies Record<LordAlphaForm, LordAlphaFormAssetManifest>;
+
+export const LORD_ALPHA_ALTERNATE_TACTICAL_FORMS = {
+  relaxed: {
+    idleSuffix: "skins/lord-alpha/straight-tactical-idle.png",
+    attackSuffix: "skins/lord-alpha/straight-tactical-attack.png",
+  },
+  afro: {
+    idleSuffix: "skins/lord-alpha/afro-tactical-idle.png",
+    attackSuffix: "skins/lord-alpha/afro-tactical-attack.png",
+  },
+} as const;
+
+/**
+ * Resolve presentation-only body art without changing the gameplay form. The
+ * Supreme form owns its armor and therefore ignores civilian costume choices.
+ */
+export function resolveLordAlphaFormAssets(
+  form: LordAlphaForm,
+  costume: LordAlphaCostume = "base",
+) {
+  if (costume === "alternate-tactical" && form !== "supreme") {
+    return LORD_ALPHA_ALTERNATE_TACTICAL_FORMS[form];
+  }
+  return LORD_ALPHA_FORMS[form];
+}
 
 /** Alias retained for consumers that describe the form table as a manifest. */
 export const LORD_ALPHA_FORM_MANIFEST = LORD_ALPHA_FORMS;
@@ -1573,6 +1615,8 @@ export const LORD_ALPHA_ASSETS = {
   skinsRoot: "skins/lord-alpha/",
   effectsRoot: "effects/lord-alpha/",
   forms: LORD_ALPHA_FORMS,
+  costumes: LORD_ALPHA_COSTUMES,
+  alternateTacticalForms: LORD_ALPHA_ALTERNATE_TACTICAL_FORMS,
   combo: LORD_ALPHA_COMBO_ASSET_SUFFIXES,
   attackSequence: LORD_ALPHA_ATTACK_SEQUENCE_ASSET,
   attackSequences: LORD_ALPHA_ATTACK_SEQUENCE_ASSETS,
@@ -1588,7 +1632,7 @@ export const LORD_ALPHA_ASSETS = {
 } as const;
 
 /** Bump whenever a Lord Alpha bitmap changes so long-lived mobile tabs reload it. */
-export const LORD_ALPHA_ASSET_REVISION = "2026-10-27-frame-normalization-v1";
+export const LORD_ALPHA_ASSET_REVISION = "2026-11-18-presentation-tactical-v1";
 
 /** Effects that remain entirely procedural rather than using an authored strip. */
 export const LORD_ALPHA_PROCEDURAL_EFFECTS = [

@@ -53,6 +53,10 @@ test('every declared binary Lord Alpha asset exists in public', () => {
       LORD_ALPHA_ASSETS.forms[form].idleSuffix,
       LORD_ALPHA_ASSETS.forms[form].attackSuffix,
     ]),
+    ...Object.values(LORD_ALPHA_ASSETS.alternateTacticalForms).flatMap((form) => [
+      form.idleSuffix,
+      form.attackSuffix,
+    ]),
     ...Object.values(LORD_ALPHA_ASSETS.attackSequences).map(({ suffix }) => suffix),
     ...Object.values(LORD_ALPHA_ASSETS.skillSequences).map(({ suffix }) => suffix),
     LORD_ALPHA_ASSETS.rocWingSpinSequence.suffix,
@@ -503,4 +507,43 @@ test('base forms keep their authored frames when a Supreme skill event fires', (
   ok(markup.includes('skins/lord-alpha/afro-attack.png'));
   ok(!rootTag.includes('data-skill-sprite='));
   ok(!markup.includes('skins/lord-alpha/skill-sequences/web-shot-v11.png'));
+});
+
+test('alternate tactical costume resolves for both civilian hair forms only', () => {
+  const straightIdle = renderToStaticMarkup(
+    <LordAlphaSprite
+      baseUrl="/"
+      form="relaxed"
+      costume="alternate-tactical"
+      facing="right"
+      motion="idle"
+      pulse={0}
+    />,
+  );
+  const afroAttack = renderToStaticMarkup(
+    <LordAlphaSprite
+      baseUrl="/"
+      form="afro"
+      costume="alternate-tactical"
+      facing="right"
+      motion="attack"
+      pulse={1}
+    />,
+  );
+  const supreme = renderToStaticMarkup(
+    <LordAlphaSprite
+      baseUrl="/"
+      form="supreme"
+      costume="alternate-tactical"
+      facing="right"
+      motion="idle"
+      pulse={0}
+    />,
+  );
+
+  ok(straightIdle.includes('data-costume="alternate-tactical"'));
+  ok(straightIdle.includes('skins/lord-alpha/straight-tactical-idle.png'));
+  ok(afroAttack.includes('skins/lord-alpha/afro-tactical-attack.png'));
+  ok(supreme.includes('skins/lord-alpha/supreme-idle.png'));
+  ok(!supreme.includes('tactical-idle.png'));
 });

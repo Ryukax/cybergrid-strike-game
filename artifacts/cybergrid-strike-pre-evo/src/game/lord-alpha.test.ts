@@ -14,6 +14,8 @@ import {
   LORD_ALPHA_COMBO_PRESENTATIONS,
   LORD_ALPHA_COMBO_RESET_MS,
   LORD_ALPHA_COMBO_TIMINGS_MS,
+  LORD_ALPHA_COSTUME_IDS,
+  LORD_ALPHA_COSTUMES,
   LORD_ALPHA_DIRECT_GAMEPAD_ACTIONS,
   LORD_ALPHA_EVENT_TIMINGS_MS,
   LORD_ALPHA_EFFECT_SEQUENCE_ASSETS,
@@ -81,6 +83,7 @@ import {
   resolveLordAlphaAttackSequence,
   resolveLordAlphaDirectGamepadBinding,
   resolveLordAlphaEffectSequence,
+  resolveLordAlphaFormAssets,
   resolveLordAlphaSkillAction,
   resolveLordAlphaSkillActionById,
   resolveLordAlphaSkillSequence,
@@ -1020,6 +1023,22 @@ test("each active Lord Alpha skill resolves to an independent board-space effect
 test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => {
   equal(LORD_ALPHA_SKIN_ID, "lord-alpha");
   deepStrictEqual(LORD_ALPHA_FORM_IDS, ["relaxed", "afro", "supreme"]);
+  deepStrictEqual(LORD_ALPHA_COSTUME_IDS, ["base", "alternate-tactical"]);
+  equal(LORD_ALPHA_COSTUMES.base.label, "Base");
+  equal(LORD_ALPHA_COSTUMES["alternate-tactical"].label, "Alternate Tactical");
+  equal(LORD_ALPHA_ASSETS.forms.relaxed.label, "Straight Hair");
+  equal(
+    resolveLordAlphaFormAssets("relaxed", "alternate-tactical").idleSuffix,
+    "skins/lord-alpha/straight-tactical-idle.png",
+  );
+  equal(
+    resolveLordAlphaFormAssets("afro", "alternate-tactical").attackSuffix,
+    "skins/lord-alpha/afro-tactical-attack.png",
+  );
+  equal(
+    resolveLordAlphaFormAssets("supreme", "alternate-tactical").idleSuffix,
+    LORD_ALPHA_ASSETS.forms.supreme.idleSuffix,
+  );
   deepStrictEqual(LORD_ALPHA_PRESENTATION_EVENT_KINDS, [
     "move",
     "web",
@@ -1069,7 +1088,7 @@ test("Lord Alpha manifest has stable ids and BASE_URL-relative suffixes", () => 
   equal(LORD_ALPHA_ROC_WING_SPIN_SEQUENCE.durationMs, LORD_ALPHA_ROC_BRANCH_SPIN_DURATION_MS);
   equal(LORD_ALPHA_VFX_TIMINGS_MS["roc-stun"], LORD_ALPHA_ROC_CHARGE_DURATION_MS);
   equal(LORD_ALPHA_SKILL_SEQUENCE_ASSETS["roc-stun"].durationMs, LORD_ALPHA_ROC_CHARGE_DURATION_MS);
-  equal(LORD_ALPHA_ASSET_REVISION, "2026-10-27-frame-normalization-v1");
+  equal(LORD_ALPHA_ASSET_REVISION, "2026-11-18-presentation-tactical-v1");
   equal(LORD_ALPHA_GAMEPLAY_BALANCE_CHANGES, false);
   equal(LORD_ALPHA_HITBOX_CHANGES, false);
 });
